@@ -1,0 +1,3 @@
+# SECTION-B_MEMBERSHIPS/
+
+- `REF-002_NSS_MEMBERSHIP_BYLAWS.md` — the Membership Bye-Laws.

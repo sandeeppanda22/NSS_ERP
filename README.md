@@ -407,7 +407,7 @@ Every version must include:
 Release Notes Location:
 
 ```text
-docs/releases/
+docs/05_Releases/
 ```
 
 Examples:
@@ -507,18 +507,20 @@ NSS_ERP
 │
 ├── database
 │   ├── ddl
-│   ├── seed
-│   └── scripts
+│   └── seed
 │
 ├── docs
-│   ├── standards
-│   ├── modules
-│   └── releases
-│
-├── frontend
+│   ├── 00_Project_Governance
+│   ├── 01_Authoritative_References
+│   ├── 02_Requirements
+│   ├── 03_Solution
+│   ├── 04_Testing
+│   └── 05_Releases
 │
 └── README.md
 ```
+
+See `docs/PROJECT_DOCUMENTATION.md` for the full, code-verified breakdown of each directory.
 
 ---
 
