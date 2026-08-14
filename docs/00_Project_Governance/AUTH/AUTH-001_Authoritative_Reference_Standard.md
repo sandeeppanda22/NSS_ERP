@@ -10,8 +10,8 @@
 | Document ID | AUTH-001 |
 | Domain | AUTH |
 | Repository Path | docs/00_Project_Governance/AUTH/ |
-| Version | 1.0.0 |
-| Status | Draft |
+| Version | 1.1.0 |
+| Status | Approved |
 | Governance Baseline | v1.0 |
 | Authority | NSS ERP Governance Framework |
 | Owner | NSS ERP Project |
@@ -24,6 +24,7 @@
 | Version | Date | Description |
 |---|---|---|
 | 1.0.0 | TBD | Initial draft created following Governance Baseline v1.0 |
+| 1.1.0 | 2026-08-13 | Renamed per-rule `Status` field to `Rule Maturity` to disambiguate from document-level Status (see GOV-001 GOV-LIFE-006); Status advanced from Draft to Approved to reflect actual governance use. See GDR-003. |
 
 ---
 
@@ -107,6 +108,10 @@ A mandatory requirement expressed within this standard.
 
 Supporting material such as metadata, introductions, examples, notes, or formatting that does not alter the meaning of an authoritative source.
 
+**Rule Maturity**
+
+An attribute recorded on an individual normative rule within this standard (e.g. `Frozen`), indicating whether that specific rule's content may be modified without governance change control. Rule Maturity is distinct from Document Status — the approval-lifecycle state of the document as a whole, defined in GOV-001 (GOV-LIFE-006).
+
 ---
 
 ## 4. Governance Context
@@ -153,7 +158,7 @@ The repository architecture is governed by the following normative rules.
 
 ### AUTH-ORG-001 — Governance Repository Structure
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The NSS ERP documentation repository shall be organized into governance domains that reflect the Governance Baseline v1.0 lifecycle.
 
@@ -184,7 +189,7 @@ No additional top-level documentation domains shall be introduced without approv
 
 ### AUTH-ORG-002 — Domain Responsibilities
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Each documentation domain has a single defined responsibility.
 
@@ -205,7 +210,7 @@ A document shall belong to exactly one primary documentation domain.
 
 ### AUTH-ORG-003 — Repository Layer Independence
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Each documentation layer shall remain independent in purpose and responsibility.
 
@@ -235,7 +240,7 @@ RELEASE
 
 ### AUTH-ORG-004 — Repository Organization Principle
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Repository folders exist solely for organization and navigation.
 
@@ -247,7 +252,7 @@ Permanent document identity shall be established only through document identifie
 
 ### AUTH-ORG-005 — Repository Extensibility
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The repository architecture is designed to support future expansion.
 
@@ -267,7 +272,7 @@ The REF repository contains the constitutional source documents upon which all d
 
 ### AUTH-REF-001 — Constitutional Source Repository
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Authoritative Reference (REF) repository is the constitutional source repository of the NSS ERP project.
 
@@ -279,7 +284,7 @@ Where no authoritative governing source exists, downstream artifacts shall expli
 
 ### AUTH-REF-002 — Repository Organization
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The REF repository shall be organized according to the official constitutional hierarchy.
 
@@ -291,7 +296,7 @@ Editorial convenience shall never supersede constitutional organization.
 
 ### AUTH-REF-003 — Repository Hierarchy
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The REF repository shall organize governing documents into recognized document families.
 
@@ -317,7 +322,7 @@ Additional document families may be introduced only when officially recognized g
 
 ### AUTH-REF-004 — Constitutional Integrity
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Repository organization shall preserve:
 
@@ -332,7 +337,7 @@ The repository shall not introduce alternative constitutional structures.
 
 ### AUTH-REF-005 — Editorial Separation
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Editorial material may accompany authoritative references for repository management purposes.
 
@@ -352,7 +357,7 @@ Document identifiers are immutable and provide the primary means of identifying,
 
 ### AUTH-ID-001 — Permanent Document Identity
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every Authoritative Reference (REF) document shall have a permanent document identifier.
 
@@ -364,29 +369,42 @@ Deprecation of a document shall not invalidate or recycle its identifier.
 
 ### AUTH-ID-002 — REF Family Assignment
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Each REF document shall belong to exactly one REF family.
 
-REF families correspond to officially recognized governing document sections.
+A REF family corresponds to one or more officially recognized governing document sections grouped under a single family identifier. A REF family may cover a single section (e.g. `REF-001` for Section A) or multiple contiguous sections of the same governing document (e.g. `REF-003`, which covers Sections C through I of the NSS Bye-Law), provided the composite document identifier (AUTH-ID-003) preserves the official section lettering needed to uniquely distinguish every document within that family.
 
-Example:
+The current REF family assignments for the NSS Bye-Law are recorded in Appendix B.
 
-| REF Family | Governing Section |
-|------------|-------------------|
-| REF-001 | Section A |
-| REF-002 | Section B |
-| REF-003 | Section C |
-| ... | ... |
-| REF-010 | Section J |
+The mapping between a REF family and its governing document section(s), once assigned, is permanent. See AUTH-ID-002A for the process governing creation of new REF families for other governing entities.
 
-The mapping between REF families and governing document sections is permanent.
+---
+
+### AUTH-ID-002A — New REF Family Creation
+
+**Rule Maturity:** Frozen
+
+The numbered `REF-00X` family (REF-001 through REF-010, or as extended within that numbering scheme) is reserved exclusively for sections of the Nilachala Saraswata Sangha's own official governing document (the Kendra Sangha Bye-Law).
+
+A **separate, dedicated REF family** shall be created — rather than extending the `REF-00X` numbering — whenever authoritative reference material originates from a **distinct, separately registered governing entity** with its own official governing document, rather than from a section of the NSS Bye-Law itself.
+
+Each such dedicated family shall:
+
+- Use a short, stable alphabetic family code reflecting the governing entity (e.g. `REF-MS` for the Nilachala Saraswata Mahila Sangha);
+- Be documented in Appendix B of this standard at the time of creation;
+- Follow the same identification, metadata, cross-reference, traceability, and verification standards defined elsewhere in this document as any other REF family;
+- Preserve the source document's own clause numbering as its composite locator (see AUTH-ID-003), exactly as required for the `REF-00X` family.
+
+Creation of a new REF family is a normative change to this standard and shall follow the Governance Decision Register (GDR) process defined in AUTH-GOV-002.
+
+Example: `REF-MS` was created for the Constitution & Bye-Laws of the Nilachala Saraswata Mahila Sangha — a registered entity operating under, and subordinate to, the Nilachala Saraswata Sangha, but governed by its own separate Bye-Law rather than by a section of the NSS Bye-Law. See GDR-002.
 
 ---
 
 ### AUTH-ID-003 — Composite Document Identifier
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Each REF document identifier shall consist of:
 
@@ -396,11 +414,11 @@ Each REF document identifier shall consist of:
 Example:
 
 ```text
-REF-003-C(2)
+REF-001-A
 
-REF-006-F(a)
+REF-003-C(i)(2)
 
-REF-010-J
+REF-003-F[A]
 ```
 
 The official constitutional reference shall preserve the official numbering, lettering, punctuation, and hierarchy exactly as published in the governing document.
@@ -409,7 +427,7 @@ The official constitutional reference shall preserve the official numbering, let
 
 ### AUTH-ID-004 — File Naming Convention
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The repository filename shall include:
 
@@ -425,9 +443,9 @@ General format:
 Example:
 
 ```text
-REF-003-C(2)_Functions_of_the_Governing_Body.md
+REF-003-C(i)(2)_Functions_of_the_Governing_Body.md
 
-REF-006-F(c)_Utilisation_of_the_Funds.md
+REF-003-F[b]_Maintenance_of_the_Funds.md
 ```
 
 The filename exists for repository readability.
@@ -438,7 +456,7 @@ The document identifier remains the authoritative identity.
 
 ### AUTH-ID-005 — Identifier Independence
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Document identity shall not depend upon:
 
@@ -464,7 +482,7 @@ Metadata provides document identity, governance status, traceability, and reposi
 
 ### AUTH-META-001 — Mandatory Metadata
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every REF document shall contain a metadata section before the document content.
 
@@ -474,7 +492,7 @@ The metadata section shall be complete before a document is approved.
 
 ### AUTH-META-002 — Standard Metadata Fields
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every REF document shall contain the following metadata.
 
@@ -499,7 +517,7 @@ Additional metadata fields may be introduced through the governance change proce
 
 ### AUTH-META-003 — Metadata Integrity
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Metadata shall accurately describe the associated REF document.
 
@@ -515,7 +533,7 @@ Metadata exists solely for repository governance and management.
 
 ### AUTH-META-004 — Metadata Consistency
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Metadata field names shall be standardized across all REF documents.
 
@@ -527,7 +545,7 @@ Alternative labels shall not be introduced without governance approval.
 
 ### AUTH-META-005 — Metadata Versioning
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Changes to metadata shall follow repository version management.
 
@@ -539,7 +557,7 @@ Normative metadata changes that alter repository governance shall follow the Gov
 
 ### AUTH-META-006 — Metadata Placement
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The metadata section shall appear immediately after the document title and before all other document content.
 
@@ -566,7 +584,7 @@ Cross-references provide navigational and traceability support. They shall not m
 
 ### AUTH-XREF-001 — Standard Cross References
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Cross-references shall use permanent document identifiers.
 
@@ -588,7 +606,7 @@ docs/01_Authoritative_References/...
 
 ### AUTH-XREF-002 — Reference Format
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Where applicable, a cross-reference shall include:
 
@@ -610,7 +628,7 @@ The document identifier remains the authoritative reference.
 
 ### AUTH-XREF-003 — Cross-Layer References
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Downstream documentation shall reference higher governance layers.
 
@@ -634,7 +652,7 @@ Cross-layer references shall preserve end-to-end traceability.
 
 ### AUTH-XREF-004 — Broken References
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Published documents shall not contain broken cross-references.
 
@@ -646,7 +664,7 @@ Deprecated documents shall remain referenceable through their permanent identifi
 
 ### AUTH-XREF-005 — Reference Stability
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Repository restructuring, folder renaming, or file relocation shall not invalidate document references.
 
@@ -666,7 +684,7 @@ Traceability ensures that every project artifact can be traced to its governing 
 
 ### AUTH-TRACE-001 — End-to-End Traceability
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The NSS ERP project shall maintain end-to-end traceability throughout the governance lifecycle.
 
@@ -706,7 +724,7 @@ Each downstream layer shall maintain traceability to the layer from which it der
 
 ### AUTH-TRACE-002 — Constitutional Authority
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every business rule implemented within the NSS ERP project shall originate from:
 
@@ -720,7 +738,7 @@ Implementation decisions shall be clearly identified and shall not be presented 
 
 ### AUTH-TRACE-003 — Downstream Traceability
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Each documentation layer shall maintain traceability to its immediate governing layer.
 
@@ -740,7 +758,7 @@ Additional traceability may be maintained where beneficial.
 
 ### AUTH-TRACE-004 — Traceability Preservation
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Traceability links shall be preserved throughout the lifecycle of a document.
 
@@ -752,7 +770,7 @@ Permanent document identifiers shall be used to preserve traceability.
 
 ### AUTH-TRACE-005 — Missing Authority
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Where no authoritative constitutional or governance source exists for a requirement or solution, the artifact shall explicitly identify the content as an implementation decision.
 
@@ -762,7 +780,7 @@ Implementation decisions shall not be represented as constitutional authority.
 
 ### AUTH-TRACE-006 — Traceability Validation
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Traceability shall be verified before approval of any published artifact.
 
@@ -785,7 +803,7 @@ Verification ensures that every REF document accurately represents its authorita
 
 ### AUTH-VERIFY-001 — Mandatory Verification
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every REF document shall undergo verification before being assigned the status **Approved**.
 
@@ -795,7 +813,7 @@ No REF document shall be published as an approved authoritative reference withou
 
 ### AUTH-VERIFY-002 — Verification Scope
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Verification shall confirm, at a minimum:
 
@@ -814,7 +832,7 @@ Additional verification criteria may be introduced through governance approval.
 
 ### AUTH-VERIFY-003 — Constitutional Accuracy
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The authoritative constitutional text contained within a REF document shall accurately reflect the officially approved governing source.
 
@@ -832,7 +850,7 @@ Editorial content shall be excluded from constitutional verification except wher
 
 ### AUTH-VERIFY-004 — Repository Compliance
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Verification shall confirm compliance with all applicable AUTH standards, including:
 
@@ -849,7 +867,7 @@ Non-compliant documents shall not receive Approved status.
 
 ### AUTH-VERIFY-005 — Verification Record
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Verification activities shall be recorded as part of the document revision history or other approved repository governance mechanism.
 
@@ -866,7 +884,7 @@ Verification records form part of the repository governance history.
 
 ### AUTH-VERIFY-006 — Reverification
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 A previously approved REF document shall be reverified whenever:
 
@@ -890,7 +908,7 @@ It defines version management, governance change control, editorial practices, a
 
 ### AUTH-GOV-001 — Repository Version Management
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Each AUTH standard shall maintain an explicit version number.
 
@@ -902,7 +920,7 @@ Version identifiers shall never be reused.
 
 ### AUTH-GOV-002 — Governance Change Control
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Normative changes to this standard shall follow the Governance Decision Register (GDR) process.
 
@@ -921,7 +939,7 @@ No normative change shall be incorporated without an approved GDR entry.
 
 ### AUTH-GOV-003 — Editorial Changes
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Editorial changes are permitted without modifying the Governance Baseline.
 
@@ -939,7 +957,7 @@ Editorial changes shall not modify normative requirements.
 
 ### AUTH-GOV-004 — Governance Compliance
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 All REF documents shall comply with the standards established in AUTH-001.
 
@@ -951,7 +969,7 @@ Compliance verification shall form part of repository governance.
 
 ### AUTH-GOV-005 — Governance Baseline
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Governance Baseline v1.0 establishes the authoritative governance framework for the NSS ERP project.
 
@@ -1024,48 +1042,59 @@ The normative repository architecture is defined by AUTH-ORG-001.
 
 ## Appendix B — REF Family Mapping
 
-| REF Family | Official Constitutional Section |
-|------------|---------------------------------|
-| REF-001 | Section A |
-| REF-002 | Section B |
-| REF-003 | Section C |
-| REF-004 | Section D |
-| REF-005 | Section E |
-| REF-006 | Section F |
-| REF-007 | Section G |
-| REF-008 | Section H |
-| REF-009 | Section I |
-| REF-010 | Section J |
+| REF Family | Governing Section(s) | Notes |
+|------------|-----------------------|-------|
+| REF-001 | Section A | Single section |
+| REF-002 | Section B | Single section |
+| REF-003 | Sections C through I | Composite locator (AUTH-ID-003) distinguishes documents within Sections C–I: `C(i)(1)`–`C(i)(8)` for the Governing Body sub-clauses, `D`, `E`, `F[A]`, `F[b]`, `F[c]`, `G`, `H`, `I` |
+
+| REF Family | Governing Entity | Governing Document |
+|------------|-------------------|---------------------|
+| REF-MS | Nilachala Saraswata Mahila Sangha | Bye-Law of Nilachala Saraswata Mahila Sangha (separately registered entity, subordinate to NSS; not a section of the NSS Bye-Law) |
 
 This appendix is informative.
 
-The normative document identification rules are defined in Section 7.
+The normative document identification rules are defined in Section 7 (including AUTH-ID-002A, governing creation of new REF families such as REF-MS).
 
 ---
 
 ## Appendix C — File Naming Examples
 
-Examples:
+Examples (actual repository filenames):
 
 ```text
-REF-001-A_NSS_Constitution.md
+REF-001_NSS_CONSTITUTION.md
 
-REF-002-B_Membership.md
+REF-002_NSS_MEMBERSHIP_BYLAWS.md
 
-REF-003-C(1)_Governing_Body.md
+REF-003-C_Constitution_of_the_Kendra_Sangha.md
 
-REF-003-C(2)_Functions_of_the_Governing_Body.md
+REF-003-C(i)(1)_Constitution_of_the_Governing_Body.md
 
-REF-006-F(a)_Funds_of_the_Kendra_Sangha.md
+REF-003-C(i)(2)_Functions_of_the_Governing_Body.md
 
-REF-006-F(c)_Utilisation_of_the_Funds.md
+REF-003-C(i)(3)_Duties_of_the_President.md
 
-REF-010-J_Resolutions.md
+REF-003-D_Advisory_Board.md
+
+REF-003-E_General_Body.md
+
+REF-003-F[A]_Funds_of_the_Kendra_Sangha.md
+
+REF-003-F[b]_Maintenance_of_the_Funds.md
+
+REF-003-F[c]_Utilisation_of_the_Funds.md
+
+REF-003-G_Audit.md
+
+REF-003-H_Power_to_Amend.md
+
+REF-003-I_Dissolution.md
 ```
 
 These examples illustrate the naming convention.
 
-The normative naming rules are defined in Section 7.
+The normative naming rules are defined in Section 7 (AUTH-ID-004).
 
 ---
 

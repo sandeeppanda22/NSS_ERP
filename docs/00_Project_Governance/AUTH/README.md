@@ -5,6 +5,6 @@ Authoritative Reference Standard — governs how the REF repository itself
 (e.g. `REF-003-C(2)`), mandatory metadata, cross-references, and the verification/approval
 workflow for REF documents.
 
-- `AUTH-001_Authoritative_Reference_Standard.md` — Status: Draft, v1.0.0.
+- `AUTH-001_Authoritative_Reference_Standard.md` — Status: Approved, v1.1.0.
 
 Note: in this project "AUTH-001" always means this document — never "Authentication UI-001."

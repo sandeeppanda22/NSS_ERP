@@ -8,19 +8,21 @@
 | Document ID | GOV-001 |
 | Domain | GOV |
 | Repository Path | docs/00_Project_Governance/GOV/GOV-001_Project_Governance_Principles.md |
-| Version | 1.0.0 |
-| Status | Draft |
+| Version | 1.2.0 |
+| Status | Approved |
 | Governance Baseline | v1.0 |
 | Authority | NSS ERP Governance Framework |
 | Owner | NSS ERP Project |
 | Effective Date | TBD |
-| Last Updated | YYYY-MM-DD |
+| Last Updated | 2026-08-14 |
 
 ## Revision History
 
 | Version | Date | Author | Description |
 |----------|------|--------|-------------|
 | 1.0.0 | YYYY-MM-DD | NSS ERP Project | Initial version |
+| 1.1.0 | 2026-08-13 | NSS ERP Project | Added GOV-LIFE-006 (Governance Document Status Lifecycle); renamed per-rule `Status` field to `Rule Maturity`; Status advanced from Draft to Approved to reflect actual governance use. See GDR-003. |
+| 1.2.0 | 2026-08-14 | NSS ERP Project | Added GOV-ROLE-006 (Final Decision Authority = NSS Governing Body); clarified Project Owner = NSS and Governance Authority = Project Steering Committee. See GDR-004. |
 
 ## Table of Contents
 
@@ -120,6 +122,18 @@ The state of conforming to approved governance standards, authoritative referenc
 
 The ability to trace every project artifact back through the governance hierarchy to its originating authority.
 
+---
+
+**Document Status**
+
+The approval-lifecycle state of a governance document as a whole, recorded in its metadata table. See GOV-LIFE-006 for the defined values and their meaning.
+
+---
+
+**Rule Maturity**
+
+An attribute recorded on an individual normative rule within a governance document (e.g. `Frozen`), indicating whether that specific rule's content may be modified without governance change control. Rule Maturity is independent of the Document Status of the document containing the rule, and independent of Decision Status (the lifecycle of an individual Governance Decision Register entry, per GDR-001).
+
 ## 4. Governance Principles
 
 The governance principles defined in this section establish the foundational rules that direct all governance activities within the NSS ERP project.
@@ -128,7 +142,7 @@ These principles are mandatory unless superseded through the approved governance
 
 ### GOV-ORG-001 — Constitutional Authority
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Official NSS Constitution and Bye-Laws constitute the highest governing authority for the NSS ERP project.
 
@@ -140,7 +154,7 @@ Where a conflict exists between project documentation and the Official NSS Const
 
 ### GOV-ORG-002 — Governance Hierarchy
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The NSS ERP project shall maintain the following governance lifecycle hierarchy:
 
@@ -195,7 +209,7 @@ Any normative change to a layer within the lifecycle shall be recorded in the GD
 
 ### GOV-ORG-003 — Rule Authority
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every normative rule implemented within the NSS ERP project shall be traceable to an approved governing authority.
 
@@ -213,7 +227,7 @@ Rules without an identifiable governing authority shall not be adopted as projec
 
 ### GOV-ORG-004 — Separation of Governance and Implementation
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Project governance establishes **what** shall be governed.
 
@@ -227,7 +241,7 @@ This separation ensures governance remains stable while implementation evolves.
 
 ### GOV-ORG-005 — Traceability Principle
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every project artifact shall maintain traceability to its governing authority.
 
@@ -253,7 +267,7 @@ Governance activities shall preserve stability, traceability, and constitutional
 
 ### GOV-LIFE-001 — Governance Baseline
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Governance Baseline establishes the approved set of governance standards that direct the NSS ERP project.
 
@@ -270,7 +284,7 @@ Routine project development shall operate within the approved Governance Baselin
 
 ### GOV-LIFE-002 — Governance Change Control
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Changes to approved governance standards shall follow the established governance change control process.
 
@@ -288,7 +302,7 @@ Normative governance changes shall require approval through the Governance Decis
 
 ### GOV-LIFE-003 — Governance Decision Register
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Governance Decision Register (GDR) shall serve as the official record of governance decisions affecting the NSS ERP project.
 
@@ -306,7 +320,7 @@ Approved GDR entries become authoritative governance records.
 
 ### GOV-LIFE-004 — Governance Version Management
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Every governance document shall maintain an explicit version number and revision history.
 
@@ -324,7 +338,7 @@ Version identifiers shall never be reused or reassigned.
 
 ### GOV-LIFE-005 — Governance Retirement
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Governance documents shall not be permanently deleted once approved.
 
@@ -337,6 +351,27 @@ When a governance document is superseded or withdrawn, it shall be:
 
 Retired governance documents shall remain part of the permanent governance history.
 
+---
+
+### GOV-LIFE-006 — Governance Document Status Lifecycle
+
+**Rule Maturity:** Frozen
+
+Every governance document shall progress through the following Document Status values, recorded in its metadata table:
+
+```text
+Draft → Review → Approved → Superseded / Retired
+```
+
+- **Draft** — the document is under initial authoring; content may change without governance change control.
+- **Review** — the document is undergoing governance review per GOV-ROLE-004.
+- **Approved** — the document has completed governance review and forms part of the active Governance Baseline.
+- **Superseded / Retired** — the document has been replaced or withdrawn; it is retained per GOV-LIFE-005.
+
+Document Status is independent of Rule Maturity, which is recorded per individual rule, and of Decision Status, which is recorded per individual Governance Decision Register entry (GDR-001).
+
+Transitions between Document Status values shall be recorded in the document's Revision History.
+
 ## 6. Governance Roles and Responsibilities
 
 This section defines the governance responsibilities necessary to establish accountability, maintain governance integrity, and ensure compliance throughout the NSS ERP project lifecycle.
@@ -345,7 +380,7 @@ This section defines the governance responsibilities necessary to establish acco
 
 ### GOV-ROLE-001 — Project Owner
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Project Owner is responsible for the overall governance of the NSS ERP project.
 
@@ -359,11 +394,13 @@ Responsibilities include:
 
 The Project Owner serves as the highest authority for project governance, subject to the Official NSS Constitution and Bye-Laws.
 
+The Project Owner is Nilachala Saraswata Sangha (NSS) itself — the ERP project exists to serve NSS, and NSS holds ultimate ownership of its governance, subject to the Official NSS Constitution and Bye-Laws. See GDR-004.
+
 ---
 
 ### GOV-ROLE-002 — Governance Authority
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Governance Authority is responsible for maintaining the project governance framework.
 
@@ -378,11 +415,13 @@ Responsibilities include:
 
 The Governance Authority shall ensure that governance documentation remains accurate, complete, and internally consistent.
 
+The Governance Authority role is exercised by the Project Steering Committee. This is the body recorded as "Owner" and "Approver" in the metadata of AUTH/GOV/GDR domain documents. See GDR-004.
+
 ---
 
 ### GOV-ROLE-003 — Contributors
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Project contributors shall perform their assigned responsibilities in accordance with approved governance standards.
 
@@ -400,7 +439,7 @@ Contributors shall not introduce governance changes outside the approved governa
 
 ### GOV-ROLE-004 — Review and Approval
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Governance documents shall undergo appropriate review before approval.
 
@@ -419,13 +458,25 @@ Approval signifies that the document has successfully completed the required gov
 
 ### GOV-ROLE-005 — Accountability
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Governance responsibilities shall be clearly assigned and maintained throughout the project lifecycle.
 
 Each governance activity shall have an identified responsible authority.
 
 Responsibility for governance may be delegated; however, accountability for governance decisions remains with the approving authority.
+
+---
+
+### GOV-ROLE-006 — Final Decision Authority
+
+**Rule Maturity:** Frozen
+
+Final decision authority for governance decisions recorded in the Governance Decision Register (GDR-001) rests with the NSS Governing Body — the constitutional governing body of Nilachala Saraswata Sangha (REF-003-C(i)(1)) — exercised through its President (REF-003-C(i)(3)) and/or Parichalak (REF-003-C(i)(8)) in accordance with the Official NSS Constitution and Bye-Laws.
+
+This is distinct from the Governance Authority (GOV-ROLE-002), which maintains and reviews the governance framework day-to-day but does not hold final decision authority over individual governance decisions. The Decision Authority field defined in GDR-001 shall, for this project, be recorded as the NSS Governing Body unless a specific decision is explicitly and formally delegated otherwise.
+
+See GDR-004.
 
 ## 7. Governance Compliance
 
@@ -437,7 +488,7 @@ Compliance ensures that the project remains consistent with approved governance 
 
 ### GOV-COMP-001 — Mandatory Compliance
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 All governance documents, project artifacts, and project activities shall comply with the approved governance framework.
 
@@ -457,7 +508,7 @@ Non-compliant artifacts shall not receive approval.
 
 ### GOV-COMP-002 — Governance Exceptions
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Exceptions to approved governance standards shall be permitted only through an approved Governance Decision Register (GDR) entry.
 
@@ -476,7 +527,7 @@ Unapproved governance exceptions shall not be implemented.
 
 ### GOV-COMP-003 — Governance Review
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The governance framework shall be reviewed periodically to ensure continued effectiveness, consistency, and alignment with project objectives.
 
@@ -495,7 +546,7 @@ Governance reviews shall not modify the Governance Baseline unless approved thro
 
 ### GOV-COMP-004 — Corrective Actions
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 Governance non-compliance shall require appropriate corrective action.
 
@@ -514,7 +565,7 @@ Corrective actions shall preserve governance integrity and historical traceabili
 
 ### GOV-COMP-005 — Governance Baseline Protection
 
-**Status:** Frozen
+**Rule Maturity:** Frozen
 
 The Governance Baseline shall remain protected from uncontrolled modification.
 

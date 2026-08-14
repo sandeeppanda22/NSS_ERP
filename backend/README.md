@@ -14,10 +14,11 @@ and configuration detail — this file is a short map of what's here.
 | `membership/` | Yes (`MembershipType`, `MembershipStatus`, `SanghaSevi`) | Yes | **No** — admin-only |
 | `governance/` | No (stub) | No | No |
 | `attendance/` | No (stub) | No | No |
+| `heritage/` | Yes (`Founder`, singleton) | Yes | **No** — admin-only |
 | `config/` | — Django project settings/urls/asgi/wsgi, not an app | — | — |
 
-`mahila`, `kumari`, `kishore`, `sevak`, `heritage`, `publications`, `upbs`, `reports`,
-`administration` don't exist as apps yet — planned only.
+`mahila`, `kumari`, `kishore`, `sevak`, `publications`, `upbs`, `reports`, `administration`
+don't exist as apps yet — planned only.
 
 ## Other folders
 

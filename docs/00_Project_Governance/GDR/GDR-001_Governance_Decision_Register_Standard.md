@@ -7,7 +7,7 @@
 | Document ID | GDR-001 |
 | Document Title | Governance Decision Register Standard |
 | Document Type | Governance Decision Register Standard |
-| Owner | NSS ERP Governance Committee |
+| Owner | Project Steering Committee |
 | Approver | Project Steering Committee |
 | Version | 1.0.0 |
 | Status | Approved |
@@ -21,7 +21,7 @@
 
 | Version | Date | Author | Description |
 |---------|------|--------|-------------|
-| 1.0.0 | TBD | NSS ERP Governance Committee | Initial Release |
+| 1.0.0 | TBD | Project Steering Committee | Initial Release |
 
 ## Table of Contents
 

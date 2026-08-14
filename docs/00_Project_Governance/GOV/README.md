@@ -1,10 +1,14 @@
 # docs/00_Project_Governance/GOV/
 
-Governance framework standards, all parented under GOV-001 (Status: Approved, v1.0.0).
+Governance framework standards, all parented under GOV-001 (Status: Approved, v1.2.0).
 
 - `GOV-001_Project_Governance_Principles.md` — top-level lifecycle hierarchy (Constitution →
   REF → AUTH → GOV → REQ → SOLUTION → CODE → TEST → RELEASE), constitutional authority
-  supremacy, roles, compliance rules. GDR is cross-cutting, not a sequential layer.
+  supremacy, roles, compliance rules, the governance document Status lifecycle
+  (`GOV-LIFE-006`: Draft → Review → Approved → Superseded/Retired), and the governance
+  authority structure (`GOV-ROLE-006`: Project Owner = NSS, Governance Authority = Project
+  Steering Committee, Final Decision Authority = NSS Governing Body). GDR is cross-cutting,
+  not a sequential layer.
 - `GOV-002_Organizational_Governance_Standard.md` — how the ERP's organizational hierarchy
   (Kendra → Anchalika/Zilla → Sakha) must mirror constitutional structure: single apex org,
   parent-child integrity, no circular refs, immutable org identifiers.

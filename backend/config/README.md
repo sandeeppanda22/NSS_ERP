@@ -3,7 +3,7 @@
 Django project configuration package (not an app).
 
 - `settings.py` — `INSTALLED_APPS` (`admin`, `auth`, `contenttypes`, `sessions`, `messages`,
-  `staticfiles`, plus `foundation`, `membership`, `family`, `authentication`); `DATABASES`
+  `staticfiles`, plus `heritage`, `foundation`, `membership`, `family`, `authentication`); `DATABASES`
   (PostgreSQL, credentials read via `django-environ` from `backend/.env` — `DB_NAME`, `DB_USER`,
   `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, no defaults); `TEMPLATES` (`DjangoTemplates`,
   project-level `templates/` dir + per-app dirs); `LOGIN_URL=/login/`,

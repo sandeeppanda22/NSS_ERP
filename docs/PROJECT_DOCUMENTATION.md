@@ -81,11 +81,14 @@ NSS_ERP/
 ├── docs/
 │   ├── PROJECT_DOCUMENTATION.md This file
 │   ├── 00_Project_Governance/   AUTH/ GOV/ GDR/ STD/ — governance framework + engineering standards
-│   ├── 01_Authoritative_References/NSS/  Source-faithful transcription of NSS's Constitution & Bye-Laws
+│   ├── 01_Authoritative_References/
+│   │   ├── NSS/            Source-faithful transcription of NSS's Constitution & Bye-Laws (see detail below)
+│   │   └── MAHILA_SANGHA/  Source-faithful transcription of Mahila Sangha's own Bye-Law (see detail below)
 │   ├── 02_Requirements/         Scaffolded only — business/functional/non_functional/traceability subfolders, no content yet
 │   ├── 03_Solution/             Per-module design docs (organization, person) + api/architecture/database/infrastructure/security/ui scaffolding
 │   ├── 04_Testing/              Scaffolded only — unit/integration/api/ui/database/security/acceptance subfolders, no content yet
 │   └── 05_Releases/             Release notes, v0.1.0 → v0.5.1
+├── BY-LAW/                       Original source PDFs/docx of the NSS and Mahila Sangha Bye-Laws — the primary source both `docs/01_Authoritative_References/NSS/` and `.../MAHILA_SANGHA/` are transcribed from
 ├── requirements.txt              Python dependencies (pip, not pinned to a venv tool)
 ├── CLAUDE.md                     AI-agent operating memory/context (terse, instruction-oriented)
 └── README.md                     Project pitch / high-level status
@@ -103,14 +106,82 @@ backend/
 ├── membership/        MembershipType, MembershipStatus, SanghaSevi models; wired into INSTALLED_APPS; NO urls.py — unreachable via HTTP
 ├── governance/        Stub only — empty models.py/views.py, no urls.py, not in INSTALLED_APPS
 ├── attendance/        Stub only — empty models.py/views.py, no urls.py, not in INSTALLED_APPS
+├── heritage/          Founder singleton model (one-record-only, undeletable); wired into INSTALLED_APPS; NO urls.py — admin-only
 ├── static/            css/app.css (NSS color theme), js/app.js (empty placeholder)
 ├── templates/         base/ (base.html, login_base.html, navbar.html, sidebar.html), auth/, dashboard/, foundation/
 └── manage.py
 ```
 
 Modules referenced elsewhere in the project's roadmap (`mahila`, `kumari`, `kishore`, `sevak`,
-`heritage`, `publications`, `upbs`, `reports`, `administration`) **do not exist yet** as Django
-apps — they are planned, not scaffolded.
+`publications`, `upbs`, `reports`, `administration`) **do not exist yet** as Django apps — they
+are planned, not scaffolded.
+
+### `docs/01_Authoritative_References/NSS/` detail
+
+Source-faithful transcription of the official NSS Bye-Law (`BY-LAW/NSS/NSS BYE-LAW.pdf`,
+cross-checked against `BY-LAW/NSS/NSS_Bye_Law.docx`), organized by legal section:
+
+```
+NSS/
+├── SECTION-A_PRELIMINARY_AND_GENERAL_PROVISIONS/   REF-001 — Name, Registered Office, Preamble, Objects, Memorandum of Association
+├── SECTION-B_MEMBERSHIPS/                          REF-002 — Probationary/Regular/Associate Members, Cessation
+├── SECTION-C_CONSTITUTION_OF_THE_KENDRA_SANGHA/    REF-003-C…009 — Governing Body, its Functions, and all 6 office-bearer duties;
+│                                                    plus the two 1975 amendment Resolutions (REF-003-C(i)(2)-1975-01,
+│                                                    REF-003-C(i)(8)-1975-02), filed adjacent to the clauses they amend
+├── SECTION-D_ADVISORY_BOARD/                       REF-003-D
+├── SECTION-E_GENERAL_BODY/                         REF-003-E
+├── SECTION-F_FUNDS_OF_THE_KENDRA_SANGHA/           REF-003-F[A] (Funds), REF-003-F[b] (Maintenance), REF-003-F[c] (Utilisation) — 3 documents
+├── SECTION-G_ACCOUNTS_AND_AUDIT/                   REF-003-G
+├── SECTION-H_POWER_TO_AMEND/                       REF-003-H
+└── SECTION-I_DISSOLUTION/                          REF-003-I
+```
+
+**No "Section J" exists in the source Bye-Law.** The Bye-Law's constitutional sections end at
+Section I (Dissolution); the two 1975 Resolutions that follow in the source text are explicit
+amendments to Section C (inserting sub-clauses into Functions of the Governing Body and Duties
+of the Secretary/Parichalak), not a standalone section. An earlier repository pass had
+transcribed them under an invented `SECTION-J_RESOLUTIONS/REF-003-017` — that file/folder has
+been deleted, and the content re-filed as the two Section C amendment documents above.
+
+Each REF document's clause-level numbering (numerals, letters, roman numerals) has been
+verified against the source and matches it exactly — replacing an earlier pass that had used
+generic sequential "Clause N" labels throughout regardless of the source's actual markers.
+`REF-001` additionally preserves the Memorandum of Association's founding-members table (9
+names + addresses), witnesses table, and the source's three distinct certification/signature
+blocks (Memorandum, post-Dissolution, and post-Resolution) as separate, non-deduplicated
+content, since all three appear separately in the source.
+
+### `docs/01_Authoritative_References/MAHILA_SANGHA/` detail
+
+Source-faithful transcription of the Nilachala Saraswata Mahila Sangha's own Constitution &
+Bye-Law (`BY-LAW/NSS - Mahila Sangha/NSS Mahila Sangha By-Law.pdf`, cross-checked against
+`BY-LAW/NSS - Mahila Sangha/NSS_Mahila_Sangha_Bye_Law.docx`) — a sibling folder to `NSS/`, not
+nested under it, since Mahila Sangha is a separately registered entity with its own Bye-Law.
+Uses a dedicated `REF-MS-XXX` identifier family (distinct from NSS's `REF-00X` family):
+
+```
+MAHILA_SANGHA/
+├── SECTION-A_MEMORANDUM_AND_REGISTRATION/  REF-MS-MOA — Certificate of Registration, Memorandum, founding Governing Body + signatories + witnesses, historical 1989-1991 roster
+├── SECTION-B_AIMS_AND_OBJECTS/             REF-MS-1
+├── SECTION-C_MEMBERSHIP/                   REF-MS-2
+├── SECTION-D_ENROLMENT_PROCEDURE/          REF-MS-3
+├── SECTION-E_CESSATION_OF_MEMBERSHIP/      REF-MS-4
+├── SECTION-F_CONSTITUTION_OF_THE_SANGHA/   REF-MS-5
+├── SECTION-G_GOVERNING_BODY/               REF-MS-6(i)…6(viii) — Constitution, Powers & Duties, and all 6 office-bearer duties
+├── SECTION-H_FUNDS/                        REF-MS-7(i)/(ii)/(iii) — Comprising/Maintenance/Utilisation, 3 documents mirroring NSS's own Funds-section split
+├── SECTION-I_LEGAL_REPRESENTATION/         REF-MS-8
+├── SECTION-J_AUDIT/                        REF-MS-9
+├── SECTION-K_DISPUTE_SETTLEMENT/           REF-MS-10
+├── SECTION-L_POWER_TO_AMEND/               REF-MS-11
+└── SECTION-M_DISSOLUTION/                  REF-MS-12
+```
+
+22 documents total, all verified against source with clause numbering (numerals/letters/roman
+numerals) preserved exactly as printed, including source quirks (no labeled "b)" sub-item in
+Clause 6(ii); Clause 8 has no heading title at all — title assigned editorially). Every
+REF-MS document's "Related Governance" section cites `AUTH-001` as the source defining the
+`REF-MS` identifier family — `AUTH-001` now does, via `AUTH-ID-002A` and the Appendix B family
+mapping, backed by `GDR-002` (resolved 2026-08-13; an earlier pass had flagged this as a gap).
 
 ### `database/` detail
 
@@ -154,8 +225,8 @@ are reconstructed directly from `backend/config/settings.py` and `requirements.t
    DB_HOST=...
    DB_PORT=...
    ```
-   These four (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`) are read with no
-   defaults (`backend/config/settings.py:91-95`), so the app will fail to start without them.
+   These five (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`) are read with no
+   defaults (`backend/config/settings.py:92-96`), so the app will fail to start without them.
    Note Django's own DB connection here is separate from any manual `psql` connection you'd use
    to run the DDL files in step 2 — they can point at the same or different databases today
    since nothing links them.
@@ -169,7 +240,7 @@ are reconstructed directly from `backend/config/settings.py` and `requirements.t
 
 5. **Log in:** visit `/`, which redirects to `/login/` (`backend/config/urls.py:24-26`,
    `backend/authentication/urls.py`). After login you land on `/dashboard/`
-   (`LOGIN_REDIRECT_URL` in `backend/config/settings.py:137`).
+   (`LOGIN_REDIRECT_URL` in `backend/config/settings.py:138`).
 
 There is no test runner configured beyond Django's default (`manage.py test`); every app's
 `tests.py` is an empty stub — **no tests exist in the repo today.**
@@ -178,11 +249,11 @@ There is no test runner configured beyond Django's default (`manage.py test`); e
 
 | Setting | Source | Notes |
 |---|---|---|
-| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | `backend/.env` (not committed, no `.env.example`) | Required, no defaults — `backend/config/settings.py:88-97` |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | `backend/.env` (not committed, no `.env.example`) | Required, no defaults — `backend/config/settings.py:89-98` |
 | `SECRET_KEY` | Hardcoded in `backend/config/settings.py:29` | Dev-only insecure key, not read from env — needs fixing before any real deployment |
 | `DEBUG` | Hardcoded `True` — `settings.py` | No environment-based toggle yet |
 | `ALLOWED_HOSTS` | Hardcoded `[]` — `settings.py` | Fine for local dev only |
-| `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` | `settings.py:136-138` | `/login/`, `/dashboard/`, `/login/` |
+| `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` | `settings.py:137-139` | `/login/`, `/dashboard/`, `/login/` |
 | `TIME_ZONE` | `settings.py` | `UTC`, `USE_TZ = True` |
 
 No other configuration surface (feature flags, external service credentials, etc.) exists in
@@ -245,7 +316,8 @@ design docs as the target and the current Django model as a stand-in to be repla
   includes its urlconf directly and it has no models to register; `governance`/`attendance` have
   no URLs at all and are pure stubs (empty `models.py`/`views.py`, no `urls.py`).
   `family`/`membership` have real models but no `urls.py` — reachable only via `/admin/` (and
-  only `membership`'s admin is registered).
+  only `membership`'s admin is registered). `heritage` is in the same boat: real model
+  (`Founder`), admin-registered, but no `urls.py`.
 - **Dead links in the UI.** `backend/templates/base/sidebar.html` links "Members" and
   "Families" to `href="#"` — no URL exists for either yet, consistent with the missing
   `urls.py` files above.
@@ -275,8 +347,8 @@ design docs as the target and the current Django model as a stand-in to be repla
   (`docs/03_Solution/modules/organization/`) are ready; the DDL files are empty placeholders.
 - **Implement the `id_sequence_master` increment/formatting logic** (no function, trigger, or
   Django code currently does this — see Key Workflow #3).
-- **Wire up `family` and `membership` URLs/views** — models exist, nothing is reachable over
-  HTTP yet.
+- **Wire up `family`, `membership`, and `heritage` URLs/views** — models exist, nothing is
+  reachable over HTTP yet.
 - **Decide the fate of `governance` and `attendance` apps** — currently pure stubs, not even in
   `INSTALLED_APPS`.
 - **Add `family` to Django admin** — currently the only real-model app not registered.
@@ -289,3 +361,12 @@ design docs as the target and the current Django model as a stand-in to be repla
 - **`docs/02_Requirements/` and `docs/04_Testing/` are empty scaffolding** — folder structure
   exists (per `AUTH-001`/`GOV-003` repository architecture) but no actual requirements or test
   documentation has been written yet.
+- **Historical note, resolved:** an earlier pass had transcribed the two 1975 amendment
+  Resolutions under an invented `docs/01_Authoritative_References/NSS/SECTION-J_RESOLUTIONS/`
+  folder (no "Section J" exists in the source Bye-Law). This has been corrected — see the
+  `01_Authoritative_References/NSS/` detail above.
+- **Resolved:** `AUTH-001` now defines the `REF-MS` identifier family via `AUTH-ID-002A — New
+  REF Family Creation` (general rule: a distinct, separately-registered governing entity gets
+  its own dedicated REF family rather than extending `REF-00X`) plus a `REF-MS` row in
+  Appendix B, backed by `GDR-002` (Approved 2026-08-12). This closes the gap an earlier pass
+  had flagged here.

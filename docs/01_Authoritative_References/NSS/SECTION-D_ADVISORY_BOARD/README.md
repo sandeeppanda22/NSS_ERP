@@ -1,3 +1,3 @@
 # SECTION-D_ADVISORY_BOARD/
 
-- `REF-003-010_ADVISORY_BOARD.md` — the Advisory Board.
+- `REF-003-D` — the Advisory Board.

@@ -7,7 +7,7 @@
 | Document ID | GOV-003 |
 | Document Title | Repository Governance Standard |
 | Document Type | Governance Standard |
-| Owner | NSS ERP Governance Committee |
+| Owner | Project Steering Committee |
 | Approver | Project Steering Committee |
 | Version | 1.0.0 |
 | Status | Approved |
@@ -21,7 +21,7 @@
 
 | Version | Date | Author | Description |
 |---------|------|--------|-------------|
-| 1.0.0 | TBD | NSS ERP Governance Committee | Initial Release |
+| 1.0.0 | TBD | Project Steering Committee | Initial Release |
 
 ## Table of Contents
 

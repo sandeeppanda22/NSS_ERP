@@ -46,14 +46,14 @@ design philosophy, ensuring that business rules are frozen before implementation
 
 * Django Templates
 * Bootstrap 5
-* HTMX
+* HTMX *(dependency pinned via `django-htmx`; not yet wired into any template as of the current codebase — see `docs/PROJECT_DOCUMENTATION.md` → Gotchas)*
 
 ---
 
 ## Backend
 
 * Django
-* FastAPI
+* FastAPI *(pinned in `requirements.txt`; no FastAPI app/router exists in `backend/` yet — Django views call the ORM directly, see `docs/PROJECT_DOCUMENTATION.md` → Architecture)*
 
 ---
 
@@ -96,7 +96,7 @@ Browser
 Django Templates
    │
    ▼
-FastAPI Services
+Django Views (function-based; call the ORM directly)
    │
    ▼
 Django ORM
@@ -104,6 +104,10 @@ Django ORM
    ▼
 PostgreSQL
 ```
+
+*(Note: FastAPI is pinned as a dependency but has no app/router wired up yet — the diagram
+above reflects the actual current request path. See `docs/PROJECT_DOCUMENTATION.md` →
+Architecture for the planned two-track Django ORM / raw-SQL-DDL data layer.)*
 
 ---
 
@@ -180,6 +184,12 @@ Notes:
 ---
 
 # Module Structure
+
+*The sections below describe the full planned module roadmap. As of this writing, only
+**Foundation, Membership, Family, Governance (stub), Attendance (stub), and Founder & Heritage**
+exist as Django apps under `backend/` — Mahila Sangha, Kumari Sangha, Kishore Puja, Sevak
+Sangha, UPBS, Reports & Analytics, and Administration have no app directory yet. See
+`docs/PROJECT_DOCUMENTATION.md` for the current, code-verified status of each.*
 
 ## Foundation
 
@@ -452,7 +462,7 @@ UI Foundation and Authentication Complete
 
 ## v0.4.0
 
-Organization Module Complete
+Organization Module Design Complete *(design/ERD/business-rules/table-design docs only — SQL DDL under `database/ddl/02_organization/` is not yet implemented; see `docs/PROJECT_DOCUMENTATION.md`)*
 
 ---
 
