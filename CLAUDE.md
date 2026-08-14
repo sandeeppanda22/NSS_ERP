@@ -338,12 +338,16 @@ address (on the `organization` table directly, not a separate `organization_addr
 **do not reopen without checking current governance baseline first; Organization Module is
 frozen.**
 
-**Mahila Sangha:** Registered entity under NSS constitutional framework, own Constitution &
-Bye-Laws, but subordinate to NSS. **No separate membership system** — Mahila members use the
-same Probationary/Regular/Associate framework as everyone else; supervised by the central
-**Mahila Parichalana Mandali** over branch Mahila Sanghas. Exact Mandali size/election
-method/term/office-bearer positions still need authoritative-source verification — don't
-invent.
+**Mahila Sangha:** Every Sakha Sangha (branch) has its own local Mahila Sangha (women's wing),
+per `REF-001` Clause 12 ("To organise 'Mahila Sanghas' in different 'Sakha Sanghas'... which
+will function as a part of the concerned Sakha Sangha and the Kendra Sangha"). All of these
+local Mahila Sanghas are governed centrally by **one Mahila Parichalana Mandali**. The 22
+`REF-MS-*` documents transcribed from `NSS_Mahila_Sangha_Bye_Law.docx` are the **central
+Mandali's own Bye-Law** — its `REF-MS-6(i)` through `REF-MS-6(viii)` clauses (President,
+Vice-President, Secretary, Joint Secretary, Treasurer, Parichalak) define the Mandali's own
+governing structure, not a single local branch's. **No separate membership system** — Mahila
+members use the same Probationary/Regular/Associate framework as everyone else. Confirmed
+2026-08-14 by project owner; see §12.
 
 **Kumari Sangha / Kishore Puja:** Each has its own ID distinct from Sangha Sevi ID
 (`Kumari ID ≠ Sangha Sevi ID`, `Kishore ID ≠ Sangha Sevi ID`) — not treated as ordinary
@@ -445,6 +449,53 @@ structure, UPBS Volunteer structure + Day 1/2/3 operations, detailed Finance wor
 ## 12. Session Log
 
 <!-- Newest entries at the top. -->
+
+### 2026-08-14 — Clarified Mahila Parichalana Mandali structure: central body governing all Sakha Sangha-level Mahila Sanghas (Enchanté)
+- Context: An earlier §13 open question stated the Mandali's composition/election/term needed
+  source verification. Exhaustive search of both Bye-Law PDFs/docx files found zero mentions of
+  "Mahila Parichalana Mandali" anywhere in the source text, prompting a check-in with the
+  project owner rather than guessing. Owner corrected an intermediate (also wrong) framing in
+  two steps: (1) confirmed `REF-001` Clause 12 already establishes that every Sakha Sangha has
+  its own local Mahila Sangha, functioning as part of that Sakha Sangha and the Kendra Sangha;
+  (2) confirmed all of these local Mahila Sanghas are governed centrally by **one** Mahila
+  Parichalana Mandali, and that the 22 `REF-MS-*` documents (transcribed from
+  `NSS_Mahila_Sangha_Bye_Law.docx`) are that **central Mandali's own Bye-Law** — its
+  `REF-MS-6(i)`–`REF-MS-6(viii)` clauses define the Mandali's own governing structure, not one
+  local branch's.
+- Decision/Outcome: Corrected §7 and §13 of this file, and
+  `docs/03_Solution/modules/mahila/README.md`, to state the Mandali is a single central
+  Governing Body spanning all Sakha Sangha-level Mahila Sanghas — not a separate unverified
+  layer, and not scoped to one local branch. §13's open item is now resolved and struck through.
+- Follow-up: None outstanding on this specific question. The only remaining genuinely open item
+  in §13 is the final conceptual schema table count.
+
+### 2026-08-14 — Renamed Sections C-I to composite clause locators; corrected AUTH-001's fictional examples (Enchanté)
+- Context: User asked to rename "the bylaw files." Investigation on `feature/ref-renaming`
+  found the NSS `REF-003-001`..`REF-003-016` files used flat sequential numbering, while two
+  1975 resolution files and `REF-003-F[c]_Utilisation_of_the_Funds.md` already used a
+  composite-locator convention (`REF-003-C(i)(2)-1975-01`, etc.) matching true source lettering
+  pulled directly from `NSS_Bye_Law.docx` (Section C → `(i)` Governing Body → `(1)`–`(8)`;
+  `(ii)` Advisory Board = actual Section D; `(iii)` General Body = actual Section E). Also found
+  `AUTH-001` itself contradicted this precedent: its own `AUTH-ID-002`/`003`/`004` examples and
+  Appendix B/C described a fictional one-REF-family-per-section scheme (`REF-004`→D ...
+  `REF-010`→J) that was never implemented anywhere in the repo. User confirmed scope (option 3:
+  rename the REF documentation files, not the source `BY-LAW/*` originals) and approved fixing
+  `AUTH-001` in the same pass.
+- Decision/Outcome: Renamed 16 files via `git mv` (detected as renames):
+  `REF-003-001`→`REF-003-C`, `002`→`C(i)(1)`, `003`→`C(i)(2)`, `004`→`C(i)(3)`, `005`→`C(i)(4)`,
+  `006`→`C(i)(5)`, `007`→`C(i)(6)`, `008`→`C(i)(7)`, `009`→`C(i)(8)`, `010`→`D`, `011`→`E`,
+  `012`→`F[A]`, `013`→`F[b]`, `014`→`G`, `015`→`H`, `016`→`I`. Propagated the rename across 355
+  cross-references in 44 files (internal `Document ID` metadata, this file, `GOV-001`,
+  `GDR-004`, all 22 `REF-MS-*` docs, `PROJECT_DOCUMENTATION.md`, section READMEs). Corrected
+  `AUTH-001`: `AUTH-ID-002` now states a REF family may span multiple contiguous sections (not
+  strictly one per section); `AUTH-ID-003`/`004` examples and Appendix B/C replaced with the
+  real mapping (`REF-003` spans Sections C–I) and real in-repo filenames. Committed as `4b81c31`
+  on `feature/ref-renaming`; a follow-up drift-fix pass (`c27af10`, Claude Code) caught leftover
+  references. Both pushed, merged into `develop` (clean fast-forward), pushed. `git diff --check`
+  clean throughout; zero stale sequential-ID references remain anywhere in the repo.
+- Follow-up: None from this change — it was a structural correction initiated this session, not
+  a pre-existing open question, so it does not close any item in §13. The two genuinely open
+  items in §13 (Mandali composition, final schema table count) remain untouched.
 
 ### 2026-08-14 — Resolved final open governance decision (authority-role relationships); added GDR-004 (Claude Code)
 - Context: User asked to tackle the last open governance decision from §6: the relationship
@@ -716,8 +767,11 @@ structure, UPBS Volunteer structure + Day 1/2/3 operations, detailed Finance wor
 - ~~Governance Authority vs Decision Authority vs Approving Authority vs Project Owner vs
   Project Steering Committee~~ — **resolved 2026-08-14**, see §6/§12/GDR-004.
 - ~~Governance document status lifecycle~~ — **resolved 2026-08-13**, see §6/§12/GDR-003.
-- Mahila Parichalana Mandali exact composition/election/term — needs authoritative-source
-  verification (§7).
+- ~~Mahila Parichalana Mandali exact composition/election/term~~ — **resolved 2026-08-14**:
+  confirmed by project owner that every Sakha Sangha has its own local Mahila Sangha
+  (per `REF-001` Clause 12), and all of these are governed centrally by one Mahila Parichalana
+  Mandali. The `REF-MS-*` corpus is that central Mandali's own Bye-Law — `REF-MS-6(i)`–
+  `REF-MS-6(viii)` define the Mandali's own governing structure. See §7/§12.
 - Final conceptual schema table count — genuinely open, ranges 88–130+ depending on
   unresolved operational modules (§8, §10).
 - ~~`AUTH-001` has no definition of the `REF-MS-XXX` identifier family~~ — **resolved**, see §12
