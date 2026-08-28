@@ -1,7 +1,7 @@
 # docs/01_Authoritative_References/MAHILA_SANGHA/
 
 Nilachala Saraswata Mahila Sangha's own Constitution & Bye-Laws (a registered entity under the
-NSS constitutional framework, subordinate to NSS — see `CLAUDE.md` §7).
+NSS statutory framework, subordinate to NSS — see `CLAUDE.md` §7).
 
 Transcribed from `BY-LAW/NSS - Mahila Sangha/NSS_Mahila_Sangha_Bye_Law.docx` (confirmed by the
 project as already validated against the original source PDF, `NSS Mahila Sangha By-Law.pdf`).

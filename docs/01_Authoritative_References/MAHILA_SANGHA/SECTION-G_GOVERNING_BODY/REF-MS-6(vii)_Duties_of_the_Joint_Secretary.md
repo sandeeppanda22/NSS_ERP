@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **vii) Duties of Joint Secretary** — She will assist the Secretary in all her works specified in para 6 (vi).
 

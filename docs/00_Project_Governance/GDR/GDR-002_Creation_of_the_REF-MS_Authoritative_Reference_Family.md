@@ -34,14 +34,14 @@ AUTH-001 is amended to:
 
 ## 3. Rationale
 
-- **Constitutional accuracy:** The Mahila Sangha's Bye-Law is not a section of the NSS Bye-Law; folding it into the `REF-00X` numbering would misrepresent the actual constitutional relationship between the two documents.
+- **Statutory accuracy:** The Mahila Sangha's Bye-Law is not a section of the NSS Bye-Law; folding it into the `REF-00X` numbering would misrepresent the actual statutory relationship between the two documents.
 - **Consistency with GOV-ORG-001/002:** The Mahila Sangha is subordinate to NSS in organizational authority, but that subordination is expressed through its own governing document, not by being absorbed into NSS's document structure. A separate REF family correctly reflects "distinct document, subordinate entity" rather than conflating it with "section of the same document."
 - **Extensibility:** Establishing a general rule (AUTH-ID-002A) for creating new REF families — rather than deciding this ad hoc for Mahila Sangha alone — provides a repeatable, governed process for any future subordinate entity with its own governing document (e.g. a future Sakha Sangha or Sikshya Kendra, should one obtain formal independent governing document recognition per GOV-ORG-004).
 
 ## 4. Alternatives Considered
 
 - **Extend the `REF-00X` sequence** (e.g. `REF-004` = Mahila Sangha), as speculated in an earlier, unverified project handoff document. Rejected: this was never verified against AUTH-001's actual definition (which ties `REF-00X` to NSS Bye-Law sections specifically) and would misrepresent the Mahila Sangha's Bye-Law as part of the NSS document.
-- **Use the existing top-level `RESOLUTIONS/` or a new generic `OTHER/` reference family.** Rejected: Mahila Sangha's Bye-Law is a full constitutional document in its own right, not a resolution or miscellaneous reference; it warrants the same document-family treatment as NSS's own Bye-Law, just under a distinct identifier.
+- **Use the existing top-level `RESOLUTIONS/` or a new generic `OTHER/` reference family.** Rejected: Mahila Sangha's Bye-Law is a full statutory document in its own right, not a resolution or miscellaneous reference; it warrants the same document-family treatment as NSS's own Bye-Law, just under a distinct identifier.
 
 ## 5. Impact Assessment
 

@@ -36,7 +36,7 @@
 9. Governance Compliance Requirements
 10. Related Standards
 
-Appendix A – Constitutional Organizational Hierarchy
+Appendix A – Statutory Organizational Hierarchy
 
 Appendix B – Organizational Governance Rule Summary
 
@@ -44,7 +44,7 @@ Appendix B – Organizational Governance Rule Summary
 
 This standard establishes the organizational governance framework for the NSS ERP project. It defines the authoritative organizational hierarchy, governance principles, and organizational integrity rules that shall govern the design, implementation, and operation of the ERP system.
 
-The objective of this standard is to ensure that the ERP accurately represents the constitutional organizational structure of the National Service Scheme (NSS), preserves organizational integrity, and provides a consistent governance model for all organizational entities managed by the system.
+The objective of this standard is to ensure that the ERP accurately represents the statutory organizational structure of the National Service Scheme (NSS), preserves organizational integrity, and provides a consistent governance model for all organizational entities managed by the system.
 
 ## 2. Scope
 
@@ -66,7 +66,7 @@ The following documents are normative references for this standard.
 
 | Document ID | Document Title |
 |-------------|----------------|
-| REF-001 | NSS Constitution |
+| REF-001 | NSS Bye-Law |
 | AUTH-001 | Authoritative Reference Standard |
 | GOV-001 | Project Governance Principles |
 | GOV-003 | Repository Governance Standard |
@@ -74,46 +74,46 @@ The following documents are normative references for this standard.
 | GOV-005 | Governance Change Control Standard |
 | GDR-001 | Governance Decision Register Standard |
 
-The NSS Constitution is the supreme governing authority for all organizational structures represented within the NSS ERP. Where any conflict exists between this standard and an authoritative constitutional document, the constitutional document shall prevail.
+The NSS Bye-Law is the supreme governing authority for all organizational structures represented within the NSS ERP. Where any conflict exists between this standard and an authoritative statutory document, the statutory document shall prevail.
 
 ## 4. Definitions
 
 | Term | Definition |
 |------|------------|
-| Apex Organization | The highest constitutional organization recognized by the NSS Constitution. |
-| Organizational Unit | Any constitutionally recognized organizational entity managed within the ERP. |
+| Apex Organization | The highest statutory organization recognized by the NSS Bye-Law. |
+| Organizational Unit | Any statutorily recognized organizational entity managed within the ERP. |
 | Parent Organization | The immediate governing organization to which another organizational unit reports. |
 | Child Organization | An organizational unit governed by a parent organization. |
-| Organizational Hierarchy | The constitutional reporting structure connecting all organizational units. |
+| Organizational Hierarchy | The statutory reporting structure connecting all organizational units. |
 | Organizational Governance | The policies, rules, and controls governing organizational entities within the ERP. |
-| Constitutional Authority | Authority derived directly from the NSS Constitution or other approved authoritative references. |
+| Statutory Authority | Authority derived directly from the NSS Bye-Law or other approved authoritative references. |
 | Organizational Lineage | The complete traceable parent–child path from an organizational unit to the apex organization. |
 
 ## 5. Organizational Governance Principles
 
-The organizational governance principles defined in this section establish the constitutional foundation for the organizational structure implemented within the NSS ERP. These principles govern the creation, maintenance, authority, and integrity of organizational entities and ensure that the ERP faithfully represents the constitutionally approved organizational hierarchy.
+The organizational governance principles defined in this section establish the statutory foundation for the organizational structure implemented within the NSS ERP. These principles govern the creation, maintenance, authority, and integrity of organizational entities and ensure that the ERP faithfully represents the statutorily approved organizational hierarchy.
 
 ### 5.1 GOV-ORG-001 — Apex Organizational Governance Principle
 
-The NSS ERP shall recognize a single constitutionally established apex organization as the highest governing authority within the organizational hierarchy.
+The NSS ERP shall recognize a single statutorily established apex organization as the highest governing authority within the organizational hierarchy.
 
-All organizational entities maintained by the ERP shall derive their authority through the constitutional hierarchy originating from the apex organization.
+All organizational entities maintained by the ERP shall derive their authority through the statutory hierarchy originating from the apex organization.
 
-No organizational entity shall exist outside the constitutional organizational structure.
+No organizational entity shall exist outside the statutory organizational structure.
 
-### 5.2 GOV-ORG-002 — Constitutional Authority Precedence
+### 5.2 GOV-ORG-002 — Statutory Authority Precedence
 
-The organizational hierarchy implemented within the ERP shall be derived exclusively from approved constitutional and authoritative reference documents.
+The organizational hierarchy implemented within the ERP shall be derived exclusively from approved statutory and authoritative reference documents.
 
-Business rules, workflows, permissions, reporting relationships, and organizational metadata shall not contradict constitutional authority.
+Business rules, workflows, permissions, reporting relationships, and organizational metadata shall not contradict statutory authority.
 
-Where conflicts arise, constitutional authority shall prevail.
+Where conflicts arise, statutory authority shall prevail.
 
 ### 5.3 GOV-ORG-003 — Organizational Hierarchy Integrity
 
-The ERP shall preserve the integrity of the constitutional organizational hierarchy.
+The ERP shall preserve the integrity of the statutory organizational hierarchy.
 
-Every organizational unit shall maintain exactly one valid parent organization unless constitutionally defined as the apex organization.
+Every organizational unit shall maintain exactly one valid parent organization unless statutorily defined as the apex organization.
 
 Circular organizational relationships are prohibited.
 
@@ -129,39 +129,39 @@ Any proposed organizational change shall undergo governance review in accordance
 
 ## 6. Organizational Hierarchy
 
-The NSS ERP shall implement the constitutional organizational hierarchy as defined by the approved authoritative references.
+The NSS ERP shall implement the statutory organizational hierarchy as defined by the approved authoritative references.
 
-Every organizational unit maintained by the ERP shall occupy a single, well-defined position within the organizational hierarchy and shall inherit governance authority through its constitutional parent organization.
+Every organizational unit maintained by the ERP shall occupy a single, well-defined position within the organizational hierarchy and shall inherit governance authority through its statutory parent organization.
 
-The hierarchy implemented within the ERP shall accurately reflect the constitutional structure and shall not be modified except through approved governance change control procedures.
+The hierarchy implemented within the ERP shall accurately reflect the statutory structure and shall not be modified except through approved governance change control procedures.
 
 ### 6.1 Apex Organization
 
-The apex organization is the highest constitutional authority recognized by the NSS ERP.
+The apex organization is the highest statutory authority recognized by the NSS ERP.
 
 The apex organization:
 
 - has no parent organization;
 - serves as the root of the organizational hierarchy;
-- provides constitutional authority for all subordinate organizational units; and
+- provides statutory authority for all subordinate organizational units; and
 - shall be unique within the ERP.
 
 Only one apex organization shall exist within a production environment.
 
-### 6.2 Constitutionally Constituted Organizational Units
+### 6.2 Statutoryly Constituted Organizational Units
 
-Organizational units shall exist only where recognized by approved constitutional or authoritative references.
+Organizational units shall exist only where recognized by approved statutory or authoritative references.
 
 Each organizational unit shall:
 
 - possess a unique organizational identity;
 - belong to exactly one parent organization unless designated as the apex organization;
-- inherit governance authority through the constitutional hierarchy; and
+- inherit governance authority through the statutory hierarchy; and
 - comply with all organizational governance rules defined by this standard.
 
 ### 6.3 Organizational Relationships
 
-Relationships between organizational units shall be governed by constitutional authority.
+Relationships between organizational units shall be governed by statutory authority.
 
 The ERP shall maintain:
 
@@ -175,11 +175,11 @@ Relationships shall remain fully traceable throughout the organizational hierarc
 
 ### 6.4 Organizational Authority
 
-Authority within the ERP shall follow the constitutional organizational hierarchy.
+Authority within the ERP shall follow the statutory organizational hierarchy.
 
-No organizational unit may exercise authority beyond that granted by the constitutional governance framework.
+No organizational unit may exercise authority beyond that granted by the statutory governance framework.
 
-Delegated authority shall not modify constitutional reporting relationships or organizational ownership.
+Delegated authority shall not modify statutory reporting relationships or organizational ownership.
 
 ## 7. Organizational Governance Rules
 
@@ -198,7 +198,7 @@ Organizational identifiers:
 
 ### 7.2 Parent–Child Integrity
 
-Every organizational unit shall maintain exactly one valid parent organization unless constitutionally designated as the apex organization.
+Every organizational unit shall maintain exactly one valid parent organization unless statutorily designated as the apex organization.
 
 The ERP shall prohibit:
 
@@ -225,21 +225,21 @@ Lifecycle transitions shall occur only through approved governance procedures.
 
 ### 7.4 Organizational Authority Delegation
 
-Delegated authority shall not alter constitutional ownership.
+Delegated authority shall not alter statutory ownership.
 
-Administrative delegation may permit operational management while preserving constitutional reporting relationships.
+Administrative delegation may permit operational management while preserving statutory reporting relationships.
 
 Delegated authority shall be fully auditable.
 
 ### 7.5 Organizational Independence Restrictions
 
-Organizational units shall not operate independently of the constitutional hierarchy.
+Organizational units shall not operate independently of the statutory hierarchy.
 
 The ERP shall prohibit:
 
 - unauthorized hierarchy creation;
 - unauthorized restructuring;
-- duplicate constitutional entities;
+- duplicate statutory entities;
 - parallel organizational hierarchies; and
 - governance relationships not supported by authoritative references.
 
@@ -247,11 +247,11 @@ The ERP shall prohibit:
 
 The NSS ERP shall implement the organizational governance principles defined in this standard through database design, application logic, APIs, user interfaces, reporting, and administrative controls.
 
-All organizational data shall conform to the constitutional organizational hierarchy and maintain full governance integrity throughout its lifecycle.
+All organizational data shall conform to the statutory organizational hierarchy and maintain full governance integrity throughout its lifecycle.
 
 ### 8.1 GOV-DATA-001 — Organizational Parent–Child Integrity
 
-Every organizational unit shall reference exactly one valid parent organization unless constitutionally designated as the apex organization.
+Every organizational unit shall reference exactly one valid parent organization unless statutorily designated as the apex organization.
 
 The ERP shall enforce parent–child integrity through both database constraints and application-level validation.
 
@@ -263,7 +263,7 @@ The organizational hierarchy shall contain one and only one apex organization.
 
 All organizational units shall be traceable to this root.
 
-Multiple independent organizational trees shall not be permitted within the same constitutional organization.
+Multiple independent organizational trees shall not be permitted within the same statutory organization.
 
 ### 8.3 GOV-DATA-003 — Traceable Organizational Lineage
 
@@ -307,9 +307,9 @@ This standard shall be read in conjunction with the following governance documen
 
 These documents collectively define the governance framework for the NSS ERP project.
 
-## Appendix A — Constitutional Organizational Hierarchy
+## Appendix A — Statutory Organizational Hierarchy
 
-The constitutional organizational hierarchy implemented within the NSS ERP shall be derived exclusively from approved authoritative references.
+The statutory organizational hierarchy implemented within the NSS ERP shall be derived exclusively from approved authoritative references.
 
 The ERP shall maintain the hierarchy without introducing unauthorized organizational levels or reporting relationships.
 
@@ -322,7 +322,7 @@ This appendix provides a consolidated summary of the organizational governance p
 | Rule ID | Rule |
 |----------|------|
 | GOV-ORG-001 | Apex Organizational Governance Principle |
-| GOV-ORG-002 | Constitutional Authority Precedence |
+| GOV-ORG-002 | Statutory Authority Precedence |
 | GOV-ORG-003 | Organizational Hierarchy Integrity |
 | GOV-ORG-004 | Authoritative Document Recognition |
 | GOV-DATA-001 | Organizational Parent–Child Integrity |

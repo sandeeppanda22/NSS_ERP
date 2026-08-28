@@ -65,7 +65,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the Funds of the Kendra Sangha of the Nilachala Saraswata Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the Funds of the Kendra Sangha of the Nilachala Saraswata Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -97,7 +97,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **F. [A] Funds of the Kendra Sangha:**
 
@@ -199,7 +199,7 @@ Clause 1(vi) cross-references "Paras 16 and 17" of the Objects of the Society, p
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-F[b] — Maintenance of the Funds

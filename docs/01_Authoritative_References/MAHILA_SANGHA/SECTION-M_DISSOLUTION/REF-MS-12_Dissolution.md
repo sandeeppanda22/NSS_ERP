@@ -82,13 +82,13 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **12. Dissolution:—** Whenever it is observed that the Sangha is not functioning in its right earnest towards the fulfilment of the Aims and Objects laid down in the Article 3 of the memorandum, the same will be dissolved, whereupon the properties that may remain after satisfying all debts and liability will vest in the "Kendra Sangha" which will undertake to fulfil the said 'Aims and Objects'.
 
 The above provision is preserved in the source under the heading "12. Dissolution:—" as a single unlettered statement, not subdivided into further clauses. Note the cross-reference to "Article 3 of the memorandum" — this refers to the Memorandum's own "3. Objects of the Society will be —" clause (see REF-MS-MOA), not the Bye-law's fuller "1) Aims and objects" clause (REF-MS-1).
 
-**Important — constitutional consequence of dissolution:** upon dissolution, the Mahila Sangha's remaining properties vest in the **Kendra Sangha (NSS)** itself, which must then undertake to fulfil the same Aims and Objects. This directly reflects the Mahila Sangha's subordinate status — it has no independent existence apart from NSS (GOV-ORG-001).
+**Important — statutory consequence of dissolution:** upon dissolution, the Mahila Sangha's remaining properties vest in the **Kendra Sangha (NSS)** itself, which must then undertake to fulfil the same Aims and Objects. This directly reflects the Mahila Sangha's subordinate status — it has no independent existence apart from NSS (GOV-ORG-001).
 
 ---
 
@@ -104,7 +104,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **Certified that this is a true and correct copy of the rules and regulations of the Nilachala Saraswata Mahila Sangha, Puri.**
 

@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **iv) Functions of the Parichalak**
 

@@ -97,7 +97,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(7) Duties of the Treasurer:**
 
@@ -193,7 +193,7 @@ None
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(1) — Governing Body

@@ -59,7 +59,7 @@ End of Document
 
 This standard establishes the authoritative rules governing the organization, identification, management, verification, and traceability of the Authoritative Reference (REF) repository within the NSS ERP project.
 
-Its purpose is to ensure that all authoritative reference documents are managed in a consistent, traceable, and maintainable manner while preserving the integrity of the official constitutional and governing documents from which they are derived.
+Its purpose is to ensure that all authoritative reference documents are managed in a consistent, traceable, and maintainable manner while preserving the integrity of the official statutory and governing documents from which they are derived.
 
 This standard governs the repository that contains authoritative references. It does not replace, reinterpret, or supersede the official governing documents.
 
@@ -80,7 +80,7 @@ It defines the standards for:
 - Version management.
 - Governance of repository changes.
 
-This standard does not define constitutional provisions, business rules, functional requirements, implementation details, or software design.
+This standard does not define statutory provisions, business rules, functional requirements, implementation details, or software design.
 
 ---
 
@@ -198,7 +198,7 @@ Each documentation domain has a single defined responsibility.
 | AUTH | Standards governing the Authoritative Reference repository |
 | GOV | Governance principles and standards |
 | GDR | Governance decisions and architectural change history |
-| REF | Authoritative constitutional references |
+| REF | Authoritative statutory references |
 | REQ | Business and functional requirements |
 | SOLUTION | Architecture and technical design |
 | TEST | Verification and validation |
@@ -266,15 +266,15 @@ Creation of a new documentation domain or modification of the governance lifecyc
 
 This section establishes the standards governing the organization of the Authoritative Reference (REF) repository.
 
-The REF repository contains the constitutional source documents upon which all downstream governance, requirements, solution artifacts, implementation, testing, and releases are based.
+The REF repository contains the statutory source documents upon which all downstream governance, requirements, solution artifacts, implementation, testing, and releases are based.
 
 ---
 
-### AUTH-REF-001 — Constitutional Source Repository
+### AUTH-REF-001 — Statutory Source Repository
 
 **Rule Maturity:** Frozen
 
-The Authoritative Reference (REF) repository is the constitutional source repository of the NSS ERP project.
+The Authoritative Reference (REF) repository is the statutory source repository of the NSS ERP project.
 
 The REF repository shall contain only documents derived directly from officially recognized governing sources.
 
@@ -286,11 +286,11 @@ Where no authoritative governing source exists, downstream artifacts shall expli
 
 **Rule Maturity:** Frozen
 
-The REF repository shall be organized according to the official constitutional hierarchy.
+The REF repository shall be organized according to the official statutory hierarchy.
 
 Repository organization shall preserve the official structure of the governing documents.
 
-Editorial convenience shall never supersede constitutional organization.
+Editorial convenience shall never supersede statutory organization.
 
 ---
 
@@ -320,7 +320,7 @@ Additional document families may be introduced only when officially recognized g
 
 ---
 
-### AUTH-REF-004 — Constitutional Integrity
+### AUTH-REF-004 — Statutory Integrity
 
 **Rule Maturity:** Frozen
 
@@ -331,7 +331,7 @@ Repository organization shall preserve:
 - official hierarchy
 - official ordering
 
-The repository shall not introduce alternative constitutional structures.
+The repository shall not introduce alternative statutory structures.
 
 ---
 
@@ -341,7 +341,7 @@ The repository shall not introduce alternative constitutional structures.
 
 Editorial material may accompany authoritative references for repository management purposes.
 
-Editorial material shall be clearly distinguishable from authoritative constitutional text.
+Editorial material shall be clearly distinguishable from authoritative statutory text.
 
 Editorial content shall never alter, reinterpret, or supersede the meaning of the governing source.
 
@@ -409,7 +409,7 @@ Example: `REF-MS` was created for the Constitution & Bye-Laws of the Nilachala S
 Each REF document identifier shall consist of:
 
 - REF Family Identifier
-- Official Constitutional Reference
+- Official Statutory Reference
 
 Example:
 
@@ -421,7 +421,7 @@ REF-003-C(i)(2)
 REF-003-F[A]
 ```
 
-The official constitutional reference shall preserve the official numbering, lettering, punctuation, and hierarchy exactly as published in the governing document.
+The official statutory reference shall preserve the official numbering, lettering, punctuation, and hierarchy exactly as published in the governing document.
 
 ---
 
@@ -476,7 +476,7 @@ Repository organization may evolve without affecting document identity.
 
 This section establishes the mandatory metadata requirements for all Authoritative Reference (REF) documents.
 
-Metadata provides document identity, governance status, traceability, and repository management information. Metadata forms part of the repository management layer and shall not alter the meaning of the authoritative constitutional text.
+Metadata provides document identity, governance status, traceability, and repository management information. Metadata forms part of the repository management layer and shall not alter the meaning of the authoritative statutory text.
 
 ---
 
@@ -501,7 +501,7 @@ Every REF document shall contain the following metadata.
 | Document Name | Official repository document name |
 | Document ID | Permanent REF identifier |
 | REF Family | Associated REF family |
-| Official Reference | Constitutional or Bye-Law reference |
+| Official Reference | Statutory or Bye-Law reference |
 | Repository Path | Repository location |
 | Source Document | Official governing document |
 | Version | Repository document version |
@@ -523,7 +523,7 @@ Metadata shall accurately describe the associated REF document.
 
 Metadata shall never:
 
-- modify constitutional meaning
+- modify statutory meaning
 - reinterpret governing text
 - introduce new business rules
 
@@ -549,7 +549,7 @@ Alternative labels shall not be introduced without governance approval.
 
 Changes to metadata shall follow repository version management.
 
-Editorial updates may modify metadata without affecting constitutional content.
+Editorial updates may modify metadata without affecting statutory content.
 
 Normative metadata changes that alter repository governance shall follow the Governance Decision Register (GDR) process.
 
@@ -611,7 +611,7 @@ docs/01_Authoritative_References/...
 Where applicable, a cross-reference shall include:
 
 - REF Document Identifier
-- Official Constitutional Reference
+- Official Statutory Reference
 - Document Title (optional)
 
 Example:
@@ -722,7 +722,7 @@ Each downstream layer shall maintain traceability to the layer from which it der
 
 ---
 
-### AUTH-TRACE-002 — Constitutional Authority
+### AUTH-TRACE-002 — Statutory Authority
 
 **Rule Maturity:** Frozen
 
@@ -732,7 +732,7 @@ Every business rule implemented within the NSS ERP project shall originate from:
 - an approved governance standard (GOV), or
 - an explicitly documented implementation decision where no authoritative source exists.
 
-Implementation decisions shall be clearly identified and shall not be presented as constitutional requirements.
+Implementation decisions shall be clearly identified and shall not be presented as statutory requirements.
 
 ---
 
@@ -772,9 +772,9 @@ Permanent document identifiers shall be used to preserve traceability.
 
 **Rule Maturity:** Frozen
 
-Where no authoritative constitutional or governance source exists for a requirement or solution, the artifact shall explicitly identify the content as an implementation decision.
+Where no authoritative statutory or governance source exists for a requirement or solution, the artifact shall explicitly identify the content as an implementation decision.
 
-Implementation decisions shall not be represented as constitutional authority.
+Implementation decisions shall not be represented as statutory authority.
 
 ---
 
@@ -818,23 +818,23 @@ No REF document shall be published as an approved authoritative reference withou
 Verification shall confirm, at a minimum:
 
 - Document identifier
-- Official constitutional reference
+- Official statutory reference
 - Repository location
 - Metadata completeness
 - Cross-reference integrity
 - Traceability compliance
 - Repository naming standards
-- Constitutional text accuracy
+- Statutory text accuracy
 
 Additional verification criteria may be introduced through governance approval.
 
 ---
 
-### AUTH-VERIFY-003 — Constitutional Accuracy
+### AUTH-VERIFY-003 — Statutory Accuracy
 
 **Rule Maturity:** Frozen
 
-The authoritative constitutional text contained within a REF document shall accurately reflect the officially approved governing source.
+The authoritative statutory text contained within a REF document shall accurately reflect the officially approved governing source.
 
 Verification shall confirm:
 
@@ -842,9 +842,9 @@ Verification shall confirm:
 - Clause numbering
 - Lettering
 - Ordering
-- Constitutional wording
+- Statutory wording
 
-Editorial content shall be excluded from constitutional verification except where it affects document integrity.
+Editorial content shall be excluded from statutory verification except where it affects document integrity.
 
 ---
 
@@ -888,13 +888,13 @@ Verification records form part of the repository governance history.
 
 A previously approved REF document shall be reverified whenever:
 
-- Constitutional content changes
+- Statutory content changes
 - Repository metadata is materially modified
 - Document identifiers are corrected
 - Traceability is updated
 - Governance standards affecting the document are revised
 
-Editorial corrections that do not affect governance, traceability, or constitutional integrity may be exempt from full reverification.
+Editorial corrections that do not affect governance, traceability, or statutory integrity may be exempt from full reverification.
 
 ---
 
@@ -995,7 +995,7 @@ Repository contributors shall ensure that all documents:
 - comply with the repository architecture;
 - use approved document identifiers;
 - contain complete metadata;
-- preserve constitutional integrity;
+- preserve statutory integrity;
 - maintain traceability;
 - satisfy verification requirements; and
 - comply with governance change control.
@@ -1063,7 +1063,7 @@ The normative document identification rules are defined in Section 7 (including 
 Examples (actual repository filenames):
 
 ```text
-REF-001_NSS_CONSTITUTION.md
+REF-001_NSS_BYE_LAW.md
 
 REF-002_NSS_MEMBERSHIP_BYLAWS.md
 

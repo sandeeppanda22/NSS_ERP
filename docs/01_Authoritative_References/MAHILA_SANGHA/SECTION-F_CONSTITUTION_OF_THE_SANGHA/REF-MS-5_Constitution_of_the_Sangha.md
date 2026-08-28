@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **5. Constitution of the Sangha**
 

@@ -12,9 +12,10 @@
 
 NSS ERP is an in-development Enterprise Resource Planning system for **Nilachala Saraswata
 Sangha (NSS)**, a religious/spiritual organization. It is not a generic corporate ERP — its
-data model is built around NSS's own constitutional structure (Kendra → Anchalika/Zilla →
+data model is built around NSS's own statutory structure (Kendra → Anchalika/Zilla →
 Sakha), its membership system (Sangha Sevi ID), and organizational concepts like Family,
-Governance, Attendance, Mahila Sangha, Kumari Sangha, Kishore Puja, and Sevak Sangha.
+Governance, Attendance, Mahila Sangha, Kumari Sangha, Kishor Puja, Sevak Sangha, and Founder &
+Heritage.
 
 The project follows a **Constitution First → Governance → Requirements → Solution →
 Implementation** philosophy, and for delivery, **Database First → API First → UI First**: raw
@@ -25,10 +26,32 @@ truth story, while the `organization` module has full design documentation but *
 implemented SQL.
 
 The codebase today is an early-stage skeleton: a working Django login + dashboard + person-list
-flow, four real Django data models (`foundation`, `authentication`, `family`, `membership`), a
-partially-implemented PostgreSQL schema (foundation/location + person are implemented,
-organization is not), and an extensive, mature governance/documentation corpus that is
-significantly ahead of the code.
+flow, five real Django data models (`foundation`, `authentication`, `family`, `membership`,
+`heritage`), a partially-implemented PostgreSQL schema (foundation/location + person are
+implemented, organization is not), and an extensive, mature governance/documentation corpus that
+is significantly ahead of the code — the gap widened further as of 2026-08-19, when Founder &
+Heritage, Organization, Person, Kumari, and Kishor all received substantial new/restructured
+design documentation with no matching code changes, and again as of this pass (2026-08-20),
+when nine more module doc sets landed (`administration`, `audit`, `authentication` [Solution-
+layer], `backup_technical`, `foundation` [Solution-layer], `governance` [Solution-layer],
+`publications`, `reports`, `upbs`) — bringing Solution-layer coverage to essentially every
+module on the project roadmap, still with **zero** corresponding backend/SQL work beyond the
+five apps and partial DDL already noted above. Two of the new Solution-layer modules
+(`foundation`, `authentication`) share a name with an existing `backend/` Django app but
+describe an **entirely different scope/schema** — see Conventions & gotchas. As of 2026-08-21,
+two cross-module consolidation documents closed the last placeholder gaps under
+`docs/03_Solution/`: `database/DATABASE_DESIGN_STANDARDS.md` (`SOL-DB-001`) and
+`security/SECURITY_ARCHITECTURE.md` (`SOL-SEC-001`) — see the `03_Solution/` detail below. The
+consolidation pass also introduced a new, previously-unflagged discrepancy: `SOL-DB-001` itself
+uses `_id` (e.g. `person_id`, `organization_id`, `sangha_sevi_id`) as its stated business-
+identifier naming convention, contradicting the project's already-frozen `_code`-only
+convention (see Conventions & gotchas). As of 2026-08-25, a 21st module,
+`programmes_events/` (Module #21), landed alongside a Programme/Event domain model and two new
+21-module architecture maps — it is the first new module *not* tagged SOURCE ALIGNED (still
+v0.1.0 DRAFT, explicitly not frozen). Six existing modules (person, family, governance,
+attendance, authentication, administration) also each gained a new lifecycle document in the
+same pass, none of which cross-reference the project's existing lifecycle standards docs (see
+Conventions & gotchas).
 
 ## Architecture
 
@@ -70,6 +93,19 @@ PostgreSQL
   (`docs/01_Authoritative_References/`) that define the rules the eventual system must follow.
   This layer is far more mature than the code.
 
+**Approved future direction (SOLUTION layer, not yet implemented in code):**
+`docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` (added 2026-08-16) is now the
+authoritative technology decision record and **supersedes the diagram above once code catches
+up** — it replaces Bootstrap 5 with Tailwind CSS + DaisyUI + Alpine.js (HTMX retained), commits
+to actually wiring up FastAPI (currently pinned-but-unused, see Gotchas), pins exact versions
+(Django 6.0.6, FastAPI 0.136.3), and adds a hosting plan (Neon.dev for PostgreSQL, Render.com
+for the app, PWA + IndexedDB/Service-Worker offline strategy for on-site event registration).
+`docs/03_Solution/architecture/DEVELOPER_REFERENCE_GUIDE.md` (same commit) is a companion
+per-module "which doc to read before coding" matrix across the REF→AUTH→GOV→REQ→SOLUTION→CODE
+chain. Until `backend/` is actually migrated, treat everything in this "Architecture" section
+above as the current CODE-layer reality and the Tech Stack Decisions doc as the approved target
+— don't assume one from the other.
+
 ## Directory structure
 
 ```
@@ -85,7 +121,13 @@ NSS_ERP/
 │   │   ├── NSS/            Source-faithful transcription of NSS's Constitution & Bye-Laws (see detail below)
 │   │   └── MAHILA_SANGHA/  Source-faithful transcription of Mahila Sangha's own Bye-Law (see detail below)
 │   ├── 02_Requirements/         Scaffolded only — business/functional/non_functional/traceability subfolders, no content yet
-│   ├── 03_Solution/             Per-module design docs (organization, person) + api/architecture/database/infrastructure/security/ui scaffolding
+│   ├── 03_Solution/             Per-module design docs — now 21 module folders (organization,
+│   │                            person, membership, family, attendance, heritage, kumari,
+│   │                            kishor, mahila, sevak, foundation, administration,
+│   │                            authentication, governance, publications, reports, upbs,
+│   │                            audit, backup_technical, finance, programmes_events) + architecture/ui/
+│   │                            infrastructure/standards/database/security content now
+│   │                            populated (see detail below); only api/ remains empty scaffolding
 │   ├── 04_Testing/              Scaffolded only — unit/integration/api/ui/database/security/acceptance subfolders, no content yet
 │   └── 05_Releases/             Release notes, v0.1.0 → v0.5.1
 ├── BY-LAW/                       Original source PDFs/docx of the NSS and Mahila Sangha Bye-Laws — the primary source both `docs/01_Authoritative_References/NSS/` and `.../MAHILA_SANGHA/` are transcribed from
@@ -112,7 +154,7 @@ backend/
 └── manage.py
 ```
 
-Modules referenced elsewhere in the project's roadmap (`mahila`, `kumari`, `kishore`, `sevak`,
+Modules referenced elsewhere in the project's roadmap (`mahila`, `kumari`, `kishor`, `sevak`,
 `publications`, `upbs`, `reports`, `administration`) **do not exist yet** as Django apps — they
 are planned, not scaffolded.
 
@@ -136,7 +178,7 @@ NSS/
 └── SECTION-I_DISSOLUTION/                          REF-003-I
 ```
 
-**No "Section J" exists in the source Bye-Law.** The Bye-Law's constitutional sections end at
+**No "Section J" exists in the source Bye-Law.** The Bye-Law's statutory sections end at
 Section I (Dissolution); the two 1975 Resolutions that follow in the source text are explicit
 amendments to Section C (inserting sub-clauses into Functions of the Governing Body and Duties
 of the Secretary/Parichalak), not a standalone section. An earlier repository pass had
@@ -195,6 +237,83 @@ database/
     ├── 01_foundation/    id_sequence_master seed (4 rows: PERSON/SANGHA_SEVI/ORGANIZATION/FAMILY), location seed (5 countries)
     └── 03_person/        gender/marital_status/address_type seed rows
 ```
+
+### `docs/03_Solution/` detail
+
+```
+03_Solution/
+├── modules/
+│   ├── organization/     RESTRUCTURED 2026-08-19 from 01_design/02_erd/03_business_rules/04_table_design to 01_module_overview/02_erd/03_lifecycle/04_business_rules/05_table_design (v1.1.0, GOVERNANCE ALIGNED); v1.1.0 walked back the ANCHALIKA/ZILLA/SAKHA/PATHA_CHAKRA type-to-type parent matrix to an OPEN item — only the generic apex + self-referencing 3-table structure is frozen; still no SQL (see Gotchas)
+│   ├── person/            same pattern + README.md, now v1.0.0 SOURCE ALIGNED, 5 files (`03_person_lifecycle.md`/SOL-PER-005 added, business_rules/table_design shifted to 04/05) — 2 tables (person, document_master); docs name the business identifier `person_id`, conflicting with the already-implemented DDL's `person_code` (see Gotchas); address/Aadhaar/photo/blood-group explicitly left OPEN despite `person_address` already existing in SQL
+│   ├── membership/         01-05 overview/erd/lifecycle/business_rules/table_design, all DRAFT — richer than backend/membership/models.py (see Gotchas)
+│   ├── family/             now 5 files (`03_family_lifecycle.md`/SOL-FAM-005 added, business_rules/table_design shifted to 04/05), frozen 4-table design — richer than backend/family/models.py (see Gotchas)
+│   ├── attendance/         now 6 files (`03_attendance_lifecycle.md`/SOL-ATT-006 added; business_rules/table_design shifted to 04/05, review_workflow shifted to 06, FROZEN) + DARSHAK_BUSINESS_RULE.md (see below) — zero corresponding backend code
+│   ├── heritage/           NEW 2026-08-19 — 01-05 overview/erd/lifecycle/business_rules/table_design, v1.0.0 SOURCE ALIGNED — 8 tables designed (founder_master + teachings/objectives/milestones/publications/office-bearers + 2 lookup masters); `backend/heritage/` implements only founder_master, no urls.py
+│   ├── kumari/             01-05 overview/erd/lifecycle/business_rules/table_design, now v1.0.0 SOURCE ALIGNED (still document-Status DRAFT) — KM000001 ID format; no backend/kumari/ app
+│   ├── kishor/            01-05 overview/erd/lifecycle/business_rules/table_design, now v1.0.0 SOURCE ALIGNED (still document-Status DRAFT) — KH000001 ID format + frozen v2.1 Guardian Model (Guardian must independently qualify via `sangha_sevi` identity); no backend/kishor/ app
+│   ├── mahila/             01-05 overview/erd/lifecycle/business_rules/table_design, all v2.1.0 — v2.1.0 corrected a v2.0.0 error that had modeled Mahila Governing Body and Mahila Parichalana Mandali as two bodies; now explicitly one body, two names; freezes the Mandali term at 2 years (MAH-040); no backend/mahila/ app
+│   ├── sevak/              01-06 core sequence (only 06_table_design FROZEN, rest DRAFT/consolidation-in-progress) + sangha/, seva/, events/ subdocs; core SEV-001..040; no backend/sevak/ app
+│   ├── foundation/         NEW 2026-08-20 — 01-04 overview/erd/business_rules/table_design, v1.0.0 SOURCE ALIGNED — 8 tables (master_category, master_data, system_setting, id_sequence_master, country, state, district, city_village). **Same name, different scope from `backend/foundation/`** (which implements Person/Organization/Address) — this Solution module instead matches `database/ddl/01_foundation/`'s id_sequence/location tables; master_category/master_data/system_setting have no SQL yet
+│   ├── administration/     NEW 2026-08-20, now 5 files (`03_administration_lifecycle.md`/SOL-ADMIN-005 added, business_rules/table_design shifted to 04/05) — v1.0.0 SOURCE ALIGNED — 6 RBAC tables (user_account, role_master, permission_master, role_permission, user_role, admin_scope); password_history stays under authentication/; no backend/administration/ app
+│   ├── authentication/     NEW 2026-08-20 (Solution-layer "Authentication & Security"), now 5 files (`03_authentication_security_lifecycle.md`/SOL-AUTH-005 added, business_rules/table_design shifted to 04/05) — v1.0.0 SOURCE ALIGNED — 7 tables (adds password_history + user_account to administration/'s RBAC set); Argon2/JWT/session/Aadhaar-encryption/RLS as principles. **Different schema from** the real `backend/authentication/` Django app (Role/UserRole/LoginAudit) — same folder name, unreconciled designs
+│   ├── governance/         NEW 2026-08-20 (Solution-layer ERP module, distinct from docs/00_Project_Governance/), now 5 files (`03_governance_lifecycle.md`/SOL-GOV-005 added, business_rules/table_design shifted to 04/05) — v1.0.0 SOURCE ALIGNED — Unified Body Governance Model (body_type_master, body_master, position_master, body_member_assignment, acting_position_assignment) + election entities (election, election_nomination, election_vote, election_result), 9 tables. **Freezes the Mahila Parichalana Mandali term at 3 years** (`04_governance_business_rules.md` GOV-BR-031/§Frozen Decisions) **and, per the new `03_governance_lifecycle.md`, a formal consensus→election→election-table reconstitution process** — both directly conflicting with mahila/'s own frozen **2-year** term (MAH-040) and its consensus-only reconstitution process; unreconciled, see Gotchas/Open questions. `backend/governance/` remains an empty stub
+│   ├── publications/       NEW 2026-08-20 — 7 files (overview/erd/business_rules/table_design/functional_design/ui_workflow/notification_purchase_design), v1.0.0 SOURCE ALIGNED + USER REQUIREMENTS — zero new tables, reuses Heritage's nss_publication/publication_type_master/publication_language_master; no backend/publications/ app
+│   ├── upbs/               NEW 2026-08-20 — 01-04, v1.0.0 SOURCE ALIGNED — 7 tables (upbs_event, upbs_registration, delegate_card, prasad_patra, accommodation_allocation, camp_master, guest_reference); Day 1/2/3 ops + volunteer structure explicitly PENDING; no backend/upbs/ app
+│   ├── reports/            NEW 2026-08-20 — 01-04, v1.0.0 SOURCE ALIGNED — 5 metadata/configuration-only tables (report_category_master, report_definition, report_filter_definition, dashboard, dashboard_widget); consumes but never duplicates other modules' data; no backend/reports/ app
+│   ├── audit/              NEW 2026-08-20 — 01-04 (no README before this pass), v1.0.0 SOURCE ALIGNED — 2 tables (audit_master, system_event_log); no backend/audit/ app
+│   ├── backup_technical/   NEW 2026-08-20 — 01-04 (no README before this pass), v1.0.0 SOURCE ALIGNED — 2 tables (backup_master, restore_history); no corresponding Django app
+│   └── finance/            NEW 2026-08-21 — 01-05 design/erd/business_rules/table_design/lifecycle, v1.0.0 SOURCE ALIGNED (ERD tagged DRAFT — LOGICAL DESIGN) — 7 tables (financial_year, financial_scope, fund_master, financial_transaction, financial_receipt, financial_payment, financial_transfer); derives from REF-003-F[A]/[b]/[c] and REF-MS-7(i)-(iii); Financial Scope Independence principle (FIN-ARCH-001) keeps Financial Scope distinct from Organization; correctly follows the project's `_code` business-identifier convention (contrast with the `_id`/`_code` conflict below); business rules FIN-BR-001–068; no backend/finance/ app; post-dates DATABASE_DESIGN_STANDARDS.md/SECURITY_ARCHITECTURE.md so isn't yet listed in either's source inventory
+│   └── programmes_events/  NEW 2026-08-25 — Module #21, 01-05 overview/erd/lifecycle/business_rules/table_design, v0.1.0 DRAFT — the one module NOT tagged SOURCE ALIGNED; "ARCHITECTURALLY JUSTIFIED" per its cross-module review but "FORMAL MODULE FREEZE PENDING." Programme Type → Event Instance two-level model (Organization ≠ Event Location; Patha Chakra = Organization Type, not Event/Programme Type). 5 candidate common tables, **none frozen**: `programme_type`, `event`, `event_session`, `event_location`, `event_history`. Backed by 5 new cross-module architecture docs — see `architecture/` below. No `backend/programmes_events/` app; no README existed for this module until this pass
+├── standards/
+│   └── lifecycle/         SOL-LIFE-001 (PARTICIPATION_LIFECYCLE_RULES.md), SOL-LIFE-002 (PERSON_LIFECYCLE_RULES.md), both FROZEN v1.0.0 — added 2026-08-18, README.md added 2026-08-20; a SOLUTION-layer standards path distinct from the governance-layer docs/00_Project_Governance/STD/, not yet cross-referenced from either README or from the Sevak/Mahila/Kumari module docs that should cite SOL-LIFE-001 (see Gotchas)
+├── architecture/
+│   ├── README.md
+│   ├── TECH_STACK_DECISIONS.md        Added 2026-08-16 — approved SOLUTION-layer tech decision (see Architecture section above)
+│   ├── DEVELOPER_REFERENCE_GUIDE.md   Added 2026-08-16 — per-module "which doc to read before coding" matrix
+│   ├── PROGRAMME_EVENT_DOMAIN_MODEL.md         NEW 2026-08-24 (`SOL-EVT-001`) — domain model for Programmes & Events, feeding the new `programmes_events` module
+│   ├── EVENT_ENTITY_RECONCILIATION.md          NEW 2026-08-24 (`SOL-EVT-002`) — reconciles that domain model against UPBS/Kishor/Sevak/Mahila/Finance/Attendance's own event-shaped entities
+│   ├── MODULE_DEPENDENCY_MAP.md                NEW 2026-08-25 (`SOL-ARCH-007`) — 21-module dependency map (hard FK/runtime/domain integrations), PROPOSED not frozen
+│   ├── IMPLEMENTATION_DEPENDENCY_ORDER.md      NEW 2026-08-25 (`SOL-ARCH-008`) — 12-tier proposed build order across all 21 modules, PROPOSED not frozen
+│   └── PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md NEW 2026-08-25 (`SOL-EVT-006`) — final compatibility review for Module #21 against every other module; no hard conflicts, but open ownership/migration-strategy risks flagged
+├── database/
+│   └── DATABASE_DESIGN_STANDARDS.md   Added 2026-08-21 (`SOL-DB-001`, DRAFT — SOURCE ALIGNED Consolidation) — cross-module DB conventions consolidated from all 19 module table-design docs: `_pk` UUID PK convention, audit columns, soft-delete, master-data architecture (generic `master_category`/`master_data` vs domain masters), module ownership boundaries (§26 — one owning module per table), cross-module FK principles, DDL build order sketch. **States a `_id` business-identifier convention (`person_id`, `organization_id`, `sangha_sevi_id`) that contradicts the project's already-frozen `_code`-only convention** (`database/ddl/`, this doc's own Gotchas below, `CLAUDE.md` §8) — see Gotchas/Open questions
+├── security/
+│   └── SECURITY_ARCHITECTURE.md       Added 2026-08-21 (`SOL-SEC-001`, DRAFT — SOURCE ALIGNED Cross-Reference) — routing map only, no new rules: STD-05 (policy) → Authentication (identity/credentials) → Administration (RBAC) → Audit (logging) → per-module business rules (column-level sensitive-data handling); explicitly does not duplicate any rule already defined elsewhere
+├── infrastructure/
+│   └── DEPLOYMENT_SYNC_PLAN.md        Added 2026-08-17 — deployment/repository-sync plan
+├── ui/
+│   ├── README.md
+│   └── mockups/           Added 2026-08-16 — 13 static HTML screens (Tailwind CSS + DaisyUI via CDN, no build step) + README.md; visual targets for Phase 4, not functional prototypes
+└── (api/ still empty scaffolding — no FastAPI code exists in backend/ either)
+```
+
+`docs/03_Solution/modules/attendance/DARSHAK_BUSINESS_RULE.md` records an ERP implementation
+decision (not derived from the Bye-Law): an earlier project Rule Book used "Darshak" as an
+informal membership tier, but the actual Bye-Law (`REF-002`) has no such category — only
+Probationary/Regular/Associate. "Darshak" is corrected to mean, operationally, either a
+Probationary Member or a Regular Member visiting from another Sakha; it may appear as a UI
+display label (dashboards, attendance screens) but must never be a `membership_type_master`
+value in the database.
+
+**Doc/code gap widened, not just organization/person anymore.** The membership/family/
+attendance/kumari/kishor/mahila/sevak design docs added 2026-08-17/18 (kumari/kishor now
+promoted to v1.0.0 SOURCE ALIGNED as of 2026-08-19, still document-Status DRAFT) describe
+schemas far richer than what exists in code: `backend/membership/models.py` has 3 plain-PK
+models vs. ~10 UUID-keyed tables in the design; `backend/family/models.py` has 2 models vs. a
+frozen 4-table design; `backend/attendance/` has no models at all despite a full 5-doc design;
+and `kumari`/`kishor`/`mahila`/`sevak` have no Django app at all. **Heritage now has the same
+gap too** — added 2026-08-19 with an 8-table v1.0.0 SOURCE ALIGNED design, but
+`backend/heritage/` implements only 1 of the 8 tables (`founder_master`). **As of 2026-08-20,
+nine more module doc sets landed with the same gap:** `administration`, `audit`,
+`authentication` (Solution-layer), `backup_technical`, `foundation` (Solution-layer),
+`governance` (Solution-layer), `publications`, `reports`, `upbs` — none has a corresponding
+Django app (`publications` rides entirely on Heritage's already-unimplemented tables). **As of
+2026-08-21, `finance/` (20th module, 7 tables) landed with the same gap** — no `backend/
+finance/` app, no DDL. **As of 2026-08-25, `programmes_events/` (21st module, Module #21, 5
+candidate tables) landed with the same gap, plus its own tables are explicitly NOT FROZEN yet**
+— don't assume any of this is built, and don't assume its table names are even final. Same
+pattern as the pre-existing organization/person gap — don't assume any of these docs describe
+currently-running code.
 
 ## Setup & running
 
@@ -285,20 +404,30 @@ are two different, currently-unreconciled representations of "Person."
 `database/ddl/01_foundation/02_id_sequence_master.sql` defines an `id_sequence_master` table —
 a registry of `{sequence_code, prefix, current_value, padding_length}` rows, seeded with 4
 sequences (`PERSON`→`P`, `SANGHA_SEVI`→`SS`, `ORGANIZATION`→`ORG`, `FAMILY`→`F`, all starting at
-0 with 8-digit padding). Per `docs/03_Solution/modules/person/04_person_table_design.md`, this
-is meant to produce IDs like `P00000001` for the `person.person_code` column. **No SQL function
-or trigger and no Django code currently implements the increment/format logic** — this table is
-pure configuration waiting on an implementation.
+0 with 8-digit padding). This is meant to produce IDs like `P00000001` for the
+`person.person_code` column (`database/ddl/03_person/02_person.sql`) — **but** the current
+Person module design doc (`docs/03_Solution/modules/person/04_person_table_design.md`, v1.0.0
+SOURCE ALIGNED) names this same business identifier `person_id`, not `person_code`. The doc and
+the implemented DDL disagree on the column name; neither has been reconciled to the other yet.
+**No SQL function or trigger and no Django code currently implements the increment/format
+logic** — this table is pure configuration waiting on an implementation.
 
 ### 4. Organization hierarchy (designed, not implemented)
-`docs/03_Solution/modules/organization/01_organization_design.md` through
-`04_organization_table_design.md` fully specify a self-referencing `organization` table
-(Kendra → Anchalika/Zilla → Sakha → Patha_Chakra) plus `organization_type_master`,
-`organization_status_master`, and `organization_address`, including seed data and constraint
-names. None of it exists in `database/ddl/02_organization/` (all four files are 0 bytes) and
+`docs/03_Solution/modules/organization/01_organization_module_overview.md` through
+`05_organization_table_design.md` (v1.1.0, GOVERNANCE ALIGNED as of 2026-08-19 — restructured
+from the older 01_design/02_erd/03_business_rules/04_table_design 4-file set, which no longer
+exists) specify a self-referencing `organization` table plus `organization_type_master` and
+`organization_status_master` — three tables only, address inline on `organization` (no separate
+`organization_address` table, contradicting an earlier draft's ERD). **The specific
+Kendra → Anchalika/Zilla → Sakha → Patha_Chakra type-to-type parent matrix is explicitly NOT
+frozen** as of v1.1.0 — the business rules doc's §22 "Rules Explicitly Not Assumed" lists both
+the exact parent-compatibility matrix and the exact `organization_type_master` seed values as
+open items pending a future decision; only the generic apex + self-referencing structure is
+frozen. None of it exists in `database/ddl/02_organization/` (all four files are 0 bytes) and
 Django's `foundation.Organization` model is a much simpler placeholder (no hierarchy, no
 self-reference) that predates this design. Anyone picking up organization work should treat the
-design docs as the target and the current Django model as a stand-in to be replaced.
+design docs as the target and the current Django model as a stand-in to be replaced — but should
+not assume the type-hierarchy specifics are settled.
 
 ## Conventions & gotchas
 
@@ -333,20 +462,132 @@ design docs as the target and the current Django model as a stand-in to be repla
   columns, etc.) that the current `backend/` code does not yet implement — the built-in
   `auth.User` model and hardcoded dev settings are a long way from that target. Treat the STD
   docs as the destination, not the current state.
-- **Person module docs vs. Organization module docs.** Person module design is implemented in
-  SQL almost exactly as documented (see `docs/03_Solution/modules/person/`). Organization module
-  design is fully written but has no SQL at all — don't confuse "documented" with "built" for
-  that module.
+- **Person module docs vs. Organization module docs.** Both are designed but not implemented in
+  full — don't confuse "documented" with "built" for either. Person's design
+  (`docs/03_Solution/modules/person/`, v1.0.0 SOURCE ALIGNED) is *partially* implemented in SQL
+  (`database/ddl/03_person/` has `person` and `person_address`) but disagrees with the DDL on the
+  business-identifier column name (`person_id` in the docs vs. `person_code` in SQL — see Key
+  Workflow #3) and has no SQL counterpart at all for its second table, `document_master`.
+  Organization's design is fully written but has zero SQL — see Key Workflow #4.
 - **No tests.** Every Django app's `tests.py` is the default empty stub.
+- **Git remotes — `pie`/`org` reconciliation now closed (2026-08-20).** `git remote -v` shows
+  two remotes: `personal` (`github.com/sandeeppanda22/NSS_ERP`, daily dev) and `org`
+  (`github.com/NilachalaSaraswataSangha/NSS_ERP`, the production/deploy target, configured
+  since 2026-08-18). `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` §6 (bumped to
+  v1.1, revision note added) no longer lists the removed `pie` remote and now uses the `org`
+  alias consistently in its Production remote and Flow rows — previously flagged unreconciled
+  across three passes, closed this pass.
+- **Second "standards" location now has a README (2026-08-20).**
+  `docs/03_Solution/standards/lifecycle/` (added 2026-08-18: `SOL-LIFE-001`/
+  `PARTICIPATION_LIFECYCLE_RULES.md`, `SOL-LIFE-002`/`PERSON_LIFECYCLE_RULES.md`) is a distinct
+  path from the pre-existing governance-layer `docs/00_Project_Governance/STD/` — both are
+  legitimately different layers (SOLUTION vs. GOV per the lifecycle in `CLAUDE.md` §2). It now
+  has its own `README.md` explaining the two documents and their relationship, but neither
+  `STD/README.md` nor any top-level doc cross-references the other standards location yet, and
+  the Sevak/Mahila/Kumari module business-rules docs don't yet cite `SOL-LIFE-001` even though
+  its own text says they should reference it rather than duplicate its rules — still an open
+  cross-reference gap, just no longer a missing-README gap.
+- **Two Solution-layer module folders share a name with an existing `backend/` Django app but
+  describe unrelated schemas (new 2026-08-20).** `docs/03_Solution/modules/foundation/`
+  (8 tables: master data/geography/sequences, matching `database/ddl/01_foundation/`) is **not**
+  the same thing as the `backend/foundation/` app (which implements Person/Organization/
+  Address — those live in the separate `person/`/`organization/` Solution folders instead).
+  Likewise `docs/03_Solution/modules/authentication/` (7-table security design: user_account,
+  password_history, role_master, permission_master, role_permission, user_role, admin_scope) is
+  **not** the same schema as the real `backend/authentication/` app (`Role`, `UserRole`,
+  `LoginAudit`). Don't assume either Solution doc set describes the Django app of the same name.
+- **Mahila Parichalana Mandali term length disagrees across two frozen module docs (new
+  2026-08-20).** `docs/03_Solution/modules/governance/03_governance_business_rules.md`
+  (GOV-BR-031, "Mahila 3-Year Term | FROZEN") sets the Mandali's term at **3 years**;
+  `docs/03_Solution/modules/mahila/04_mahila_business_rules.md` (MAH-040, "Two-Year Term")
+  freezes it at **2 years**. Both are marked FROZEN in their own module. This was not caught by
+  either module's own review — flagged here, not resolved, since picking a winner is a design
+  decision this pass shouldn't make unilaterally.
+- **`DATABASE_DESIGN_STANDARDS.md` states a business-identifier convention that contradicts the
+  project's own frozen convention (new 2026-08-21).** §6/§15/§21 of
+  `docs/03_Solution/database/DATABASE_DESIGN_STANDARDS.md` (`SOL-DB-001`) define `_id` as the
+  suffix for "sequential business identifiers" (`person_id`, `organization_id`,
+  `sangha_sevi_id`), reserving `_code` for "stable classification codes" only. This directly
+  contradicts the actual implemented SQL (`database/ddl/03_person/02_person.sql` uses
+  `person_code`, not `person_id`) and the correction already recorded in `CLAUDE.md` §8
+  ("the actual SQL DDL uses `_code` (not `_id`) for business identifiers... Follow `_code` for
+  new DDL"). The document's own §36 lists all 19 module table-design docs as its source, so this
+  looks like it absorbed the newer module docs' inconsistent `_id` usage (the same
+  `person_id`/`person_code` conflict already tracked below for the Person module) rather than
+  the actual frozen DDL convention — worth a human decision on which document is wrong before
+  any new DDL is authored against `SOL-DB-001`'s stated convention.
+- **Six new lifecycle documents (2026-08-25) restate Person-death-cascade rules instead of
+  citing the existing lifecycle standards.** `person/03_person_lifecycle.md` (SOL-PER-005),
+  `family/03_family_lifecycle.md` (SOL-FAM-005), `governance/03_governance_lifecycle.md`
+  (SOL-GOV-005), `attendance/03_attendance_lifecycle.md` (SOL-ATT-006),
+  `authentication/03_authentication_security_lifecycle.md` (SOL-AUTH-005), and
+  `administration/03_administration_lifecycle.md` (SOL-ADMIN-005) each independently restate
+  near-identical death-effect language, but none cites
+  `docs/03_Solution/standards/lifecycle/PERSON_LIFECYCLE_RULES.md` (SOL-LIFE-002) or
+  `PARTICIPATION_LIFECYCLE_RULES.md` (SOL-LIFE-001) as authority, even though SOL-LIFE-001 §16
+  explicitly says modules "shall reference this standard rather than duplicating these rules."
+  Content doesn't contradict SOL-LIFE-002 for the modules already in its consequence table
+  (governance/family/attendance match it); Authentication and Administration aren't in that
+  table at all, so their "not automatically deactivated" stance is a genuine gap in SOL-LIFE-002
+  rather than a contradiction. Not fixed here — editing six lifecycle docs' rule text is a
+  content decision, not a drift correction.
+- **Governance's and Mahila's lifecycle docs disagree on more than just term length (new
+  2026-08-25).** Beyond the already-tracked 3-year vs. 2-year Mandali term conflict,
+  `governance/03_governance_lifecycle.md` §33 models Mahila reconstitution as a formal
+  consensus-attempt → election → `election`/`election_result`-table process, while
+  `mahila/03_mahila_lifecycle.md` §24–26 describes routine reconstitution as Parichalak
+  consensus + President's consent with no formal election tables at all, reserving actual
+  elections for President/Vice-President vacancies only. Neither new lifecycle doc reconciles
+  this against the other.
+- **New 21st module, `programmes_events/` (Module #21), is not source-aligned like its siblings
+  (new 2026-08-25).** Unlike every other module added since 2026-08-19 (all tagged `v1.0.0
+  DRAFT — SOURCE ALIGNED`), `programmes_events/` is v0.1.0, explicitly "FORMAL MODULE FREEZE
+  PENDING," and all 5 of its candidate tables (`programme_type`, `event`, `event_session`,
+  `event_location`, `event_history`) are marked NOT FROZEN. Don't cite any of its table names as
+  settled. The accompanying `PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md` found no hard conflicts
+  against other modules but flagged an "Ownership Ambiguity" risk (a shared Event table without
+  a clear owning module) and no frozen migration strategy for whether UPBS/Kishor/Sevak's own
+  event entities get absorbed into or merely reference the new common tables.
+- **Terminology-correction sweep (`ea50adb`, Kishore→Kishor / NSS Constitution→NSS Bye-Law /
+  constitutional→statutory) missed a few instances — fixed this pass.** Three stray leftovers
+  were found and corrected directly: an inline "REF-001 (NSS Constitution)" cross-reference in
+  `docs/01_Authoritative_References/NSS/SECTION-I_DISSOLUTION/REF-003-I_Dissolution.md`, an
+  ASCII-diagram "ONE CONSTITUTIONAL ROOT" label in
+  `docs/03_Solution/modules/organization/05_organization_table_design.md`, and a "Constitutional/
+  statutory organizational positions" redundancy in
+  `docs/03_Solution/modules/programmes_events/04_programmes_events_business_rules.md` (the
+  latter file postdates the correction commit entirely, so was never in scope for it). A fourth
+  candidate — `docs/01_Authoritative_References/MAHILA_SANGHA/SECTION-F_.../REF-MS-5_...md`'s
+  "REF-003-C (NSS Constitution of the Kendra Sangha...)" — was checked against REF-003-C's own
+  title and left alone: "Constitution of the Kendra Sangha" is that section's actual, correct
+  title, not a stale synonym for "the NSS Constitution"/REF-001.
 
 ## Open questions / TODOs
 
 - **Reconcile Django ORM models with the SQL DDL schema** for `Person` and `Organization`
   (or decide the SQL DDL track supersedes the current Django models and plan a migration).
+- **Reconcile `person_id` (design docs) vs. `person_code` (implemented SQL)** — the Person
+  table design doc names the business identifier `person_id`; the actual DDL column is
+  `person_code`. New as of the 2026-08-19 Person v1.0.0 doc pass — see Key Workflow #3.
+- **Decide the Organization type-to-type parent matrix** (which org types may parent which —
+  e.g. does ANCHALIKA/ZILLA sit under KENDRA, does PATHA_CHAKRA sit under SAKHA or KENDRA) —
+  the v1.1.0 GOVERNANCE ALIGNED business rules doc explicitly left this open rather than
+  freezing it; do not treat any specific matrix as decided until this is resolved.
 - **Implement `database/ddl/02_organization/*.sql`** — the design docs
-  (`docs/03_Solution/modules/organization/`) are ready; the DDL files are empty placeholders.
+  (`docs/03_Solution/modules/organization/`) are ready for the generic structure; the DDL files
+  are empty placeholders.
+- **Implement `document_master` in SQL** — the Person module design's second table
+  (`docs/03_Solution/modules/person/05_person_table_design.md`) has no SQL counterpart in
+  `database/ddl/03_person/`.
+- **Decide the Person address/Aadhaar/photo/blood-group model** — the v1.0.0 SOURCE ALIGNED
+  Person docs explicitly leave these open, even though `database/ddl/03_person/03_person_address.sql`
+  already implements a multi-address `person_address` table. Don't treat the SQL as a de facto
+  frozen decision without reconciling it against the docs' "OPEN" framing.
 - **Implement the `id_sequence_master` increment/formatting logic** (no function, trigger, or
   Django code currently does this — see Key Workflow #3).
+- **Implement the Founder & Heritage schema beyond `founder_master`** — the new v1.0.0 design
+  (`docs/03_Solution/modules/heritage/`) specifies 8 tables; `backend/heritage/` only implements
+  1 (`founder_master`).
 - **Wire up `family`, `membership`, and `heritage` URLs/views** — models exist, nothing is
   reachable over HTTP yet.
 - **Decide the fate of `governance` and `attendance` apps** — currently pure stubs, not even in
@@ -354,8 +595,14 @@ design docs as the target and the current Django model as a stand-in to be repla
 - **Add `family` to Django admin** — currently the only real-model app not registered.
 - **Record login attempts** — `authentication.LoginAudit` model exists but `login_view` never
   writes to it.
-- **Remove or start using** the unused `fastapi`/`starlette`/`uvicorn`/`django-htmx`/`pillow`
-  dependencies.
+- **Wire up the unused `fastapi`/`starlette`/`uvicorn`/`django-htmx`/`pillow` dependencies** —
+  no longer an open either/or as of `TECH_STACK_DECISIONS.md` (2026-08-16): FastAPI is decided
+  to be actually used for JSON APIs/sync endpoints, served via Uvicorn alongside Django. Still
+  not implemented in code as of this writing.
+- **Migrate frontend from Bootstrap 5 to Tailwind CSS + DaisyUI + Alpine.js** per the same
+  decision doc — `backend/templates/` still use Bootstrap 5 (see Architecture above); the 13
+  new mockups under `docs/03_Solution/ui/mockups/` are the visual target, not yet built into
+  Django templates.
 - **No `.env.example`** — new contributors have to reverse-engineer required env vars from
   `settings.py`; consider adding one.
 - **`docs/02_Requirements/` and `docs/04_Testing/` are empty scaffolding** — folder structure
@@ -370,3 +617,37 @@ design docs as the target and the current Django model as a stand-in to be repla
   its own dedicated REF family rather than extending `REF-00X`) plus a `REF-MS` row in
   Appendix B, backed by `GDR-002` (Approved 2026-08-12). This closes the gap an earlier pass
   had flagged here.
+- **New (2026-08-20): resolve the Mahila Parichalana Mandali term-length conflict** —
+  `governance/04_governance_business_rules.md` freezes 3 years, `mahila/04_mahila_business_rules.md`
+  freezes 2 years. Needs an explicit decision on which module doc is authoritative (or a joint
+  correction to both) before either is implemented. **Widened 2026-08-25:** the two modules'
+  new lifecycle docs (`governance/03_governance_lifecycle.md`,
+  `mahila/03_mahila_lifecycle.md`) also disagree on the reconstitution *process* itself (formal
+  election tables vs. consensus-only) — see Gotchas.
+- **New (2026-08-20): decide whether to rename one side of the `foundation`/`authentication`
+  naming collisions** — the new Solution-layer `docs/03_Solution/modules/foundation/` and
+  `.../authentication/` module folders describe different schemas than the identically-named
+  `backend/foundation/` and `backend/authentication/` Django apps. Not urgent (the doc folders
+  are internally consistent and cross-reference the collision), but worth a deliberate naming
+  decision before more code or docs are added under either name.
+- **New (2026-08-20): nine more Solution-layer module doc sets have zero backend
+  implementation** — `administration`, `audit`, `authentication` (Solution-layer),
+  `backup_technical`, `foundation` (Solution-layer), `governance` (Solution-layer),
+  `publications`, `reports`, `upbs`. No action item beyond the existing "reconcile docs vs.
+  code" pattern already tracked above for organization/person/membership/family/etc. — noting
+  scope, not proposing new work.
+- **New (2026-08-25): six new lifecycle docs (person/family/governance/attendance/
+  authentication/administration) don't cross-reference `SOL-LIFE-001`/`SOL-LIFE-002`** — each
+  restates death-cascade rules instead of citing the existing standards docs per SOL-LIFE-001's
+  own instruction to do so. Not fixed here — see Gotchas for detail; a future pass could add
+  cross-reference notes without changing any rule content.
+- **New (2026-08-25): decide `programmes_events` (Module #21)'s common-table ownership and
+  migration strategy** — `PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md` (SOL-EVT-006) flags this as
+  open; none of the 5 candidate common tables are frozen yet, and whether UPBS/Kishor/Sevak's
+  own event entities get absorbed or merely reference the new tables is undecided.
+- **New (2026-08-21): decide which document is authoritative for the business-identifier
+  suffix — `docs/03_Solution/database/DATABASE_DESIGN_STANDARDS.md` (`_id`) or the implemented
+  SQL DDL + `CLAUDE.md` §8 (`_code`).** The new cross-module consolidation document states the
+  opposite of the convention actually implemented in `database/ddl/`. Needs an explicit
+  correction to `SOL-DB-001` (or a project-wide convention change, which seems unlikely given
+  how much existing SQL/documentation already uses `_code`) — not resolved here.

@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **viii) Duties of Treasurer** — She will maintain proper accounts of all the receipts and disbursements of the Sangha.
 

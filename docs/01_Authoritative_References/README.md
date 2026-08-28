@@ -13,6 +13,6 @@ source file ever disagree, the file in `BY-LAW/` is authoritative.
 |---|---|
 | `NSS/` | The Constitution & Membership Bye-Laws, organized by legal section (A–I; no "Section J" exists in the source — the 1975 amendment Resolutions are filed under Section C, adjacent to the clauses they amend) |
 | `MAHILA_SANGHA/` | Nilachala Saraswata Mahila Sangha's own Constitution & Bye-Laws — 22 documents (`REF-MS-XXX` family), transcribed and verified against the source PDF/docx |
-| `RESOLUTIONS/` | Planned — general/administrative resolutions not tied to a specific constitutional amendment; not yet added. (The two 1975 constitutional amendment Resolutions are filed under `NSS/SECTION-C_CONSTITUTION_OF_THE_KENDRA_SANGHA/`, not here — see REF-003-C(i)(2)-1975-01 and REF-003-C(i)(8)-1975-02.) |
+| `RESOLUTIONS/` | Planned — general/administrative resolutions not tied to a specific statutory amendment; not yet added. (The two 1975 statutory amendment Resolutions are filed under `NSS/SECTION-C_CONSTITUTION_OF_THE_KENDRA_SANGHA/`, not here — see REF-003-C(i)(2)-1975-01 and REF-003-C(i)(8)-1975-02.) |
 | `CIRCULARS/` | Planned — not yet added |
 | `NOTIFICATIONS/` | Planned — not yet added |

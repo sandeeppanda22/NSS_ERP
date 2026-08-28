@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **7. FUNDS**
 

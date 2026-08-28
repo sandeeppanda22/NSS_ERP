@@ -31,7 +31,7 @@ Investigation found:
 
 1. **Project Owner = Nilachala Saraswata Sangha (NSS) itself.** `GOV-ROLE-001` in GOV-001 is amended to state this explicitly.
 2. **Governance Authority = Project Steering Committee.** These are the same body, not two distinct ones. `GOV-ROLE-002` in GOV-001 is amended to state this explicitly. The `Owner` metadata field in GOV-002 through GOV-005 and GDR-001 — previously `NSS ERP Governance Committee` — is corrected to `Project Steering Committee` to match. The `Approver` field (already `Project Steering Committee` everywhere) is unchanged.
-3. **Final decision authority for governance decisions recorded in the GDR rests with the NSS Governing Body** — the constitutional governing body of NSS (REF-003-C(i)(1)) — exercised through its President (REF-003-C(i)(3)) and/or Parichalak (REF-003-C(i)(8)), not the Governance Authority/Project Steering Committee. A new rule, `GOV-ROLE-006 — Final Decision Authority`, is added to GOV-001 §6 to state this.
+3. **Final decision authority for governance decisions recorded in the GDR rests with the NSS Governing Body** — the statutory governing body of NSS (REF-003-C(i)(1)) — exercised through its President (REF-003-C(i)(3)) and/or Parichalak (REF-003-C(i)(8)), not the Governance Authority/Project Steering Committee. A new rule, `GOV-ROLE-006 — Final Decision Authority`, is added to GOV-001 §6 to state this.
 4. The `Decision Authority` field in the already-approved GDR-002 and GDR-003 — previously `NSS ERP Governance Committee` — is corrected to `NSS Governing Body`, with a Correction Note added to each preserving the original attribution per `GDR-DATA-003` (Complete Decision History). The substance of both prior decisions is unaffected.
 5. `Approving Authority` is retired from CLAUDE.md's open-question tracking as a phantom term, matching the earlier `"Non-Conformity"` resolution — it was never introduced anywhere and does not need a definition.
 
@@ -52,12 +52,12 @@ Project Steering Committee (Governance Authority — GOV-ROLE-002)
 ## 3. Rationale
 
 - **Resolves a real structural gap, not just a naming inconsistency.** Two named bodies (`Project Steering Committee`, `NSS ERP Governance Committee`) were already in active use across seven documents without ever being formally defined or related to the roles GOV-001 does define.
-- **Separates day-to-day framework maintenance from final governance decision authority.** The Project Steering Committee (= Governance Authority) handles routine framework stewardship; escalating actual governance *decisions* to the NSS Governing Body keeps ultimate authority with NSS's real constitutional structure, consistent with GOV-ORG-001 (Constitutional Authority) and GOV-ORG-004 (Separation of Governance and Implementation).
+- **Separates day-to-day framework maintenance from final governance decision authority.** The Project Steering Committee (= Governance Authority) handles routine framework stewardship; escalating actual governance *decisions* to the NSS Governing Body keeps ultimate authority with NSS's real statutory structure, consistent with GOV-ORG-001 (Statutory Authority) and GOV-ORG-004 (Separation of Governance and Implementation).
 - **Corrects, rather than silently rewrites, already-approved decisions.** GDR-DATA-002/GDR-DATA-003 require immutable decision identity and a complete historical record; the correction notes preserve traceability instead of erasing the original (incorrect) attribution.
 
 ## 4. Alternatives Considered
 
-- **Leave `NSS ERP Governance Committee` as Decision Authority in GDR-002/GDR-003.** Rejected — the user explicitly stated final decision authority belongs to the NSS Governing Body/President/Parichalak, not an ERP-internal committee; leaving it uncorrected would misrepresent actual constitutional authority in the permanent decision record.
+- **Leave `NSS ERP Governance Committee` as Decision Authority in GDR-002/GDR-003.** Rejected — the user explicitly stated final decision authority belongs to the NSS Governing Body/President/Parichalak, not an ERP-internal committee; leaving it uncorrected would misrepresent actual statutory authority in the permanent decision record.
 - **Treat Project Steering Committee and Governance Authority as distinct bodies.** Rejected per explicit user clarification — the user's description of the Project Steering Committee's responsibilities ("maintains the governance framework, reviews proposals, evaluates GDR entries, monitors compliance") is verbatim what `GOV-ROLE-002` already defines for Governance Authority.
 - **Keep tracking `Approving Authority` as an open term.** Rejected — it has never been used anywhere in the corpus; tracking it further would be tracking a non-issue.
 

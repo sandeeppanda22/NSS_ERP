@@ -66,7 +66,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the Maintenance of the Funds of the Kendra Sangha of the Nilachala Saraswata Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the Maintenance of the Funds of the Kendra Sangha of the Nilachala Saraswata Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -98,7 +98,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **[b] Maintenance of the Funds:** The funds so collected will be kept either in the Post Office Savings Bank or in any nationalised Commercial Bank in Current, Fixed or Savings Bank Accounts or in both the Banks and Post office in the name of Nilachala Saraswata Sangha, to be operated upon jointly by the Secretary and the Treasurer of the Kendra Sangha.
 
@@ -180,7 +180,7 @@ This document was split from a combined "Maintenance and Utilisation of Funds" d
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-F[A] — Funds of the Kendra Sangha

@@ -11,7 +11,7 @@ Information" → **Source File(s) in Repository** field.
 
 | Folder | Document(s) |
 |---|---|
-| `SECTION-A_PRELIMINARY_AND_GENERAL_PROVISIONS/` | REF-001 — NSS Constitution |
+| `SECTION-A_PRELIMINARY_AND_GENERAL_PROVISIONS/` | REF-001 — NSS Bye-Law |
 | `SECTION-B_MEMBERSHIPS/` | REF-002 — Membership Bye-Laws |
 | `SECTION-C_CONSTITUTION_OF_THE_KENDRA_SANGHA/` | REF-003-C, REF-003-C(i)(1)–REF-003-C(i)(8) — Kendra Sangha constitution, Governing Body & its functions, duties of President/VP/Secretary/Asst. Secretary/Treasurer/Parichalak; plus `REF-003-C(i)(2)-1975-01` and `REF-003-C(i)(8)-1975-02` — the two 1975 amendment Resolutions, filed adjacent to the Section C clauses they amend |
 | `SECTION-D_ADVISORY_BOARD/` | REF-003-D |
@@ -21,7 +21,7 @@ Information" → **Source File(s) in Repository** field.
 | `SECTION-H_POWER_TO_AMEND/` | REF-003-H |
 | `SECTION-I_DISSOLUTION/` | REF-003-I |
 
-No standalone "Section J" exists in the source Bye-Law; the two 1975 Resolutions are constitutional amendments to Section C and are filed there (see row above), not as a separate section.
+No standalone "Section J" exists in the source Bye-Law; the two 1975 Resolutions are statutory amendments to Section C and are filed there (see row above), not as a separate section.
 
 `MAHILA_SANGHA/` (sibling folder under `docs/01_Authoritative_References/`) is now present — see
 `docs/01_Authoritative_References/MAHILA_SANGHA/README.md`. `RESOLUTIONS/`, `CIRCULARS/`,

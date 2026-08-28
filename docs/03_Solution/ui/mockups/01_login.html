@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSS ERP — Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root { --nss-saffron: #DC7831; --nss-saffron-dark: #C56A28; }
+    </style>
+</head>
+<body class="min-h-screen bg-base-200 flex items-center justify-center p-4">
+
+    <div class="card w-full max-w-sm bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+
+            <!-- Logo Section -->
+            <div class="mb-2">
+                <img src="../../../../NSS LOGO/Jayaguru english logo.jpg" alt="NSS Logo" class="w-20 h-20 mx-auto mb-3 rounded-full" />
+                <h1 class="text-2xl font-bold text-base-content">NSS ERP</h1>
+                <p class="text-sm text-base-content/60">Nilachala Saraswata Sangha</p>
+            </div>
+
+            <div class="divider my-1"></div>
+
+            <!-- Login Form -->
+            <form class="w-full space-y-4" action="/login/" method="POST">
+                <div class="form-control w-full">
+                    <label class="label">
+                        <span class="label-text font-medium">Sangha Sevi ID</span>
+                    </label>
+                    <input type="text" placeholder="SS00000001"
+                           class="input input-bordered w-full focus:input-warning"
+                           name="username" required />
+                </div>
+
+                <div class="form-control w-full">
+                    <label class="label">
+                        <span class="label-text font-medium">Password</span>
+                    </label>
+                    <input type="password" placeholder="Enter password"
+                           class="input input-bordered w-full focus:input-warning"
+                           name="password" required />
+                </div>
+
+                <div class="flex items-center justify-between w-full">
+                    <label class="label cursor-pointer gap-2">
+                        <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" />
+                        <span class="label-text text-sm">Remember me</span>
+                    </label>
+                    <a href="#" class="text-sm text-[#DC7831] hover:underline">Forgot Password?</a>
+                </div>
+
+                <button type="submit"
+                        class="btn w-full text-white border-none"
+                        style="background-color: #DC7831; hover:background-color: #C56A28;">
+                    Sign In
+                </button>
+            </form>
+
+            <div class="divider my-1"></div>
+            <p class="text-xs text-base-content/40">
+                NSS ERP v0.6.0 — Sri Shri Nigamananda Smruti Mandir, Puri
+            </p>
+        </div>
+    </div>
+
+</body>
+</html>

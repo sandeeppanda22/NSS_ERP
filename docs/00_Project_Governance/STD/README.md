@@ -12,7 +12,7 @@ to converge on.
   APIs, git branch naming.
 - `03_master_data_catalog.md` — catalog of planned master/lookup tables across the whole
   system (geography, organization, membership, family, governance, attendance, RBAC, workflow,
-  publications/heritage, Kumari/Kishore/Sevak, UPBS, finance) with example seed values — spans
+  publications/heritage, Kumari/Kishor/Sevak, UPBS, finance) with example seed values — spans
   far more modules than are currently implemented.
 - `04_audit_standards.md` — mandatory audit columns, soft-delete-only rule, dedicated history
   tables, central `audit_master` design, per-module audit requirements, retention policy.

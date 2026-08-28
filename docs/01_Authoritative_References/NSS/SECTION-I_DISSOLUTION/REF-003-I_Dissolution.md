@@ -65,7 +65,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the Dissolution of the Kendra Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the Dissolution of the Kendra Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -97,7 +97,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **I. Dissolution:** Whenever it is observed that the Kendra Sangha with its Governing Body and Advisory Board is not functioning in its right earnest towards the fulfillment of the aims and objects of the Kendra Sangha, the same will be dissolved and upon dissolution, the properties that may remain after satisfying all debts and liabilities will vest in any registered Sakha Sangha of the Kendra Sangha which will undertake to fulfill the aims and objects laid down in article 'A' and the Memorandum.
 
@@ -117,7 +117,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 Certified that this is a correct and true copy of the rules and regulations of the Nilachala Saraswata Sangha, Puri.
 
@@ -213,13 +213,13 @@ REF-SRC-003
 
 **Remarks**
 
-Clause 1 refers to "article 'A' and the Memorandum" — corresponding to REF-001 (NSS Constitution), which preserves the Objects of the Society and the Memorandum of Association. This cross-reference is preserved verbatim from the official Bye-Law and shall not be reinterpreted.
+Clause 1 refers to "article 'A' and the Memorandum" — corresponding to REF-001 (NSS Bye-Law), which preserves the Objects of the Society and the Memorandum of Association. This cross-reference is preserved verbatim from the official Bye-Law and shall not be reinterpreted.
 
 ---
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(1) — Governing Body

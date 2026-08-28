@@ -68,7 +68,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the Advisory Board of the Nilachala Saraswata Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the Advisory Board of the Nilachala Saraswata Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -100,7 +100,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **D. (a) Constitution of the Advisory Board:**
 
@@ -126,7 +126,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(b) Duties of the Advisory Board:**
 
@@ -154,7 +154,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(c) Duties of the President of the Advisory Board:** All meetings of the Board shall be presided over by the President of the Board, but in a combined meeting of the Governing Body and the Advisory Board, the President of the Governing Body will preside over the same.
 
@@ -174,7 +174,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(d) Duties of the Secretary of the Advisory Board:**
 
@@ -274,7 +274,7 @@ The cross-reference to "Para (C)(2)(xiii)" in the Duties of the Advisory Board r
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(1) — Governing Body

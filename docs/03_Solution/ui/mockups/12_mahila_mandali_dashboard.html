@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSS ERP — Mahila Parichalana Mandali Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-base-200">
+
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-sm px-6">
+        <div class="flex-1">
+            <img src="../../../../NSS LOGO/Jayaguru english logo.jpg" alt="NSS ERP" class="h-9 w-auto" /><span class="text-lg font-bold text-[#DC7831] ml-2">NSS ERP</span>
+            <span class="badge badge-outline ml-3 text-pink-600 border-pink-300">Mahila Parichalana Mandali</span>
+        </div>
+        <div class="flex-none gap-2">
+            <span class="text-sm text-base-content/60">Smt. Saraswati Devi</span>
+            <div class="avatar placeholder">
+                <div class="bg-pink-500 text-white rounded-full w-9">
+                    <span class="text-sm">SD</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-6xl mx-auto p-6">
+        <h1 class="text-2xl font-bold mb-1">Mahila Parichalana Mandali — Central Dashboard</h1>
+        <p class="text-sm text-base-content/60 mb-6">Central Governing Body for all Sakha-level Mahila Sanghas</p>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="bg-pink-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-pink-700">28</div>
+                <div class="text-xs text-base-content/60 mt-1">Mahila Sanghas</div>
+                <span class="badge badge-ghost badge-xs mt-1">1 per Sakha</span>
+            </div>
+            <div class="bg-indigo-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-indigo-700">486</div>
+                <div class="text-xs text-base-content/60 mt-1">Total Mahila Members</div>
+            </div>
+            <div class="bg-amber-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-amber-700">34</div>
+                <div class="text-xs text-base-content/60 mt-1">Renewals Due</div>
+            </div>
+            <div class="bg-green-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-green-700">81%</div>
+                <div class="text-xs text-base-content/60 mt-1">Avg. Attendance</div>
+            </div>
+        </div>
+
+        <!-- Mandali Governance -->
+        <h2 class="text-lg font-semibold mb-3">Mandali Governing Structure</h2>
+        <p class="text-xs text-base-content/50 mb-3">Per REF-MS-6(i) through REF-MS-6(viii)</p>
+        <div class="overflow-x-auto bg-base-100 rounded-xl shadow-sm mb-8">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Position</th>
+                        <th>Name</th>
+                        <th>Sangha Sevi ID</th>
+                        <th>Sakha</th>
+                        <th>Since</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-primary badge-sm">President</span></td>
+                        <td class="font-medium">Smt. Saraswati Devi</td>
+                        <td class="font-mono text-sm">SS00000021</td>
+                        <td>Puri Town</td>
+                        <td>Jun 2024</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-secondary badge-sm">Vice-President</span></td>
+                        <td class="font-medium">Smt. Lakshmi Mohapatra</td>
+                        <td class="font-mono text-sm">SS00000034</td>
+                        <td>BBSR Central</td>
+                        <td>Jun 2024</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-success badge-sm">Secretary</span></td>
+                        <td class="font-medium">Smt. Manju Pattnaik</td>
+                        <td class="font-mono text-sm">SS00000056</td>
+                        <td>Saheed Nagar</td>
+                        <td>Jun 2024</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-info badge-sm">Joint Secretary</span></td>
+                        <td class="font-medium">Smt. Gitanjali Das</td>
+                        <td class="font-mono text-sm">SS00000072</td>
+                        <td>Chandrasekharpur</td>
+                        <td>Jun 2024</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-warning badge-sm">Treasurer</span></td>
+                        <td class="font-medium">Smt. Basanti Nayak</td>
+                        <td class="font-mono text-sm">SS00000088</td>
+                        <td>Rasulgarh</td>
+                        <td>Jun 2024</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-accent badge-sm">Parichalak</span></td>
+                        <td class="font-medium">Sri Suresh Pradhan</td>
+                        <td class="font-mono text-sm">SS00000012</td>
+                        <td>Kendra</td>
+                        <td>Jun 2024</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Branch Mahila Sangha Performance -->
+        <h2 class="text-lg font-semibold mb-3">Branch Mahila Sangha Performance</h2>
+        <div class="overflow-x-auto bg-base-100 rounded-xl shadow-sm mb-8">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Sakha Sangha</th>
+                        <th>Mahila Members</th>
+                        <th>Attendance</th>
+                        <th>Renewals Due</th>
+                        <th>Kumari Active</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="font-medium">Puri Town</td>
+                        <td>32</td>
+                        <td>91%</td>
+                        <td>2</td>
+                        <td>8</td>
+                        <td><span class="badge badge-success badge-sm">Excellent</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-medium">BBSR Central</td>
+                        <td>24</td>
+                        <td>84%</td>
+                        <td>3</td>
+                        <td>6</td>
+                        <td><span class="badge badge-success badge-sm">Good</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-medium">Saheed Nagar</td>
+                        <td>28</td>
+                        <td>79%</td>
+                        <td>5</td>
+                        <td>7</td>
+                        <td><span class="badge badge-success badge-sm">Good</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-medium">Nayapalli</td>
+                        <td>18</td>
+                        <td>68%</td>
+                        <td>6</td>
+                        <td>3</td>
+                        <td><span class="badge badge-warning badge-sm">Needs Attention</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-medium">Konark</td>
+                        <td>15</td>
+                        <td>86%</td>
+                        <td>1</td>
+                        <td>5</td>
+                        <td><span class="badge badge-success badge-sm">Good</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-medium">Mancheswar</td>
+                        <td>12</td>
+                        <td>58%</td>
+                        <td>8</td>
+                        <td>2</td>
+                        <td><span class="badge badge-error badge-sm">Critical</span></td>
+                    </tr>
+                </tbody>
+                <tfoot>
+                    <tr class="font-semibold">
+                        <td>Showing 6 of 28</td>
+                        <td>129</td>
+                        <td>78% avg</td>
+                        <td>25</td>
+                        <td>31</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Upcoming Events -->
+        <h2 class="text-lg font-semibold mb-3">Upcoming Activities</h2>
+        <div class="space-y-3">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4 flex-row items-center gap-4">
+                    <div class="bg-pink-100 rounded-lg p-3 text-center min-w-[60px]">
+                        <p class="text-xs text-pink-600 font-medium">AUG</p>
+                        <p class="text-lg font-bold text-pink-800">25</p>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium text-sm">Mandali Quarterly Meeting</p>
+                        <p class="text-xs text-base-content/50">Review of branch Mahila Sangha performance + Kumari program</p>
+                    </div>
+                    <span class="badge badge-info badge-sm">Upcoming</span>
+                </div>
+            </div>
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4 flex-row items-center gap-4">
+                    <div class="bg-amber-100 rounded-lg p-3 text-center min-w-[60px]">
+                        <p class="text-xs text-amber-600 font-medium">SEP</p>
+                        <p class="text-lg font-bold text-amber-800">14</p>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium text-sm">Mahila Diwas Celebration</p>
+                        <p class="text-xs text-base-content/50">All branch Mahila Sanghas participate | Kendra venue</p>
+                    </div>
+                    <span class="badge badge-ghost badge-sm">Planned</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>

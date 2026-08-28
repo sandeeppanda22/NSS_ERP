@@ -83,7 +83,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **1) Aims and objects**
 

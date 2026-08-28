@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSS ERP — Member Search</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-base-200">
+
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-sm px-6">
+        <div class="flex-1">
+            <img src="../../../../NSS LOGO/Jayaguru english logo.jpg" alt="NSS ERP" class="h-9 w-auto" /><span class="text-lg font-bold text-[#DC7831] ml-2">NSS ERP</span>
+        </div>
+        <div class="flex-none gap-2">
+            <span class="text-sm text-base-content/60">Sri Ramesh Mohapatra</span>
+            <div class="avatar placeholder">
+                <div class="bg-orange-500 text-white rounded-full w-9">
+                    <span class="text-sm">RM</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-6xl mx-auto p-6">
+        <h1 class="text-2xl font-bold mb-6">Member Search</h1>
+
+        <!-- Search Bar -->
+        <div class="card bg-base-100 shadow-sm mb-6">
+            <div class="card-body p-4">
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <input type="text" placeholder="Search by name, Sangha Sevi ID, or mobile..."
+                           class="input input-bordered flex-1 focus:input-warning" value="Das" />
+                    <select class="select select-bordered w-full sm:w-40">
+                        <option selected>All Sakhas</option>
+                        <option>BBSR Central</option>
+                        <option>Saheed Nagar</option>
+                        <option>Nayapalli</option>
+                    </select>
+                    <button class="btn text-white border-none" style="background-color: #DC7831;">Search</button>
+                </div>
+
+                <!-- Filter Chips -->
+                <div class="flex flex-wrap gap-2 mt-3">
+                    <span class="badge badge-outline badge-sm cursor-pointer hover:badge-info">All</span>
+                    <span class="badge badge-info badge-sm cursor-pointer">Regular</span>
+                    <span class="badge badge-outline badge-sm cursor-pointer hover:badge-warning">Probationary</span>
+                    <span class="badge badge-outline badge-sm cursor-pointer hover:badge-ghost">Associate</span>
+                    <span class="badge badge-outline badge-sm cursor-pointer hover:badge-success">Active</span>
+                    <span class="badge badge-outline badge-sm cursor-pointer hover:badge-warning">Renewal Due</span>
+                    <span class="badge badge-outline badge-sm cursor-pointer hover:badge-error">Lapsed</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Info -->
+        <div class="flex justify-between items-center mb-3">
+            <p class="text-sm text-base-content/60">Showing 8 results for "Das"</p>
+            <select class="select select-bordered select-sm w-32">
+                <option>Name A-Z</option>
+                <option>Name Z-A</option>
+                <option>ID Asc</option>
+                <option>ID Desc</option>
+                <option>Newest</option>
+            </select>
+        </div>
+
+        <!-- Results Table -->
+        <div class="overflow-x-auto bg-base-100 rounded-xl shadow-sm">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Sangha Sevi ID</th>
+                        <th>Name</th>
+                        <th>Sakha</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Mobile</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000045</td>
+                        <td class="font-medium">Sri Ashok Kumar Das</td>
+                        <td>BBSR Central</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                        <td class="font-mono text-sm">94381 23456</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000046</td>
+                        <td class="font-medium">Smt. Priyanka Das</td>
+                        <td>BBSR Central</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                        <td class="font-mono text-sm">94381 23457</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000067</td>
+                        <td class="font-medium">Sri Biswajit Das</td>
+                        <td>Saheed Nagar</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td><span class="badge badge-warning badge-sm">Renewal Due</span></td>
+                        <td class="font-mono text-sm">98765 43210</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000089</td>
+                        <td class="font-medium">Sri Narayan Das</td>
+                        <td>Nayapalli</td>
+                        <td><span class="badge badge-info badge-sm">Probationary</span></td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                        <td class="font-mono text-sm">87654 32109</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000102</td>
+                        <td class="font-medium">Smt. Sarojini Das</td>
+                        <td>BBSR Central</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                        <td class="font-mono text-sm">76543 21098</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000118</td>
+                        <td class="font-medium">Sri Gopal Das</td>
+                        <td>Patia</td>
+                        <td><span class="badge badge-ghost badge-sm">Associate</span></td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                        <td class="font-mono text-sm">65432 10987</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000134</td>
+                        <td class="font-medium">Sri Harihar Das</td>
+                        <td>Rasulgarh</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td><span class="badge badge-error badge-sm">Lapsed</span></td>
+                        <td class="font-mono text-sm">54321 09876</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                    <tr class="hover">
+                        <td class="font-mono text-sm">SS00000156</td>
+                        <td class="font-medium">Sri Keshab Das</td>
+                        <td>Chandrasekharpur</td>
+                        <td><span class="badge badge-info badge-sm">Probationary</span></td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                        <td class="font-mono text-sm">43210 98765</td>
+                        <td><a href="#" class="btn btn-ghost btn-xs">View</a></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="flex justify-center mt-4">
+            <div class="join">
+                <button class="join-item btn btn-sm btn-disabled">Previous</button>
+                <button class="join-item btn btn-sm btn-active" style="background-color: #DC7831; color: white;">1</button>
+                <button class="join-item btn btn-sm">2</button>
+                <button class="join-item btn btn-sm">3</button>
+                <button class="join-item btn btn-sm">Next</button>
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>

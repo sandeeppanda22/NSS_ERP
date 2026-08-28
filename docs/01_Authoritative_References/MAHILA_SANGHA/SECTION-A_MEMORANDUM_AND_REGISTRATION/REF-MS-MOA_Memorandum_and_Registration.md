@@ -70,7 +70,7 @@ This document serves as the authoritative reference register for the Memorandum 
 
 It preserves the original Memorandum provisions in a structured reference format without interpretation, modification, or ERP implementation guidance.
 
-Where ambiguity or inconsistency exists, the official Bye-Law of the Nilachala Saraswata Mahila Sangha shall prevail, and where any conflict exists between this document and the NSS (Kendra Sangha) constitutional framework, the NSS framework prevails per GOV-ORG-001/002.
+Where ambiguity or inconsistency exists, the official Bye-Law of the Nilachala Saraswata Mahila Sangha shall prevail, and where any conflict exists between this document and the NSS (Kendra Sangha) statutory framework, the NSS framework prevails per GOV-ORG-001/002.
 
 ---
 
@@ -98,7 +98,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **Certificate of Registration of Societies, ACT XXI OF 1860, No. 7726/79 of 1974-1975**
 
@@ -124,7 +124,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **1. The name of the Society** — Nilachala Saraswata Mahila Sangha (which will be here-in-after known as "Sangha").
 
@@ -144,7 +144,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **2. Location of Registered Office of the Society** — Nilachala Kutir, At-Swargadwar, P.O. & Town—Puri.
 
@@ -164,7 +164,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **3. Objects of the Society will be —**
 
@@ -186,7 +186,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **4. The names, addresses, designation, occupation of the Governing Body are given hereunder:—**
 
@@ -218,7 +218,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **5.** We, the undersigned, are desirous of forming a society in the name of "Nilachala Saraswata Mahila Sangha" in pursuance of this Memorandum of Association and we believe that the facts stated above are true to the best of our knowledge.
 
@@ -278,7 +278,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **List of Members of Governing Body & Office Bearers of NILACHALA SARASWATA MAHILA SANGHA**
 
@@ -385,8 +385,8 @@ Source content confirmed by the project as already validated docx-against-PDF (s
 # Related Governance
 
 - GOV-ORG-001 — Apex Organizational Governance Principle (Mahila Sangha subordinate to NSS)
-- GOV-ORG-002 — Constitutional Authority Precedence
-- REF-001 — NSS Constitution
+- GOV-ORG-002 — Statutory Authority Precedence
+- REF-001 — NSS Bye-Law
 - REF-003-C — Constitution of the Kendra Sangha
 - AUTH-001 — Authoritative Reference Standard (REF-MS family; new dedicated identifier scheme distinct from the REF-00X family used for NSS's own Bye-law sections)
 

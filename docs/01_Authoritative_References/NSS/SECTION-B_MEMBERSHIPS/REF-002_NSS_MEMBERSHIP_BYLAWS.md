@@ -99,7 +99,7 @@ REF-SRC-002
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(B) Memberships** — The Kendra Sangha shall have three categories of Members:- (i) Probationary members (ii) Regular members and (iii) Associate members.
 
@@ -121,7 +121,7 @@ REF-SRC-002
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(a) Probationary members:** The minimum qualification for being enrolled as a 'probationary member' of the Kendra Sangha are:
 
@@ -159,7 +159,7 @@ REF-SRC-002
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(b) Regular members:**
 
@@ -191,7 +191,7 @@ REF-SRC-002
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(c) Associate Members** — The Parichalak, suo motto, or on the recommendation of any Sakha Sangha can enrol any person as Associate member taking into consideration his or her active participation and sympathetic attitude towards implementation of any scheme undertaken by Kendra Sangha.
 
@@ -215,7 +215,7 @@ REF-SRC-002
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(d) Cessation of Membership:**
 
@@ -251,7 +251,7 @@ Pending
 
 **Related Documents**
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 
 ---
 
@@ -281,7 +281,7 @@ None
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - GOV-000 — Enterprise Governance Framework
 - GOV-001 — Repository Governance & Documentation Architecture
 - GOV-002 — Requirement Traceability Standard

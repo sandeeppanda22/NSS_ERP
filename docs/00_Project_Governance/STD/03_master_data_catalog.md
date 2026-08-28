@@ -446,9 +446,9 @@ WITHDRAWN
 
 ---
 
-# 14. Kishore Masters
+# 14. Kishor Masters
 
-## kishore_status_master
+## kishor_status_master
 
 Values:
 

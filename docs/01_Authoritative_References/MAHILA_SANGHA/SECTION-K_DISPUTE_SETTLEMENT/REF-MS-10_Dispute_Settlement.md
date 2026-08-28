@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **10. Settlement of disputes, if any** — If any controversy arises in any matter pertaining to the affairs of Nilachala Kutir and the Sangha, the same should be referred to the Parichalak, Nilachala Saraswata Sangha. His decisions can not be challenged in any court of law and shall be held binding on all concerned.
 

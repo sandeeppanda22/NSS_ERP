@@ -97,7 +97,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(4) Duties of the Vice-President:** The Vice-President shall preside over all the meeting of the Governing Body and the combined meeting of the Governing Body and Advisory Board during the absence of the President.
 
@@ -181,7 +181,7 @@ None
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(1) — Governing Body

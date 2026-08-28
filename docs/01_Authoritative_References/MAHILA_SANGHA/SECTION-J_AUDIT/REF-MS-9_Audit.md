@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **9. Audit.** The accounts of Sangha shall be audited every year by appointing a qualified auditor and the audit report shall be placed before the Governing Body for final approval only after which the same will be placed before the General Body of the Sangha by the Secretary of the Sangha, for their approval.
 

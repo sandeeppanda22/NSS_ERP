@@ -66,7 +66,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the General Body of the Nilachala Saraswata Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the General Body of the Nilachala Saraswata Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -98,7 +98,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(E) [a] General Body:** All regular and associate members of the Kendra Sangha and its Sakha Sangha including Mahila Sanghas holding 'Parichaya Patra' issued by the Kendra Sangha and valid for the year will constitute the General Body of the Kendra Sangha.
 
@@ -118,7 +118,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **[b] Duties and Functions of the General Body:**
 
@@ -206,7 +206,7 @@ None
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(1) — Governing Body

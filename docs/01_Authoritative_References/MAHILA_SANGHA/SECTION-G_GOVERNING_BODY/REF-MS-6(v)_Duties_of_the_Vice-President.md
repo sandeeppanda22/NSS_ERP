@@ -81,7 +81,7 @@ REF-SRC-MS
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **v) Duties and functions of the Vice-President** — She will help and assist the President in matters mentioned in paragraphs-6 (iii). In the absence of President she will preside over the meetings of the Sangha and the Governing Body.
 

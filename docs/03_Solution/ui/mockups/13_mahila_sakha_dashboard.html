@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSS ERP — Sakha Mahila Sangha Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-base-200">
+
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-sm px-6">
+        <div class="flex-1">
+            <img src="../../../../NSS LOGO/Jayaguru english logo.jpg" alt="NSS ERP" class="h-9 w-auto" /><span class="text-lg font-bold text-[#DC7831] ml-2">NSS ERP</span>
+            <span class="badge badge-outline ml-3 text-pink-600 border-pink-300">Mahila Sangha</span>
+        </div>
+        <div class="flex-none gap-2">
+            <span class="text-sm text-base-content/60">Smt. Sujata Mohapatra</span>
+            <div class="avatar placeholder">
+                <div class="bg-pink-500 text-white rounded-full w-9">
+                    <span class="text-sm">SM</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-5xl mx-auto p-6">
+        <h1 class="text-2xl font-bold mb-1">Mahila Sangha — Ekamra Sakha Sangha</h1>
+        <p class="text-sm text-base-content/60 mb-6">Secretary: Smt. Sujata Mohapatra | Part of Sakha: Ekamra Sakha Sangha | Anchalika: Kendrapada</p>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="bg-pink-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-pink-700">24</div>
+                <div class="text-xs text-base-content/60 mt-1">Mahila Members</div>
+            </div>
+            <div class="bg-amber-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-amber-700">6</div>
+                <div class="text-xs text-base-content/60 mt-1">Kumari Active</div>
+            </div>
+            <div class="bg-green-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-green-700">84%</div>
+                <div class="text-xs text-base-content/60 mt-1">Mahila Attendance</div>
+            </div>
+            <div class="bg-amber-50 rounded-xl p-4 text-center">
+                <div class="text-3xl font-bold text-amber-700">3</div>
+                <div class="text-xs text-base-content/60 mt-1">Renewals Due</div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <h2 class="text-lg font-semibold mb-3">Quick Actions</h2>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <button class="btn btn-ghost bg-pink-50 hover:bg-pink-100 flex-col h-auto py-4 gap-2">
+                <svg class="w-6 h-6 text-pink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                <span class="text-xs font-medium">Mark Attendance</span>
+            </button>
+            <button class="btn btn-ghost bg-indigo-50 hover:bg-indigo-100 flex-col h-auto py-4 gap-2">
+                <svg class="w-6 h-6 text-indigo-600" fill="currentColor" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                <span class="text-xs font-medium">Add Member</span>
+            </button>
+            <button class="btn btn-ghost bg-amber-50 hover:bg-amber-100 flex-col h-auto py-4 gap-2">
+                <svg class="w-6 h-6 text-amber-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                <span class="text-xs font-medium">Renew</span>
+            </button>
+            <button class="btn btn-ghost bg-green-50 hover:bg-green-100 flex-col h-auto py-4 gap-2">
+                <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+                <span class="text-xs font-medium">Schedule Event</span>
+            </button>
+        </div>
+
+        <!-- Members List -->
+        <h2 class="text-lg font-semibold mb-3">Mahila Members</h2>
+        <div class="overflow-x-auto bg-base-100 rounded-xl shadow-sm mb-8">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Sangha Sevi ID</th>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Attendance</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="font-mono text-sm">SS00000046</td>
+                        <td class="font-medium">Smt. Priyanka Das</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td>92%</td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-mono text-sm">SS00000052</td>
+                        <td class="font-medium">Smt. Sujata Mohapatra</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td>96%</td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-mono text-sm">SS00000063</td>
+                        <td class="font-medium">Smt. Rina Mishra</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td>78%</td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-mono text-sm">SS00000074</td>
+                        <td class="font-medium">Smt. Mamata Behera</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td>85%</td>
+                        <td><span class="badge badge-warning badge-sm">Renewal Due</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-mono text-sm">SS00000081</td>
+                        <td class="font-medium">Smt. Jyoti Sahoo</td>
+                        <td><span class="badge badge-info badge-sm">Probationary</span></td>
+                        <td>88%</td>
+                        <td><span class="badge badge-success badge-sm">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td class="font-mono text-sm">SS00000099</td>
+                        <td class="font-medium">Smt. Kanaklata Panda</td>
+                        <td><span class="badge badge-ghost badge-sm">Regular</span></td>
+                        <td>72%</td>
+                        <td><span class="badge badge-warning badge-sm">Renewal Due</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Kumari Section -->
+        <h2 class="text-lg font-semibold mb-3">Kumari Sangha (Youth Wing)</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+            <div class="card bg-amber-50 border border-amber-200">
+                <div class="card-body p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="avatar placeholder">
+                            <div class="bg-amber-100 text-amber-700 rounded-full w-10">
+                                <span class="text-sm font-bold">AN</span>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="font-medium text-sm">Ananya Das</p>
+                            <p class="text-xs text-base-content/50">KM00000034 | Age 16</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-amber-50 border border-amber-200">
+                <div class="card-body p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="avatar placeholder">
+                            <div class="bg-amber-100 text-amber-700 rounded-full w-10">
+                                <span class="text-sm font-bold">SR</span>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="font-medium text-sm">Swati Rath</p>
+                            <p class="text-xs text-base-content/50">KM00000041 | Age 14</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-amber-50 border border-amber-200">
+                <div class="card-body p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="avatar placeholder">
+                            <div class="bg-amber-100 text-amber-700 rounded-full w-10">
+                                <span class="text-sm font-bold">PM</span>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="font-medium text-sm">Priya Mohanty</p>
+                            <p class="text-xs text-base-content/50">KM00000048 | Age 15</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <h2 class="text-lg font-semibold mb-3">Recent Activity</h2>
+        <div class="space-y-3">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4 flex-row items-center gap-4">
+                    <div class="bg-green-100 rounded-lg p-2">
+                        <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium">Mahila Puja Attendance — 10 Aug 2026</p>
+                        <p class="text-xs text-base-content/50">21 of 24 present (87%)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4 flex-row items-center gap-4">
+                    <div class="bg-pink-100 rounded-lg p-2">
+                        <svg class="w-5 h-5 text-pink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93z"/></svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium">Kumari Activity — Bhajan Session</p>
+                        <p class="text-xs text-base-content/50">5 of 6 Kumari participated | 3 Aug 2026</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4 flex-row items-center gap-4">
+                    <div class="bg-blue-100 rounded-lg p-2">
+                        <svg class="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium">New Member — Smt. Jyoti Sahoo</p>
+                        <p class="text-xs text-base-content/50">Probationary admission | 28 Jul 2026</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>

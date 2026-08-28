@@ -65,7 +65,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the Audit of the accounts of the Nilachala Saraswata Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the Audit of the accounts of the Nilachala Saraswata Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -97,7 +97,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **G. Audit:** The Accounts of the Kendra Sangha shall be audited every year by appointing a qualified Auditor by the Governing Body and the Audit Report shall be placed first before the Governing Body and then in the combined meeting of the Governing Body and the Advisory Board for their approval only after which the same will be placed before the General Body of the Kendra Sangha by the Secretary.
 
@@ -185,7 +185,7 @@ None
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(1) — Governing Body

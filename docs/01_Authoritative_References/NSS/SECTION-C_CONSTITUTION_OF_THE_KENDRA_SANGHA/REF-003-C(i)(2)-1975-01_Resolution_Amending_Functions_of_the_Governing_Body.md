@@ -29,8 +29,8 @@
 
 | Version | Date | Description |
 |----------|------------|-------------------------------------------|
-| 1.0 | 2026-08-11 | Created as a new document, filed adjacent to the clause it amends (REF-003-C(i)(2)), per explicit project instruction to represent amendment resolutions alongside the constitutional clauses they modify. |
-| 1.1 | 2026-08-11 | Removed references to REF-003-017 (Additional Resolutions 1975), which was deleted from the repository; corrected constitutional provision numbering to match the source's actual VI(A)/VI(B) lettering instead of generic sequential clause numbering. |
+| 1.0 | 2026-08-11 | Created as a new document, filed adjacent to the clause it amends (REF-003-C(i)(2)), per explicit project instruction to represent amendment resolutions alongside the statutory clauses they modify. |
+| 1.1 | 2026-08-11 | Removed references to REF-003-017 (Additional Resolutions 1975), which was deleted from the repository; corrected statutory provision numbering to match the source's actual VI(A)/VI(B) lettering instead of generic sequential clause numbering. |
 
 ---
 
@@ -70,7 +70,7 @@ REF-SRC-003
 
 This document preserves Resolution No. 1, dated 21-10-1975, which amends the "Functions of the Governing Body" provisions of Section C of the Bye-Law of the Nilachala Saraswata Sangha (see REF-003-C(i)(2)) by inserting two new sub-sections after the existing Sub-Section VI.
 
-This document is filed adjacent to the clause it amends (REF-003-C(i)(2)) to preserve direct traceability between the original constitutional provision and the amendment affecting it. It does not replace, restate, or supersede REF-003-C(i)(2); the original clause remains authoritative and unmodified in its own document, and this Resolution is an addition to it.
+This document is filed adjacent to the clause it amends (REF-003-C(i)(2)) to preserve direct traceability between the original statutory provision and the amendment affecting it. It does not replace, restate, or supersede REF-003-C(i)(2); the original clause remains authoritative and unmodified in its own document, and this Resolution is an addition to it.
 
 ---
 
@@ -98,7 +98,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(FOUNDED BY NIGAMANANDA SARASWATI DEB IN 1934)**
 
@@ -186,13 +186,13 @@ REF-SRC-003
 
 **Remarks**
 
-This document was created as a new file alongside the existing REF-003-C(i)(2) file. No existing filenames or folder structures were changed as part of creating this document, per project branch scope. The filename `REF-003-C(i)(2)-1975-01_Resolution_Amending_Functions_of_the_Governing_Body.md` was chosen per explicit project instruction, combining the composite clause-locator prefix `REF-003-C(i)(2)` with the requested `1975-01_Resolution_Amending_...` naming; this document is a new file, not a rename of any existing file. This document previously referenced a combined record, REF-003-017 (Additional Resolutions 1975); that file has since been deleted from the repository, and all references to it have been removed from this document. The constitutional provision numbering was also corrected from generic sequential "Clause N" labels to the source's actual VI(A)/VI(B) lettering.
+This document was created as a new file alongside the existing REF-003-C(i)(2) file. No existing filenames or folder structures were changed as part of creating this document, per project branch scope. The filename `REF-003-C(i)(2)-1975-01_Resolution_Amending_Functions_of_the_Governing_Body.md` was chosen per explicit project instruction, combining the composite clause-locator prefix `REF-003-C(i)(2)` with the requested `1975-01_Resolution_Amending_...` naming; this document is a new file, not a rename of any existing file. This document previously referenced a combined record, REF-003-017 (Additional Resolutions 1975); that file has since been deleted from the repository, and all references to it have been removed from this document. The statutory provision numbering was also corrected from generic sequential "Clause N" labels to the source's actual VI(A)/VI(B) lettering.
 
 ---
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - REF-003-C(i)(2) — Functions of the Governing Body (amended clause)

@@ -65,7 +65,7 @@ REF-SRC-003
 
 # Introduction
 
-This document serves as the authoritative reference register for the constitutional provisions relating to the Governing Body of the Nilachala Saraswata Sangha.
+This document serves as the authoritative reference register for the statutory provisions relating to the Governing Body of the Nilachala Saraswata Sangha.
 
 It preserves the original Governance Bye-Law provisions in a structured reference format without interpretation, modification or ERP implementation guidance.
 
@@ -97,7 +97,7 @@ REF-SRC-003
 
 ---
 
-### Constitutional Provision
+### Statutory Provision
 
 **(1) Constitution:**
 
@@ -205,9 +205,9 @@ REF-SRC-003
 
 **Remarks**
 
-Historical constitutional record.
+Historical statutory record.
 
-Clause 6 records the composition of the Governing Body at the time of publication/registration of the official Bye-Law and is preserved for constitutional reference only.
+Clause 6 records the composition of the Governing Body at the time of publication/registration of the official Bye-Law and is preserved for statutory reference only.
 
 The current Governing Body is maintained separately through the applicable governance records and shall not be inferred from this clause.
 
@@ -215,7 +215,7 @@ The current Governing Body is maintained separately through the applicable gover
 
 # Related Governance
 
-- REF-001 — NSS Constitution
+- REF-001 — NSS Bye-Law
 - REF-002 — NSS Membership By-Laws
 - REF-003-C — Constitution of the Kendra Sangha
 - GOV-000 — Enterprise Governance Framework

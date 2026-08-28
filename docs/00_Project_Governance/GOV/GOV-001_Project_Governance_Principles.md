@@ -44,7 +44,7 @@ The purpose of this document is to establish the governance principles that dire
 
 This standard defines the governance framework that ensures all project activities remain aligned with:
 
-- Official NSS Constitution and Bye-Laws
+- Official NSS Bye-Law
 - Authoritative Reference (REF) documents
 - Repository governance standards (AUTH)
 - Approved project requirements
@@ -71,7 +71,7 @@ This standard applies to all project domains, including requirements, solution d
 This standard does not define:
 
 - repository management standards (defined in AUTH);
-- authoritative constitutional content (defined in REF);
+- authoritative statutory content (defined in REF);
 - individual governance decisions (recorded in GDR);
 - functional business requirements (defined in REQ); or
 - technical implementation details (defined in SOLUTION).
@@ -140,15 +140,15 @@ The governance principles defined in this section establish the foundational rul
 
 These principles are mandatory unless superseded through the approved governance change process.
 
-### GOV-ORG-001 — Constitutional Authority
+### GOV-ORG-001 — Statutory Authority
 
 **Rule Maturity:** Frozen
 
-The Official NSS Constitution and Bye-Laws constitute the highest governing authority for the NSS ERP project.
+The Official NSS Bye-Law constitute the highest governing authority for the NSS ERP project.
 
-All governance standards, authoritative references, requirements, solution designs, implementation artifacts, tests, and releases shall remain consistent with the constitutional authority.
+All governance standards, authoritative references, requirements, solution designs, implementation artifacts, tests, and releases shall remain consistent with the statutory authority.
 
-Where a conflict exists between project documentation and the Official NSS Constitution and Bye-Laws, the constitutional authority shall prevail.
+Where a conflict exists between project documentation and the Official NSS Bye-Law, the statutory authority shall prevail.
 
 ---
 
@@ -215,7 +215,7 @@ Every normative rule implemented within the NSS ERP project shall be traceable t
 
 The source of authority shall be one or more of the following:
 
-- Official NSS Constitution and Bye-Laws;
+- Official NSS Bye-Law;
 - Authoritative Reference (REF) documents;
 - Approved governance standards (AUTH or GOV);
 - Approved Governance Decision Register (GDR) entries; or
@@ -261,7 +261,7 @@ Loss of traceability shall be treated as a governance non-compliance requiring c
 
 The governance lifecycle defines the processes for establishing, maintaining, modifying, and retiring governance standards within the NSS ERP project.
 
-Governance activities shall preserve stability, traceability, and constitutional compliance throughout the project lifecycle.
+Governance activities shall preserve stability, traceability, and statutory compliance throughout the project lifecycle.
 
 ---
 
@@ -388,13 +388,13 @@ Responsibilities include:
 
 - establishing governance objectives;
 - approving the Governance Baseline;
-- ensuring constitutional alignment;
+- ensuring statutory alignment;
 - approving major governance decisions; and
 - providing strategic direction for project governance.
 
-The Project Owner serves as the highest authority for project governance, subject to the Official NSS Constitution and Bye-Laws.
+The Project Owner serves as the highest authority for project governance, subject to the Official NSS Bye-Law.
 
-The Project Owner is Nilachala Saraswata Sangha (NSS) itself — the ERP project exists to serve NSS, and NSS holds ultimate ownership of its governance, subject to the Official NSS Constitution and Bye-Laws. See GDR-004.
+The Project Owner is Nilachala Saraswata Sangha (NSS) itself — the ERP project exists to serve NSS, and NSS holds ultimate ownership of its governance, subject to the Official NSS Bye-Law. See GDR-004.
 
 ---
 
@@ -445,7 +445,7 @@ Governance documents shall undergo appropriate review before approval.
 
 The review process shall verify:
 
-- constitutional alignment;
+- statutory alignment;
 - compliance with governance standards;
 - traceability;
 - document completeness;
@@ -472,7 +472,7 @@ Responsibility for governance may be delegated; however, accountability for gove
 
 **Rule Maturity:** Frozen
 
-Final decision authority for governance decisions recorded in the Governance Decision Register (GDR-001) rests with the NSS Governing Body — the constitutional governing body of Nilachala Saraswata Sangha (REF-003-C(i)(1)) — exercised through its President (REF-003-C(i)(3)) and/or Parichalak (REF-003-C(i)(8)) in accordance with the Official NSS Constitution and Bye-Laws.
+Final decision authority for governance decisions recorded in the Governance Decision Register (GDR-001) rests with the NSS Governing Body — the statutory governing body of Nilachala Saraswata Sangha (REF-003-C(i)(1)) — exercised through its President (REF-003-C(i)(3)) and/or Parichalak (REF-003-C(i)(8)) in accordance with the Official NSS Bye-Law.
 
 This is distinct from the Governance Authority (GOV-ROLE-002), which maintains and reviews the governance framework day-to-day but does not hold final decision authority over individual governance decisions. The Decision Authority field defined in GDR-001 shall, for this project, be recorded as the NSS Governing Body unless a specific decision is explicitly and formally delegated otherwise.
 
@@ -494,7 +494,7 @@ All governance documents, project artifacts, and project activities shall comply
 
 Compliance shall include adherence to:
 
-- Official NSS Constitution and Bye-Laws;
+- Official NSS Bye-Law;
 - Authoritative Reference (REF) documents;
 - Repository governance standards (AUTH);
 - Project governance standards (GOV);
@@ -534,7 +534,7 @@ The governance framework shall be reviewed periodically to ensure continued effe
 Governance reviews may evaluate:
 
 - governance completeness;
-- constitutional alignment;
+- statutory alignment;
 - traceability;
 - document consistency;
 - governance process effectiveness; and
@@ -621,7 +621,7 @@ The normative governance hierarchy is defined in GOV-ORG-002.
 | Layer | Primary Purpose |
 |--------|-----------------|
 | Constitution | Highest governing authority |
-| REF | Constitutional references |
+| REF | Statutory references |
 | AUTH | Repository governance |
 | GOV | Project governance |
 | REQ | Business requirements |
