@@ -74,11 +74,11 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Location master (country, state, district, city, postal) | 1. Project Standards | `docs/00_Project_Governance/STD/01_project_standards.md` |
 | | 2. Naming Conventions | `docs/00_Project_Governance/STD/02_naming_conventions.md` |
 | | 3. Master Data Catalog | `docs/00_Project_Governance/STD/03_master_data_catalog.md` |
-| | 4. Existing DDL | `database/ddl/01_foundation/03_location_master_tables.sql` |
-| | 5. Seed Data | `database/seed/01_foundation/02_location_master_seed.sql` |
+| | 4. Existing DDL (implemented 2026-08-30) | `database/ddl/01_foundation/05_country.sql`, `09_state.sql`, `10_district.sql`, `11_city_village.sql`, `12_postal_code.sql`, `13_city_village_postal_code_map.sql` |
+| | 5. Seed Data | `database/seed/01_foundation/04_country.sql`, `05_state.sql`, `06_district.sql` (city_village/postal_code seeded at deployment, not in repo) |
 | ID Sequence (person code, sangha sevi, org code) | 1. Project Standards | `docs/00_Project_Governance/STD/01_project_standards.md` |
-| | 2. Existing DDL | `database/ddl/01_foundation/02_id_sequence_master.sql` |
-| | 3. Seed Data | `database/seed/01_foundation/01_id_sequence_master.sql` |
+| | 2. Existing DDL (implemented 2026-08-30) | `database/ddl/01_foundation/04_id_sequence_master.sql` |
+| | 3. Seed Data | `database/seed/01_foundation/03_id_sequence_master.sql` |
 
 ---
 

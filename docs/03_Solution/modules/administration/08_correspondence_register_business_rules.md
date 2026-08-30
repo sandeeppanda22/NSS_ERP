@@ -38,8 +38,8 @@ Each rule is tagged with its classification.
 
 | Direction | Format | Example |
 |-----------|--------|---------|
-| INWARD | `<ORG_SHORT_CODE>/IN/YYYY-YY/NNN` | EKM/IN/2026-27/001 |
-| OUTWARD | `<ORG_SHORT_CODE>/OUT/YYYY-YY/NNN` | EKM/OUT/2026-27/001 |
+| INWARD | `<ORG_SHORT_CODE>/IN/YYYY-YY/NNN` | ESS/IN/2026-27/001 |
+| OUTWARD | `<ORG_SHORT_CODE>/OUT/YYYY-YY/NNN` | ESS/OUT/2026-27/001 |
 
 Where `<ORG_SHORT_CODE>` is the `organization_short_code` (VARCHAR(5),
 UNIQUE) of the organization that owns the correspondence register.

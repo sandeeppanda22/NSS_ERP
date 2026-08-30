@@ -26,10 +26,12 @@ Create `backend/.env` with `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_P
 no defaults at `backend/config/settings.py`, so the app won't start without them.
 
 **Database:** provision PostgreSQL with the `pgcrypto` extension, then run the hand-written DDL
-under `database/ddl/` in numeric folder order (`01_foundation` → `02_organization` [currently
-all 0-byte placeholders, nothing to run] → `03_person`), then `database/seed/` in the same
-order. This raw-SQL track is **not** consumed by the Django app below — see the architecture
-note.
+under `database/ddl/` in numeric folder order (`01_foundation` — **12 real tables as of
+2026-08-30**, the "Foundation Vertical Slice," see §3 — → `02_organization` [currently all
+0-byte placeholders, nothing to run] → `03_person` [superseded prototype, will be replaced]),
+then `database/seed/` in the same order (see `database/README.md` for exact `psql`
+invocations). This raw-SQL track is **not** consumed by the Django app below — see the
+architecture note.
 
 **Run the Django app (from `backend/`):**
 ```
@@ -52,10 +54,12 @@ unilaterally — raise it as an open question if it's blocking.
 running app actually uses; the hand-written SQL DDL under `database/ddl/` (UUID `_pk` columns,
 `person_code`/business-`_code` identifiers, `gender_pk` FK to `gender_master`) is the "real"
 intended schema per the standards docs but is not read from or written to by any Django code.
-Don't assume a change to one is reflected in the other. Full detail, plus the current
-directory-by-directory breakdown of `backend/`, `database/`, and `docs/`, lives in
-`docs/PROJECT_DOCUMENTATION.md` — read that before proposing schema or module-layout changes,
-rather than rediscovering structure from scratch.
+As of 2026-08-30 the `01_foundation/` slice of that DDL track is real and substantial (12
+tables, full seed data — see §3/§7) — but it's still **zero backend/Django code**; don't assume
+a change to one is reflected in the other. Full detail, plus the current directory-by-directory
+breakdown of `backend/`, `database/`, and `docs/`, lives in `docs/PROJECT_DOCUMENTATION.md` —
+read that before proposing schema or module-layout changes, rather than rediscovering structure
+from scratch.
 
 ---
 
@@ -112,6 +116,69 @@ pushing, and fast-forward-merging `feature/ref-documentation` into `develop`)
 > Verified via `git status` / `git log` / `git branch` — do not trust handoff-doc claims over
 > this without re-verifying, since handoffs go stale.
 
+- **Branch/remotes (updated 2026-08-30, later same day — supersedes the bullet directly below
+  for current branch/HEAD state; that bullet's content-level findings are unaffected and still
+  live).** Committed the Foundation-Vertical-Slice reconciliation + Ekamra short-code fix as
+  `8447c46` on `feature/ref-documentation` (on top of `1d96fb1`), then fast-forward-merged
+  `feature/ref-documentation` into `develop` (clean fast-forward, `fa83e5f..8447c46`, no
+  conflicts — `develop` was already a direct ancestor of the feature branch), then committed a
+  small follow-up (`3f9a525`) recording that merge in this section. Active branch is
+  now `develop` at `3f9a525`, working tree clean, **3 commits ahead of `personal/develop`** (not
+  pushed — `git fetch personal` failed in-sandbox with a domain-allowlist 403, consistent with
+  the push/fetch restriction noted in past sessions; push manually from a terminal if needed). A
+  same-session `/document-project` re-run found no further drift — `git diff --stat 8447c46..HEAD`
+  shows only this file's own `3f9a525` commit, nothing else changed. `feature/ref-documentation`
+  still exists, untouched, pointing at `8447c46` (one commit behind `develop` now — just this
+  file's tracking commit).
+- **Branch/remotes (updated 2026-08-30 — supersedes the 2026-08-28 bullet below for current
+  branch/HEAD state; that bullet's fixes are unaffected and still live).** Active branch is
+  `feature/ref-documentation` at `1d96fb1`, working tree clean, in sync with
+  `personal/feature/ref-documentation` (0 commits ahead — pushed). `develop` sits one commit
+  behind at `fa83e5f` (a merge of `personal/develop`); `feature/membership-design` has its own
+  merge of `develop` (`9dffc6f`) not yet reflected here. Since the 2026-08-28 pass, 6 more
+  commits landed: `4012864`/`b71fc3a` → `caa26b5` → `ef52db4` → `81c510e` → `2f6f227` →
+  `262a2e8` (all already covered by the 2026-08-28 bullet below) → **`ea8a4b4`
+  `feat(foundation): Foundation vertical slice DDL + seeds, freeze 8 org types`** — the
+  **first real backend/database-track change in the repo's history**: `database/ddl/
+  01_foundation/` grew from a thin prototype to 13 files/12 tables (`master_category`,
+  `system_setting`, `id_sequence_master`, `country`, `document_master`, `field_change_log`,
+  `master_data`, `state`, `district`, `city_village`, `postal_code`,
+  `city_village_postal_code_map`), `database/seed/01_foundation/` grew to 7 files with real
+  reference data (11 master categories, ~40 master-data values, 9 ID sequences, 5 countries,
+  112 states, ~770 Indian districts, 5 system settings), and the Organization module's business
+  rules froze exactly 8 organization types (3 unique + 5 sequence-generated via the new
+  `id_sequence_master` rows) → `b7148c7` (`fix(foundation): widen Person Code sequence padding
+  from 8 to 10 digits` — first Person Code is now `P0000000001`, not `P00000001`) → `4ab394a`
+  (`docs: freeze ORG-PENDING-001 (org short code) and CORR-EXT-001 (org-scoped correspondence
+  numbering)`) → `05f2dfb` (`docs: fix org short-code example (EKM→ESS) and drop stale
+  Bhubaneshwar example` — but only in 2 of the 3 documents that carry the example, see below) →
+  `37bfefc` (expanded `database/ddl/01_foundation/README.md`/`seed/01_foundation/README.md`
+  from thin stubs into full per-table/per-file references) → `fa83e5f` (merge, `develop` only)
+  → `1d96fb1` (fixes the `IMPLEMENTATION_DEPENDENCY_ORDER.md` §79 / `MODULE_DEPENDENCY_MAP.md`
+  §3 self-inconsistencies the 2026-08-28 pass had flagged — see §13, both now resolved). `git
+  diff --stat 262a2e8..HEAD -- backend/` confirms **zero** `backend/` changes — this is purely a
+  `database/` + docs landing, not a Django-code one. A `/document-project` pass this session
+  found and fixed: (1) `database/README.md` said "10 tables" for Foundation in 3 places against
+  its own sibling `ddl/01_foundation/README.md`'s "12 tables" — fixed to 12; (2)
+  `docs/03_Solution/modules/foundation/README.md`'s "SQL status"/"Current Status" notes still
+  said 5 of 10 designed tables had no SQL — fixed to reflect all 10 implemented, plus flagged
+  the 2 extra implemented-but-undesigned tables (`postal_code`/`city_village_postal_code_map`);
+  (3) `docs/PROJECT_DOCUMENTATION.md`'s `database/` detail tree, Key Workflow #3, and the
+  Architecture section's "Pre-DDL architecture gates" paragraph all still described the DDL
+  track as unexecuted/prototype-only — rewritten; (4) `docs/PROJECT_DOCUMENTATION.md`'s Open
+  Questions still listed the `IMPLEMENTATION_DEPENDENCY_ORDER.md`/`MODULE_DEPENDENCY_MAP.md`
+  self-inconsistencies as open even though `1d96fb1` (this branch's own history) had already
+  fixed them — marked resolved; (5) found a **new, three-way inconsistency** `05f2dfb` left
+  behind: `CROSS_MODULE_PRINCIPLES.md` §20.1 (the actual FROZEN canonical `ORG-PENDING-001`
+  rule) still shows `EKM (Ekamra), BHB (Bhubaneshwar), KEN (Kendra)`, unchanged by either commit;
+  `PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md` was fixed to `ESS`/no-BHB;
+  `08_correspondence_register_business_rules.md` §3.1's own format table still shows
+  `EKM/IN/2026-27/001` (only its separate "Additional examples" block had `BHB` dropped) — this
+  file's own prior §13 line citing "ESS/BHB/KEN" as if that were a single consistent example was
+  itself wrong; corrected below, flagged as a new open item rather than guessing which code is
+  right; (6) found `ORG-PENDING-001` was frozen only in `CROSS_MODULE_PRINCIPLES.md` and never
+  propagated into the Organization module's own overview/ERD/business-rules/table-design docs or
+  README — flagged, not fixed.
 - **Branch/remotes (updated 2026-08-28 — supersedes the 2026-08-25 bullet below for current
   branch/HEAD/commit-count state; that bullet's fixes are unaffected and still live).** Active
   branch is still `feature/ref-documentation`, working tree has this pass's doc edits
@@ -546,7 +613,8 @@ implemented in SQL and used everywhere else in this file — another unreconcile
 §13. **One table in the design: `person`.** `document_master` (originally Person's second
 table) was reassigned to Foundation as a shared document registry on 2026-08-26
 (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`, FROZEN) — Person now only consumes it via FK; see
-the Foundation bullet below. It still has no SQL counterpart under either module.
+the Foundation bullet below. **SQL implemented 2026-08-30** at
+`database/ddl/01_foundation/06_document_master.sql` (Foundation Vertical Slice, `ea8a4b4`).
 
 **Membership (frozen):** `Sangha Sevi ID` format `SS00000001` — system generated, unique,
 permanent, never reused. Categories: Probationary / Regular / Associate. Renewal deadline tied
@@ -565,6 +633,15 @@ with the exact `organization_type_master` seed values — the tree diagram in ro
 Organization Hierarchy is the current working assumption, not a closed decision; see §13.
 **Do not reopen the generic structure above without checking current governance baseline first;
 Organization Module is frozen at that level.**
+**Two 2026-08-30 additions live outside this module's own doc set:** (1) the business rules doc
+freezes exactly **8 organization types** — `KENDRA`/`NILACHALA_KUTIRA`/`SMRUTI_MANDIRA` (unique,
+fixed code) plus `ANCHALIKA`/`ZILLA`/`SAKHA`/`SAKHA_ASANA`/`PATHA_CHAKRA` (sequence-generated,
+prefixes `ANC`/`ZL`/`SKH`/`SA`/`PC`) — a type-*inventory* freeze, distinct from the still-open
+type-to-*parent* matrix above; (2) `ORG-PENDING-001` froze an `organization_short_code`
+(`VARCHAR(5)`, `UNIQUE`, `NOT NULL`) column in `CROSS_MODULE_PRINCIPLES.md` §20.1, but it was
+**never added to this module's own overview/ERD/business-rules/table-design docs or README** —
+see §13. (Ekamra Sangha's short code is `ESS`, not `EKM` — no `BHB` org exists; all three docs
+that carry the example were reconciled to this 2026-08-30, see §13.)
 
 **Founder & Heritage (docs v1.0.0, SOURCE ALIGNED — added 2026-08-19):**
 `docs/03_Solution/modules/heritage/` designs 8 tables: `founder_master` (single immutable
@@ -628,14 +705,18 @@ authority. Attendance Enforcement + Attendance Review are frozen.
 
 **Nine more Solution-layer module doc sets (v1.0.0 SOURCE ALIGNED, added 2026-08-20):**
 - **Foundation** (`docs/03_Solution/modules/foundation/`, distinct from the `backend/foundation/`
-  Django app — see §8): **now 10 tables** — the original 8 (`master_category`, `master_data`,
-  `system_setting`, `id_sequence_master`, `country`, `state`, `district`, `city_village`) plus
-  two shared-infrastructure tables added 2026-08-26 (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`,
-  FROZEN): `document_master` (reassigned here from Person — Person/Heritage/Publications all
-  consume it via FK, none own it) and `field_change_log` (business-significant field-level
-  change tracking, distinct from each module's own `_history` tables). Master Data Driven,
-  Configuration Over Hardcoding, central ID sequencing, geographic hierarchy explicitly separate
-  from the NSS organizational hierarchy.
+  Django app — see §8): design doc describes 10 tables — the original 8 (`master_category`,
+  `master_data`, `system_setting`, `id_sequence_master`, `country`, `state`, `district`,
+  `city_village`) plus two shared-infrastructure tables added 2026-08-26 (`DOC-ARCH-001`,
+  `CROSS_MODULE_PRINCIPLES.md`, FROZEN): `document_master` (reassigned here from Person —
+  Person/Heritage/Publications all consume it via FK, none own it) and `field_change_log`
+  (business-significant field-level change tracking, distinct from each module's own `_history`
+  tables). **SQL implementation landed 2026-08-30** (`ea8a4b4`, "Foundation Vertical Slice") —
+  `database/ddl/01_foundation/` now has all 10 designed tables **plus 2 more the design doc
+  doesn't describe** (`postal_code`, `city_village_postal_code_map`) — see §3/§13. Master Data
+  Driven, Configuration Over Hardcoding, central ID sequencing (9 sequences seeded, `PERSON`
+  padded to 10 digits as of `b7148c7`), geographic hierarchy explicitly separate from the NSS
+  organizational hierarchy.
 - **Administration:** **now 8 Administration-owned tables** — the original 5 RBAC tables
   (`role_master`, `permission_master`, `role_permission`, `user_role`, `admin_scope`) plus 3
   new Correspondence Register tables added 2026-08-27 (`correspondence`,
@@ -754,9 +835,10 @@ Foundation-owned common document registry (`DOC-ARCH-001` — see the Person/Fou
 above), and the Correspondence Register decision (`CORR-DECISION-003`/`CORR-ARCH-001`/
 `CORR-ARCH-002` — see the Administration bullet above). Carries 3 explicitly **PENDING — DDL
 phase** design notes, not covered by the document's own FROZEN status: `ORG-PENDING-001`
-(organization short code, 3–5 letters, e.g. `EKM`/`BHB`/`KEN`), `MEM-PENDING-001` (local Sakha
+(organization short code, 3–5 letters, e.g. `ESS`/`KEN` — **frozen 2026-08-30**, see §7/§13),
+`MEM-PENDING-001` (local Sakha
 number format — proposed but unfrozen `<org_short_code>` + 8-digit sequence, e.g.
-`EKM00000001` — plus a proposed three-level identity chain: Sangha Sevi → Sakha Affiliation →
+`ESS00000001` — plus a proposed three-level identity chain: Sangha Sevi → Sakha Affiliation →
 Local Number; the current `membership_transfer_history.old_local_sakha_number`/
 `new_local_sakha_number` VARCHAR fields are documented as insufficient for it), and
 `ATT-PENDING-001` (Visitor vs. Approved Darshak threshold — classified as an ERP operational
@@ -816,12 +898,16 @@ SQL/DDL convention; don't generalize from it. Follow `_code` for new DDL.
 (v1.0.0 SOURCE ALIGNED) names its business identifier `person_id`, not `person_code` — this
 contradicts both this convention and the already-implemented DDL column. Unreconciled; see §7
 Person bullet and §13.
+**Person Code padding widened (2026-08-30, `b7148c7`):** the `PERSON` row in
+`id_sequence_master` now pads to 10 digits, not 8 — first Person Code is `P0000000001`
+(11 characters), superseding any earlier `P00000001` example anywhere in this file or the docs.
 
 **Naming collisions, not code drift (2026-08-20):** two new Solution-layer module folders
 share a name with an existing `backend/` Django app but describe a completely different
-scope/schema — don't confuse the two. `docs/03_Solution/modules/foundation/` (now 10 tables —
-8 master-data/geography/sequence tables plus `document_master`/`field_change_log` added
-2026-08-26, matches `database/ddl/01_foundation/`) is not `backend/foundation/`
+scope/schema — don't confuse the two. `docs/03_Solution/modules/foundation/` (design doc
+describes 10 tables — 8 master-data/geography/sequence tables plus `document_master`/
+`field_change_log` added 2026-08-26; **the implemented `database/ddl/01_foundation/` has 12
+tables as of 2026-08-30**, 2 more than the design doc covers — see §7) is not `backend/foundation/`
 (which implements Person/Organization/Address — those have their own `person/`/`organization/`
 Solution folders). `docs/03_Solution/modules/authentication/` (ERD shows 7 tables, but exclusive
 ownership frozen 2026-08-26 is only `user_account`+`password_history` — the other 5 RBAC tables
@@ -877,6 +963,72 @@ remains v0.1.0 DRAFT with no table frozen DDL.
 ## 12. Session Log
 
 <!-- Newest entries at the top. -->
+
+### 2026-08-30 — /document-project pass: reconciled the Foundation Vertical Slice (first real DDL/seed landing), Person Code padding widen, ORG-PENDING-001/CORR-EXT-001 freeze; found a new 3-way short-code example inconsistency (Claude Code)
+- Context: Invoked via `/document-project`. `git status`/`git log` showed the branch unchanged
+  (`feature/ref-documentation`, clean working tree, in sync with `personal/feature/
+  ref-documentation`) but HEAD had moved to `1d96fb1` since the 2026-08-28 pass's last-verified
+  state (`262a2e8`) — 6 more commits, several of which this file's own §13 already showed
+  partial awareness of (the ORG-PENDING-001/IMPLEMENTATION_DEPENDENCY_ORDER §79/
+  MODULE_DEPENDENCY_MAP §3 strikethroughs were already dated 2026-08-30), but with **no
+  corresponding §3/§7/§8/§12 narrative** and, on inspection, at least one of those strikethrough
+  claims (the ORG-PENDING-001 example) was itself already wrong. Three parallel Explore agents
+  surveyed: (1) `database/ddl/01_foundation/`+`database/seed/01_foundation/` in full — found
+  this is the **first real backend/database-track implementation in the project's history**:
+  12 tables (up from a thin prototype), 7 seed files with real reference data, an 8-org-type
+  freeze, and the Person Code padding widen; (2) the `ORG-PENDING-001`/`CORR-EXT-001` freeze
+  commits' exact diffs — found the `05f2dfb` "fix EKM→ESS" correction only touched 2 of the 3
+  documents carrying the example, leaving `CROSS_MODULE_PRINCIPLES.md` §20.1 (the actual
+  canonical FROZEN text) on the old `EKM`/`BHB` example, and leaving
+  `08_correspondence_register_business_rules.md` §3.1's own format table on `EKM` too (only a
+  separate "Additional examples" block in that file had `BHB` dropped) — a 3-way
+  inconsistency, not the clean single-example freeze this file's own §13 had assumed; (3) every
+  markdown file with a claim that could now be stale given the above — confirmed `backend/` is
+  still completely untouched (`git diff --stat` across the whole range), `database/ddl/
+  02_organization/` still all 0-byte, but found real drift in `database/README.md` (said "10
+  tables" against its own sibling README's "12"), `docs/03_Solution/modules/foundation/
+  README.md` (said 5 of 10 tables lacked SQL — all now have it, plus 2 more not even in the
+  design doc), and `docs/PROJECT_DOCUMENTATION.md` (three separate places: the `database/`
+  detail tree still described the old prototype file names; Key Workflow #3 cited a
+  superseded file path and a stale 4-sequence/8-digit assumption; the Architecture section's
+  "Pre-DDL architecture gates" paragraph and the Open Questions section both still described
+  `IMPLEMENTATION_DEPENDENCY_ORDER.md`/`MODULE_DEPENDENCY_MAP.md`'s self-inconsistencies as
+  unresolved even though this branch's own `1d96fb1` had already fixed them).
+- Decision/Outcome: Fixed `database/README.md` (3 occurrences, 10→12 tables). Rewrote
+  `docs/03_Solution/modules/foundation/README.md`'s "SQL status"/"Current Status" sections to
+  reflect full SQL implementation plus the 2 extra undesigned tables. Rewrote
+  `docs/PROJECT_DOCUMENTATION.md`'s `database/` detail tree (full 13-file/12-table breakdown,
+  seed detail), the Setup & running DB step, Key Workflow #3 (corrected file path and sequence
+  detail), the Organization Key Workflow paragraph (added the 8-org-type freeze and the
+  ORG-PENDING-001 propagation-gap note), the Architecture section's pre-DDL-gates paragraph
+  (Foundation Vertical Slice now executed), the naming-collision Gotcha (10 vs. 12 tables),
+  and marked the two `IMPLEMENTATION_DEPENDENCY_ORDER.md`/`MODULE_DEPENDENCY_MAP.md` Open
+  Questions items resolved (pointing at `1d96fb1`). Fixed `TECH_STACK_DECISIONS.md`'s companion
+  `DEVELOPER_REFERENCE_GUIDE.md` Module-to-Document Reference Matrix, which still pointed at the
+  superseded `03_location_master_tables.sql`/`02_id_sequence_master.sql`/
+  `02_location_master_seed.sql` paths — repointed to the current 6 location-table files, the
+  seed files that actually exist, and `04_id_sequence_master.sql`/`03_id_sequence_master.sql`.
+  Added 4 new Gotchas and 3 new Open
+  Questions to `docs/PROJECT_DOCUMENTATION.md` for: the Foundation Vertical Slice landing
+  itself, the 3-way `EKM`/`ESS`/`BHB` inconsistency, the `ORG-PENDING-001` module-doc
+  propagation gap, and the Foundation design-doc/implementation table-count gap. Updated this
+  file's §0 (both the DDL-folder paragraph and the architectural-fact paragraph), §3 (new dated
+  bullet), §7 (Foundation/Person/Organization paragraphs), §8 (DB-naming and naming-collision
+  paragraphs), and §13 (fixed the now-wrong ORG-PENDING-001 example strikethrough; added 3 new
+  open items matching the ones above).
+- Follow-up: of the three new open items, the user resolved the short-code question immediately
+  in the same session — **Ekamra Sangha's `organization_short_code` is `ESS`, not `EKM`; no
+  `BHB` org exists** — fixed across all 3 documents that carried the example
+  (`CROSS_MODULE_PRINCIPLES.md` §20.1/§20.2, `PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md`,
+  `08_correspondence_register_business_rules.md` §3.1) plus this file's own §7/§13 references;
+  see §13 for the resolved strikethrough. The other two (propagating `ORG-PENDING-001` into
+  Organization's own docs; reconciling Foundation's design doc with the 2 extra implemented
+  tables) remain open — not resolved this pass, per the standing rule not to invent answers to
+  design questions unilaterally. `develop` (`fa83e5f`) and
+  `feature/membership-design` (`9dffc6f`) both sit on separate merge commits not reflected in
+  this bullet's branch-state summary beyond noting their existence — the prior session's
+  half-finished branch-sync task (flagged repeatedly since 2026-08-28) remains outstanding if
+  the user wants it finished.
 
 ### 2026-08-28 — /document-project pass: reconciled 22nd module (Assets & Property), cross-module principles doc (DOC-ARCH-001, RBAC ownership split), Correspondence Register, P&E reconciliation closure, and Flutter mobile-strategy pivot (Claude Code)
 - Context: Invoked via `/document-project`. `git status`/`git log` showed the branch unchanged
@@ -1683,8 +1835,11 @@ remains v0.1.0 DRAFT with no table frozen DDL.
   `PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md` (`SOL-EVT-007`) and the §7 Programmes & Events
   paragraph: all 7 gates closed, table set settled at 7, UPBS/Kishor/Sevak's own event entities
   become common-Event extensions. **Formal Module #21 freeze itself remains open** — see §10.
-- **New (2026-08-28): three DDL-phase design notes are explicitly PENDING, not frozen**
-  (`CROSS_MODULE_PRINCIPLES.md` §20-21) — `ORG-PENDING-001` (organization short code format),
+- **New (2026-08-28): two DDL-phase design notes are explicitly PENDING, not frozen**
+  (`CROSS_MODULE_PRINCIPLES.md` §20-21) — ~~`ORG-PENDING-001` (organization short code format)~~
+  **FROZEN 2026-08-30** (`organization_short_code`, VARCHAR(5) UNIQUE NOT NULL — but see the new
+  2026-08-30 item below, its own canonical example is internally inconsistent and it was never
+  propagated into the Organization module's own docs);
   `MEM-PENDING-001` (local Sakha number format + a proposed three-level Sangha Sevi → Sakha
   Affiliation → Local Number identity chain), `ATT-PENDING-001` (Visitor vs. Approved Darshak
   threshold). Not contradictions, just incomplete design work explicitly deferred to the DDL
@@ -1695,12 +1850,28 @@ remains v0.1.0 DRAFT with no table frozen DDL.
 - **New (2026-08-28): one Assets & Property rule is PENDING** — `AP-066`, whether "sacred
   articles" fall under this module's Asset-custody model or Heritage's cultural-significance
   model, is unresolved. See §7 Assets & Property paragraph.
-- **New (2026-08-28): `IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing §79 status summary
-  needs a follow-up fix.** It wasn't updated by the freeze commit (`caa26b5`) and still reads
-  DRAFT/v0.1.0/21-modules, contradicting the document's own header and §44 (both FROZEN/
-  22-modules). A self-inconsistency inside one FROZEN-tagged file, not resolved here since
-  fixing it means editing FROZEN content unilaterally.
-- **New (2026-08-28): `MODULE_DEPENDENCY_MAP.md`'s own §3 module-inventory table needs a
-  follow-up fix.** Its §61 status footer already says 22 modules (including Assets & Property),
-  but §3 itself still lists only 21 rows with no `assets_property` entry — same
-  self-inconsistency pattern as the item above, in a different (still-DRAFT, not FROZEN) file.
+- ~~New (2026-08-28): `IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing §79 status summary
+  needs a follow-up fix.~~ — **resolved 2026-08-30**: updated §79 from DRAFT/v0.1.0/21-modules
+  to FROZEN/v1.0.0/22-modules, added Assets & Property, updated PHYSICAL DDL to reflect
+  Foundation Tier 1 completion, corrected NEXT to current state (Foundation API → UI → Tier 2).
+- ~~New (2026-08-28): `MODULE_DEPENDENCY_MAP.md`'s own §3 module-inventory table needs a
+  follow-up fix.~~ — **resolved 2026-08-30**: added row 22 (Assets & Property, Existing) to
+  §3's inventory table, matching the §61 footer's 22-module count.
+- ~~New (2026-08-30): Ekamra Sangha's `organization_short_code` — `EKM` or `ESS`? Does a `BHB`
+  org exist?~~ — **resolved 2026-08-30** (user decision): it's `ESS`, not `EKM`; `BHB` does not
+  exist. Fixed all 3 documents to agree: `CROSS_MODULE_PRINCIPLES.md` §20.1/§20.2 (canonical
+  rule + the still-unfrozen MEM-PENDING-001 illustration), `PROGRAMMES_EVENTS_RECONCILIATION_
+  DECISIONS.md`, and `08_correspondence_register_business_rules.md` §3.1's main format table
+  (previously missed by `05f2dfb`, which only touched the "Additional examples" block).
+- **New (2026-08-30): `ORG-PENDING-001` never propagated into the Organization module's own
+  docs.** The frozen `organization_short_code` column lives only in
+  `CROSS_MODULE_PRINCIPLES.md` — none of `docs/03_Solution/modules/organization/`'s own
+  overview/ERD/business-rules/table-design docs or its `README.md` mention it. Needs a decision
+  on whether/how to add it to the module's own design set — not done here since it's a
+  design-doc content edit, not a drift correction. See §7 Organization paragraph.
+- **New (2026-08-30): reconcile Foundation's design doc with 2 implemented-but-undesigned
+  tables.** `database/ddl/01_foundation/` (12 tables, implemented via the Foundation Vertical
+  Slice, `ea8a4b4`) has 2 tables — `postal_code`, `city_village_postal_code_map` — that
+  `docs/03_Solution/modules/foundation/04_foundation_table_design.md` and its ERD don't describe
+  (that doc set still shows 10 tables). Needs the design doc updated to match, or an explicit
+  call that implementation is allowed to run ahead of design here. See §7 Foundation paragraph.

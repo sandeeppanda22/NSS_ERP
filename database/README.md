@@ -14,7 +14,7 @@ Hand-written PostgreSQL DDL and seed data — the schema authority for the NSS E
 # 1. Extensions
 psql -U nss_admin -d nss_erp -f database/ddl/01_foundation/01_extensions.sql
 
-# 2. Foundation DDL (Depths 0–3, 10 tables)
+# 2. Foundation DDL (Depths 0–4, 12 tables)
 for f in database/ddl/01_foundation/0[2-9]*.sql database/ddl/01_foundation/1*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
@@ -33,7 +33,7 @@ detailed per-file execution tables.
 ```
 database/
 ├── ddl/
-│   ├── 01_foundation/    10 tables (Depths 0–3) — IMPLEMENTED
+│   ├── 01_foundation/    12 tables (Depths 0–4) — IMPLEMENTED
 │   ├── 02_organization/  placeholder (Depth 3) — NOT YET IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
 ├── seed/
@@ -46,7 +46,7 @@ database/
 
 | Module | DDL Status | Branch |
 |--------|-----------|--------|
-| Foundation (10 tables) | IMPLEMENTED | `feature/database-foundation` |
+| Foundation (12 tables) | IMPLEMENTED | `feature/database-foundation` |
 | Organization | NOT YET | `feature/database-foundation` (future) |
 | Person | SUPERSEDED — will be rewritten | `feature/person-ddl` (future) |
 | Membership | NOT YET | `feature/membership-design` (future) |

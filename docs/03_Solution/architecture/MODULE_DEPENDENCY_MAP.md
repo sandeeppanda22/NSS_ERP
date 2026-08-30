@@ -83,6 +83,7 @@ The current documented module inventory is:
 | 19 | Sevak              | Existing |
 | 20 | UPBS               | Existing |
 | 21 | Programme & Events | Proposed |
+| 22 | Assets & Property  | Existing |
 
 **Important:** Module number is an inventory identifier, not an
 implementation sequence number.

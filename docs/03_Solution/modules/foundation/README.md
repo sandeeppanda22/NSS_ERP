@@ -59,19 +59,28 @@ DDL for both.
 - Central RBAC consumption and History Never Deleted / soft delete established here as
   foundation-level principles other modules build on.
 
-## Note — SQL status
+## Note — SQL status (updated 2026-08-30)
 
-`database/ddl/01_foundation/` already implements `id_sequence_master` and the
-country/state/district/city_village location tables — this design's core tables are the
-*most* SQL-aligned of any new module doc set added this pass. `master_category`,
-`master_data`, `system_setting`, `document_master`, and `field_change_log` have no SQL
-counterpart yet.
+**All ten designed tables now have SQL** — the Foundation Vertical Slice landed as
+`database/ddl/01_foundation/02_master_category.sql` … `13_city_village_postal_code_map.sql`
+(commit `ea8a4b4`, `feat(foundation): Foundation vertical slice DDL + seeds, freeze 8 org
+types`): `master_category`, `system_setting`, `id_sequence_master`, `country`,
+`document_master`, `field_change_log`, `master_data`, `state`, `district`, `city_village`.
+**The implemented DDL has two more tables than this design doc describes** —
+`postal_code` and `city_village_postal_code_map` (`12_postal_code.sql`,
+`13_city_village_postal_code_map.sql`) — neither is mentioned in `02_foundation_erd.md` or
+`04_foundation_table_design.md`. Treat the implementation as ahead of the design doc for these
+two tables until `04_foundation_table_design.md`/the ERD are updated to match (not done here —
+see `CLAUDE.md` §13). Full seed data also landed under `database/seed/01_foundation/` — see
+`database/seed/01_foundation/README.md` for exact seeded rows (11 master categories, ~40 master
+data values, 9 ID sequences, 5 countries, 112 states, ~770 districts, 5 system settings).
 
 ---
 
 ## Current Status
 
-Design Complete · ERD Complete (ERD not yet updated for the 2 new shared-infrastructure tables
-— see Note below) · Business Rules Drafted (SOURCE ALIGNED) · Table Design Drafted (SOURCE
-ALIGNED, now 10 tables) · SQL Implementation Partial (id_sequence/location tables exist; the
-other six, including the two added 2026-08-26, do not)
+Design Complete · ERD Complete (ERD does not yet cover `postal_code`/
+`city_village_postal_code_map` — see Note above) · Business Rules Drafted (SOURCE ALIGNED) ·
+Table Design Drafted (SOURCE ALIGNED, describes 10 of the 12 now-implemented tables) · **SQL
+Implementation Complete** (12 tables + seed data, 2026-08-30 — see Note above). Not yet consumed
+by any Django code (`backend/foundation/` is unaffected — see `CLAUDE.md` §8).

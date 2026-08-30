@@ -131,12 +131,16 @@ above as the current CODE-layer reality and the Tech Stack Decisions doc as the 
 frozen tables, topologically sorted into 8 depths with zero cycles, resolves the audit-actor
 circular-dependency problem via a two-pass DDL strategy) →
 `DDL_CREATION_ORDER.md` (`SOL-ARCH-010`, "Gate 9" — the exact numbered `CREATE TABLE` sequence
-for all 86 tables plus the Pass-2 deferred-constraint list). None of this has been executed
-against `database/ddl/` yet — the next step per `SOL-ARCH-010` is the Foundation Vertical
-Slice. Note: `IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing status section (§79) was not
-updated by the freeze commit and still reads DRAFT/v0.1.0/21-modules, contradicting its header
-and §44 (both FROZEN/22-modules) — an internal inconsistency in that file, not a doc/code drift
-issue, flagged here rather than fixed since it touches FROZEN-tagged content.
+for all 86 tables plus the Pass-2 deferred-constraint list). **The next step per `SOL-ARCH-010`,
+the Foundation Vertical Slice, was executed 2026-08-30** (`ea8a4b4`
+`feat(foundation): Foundation vertical slice DDL + seeds, freeze 8 org types`) — 12 tables + full
+seed data now live under `database/ddl/01_foundation/`/`database/seed/01_foundation/`; see
+`database/README.md` and the `database/` detail section below. Tier 1 (Foundation) of the
+12-tier order is the only tier with any DDL executed so far — Tiers 2-12 (including
+`02_organization/`) remain unimplemented. Note: `IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own
+closing status section (§79) was fixed to match on 2026-08-30 (was DRAFT/v0.1.0/21-modules
+against its FROZEN/22-module header; now reads FROZEN/v1.0.0/22-modules and reflects Tier 1
+completion).
 
 ## Directory structure
 
@@ -263,12 +267,23 @@ mapping, backed by `GDR-002` (resolved 2026-08-13; an earlier pass had flagged t
 ```
 database/
 ├── ddl/
-│   ├── 01_foundation/    extensions.sql (pgcrypto), id_sequence_master.sql, location_master_tables.sql
+│   ├── 01_foundation/    IMPLEMENTED 2026-08-30 (Foundation Vertical Slice, `ea8a4b4`) — 12 tables
+│   │                     across 13 files (01_extensions.sql + 02_master_category.sql …
+│   │                     13_city_village_postal_code_map.sql): master_category, system_setting,
+│   │                     id_sequence_master, country, document_master, field_change_log,
+│   │                     master_data, state, district, city_village, postal_code,
+│   │                     city_village_postal_code_map. Supersedes an older prototype
+│   │                     (`02_id_sequence_master.sql`/`03_location_master_tables.sql`, since
+│   │                     replaced — see `database/README.md` Superseded Artifacts)
 │   ├── 02_organization/  4 files, ALL 0 BYTES — organization schema designed in docs but not implemented in SQL
-│   └── 03_person/        person_master_tables.sql (gender/marital_status/address_type masters), person.sql, person_address.sql — fully implemented
+│   └── 03_person/        person_master_tables.sql (gender/marital_status/address_type masters), person.sql, person_address.sql — superseded prototype (uses per-domain masters, not the `master_data` pattern now implemented in `01_foundation/`); will be replaced (see `feature/person-ddl`)
 └── seed/
-    ├── 01_foundation/    id_sequence_master seed (4 rows: PERSON/SANGHA_SEVI/ORGANIZATION/FAMILY), location seed (5 countries)
-    └── 03_person/        gender/marital_status/address_type seed rows
+    ├── 01_foundation/    IMPLEMENTED 2026-08-30 — 7 seed files: 11 master categories, ~40 master
+    │                     data values (GENDER/MARITAL_STATUS/ADDRESS_TYPE/DOCUMENT_TYPE/
+    │                     MEMBERSHIP_TYPE/MEMBERSHIP_STATUS/RELATIONSHIP_TYPE), 9 ID sequences
+    │                     (PERSON now zero-padded to 10 digits, not 8 — see Gotchas), 5 countries,
+    │                     112 states, ~770 districts (India only), 5 system settings
+    └── 03_person/        gender/marital_status/address_type seed rows — superseded prototype, seeds tables that don't exist in the new pattern
 ```
 
 ### `docs/03_Solution/` detail
@@ -286,7 +301,7 @@ database/
 │   ├── kishor/            01-05 overview/erd/lifecycle/business_rules/table_design, now v1.0.0 SOURCE ALIGNED (still document-Status DRAFT) — KH000001 ID format + frozen v2.1 Guardian Model (Guardian must independently qualify via `sangha_sevi` identity); no backend/kishor/ app
 │   ├── mahila/             01-05 overview/erd/lifecycle/business_rules/table_design, all v2.1.0 — v2.1.0 corrected a v2.0.0 error that had modeled Mahila Governing Body and Mahila Parichalana Mandali as two bodies; now explicitly one body, two names; freezes the Mandali term at 2 years (MAH-040); no backend/mahila/ app
 │   ├── sevak/              01-06 core sequence (only 06_table_design FROZEN, rest DRAFT/consolidation-in-progress) + sangha/, seva/, events/ subdocs; core SEV-001..040; no backend/sevak/ app
-│   ├── foundation/         NEW 2026-08-20 — 01-04 overview/erd/business_rules/table_design, v1.0.0 SOURCE ALIGNED — **now 10 tables**: the original 8 (master_category, master_data, system_setting, id_sequence_master, country, state, district, city_village) plus `document_master` and `field_change_log`, both added 2026-08-26 as Foundation-owned shared infrastructure (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`). **Same name, different scope from `backend/foundation/`** (which implements Person/Organization/Address) — this Solution module instead matches `database/ddl/01_foundation/`'s id_sequence/location tables; the other 8 tables have no SQL yet
+│   ├── foundation/         NEW 2026-08-20 — 01-04 overview/erd/business_rules/table_design, v1.0.0 SOURCE ALIGNED — describes 10 tables: the original 8 (master_category, master_data, system_setting, id_sequence_master, country, state, district, city_village) plus `document_master` and `field_change_log`, both added 2026-08-26 as Foundation-owned shared infrastructure (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`). **Same name, different scope from `backend/foundation/`** (which implements Person/Organization/Address). **SQL implementation landed 2026-08-30** (`ea8a4b4`, Foundation Vertical Slice) — all 10 designed tables now have DDL under `database/ddl/01_foundation/`, plus 2 more the design doc doesn't describe yet (`postal_code`, `city_village_postal_code_map`) — see Gotchas
 │   ├── administration/     NEW 2026-08-20, now 9 files (`03_administration_lifecycle.md`/SOL-ADMIN-005 added; 4 Correspondence Register docs `06`–`09`/SOL-ADMIN-006–009 added 2026-08-27) — v1.0.0 SOURCE ALIGNED — **8 Administration-owned tables**: the 5 RBAC tables (role_master, permission_master, role_permission, user_role, admin_scope) plus 3 new Correspondence Register tables (correspondence, correspondence_document, correspondence_finance_reference — `CORR-DECISION-003`, 2026-08-27); `user_account`/`password_history` are exclusively Authentication-owned per the Table Ownership Declaration frozen 2026-08-26 (superseding an earlier framing where `user_account` was listed under Administration); no backend/administration/ app
 │   ├── authentication/     NEW 2026-08-20 (Solution-layer "Authentication & Security"), now 5 files (`03_authentication_security_lifecycle.md`/SOL-AUTH-005 added, business_rules/table_design shifted to 04/05) — v1.0.0 SOURCE ALIGNED — ERD still shows 7 tables, but exclusive ownership (frozen 2026-08-26) is only `user_account`+`password_history`; the other 5 RBAC tables are exclusively Administration-owned and appear here only for evaluation, not management. Argon2/JWT/session/Aadhaar-encryption/RLS as principles. **Different schema from** the real `backend/authentication/` Django app (Role/UserRole/LoginAudit) — same folder name, unreconciled designs
 │   ├── governance/         NEW 2026-08-20 (Solution-layer ERP module, distinct from docs/00_Project_Governance/), now 5 files (`03_governance_lifecycle.md`/SOL-GOV-005 added, business_rules/table_design shifted to 04/05) — v1.0.0 SOURCE ALIGNED — Unified Body Governance Model (body_type_master, body_master, position_master, body_member_assignment, acting_position_assignment) + election entities (election, election_nomination, election_vote, election_result), 9 tables. **Freezes the Mahila Parichalana Mandali term at 3 years** (`04_governance_business_rules.md` GOV-BR-031/§Frozen Decisions) **and, per the new `03_governance_lifecycle.md`, a formal consensus→election→election-table reconstitution process** — both directly conflicting with mahila/'s own frozen **2-year** term (MAH-040) and its consensus-only reconstitution process; unreconciled, see Gotchas/Open questions. `backend/governance/` remains an empty stub
@@ -369,11 +384,13 @@ are reconstructed directly from `backend/config/settings.py` and `requirements.t
 
 2. **Database:** provision a PostgreSQL database and enable the `pgcrypto` extension (or let
    `database/ddl/01_foundation/01_extensions.sql` do it). Run the DDL files under
-   `database/ddl/` in numeric folder/file order (`01_foundation` → `03_person`; `02_organization`
-   is empty, nothing to run there yet), then load `database/seed/` in the same order. Note this
-   raw-SQL schema is **not** currently consumed by the Django app (see Architecture) — it exists
-   independently, so setting it up is only required if you're working on the SQL/DB-first track
-   rather than the Django app itself.
+   `database/ddl/` in numeric folder/file order (`01_foundation` — 12 real tables as of
+   2026-08-30, the "Foundation Vertical Slice" — → `03_person`; `02_organization` is still empty,
+   nothing to run there yet), then load `database/seed/` in the same order (see
+   `database/README.md` for the exact `psql` invocations). Note this raw-SQL schema is **not**
+   currently consumed by the Django app (see Architecture) — it exists independently, so setting
+   it up is only required if you're working on the SQL/DB-first track rather than the Django app
+   itself.
 
 3. **Django environment file:** create `backend/.env` (read via
    `environ.Env.read_env(BASE_DIR / '.env')` at `backend/config/settings.py:21`) with:
@@ -441,16 +458,22 @@ existing — nothing in `login_view` writes to it yet.
 are two different, currently-unreconciled representations of "Person."
 
 ### 3. Person business-ID generation (SQL-schema track, not yet wired to Django)
-`database/ddl/01_foundation/02_id_sequence_master.sql` defines an `id_sequence_master` table —
-a registry of `{sequence_code, prefix, current_value, padding_length}` rows, seeded with 4
-sequences (`PERSON`→`P`, `SANGHA_SEVI`→`SS`, `ORGANIZATION`→`ORG`, `FAMILY`→`F`, all starting at
-0 with 8-digit padding). This is meant to produce IDs like `P00000001` for the
-`person.person_code` column (`database/ddl/03_person/02_person.sql`) — **but** the current
-Person module design doc (`docs/03_Solution/modules/person/04_person_table_design.md`, v1.0.0
-SOURCE ALIGNED) names this same business identifier `person_id`, not `person_code`. The doc and
-the implemented DDL disagree on the column name; neither has been reconciled to the other yet.
-**No SQL function or trigger and no Django code currently implements the increment/format
-logic** — this table is pure configuration waiting on an implementation.
+`database/ddl/01_foundation/04_id_sequence_master.sql` defines an `id_sequence_master` table —
+a registry of `{sequence_code, prefix, current_value, padding_length}` rows. As of the
+2026-08-30 Foundation Vertical Slice (`ea8a4b4`/`b7148c7`) this is seeded with **9** sequences
+(`database/seed/01_foundation/03_id_sequence_master.sql`): `PERSON`→`P` (padding **10**, widened
+from 8 by `b7148c7` — first code is `P0000000001`, 11 characters), `SANGHA_SEVI`→`SS`,
+`ANCHALIKA`→`ANC`, `ZILLA`→`ZL`, `SAKHA`→`SKH`, `SAKHA_ASANA`→`SA`, `PATHA_CHAKRA`→`PC`,
+`FAMILY`→`F`, `DOCUMENT`→`DOC` (all padding 8 except `PERSON`). The five org-type-specific
+prefixes correspond to the "freeze 8 org types" business-rules decision in the same commit — see
+Gotchas. This produces IDs for the `person.person_code` column
+(`database/ddl/03_person/02_person.sql`, superseded prototype, still uses the old 4-sequence/
+8-digit assumption) — **but** the current Person module design doc
+(`docs/03_Solution/modules/person/05_person_table_design.md`, v1.0.0 SOURCE ALIGNED) names this
+same business identifier `person_id`, not `person_code`. The doc and the implemented DDL disagree
+on the column name; neither has been reconciled to the other yet. **No SQL function or trigger
+and no Django code currently implements the increment/format logic** — this table is pure
+configuration waiting on an implementation.
 
 ### 4. Organization hierarchy (designed, not implemented)
 `docs/03_Solution/modules/organization/01_organization_module_overview.md` through
@@ -468,6 +491,17 @@ Django's `foundation.Organization` model is a much simpler placeholder (no hiera
 self-reference) that predates this design. Anyone picking up organization work should treat the
 design docs as the target and the current Django model as a stand-in to be replaced — but should
 not assume the type-hierarchy specifics are settled.
+**Two 2026-08-30 org-related freezes live outside this module's own doc set, not inside it:**
+(1) the business rules doc's freeze of exactly **8 organization types** — `KENDRA`,
+`NILACHALA_KUTIRA`, `SMRUTI_MANDIRA` (unique, fixed business code) plus `ANCHALIKA`, `ZILLA`,
+`SAKHA`, `SAKHA_ASANA`, `PATHA_CHAKRA` (multiple, sequence-generated via the 5 new
+`id_sequence_master` rows above — `ANC`/`ZL`/`SKH`/`SA`/`PC`) — this is a type *inventory*
+freeze, distinct from the still-open type-to-type parent matrix in the paragraph above; (2)
+`ORG-PENDING-001`, an `organization_short_code` column (`VARCHAR(5)`, `UNIQUE`, `NOT NULL`)
+frozen the same day in `docs/03_Solution/architecture/CROSS_MODULE_PRINCIPLES.md` §20.1 — but
+**never propagated into this module's own overview/ERD/business-rules/table-design docs**, which
+have zero mentions of `organization_short_code` anywhere. See Gotchas for the example
+inconsistency this freeze introduced.
 
 ## Conventions & gotchas
 
@@ -531,10 +565,13 @@ not assume the type-hierarchy specifics are settled.
   cross-reference gap, just no longer a missing-README gap.
 - **Two Solution-layer module folders share a name with an existing `backend/` Django app but
   describe unrelated schemas (new 2026-08-20).** `docs/03_Solution/modules/foundation/`
-  (now 10 tables: the original 8 master data/geography/sequence tables plus `document_master`
-  and `field_change_log`, added 2026-08-26 — matching `database/ddl/01_foundation/`) is **not**
-  the same thing as the `backend/foundation/` app (which implements Person/Organization/
-  Address — those live in the separate `person/`/`organization/` Solution folders instead).
+  (describes 10 tables: the original 8 master data/geography/sequence tables plus
+  `document_master` and `field_change_log`, added 2026-08-26) is **not** the same thing as the
+  `backend/foundation/` app (which implements Person/Organization/Address — those live in the
+  separate `person/`/`organization/` Solution folders instead). **As of 2026-08-30 the
+  implemented `database/ddl/01_foundation/` has 12 tables, 2 more than this design doc
+  describes** (`postal_code`, `city_village_postal_code_map`) — implementation is now ahead of
+  the design doc for those two, see the Foundation Vertical Slice Gotcha below.
   Likewise `docs/03_Solution/modules/authentication/` (ERD still shows 7 tables, but exclusive
   ownership frozen 2026-08-26 is only `user_account`+`password_history`; the other 5 RBAC tables
   are exclusively owned by `administration/`) is **not** the same schema as the real
@@ -712,6 +749,39 @@ not assume the type-hierarchy specifics are settled.
   Resolutions under an invented `docs/01_Authoritative_References/NSS/SECTION-J_RESOLUTIONS/`
   folder (no "Section J" exists in the source Bye-Law). This has been corrected — see the
   `01_Authoritative_References/NSS/` detail above.
+- **Foundation Vertical Slice landed 2026-08-30 (`ea8a4b4`/`b7148c7`) — first real DDL/seed data
+  ever committed.** `database/ddl/01_foundation/` went from a thin prototype to 13 files/12
+  tables; `database/seed/01_foundation/` from near-empty to 7 files with real reference data
+  (11 master categories, ~40 master-data values, 9 ID sequences, 5 countries, 112 states, ~770
+  Indian districts, 5 system settings) — see the `database/` detail section above and
+  `database/README.md`/`database/ddl/01_foundation/README.md`/`database/seed/01_foundation/
+  README.md` for exact per-table detail. Two side effects worth knowing: (1) the `PERSON` ID
+  sequence's zero-padding was widened from 8 to 10 digits (`b7148c7`) — first Person Code is now
+  `P0000000001` (11 chars), not the previously-documented `P00000001`; (2) the same commit
+  freezes exactly **8 organization types** in the Organization module's business rules
+  (`KENDRA`/`NILACHALA_KUTIRA`/`SMRUTI_MANDIRA` unique, `ANCHALIKA`/`ZILLA`/`SAKHA`/
+  `SAKHA_ASANA`/`PATHA_CHAKRA` sequence-generated) — a type-*inventory* freeze, not the same as
+  the still-open type-to-*parent* matrix question tracked elsewhere in this file. This work is
+  still **zero backend/Django code** — `git diff --stat` confirms no `backend/` changes — and
+  `database/ddl/02_organization/` remains all 0-byte placeholders, untouched by this slice.
+- ~~`ORG-PENDING-001`'s own frozen example was internally inconsistent across three documents
+  (found 2026-08-30)~~ — **resolved 2026-08-30 (user decision):** Ekamra Sangha's short code is
+  `ESS`, not `EKM`; no `BHB` org exists. Fixed `CROSS_MODULE_PRINCIPLES.md` §20.1/§20.2 (the
+  canonical rule plus the still-unfrozen MEM-PENDING-001 illustration, which used `EKM`/`BHB` as
+  a two-org transfer example — the second org is now a generic `<other_org_short_code>`
+  placeholder rather than a real-sounding code), `PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md`
+  (one leftover `EKM` in a format-alternatives aside `05f2dfb` didn't touch), and
+  `08_correspondence_register_business_rules.md` §3.1's main format table (previously missed by
+  `05f2dfb`, which only fixed the "Additional examples" block below it).
+- **`ORG-PENDING-001` (organization short code) was frozen in `CROSS_MODULE_PRINCIPLES.md` but
+  never propagated into the Organization module's own doc set (found 2026-08-30).** None of
+  `docs/03_Solution/modules/organization/{01_organization_module_overview,02_organization_erd,
+  04_organization_business_rules,05_organization_table_design}.md` or that module's own
+  `README.md` mention `organization_short_code`, `ORG-PENDING-001`, or `VARCHAR(5)` anywhere —
+  the frozen column exists only in the cross-module architecture doc, not in the module that
+  will actually own the column. Same pattern as the SOL-LIFE-001 cross-reference gap above:
+  flagged, not fixed, since adding the column to the module's own design docs is itself a
+  design-doc edit, not a drift correction.
 - **Three DDL-phase design notes status (CROSS_MODULE_PRINCIPLES.md §20-21):**
   `ORG-PENDING-001` (organization short code format, 3–5 letters) — **FROZEN 2026-08-30**.
   `MEM-PENDING-001` (local Sakha number format + a proposed three-level Sangha
@@ -722,18 +792,29 @@ not assume the type-hierarchy specifics are settled.
   `CORR-EXT-001` (organization-scoped correspondence reference numbering) — **FROZEN
   2026-08-30**; unblocked by ORG-PENDING-001 freeze. Correspondence format changed from
   `NSS/IN/YYYY-YY/NNN` to `<ORG_SHORT_CODE>/IN/YYYY-YY/NNN` (per-organization sequences).
+- ~~New (2026-08-30): decide Ekamra Sangha's actual `organization_short_code` — `EKM` or
+  `ESS`? — and whether a `BHB` org exists.~~ — **resolved 2026-08-30**: it's `ESS`; no `BHB`
+  org exists. See the Gotchas entry above for the 3 documents fixed.
+- **New (2026-08-30): add `organization_short_code` (`ORG-PENDING-001`) to the Organization
+  module's own design docs.** It's frozen only in `CROSS_MODULE_PRINCIPLES.md` — the module
+  that will actually own the column (`docs/03_Solution/modules/organization/`) has no mention of
+  it in its overview/ERD/business-rules/table-design docs or README. See the Gotchas entry above.
+- **New (2026-08-30): reconcile `04_foundation_table_design.md`/the Foundation ERD with the
+  implemented `postal_code`/`city_village_postal_code_map` tables** — these 2 tables exist in
+  `database/ddl/01_foundation/` but aren't described in the Foundation module's own design docs
+  (which describe 10 tables, not the 12 now implemented). See the Foundation Vertical Slice
+  Gotcha above.
 - **One Correspondence Register rule is PENDING** — `CORR-BR-018`'s `relationship_type`
   candidate values for `correspondence_finance_reference` are deferred until Finance's own
   transaction taxonomy is frozen.
 - **One Assets & Property rule is PENDING** — `AP-066`, whether "sacred articles" fall under
   this module's Asset-custody model or Heritage's cultural-significance model, is unresolved.
-- **`IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing §79 status summary needs a follow-up
-  fix** — it wasn't updated by the 2026-08-28 freeze commit and still reads DRAFT/v0.1.0/
-  21-modules, contradicting the document's own header and §44 (both FROZEN/22-modules). A
-  self-inconsistency inside one file, not a cross-file drift issue — see Architecture above.
-- **`MODULE_DEPENDENCY_MAP.md`'s own §3 module-inventory table needs a follow-up fix** — its §61
-  status footer already says 22 modules (including Assets & Property), but §3 itself still
-  lists only 21 rows with no `assets_property` entry.
+- ~~`IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing §79 status summary needs a follow-up
+  fix~~ — **resolved 2026-08-30** (`1d96fb1`): §79 now reads FROZEN/v1.0.0/22-modules, matching
+  the document's own header and §44, and reflects Tier 1 (Foundation) DDL completion.
+- ~~`MODULE_DEPENDENCY_MAP.md`'s own §3 module-inventory table needs a follow-up fix~~ —
+  **resolved 2026-08-30** (`1d96fb1`): §3 now lists all 22 rows, including `assets_property`,
+  matching its own §61 footer.
 - **Formal Module #21 (Programmes & Events) freeze is the one remaining step for that module** —
   its cross-module reconciliation is now complete (`SOL-EVT-007`, 2026-08-28) and its candidate
   table set is settled at 7, but the module overview doc and its own README were never bumped

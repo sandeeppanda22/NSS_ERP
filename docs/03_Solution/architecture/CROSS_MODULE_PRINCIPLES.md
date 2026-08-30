@@ -510,13 +510,13 @@ code derived from its name:
 Column:   organization_short_code
 Type:     VARCHAR(5), UNIQUE, NOT NULL
 Default:  3 letters; 4 or 5 letters only when shorter code collides
-Examples: EKM (Ekamra), BHB (Bhubaneshwar), KEN (Kendra)
+Examples: ESS (Ekamra Sangha), KEN (Kendra)
 ```
 
 This code is reused as:
 
 1. Prefix in `local_sakha_number` (member identity within Sakha)
-2. Prefix in correspondence reference (`EKM/OUT/2027-28/001`)
+2. Prefix in correspondence reference (`ESS/OUT/2027-28/001`)
 
 The existing `organization_id` format (`SKH00000001`, `ANC00000001`) remains
 unchanged — it is the system-generated permanent business identifier.
@@ -532,7 +532,7 @@ unchanged — it is the system-generated permanent business identifier.
 
 ```text
 <organization_short_code> + <8-digit sequence>
-Example: EKM00000001
+Example: ESS00000001
 ```
 
 This is a proposed format. The exact format remains unfrozen until the
@@ -557,9 +557,9 @@ in `membership_transfer_history`.
 ### Lifecycle
 
 ```text
-Member joins Sakha A     → EKM00000001 (ACTIVE)
-Transfer to Sakha B      → EKM00000001 (INACTIVE), BHB00000042 (ACTIVE)
-Returns to Sakha A       → EKM00000001 (REACTIVATED), BHB00000042 (INACTIVE)
+Member joins Sakha A     → ESS00000001 (ACTIVE)
+Transfer to Sakha B      → ESS00000001 (INACTIVE), <other_org_short_code>00000042 (ACTIVE)
+Returns to Sakha A       → ESS00000001 (REACTIVATED), <other_org_short_code>00000042 (INACTIVE)
 ```
 
 ### Issuance Rules

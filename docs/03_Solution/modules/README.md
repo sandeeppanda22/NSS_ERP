@@ -11,8 +11,9 @@ As of 2026-08-28, every module below has a complete Solution-level doc set excep
 `v1.0.0 DRAFT — SOURCE ALIGNED` (a content-freeze tag, not a lifecycle/Status promotion; the
 document-level `Status` field remains `DRAFT` throughout). **None of this documentation has a
 matching backend implementation beyond the 5 pre-existing Django apps** (`foundation`,
-`authentication`, `family`, `membership`, `heritage`) and the partial `person`/`foundation`(01)
-SQL DDL — see `docs/PROJECT_DOCUMENTATION.md` → Conventions & gotchas / Open questions before
+`authentication`, `family`, `membership`, `heritage`) and the SQL DDL under `database/ddl/`
+(`01_foundation/` — fully implemented 2026-08-30, 12 tables; `03_person/` — superseded
+prototype) — see `docs/PROJECT_DOCUMENTATION.md` → Conventions & gotchas / Open questions before
 assuming any of this is built. **`finance/` (20th module, added 2026-08-21)** follows the same
 design-only pattern. **`programmes_events/` (21st module, added 2026-08-25 — Module #21)**
 remains v0.1.0 DRAFT with "FORMAL MODULE FREEZE PENDING" — but as of 2026-08-28
@@ -40,7 +41,7 @@ Administration — both reflected in the rows below.
 | `kishor/` | v1.0.0, SOURCE ALIGNED — Guardian Model v2.1 frozen | no `backend/kishor/` app |
 | `mahila/` | v2.1.0, BYE-LAW ALIGNED — one Governing Body = Mandali, **2-year** term (MAH-040) | no `backend/mahila/` app |
 | `sevak/` | Mixed — only `06_sevak_table_design.md` FROZEN, rest DRAFT/consolidation; SEV-024/025/032 identifier-collision question formally CLOSED 2026-08-26 | no `backend/sevak/` app |
-| `foundation/` (Solution-layer) | v1.0.0, SOURCE ALIGNED — **10 tables**: the original 8 (master data/geography/sequences) plus shared-infrastructure `document_master` and `field_change_log` (`DOC-ARCH-001`, 2026-08-26) — **not the same scope as `backend/foundation/`**, see its README | `database/ddl/01_foundation/` implements id_sequence/location; the other 8 tables do not exist |
+| `foundation/` (Solution-layer) | v1.0.0, SOURCE ALIGNED — describes **10 tables**: the original 8 (master data/geography/sequences) plus shared-infrastructure `document_master` and `field_change_log` (`DOC-ARCH-001`, 2026-08-26) — **not the same scope as `backend/foundation/`**, see its README | `database/ddl/01_foundation/` **fully implemented 2026-08-30** with **12 tables** — all 10 designed tables plus 2 more (`postal_code`, `city_village_postal_code_map`) the design doc doesn't yet describe |
 | `administration/` | v1.0.0, SOURCE ALIGNED — **8 Administration-owned tables**: 5 RBAC (`role_master`, `permission_master`, `role_permission`, `user_role`, `admin_scope`) + 3 new Correspondence Register tables (`correspondence`, `correspondence_document`, `correspondence_finance_reference`, `SOL-ADMIN-006`–`009`, added 2026-08-27, `CORR-DECISION-003`); `user_account`/`password_history` are exclusively Authentication-owned (frozen 2026-08-26) | no `backend/administration/` app |
 | `authentication/` (Solution-layer) | v1.0.0, SOURCE ALIGNED — exclusively owns `user_account`+`password_history` (frozen 2026-08-26); references the 5 Administration RBAC tables rather than owning them — **different schema from** `backend/authentication/`'s real `Role`/`UserRole`/`LoginAudit` models | `backend/authentication/` exists with an unrelated schema |
 | `governance/` (Solution-layer) | v1.0.0, SOURCE ALIGNED — Unified Body Governance Model, 9 tables, now 5 files (lifecycle doc added, SOL-GOV-005) — **freezes Mandali term at 3 years AND a formal election-based reconstitution process**, both conflicting with `mahila/`'s frozen 2-year term and consensus-based process (unreconciled) | `backend/governance/` is an empty stub |

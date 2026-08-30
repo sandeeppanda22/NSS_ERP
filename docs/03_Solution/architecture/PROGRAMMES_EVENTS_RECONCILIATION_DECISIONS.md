@@ -256,7 +256,7 @@ KEN/OUT/2026-27/042   — Kendra outward #42
   (VARCHAR(5), UNIQUE) frozen in ORG-PENDING-001
 - `id_sequence_master` usage becomes **per-organization** rather than
   global — each organization has its own inward and outward counters
-- The exact textual format (`EKM/IN/2026-27/001` vs `EKMIN2026001`
+- The exact textual format (`ESS/IN/2026-27/001` vs `ESSIN2026001`
   or other) is deferred to the application/DDL phase; the
   **organization-level prefix principle** is frozen
 

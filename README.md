@@ -193,6 +193,14 @@ Notes:
 > 3-table structure is frozen. Treat this diagram as the current working assumption, not a
 > closed design, until that open item is resolved.
 
+> **Flag (2026-08-30):** the same business rules doc separately froze an **8-type inventory**
+> (`ea8a4b4`) — the 5 types in the diagram above, plus `NILACHALA_KUTIRA` and `SMRUTI_MANDIRA`
+> (both unique, fixed-code, not shown here since they don't participate in the parent
+> hierarchy) and `SAKHA_ASANA` (sequence-generated like `SAKHA`, not yet placed in this
+> diagram — its own parent relationship is part of the still-open matrix above). This is a
+> type-*inventory* freeze only, separate from the still-open parent-matrix question. See
+> `CLAUDE.md` §7 Organization paragraph.
+
 ---
 
 # Module Structure
@@ -520,6 +528,9 @@ Completed:
   reassigned to Foundation, 2026-08-26, see below)
 * Person Database Schema (partial — `person`/`person_address` implemented; the docs' `person_id`
   naming doesn't match the DDL's `person_code`)
+* Foundation Database Schema (**new 2026-08-30** — "Foundation Vertical Slice," `ea8a4b4`: 12
+  tables + full seed data under `database/ddl/01_foundation/`/`database/seed/01_foundation/`;
+  the first real backend/database-track implementation in the project — still zero Django code)
 * Global Location Model
 * Membership Module Design
 * Family Module Design
@@ -531,9 +542,11 @@ Completed:
 * Mahila Sangha Module Design (v2.1.0, Bye-Law-aligned governance model)
 * Sevak Sangha Module Design (partially frozen — table design only; see
   `docs/PROJECT_DOCUMENTATION.md`)
-* Foundation Module Design (v1.0.0, SOURCE ALIGNED — now 10 tables: the original 8 master-data/
-  geography/sequence tables plus `document_master` + `field_change_log`, added 2026-08-26; same
-  name, different scope from the `backend/foundation/` Django app)
+* Foundation Module Design (v1.0.0, SOURCE ALIGNED — describes 10 tables: the original 8
+  master-data/geography/sequence tables plus `document_master` + `field_change_log`, added
+  2026-08-26; same name, different scope from the `backend/foundation/` Django app). **SQL now
+  implemented with 12 tables** (2 more than the design doc covers — see Foundation Database
+  Schema above and `docs/PROJECT_DOCUMENTATION.md`)
 * Administration Module Design (v1.0.0, SOURCE ALIGNED — 8 Administration-owned tables: 5 RBAC
   tables plus the new Correspondence Register, 2026-08-27; `user_account`/`password_history` are
   exclusively Authentication-owned)
