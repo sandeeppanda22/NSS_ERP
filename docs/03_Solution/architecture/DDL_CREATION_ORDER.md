@@ -407,19 +407,21 @@ merely display fields. They support:
 
 | Table | Depth | FK Dependencies | Module |
 |-------|------:|-----------------|--------|
-| `postal_code` | 1 | `country` | Foundation |
+| `postal_code` | 2 | `country`, `state` | Foundation |
 | `city_village_postal_code_map` | 4 | `city_village`, `postal_code` | Foundation |
 
 ## 11.4 Updated Sequence
 
 ```text
-87. postal_code                   Foundation        ← country
+87. postal_code                   Foundation        ← country, state
 88. city_village_postal_code_map  Foundation        ← city_village, postal_code
 ```
 
-`postal_code` is Depth 1 (depends only on `country`, Depth 0).
+`postal_code` is Depth 2 (depends on `country` at Depth 0 and `state`
+at Depth 1). `state_pk` provides direct administrative ownership —
+the postal-to-locality mapping remains in `city_village_postal_code_map`.
 `city_village_postal_code_map` is Depth 4 (depends on `city_village` at
-Depth 3 and `postal_code` at Depth 1).
+Depth 3 and `postal_code` at Depth 2).
 
 ## 11.5 Impact on Global Inventory
 
@@ -435,9 +437,9 @@ Depth 3 and `postal_code` at Depth 1).
 
 ```text
 city_village_pk    → city_village (Foundation)
-postal_code        → VARCHAR (denormalized for display/search)
-latitude           → DECIMAL (exact physical location)
-longitude          → DECIMAL (exact physical location)
+postal_code_pk     → postal_code (Foundation)
+latitude           → NUMERIC(10,7) (exact physical location)
+longitude          → NUMERIC(10,7) (exact physical location)
 ```
 
 Latitude/longitude describe the physical location of a specific

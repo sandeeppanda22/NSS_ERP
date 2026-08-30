@@ -359,10 +359,12 @@ large city with multiple post offices).
   Person-specific FKs (`person_pk`, `uploaded_by_sangha_sevi_pk`) deferred to Pass 2.
 - **`field_change_log`** — stores references as UUID values without FK constraints to avoid
   circular dependencies. Application layer enforces referential integrity.
-- **PIN Code Model (Amendment 2026-08-28)** — `postal_code` and `city_village_postal_code_map`
-  added to support searchable geographic hierarchy and map visualization. PIN codes are
-  country-scoped with M:N relationship to `city_village`. Organization stores `postal_code`
-  as VARCHAR (denormalized for display) plus `latitude`/`longitude` for exact coordinates.
+- **PIN Code Model (Amendment 2026-08-28, updated 2026-08-30)** — `postal_code` and
+  `city_village_postal_code_map` added to support searchable geographic hierarchy and map
+  visualization. PIN codes have an explicit `state_pk` FK for direct administrative ownership
+  (PIN → State is always deterministic); uniqueness is `(country_pk, postal_code)`.
+  M:N relationship to `city_village` via mapping table. Organization stores `postal_code_pk`
+  (FK to `postal_code`) plus `latitude`/`longitude` NUMERIC(10,7) for exact coordinates.
 - **Supersedes** — this replaces the previous `country_master`, `state_province_master`,
   `district_region_master`, `city_village_master` tables from the prototype iteration.
   The new `postal_code` and `city_village_postal_code_map` tables preserve the same
