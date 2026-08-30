@@ -116,6 +116,22 @@ pushing, and fast-forward-merging `feature/ref-documentation` into `develop`)
 > Verified via `git status` / `git log` / `git branch` — do not trust handoff-doc claims over
 > this without re-verifying, since handoffs go stale.
 
+- **Branch/remotes (updated 2026-08-30, later same day still — supersedes the bullet directly
+  below for current branch/HEAD state; that bullet's content-level findings are unaffected and
+  still live).** User asked to sync all branches with `develop`. Checked each with `git
+  merge-base --is-ancestor` before touching anything: 8 branches (`feature/admin-setup`,
+  `feature/database-foundation`, `feature/database-schema`, `feature/founder-heritage`,
+  `feature/person-ddl`, `feature/person-management`, `feature/ref-documentation`,
+  `feature/ref-renaming`) were pure ancestors of `develop` — fast-forwarded all 8 to `develop`'s
+  tip via `checkout` + `merge` (git enforces fast-forward-only outcome; no `branch -f`/`reset
+  --hard` used). `feature/membership-design` had one real unique commit not on `develop`
+  (`76c2479 "Create membership module overview"`, adding `docs/03_Solution/modules/membership/
+  01_membership_module_overview.md`) — merged `develop` into it instead (`c7489cb`, clean,
+  no conflicts — same "merge develop into it" precedent from the 2026-08-12 session, since
+  merging *it* into `develop` would still be premature per §4's "complete & verified" branch
+  policy). **`main` deliberately left untouched** at `3db5c37` — advances only via the
+  documented tag+release process (§4), not ad-hoc branch sync. All 10 branches now sit at or
+  strictly above `develop`'s tip; nothing was pushed (still blocked in-sandbox, see below).
 - **Branch/remotes (updated 2026-08-30, later same day — supersedes the bullet directly below
   for current branch/HEAD state; that bullet's content-level findings are unaffected and still
   live).** Committed the Foundation-Vertical-Slice reconciliation + Ekamra short-code fix as
@@ -963,6 +979,38 @@ remains v0.1.0 DRAFT with no table frozen DDL.
 ## 12. Session Log
 
 <!-- Newest entries at the top. -->
+
+### 2026-08-30 — Synced all branches with `develop` (8 fast-forwards + 1 real merge); `main` deliberately left alone (Claude Code)
+- Context: User asked to sync all branches with `develop`, continuing the "half-finished
+  branch-sync task" flagged repeatedly since the 2026-08-28 pass (fast-forwarding
+  `feature/founder-heritage`/`feature/person-ddl`/`feature/person-management`/
+  `feature/ref-documentation` to `develop`, and merging `develop` into
+  `feature/membership-design`) — now widened to cover 4 more branches that had also fallen
+  behind (`feature/admin-setup`, `feature/database-foundation`, `feature/database-schema`,
+  `feature/ref-renaming`). Given the 2026-08-21 incident (an agent performing unauthorized
+  merges and mis-reporting them as pre-existing state — see that entry below), checked every
+  branch's actual relationship to `develop` with `git merge-base --is-ancestor` *before*
+  touching anything, rather than assuming any branch was safe to fast-forward.
+- Decision/Outcome: Confirmed 8 branches (`feature/admin-setup`, `feature/database-foundation`,
+  `feature/database-schema`, `feature/founder-heritage`, `feature/person-ddl`,
+  `feature/person-management`, `feature/ref-documentation`, `feature/ref-renaming`) were pure
+  ancestors of `develop` — fast-forwarded each via `git checkout <branch> && git merge develop`
+  (git enforces the fast-forward-only outcome itself; no `branch -f`/`reset --hard` used, so a
+  non-fast-forward situation would have surfaced as a real merge or error instead of silently
+  discarding anything). `feature/membership-design` had one real unique commit
+  (`76c2479 "Create membership module overview"`) — merged `develop` into it instead
+  (`c7489cb`, clean, zero conflicts), matching the exact precedent from the 2026-08-12 session
+  (merge `develop` into the still-incomplete branch to catch it up without prematurely merging
+  *it* into `develop`, since it still isn't "complete & verified" per §4). `main` was
+  deliberately left at `3db5c37` — per §4, it advances only via the documented tag+release
+  process, never ad-hoc branch sync. Returned to `develop` afterward. Nothing was pushed to any
+  remote (still blocked in-sandbox by a domain-allowlist 403 on `git fetch`/`push`, same
+  restriction noted in the entry below).
+- Follow-up: `feature/membership-design` itself still isn't ready to merge into `develop` — its
+  one module-overview doc hasn't gone through the ERD/business-rules/table-design maturity the
+  project's other modules reached before their own `develop` merge (same gap noted in the
+  2026-08-12 session). If the user wants that branch progressed or merged, it needs more design
+  work first, not another sync.
 
 ### 2026-08-30 — /document-project pass: reconciled the Foundation Vertical Slice (first real DDL/seed landing), Person Code padding widen, ORG-PENDING-001/CORR-EXT-001 freeze; found a new 3-way short-code example inconsistency (Claude Code)
 - Context: Invoked via `/document-project`. `git status`/`git log` showed the branch unchanged
