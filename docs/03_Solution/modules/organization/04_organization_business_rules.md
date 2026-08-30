@@ -747,16 +747,38 @@ or equivalent geographic masters.
 
 ## ORG-BR-064 — Administrative vs Physical Location
 
-The project source distinguishes:
+The frozen organization type list (8 types):
 
 ```text
-ANCHALIKA = Administrative Unit
-ZILLA     = Administrative Unit
-SAKHA     = Physical Sangha Location
+KENDRA          = Central Body (unique — only one exists)
+NILACHALA_KUTIRA = Spiritual Residence (unique)
+SMRUTI_MANDIRA  = Memorial Temple (unique)
+ANCHALIKA       = Administrative Unit (multiple instances)
+ZILLA           = Administrative Unit (multiple instances)
+SAKHA           = Physical Sangha Location (multiple instances)
+SAKHA_ASANA     = Approved Sakha without own building (multiple instances)
+PATHA_CHAKRA    = Study Circle (multiple instances)
 ```
 
-Therefore physical address requirements shall not automatically be inferred
-from organizational type alone. 
+Unique organizations (KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA) receive
+fixed business codes: KEN, NKT, SMR respectively. They do not use
+sequence-generated identifiers.
+
+Multiple-instance organizations use per-type ID sequences:
+
+```text
+ANCHALIKA    → prefix ANC (e.g. ANC00000001)
+ZILLA        → prefix ZL  (e.g. ZL00000001)
+SAKHA        → prefix SKH (e.g. SKH00000001)
+SAKHA_ASANA  → prefix SA  (e.g. SA00000001)
+PATHA_CHAKRA → prefix PC  (e.g. PC00000001)
+```
+
+Physical address requirements shall not automatically be inferred
+from organizational type alone. Administrative units (ANCHALIKA, ZILLA)
+need not have a physical building. SAKHA_ASANA is Kendra-approved but
+operates from a member's residence until a permanent building is
+established. 
 
 ---
 
@@ -991,7 +1013,6 @@ The following are intentionally NOT frozen by this document unless supported
 by a later authoritative source or governance decision:
 
 ```text
-Exact organization type master values
 Exact type-to-type parent compatibility matrix
 Exact hierarchical-level storage mechanism
 Complete lifecycle transition matrix
@@ -1000,6 +1021,9 @@ Automatic organizational closure rules
 Multiple address history
 Additional statutory organization levels
 ```
+
+Note: "Exact organization type master values" was moved to FROZEN status
+on 2026-08-28 — see ORG-BR-064 for the authoritative 8-type list.
 
 ---
 

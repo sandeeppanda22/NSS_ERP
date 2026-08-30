@@ -20,7 +20,8 @@ The Foundation Module provides:
 - Identifier Sequence Infrastructure
 - Geographic Reference Data
 
-The current frozen Foundation schema contains exactly eight tables:
+The current frozen Foundation schema contains exactly eight tables, plus
+two shared-infrastructure tables added by architectural decisions:
 
     master_category
     master_data
@@ -30,13 +31,21 @@ The current frozen Foundation schema contains exactly eight tables:
     state
     district
     city_village
+    document_master        (DOC-ARCH-001, 2026-08-26 — shared document registry)
+    field_change_log       (Data Change Architecture, 2026-08-26 — shared change log)
 
 ---
 
 # 2. Source Boundary
 
-The PostgreSQL schema review explicitly identifies these eight tables as the
-Foundation Module.
+The PostgreSQL schema review explicitly identifies the original eight tables
+as the Foundation Module.
+
+Two additional shared-infrastructure tables have been assigned to Foundation
+by architectural decisions during the pre-DB gate (2026-08-26):
+
+- `document_master` — DOC-ARCH-001 (moved from Person; shared document registry)
+- `field_change_log` — Data Change Architecture (shared field-change tracking)
 
 The database build plan identifies the implementation sequence as:
 
@@ -59,6 +68,8 @@ The database build plan identifies the implementation sequence as:
 | 6 | `state` | State/province master |
 | 7 | `district` | District master |
 | 8 | `city_village` | City/village/locality master |
+| 9 | `document_master` | Shared document registry (DOC-ARCH-001, moved from Person) |
+| 10 | `field_change_log` | Shared field-change tracking (Data Change Architecture) |
 
 ---
 
@@ -1155,16 +1166,22 @@ country
            └──< district
                     │
                     └──< city_village
+
+
+SHARED INFRASTRUCTURE (added 2026-08-26)
+
+document_master     (shared document registry — DOC-ARCH-001)
+field_change_log    (shared field-change tracking — Data Change Architecture)
 ```
 
 ---
 
 # 40. Foundation Table Count
 
-Current frozen count:
+Current count:
 
 ```
-8 tables
+10 tables
 ```
 
 ```text
@@ -1176,15 +1193,23 @@ Current frozen count:
 6. state
 7. district
 8. city_village
+9. document_master        (DOC-ARCH-001, 2026-08-26)
+10. field_change_log      (Data Change Architecture, 2026-08-26)
 ```
 
 ---
 
 # 41. Source Alignment
 
-The source database review identifies the eight Foundation tables and
+The source database review identifies the original eight Foundation tables and
 explicitly separates them from Person, Membership, Authentication,
 Organization, Governance and other modules.
+
+Two additional tables (`document_master`, `field_change_log`) were assigned
+to Foundation by architectural decisions made during the pre-DB architecture
+gate (2026-08-26). Their logical column designs are defined by Person
+(for `document_master`) and the Data Change Architecture (for
+`field_change_log`); Foundation owns the physical DDL.
 
 The database build plan confirms:
 

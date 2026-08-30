@@ -534,16 +534,19 @@ or any other dedicated address-history table.
 
 ---
 
-# 27. Anchalika, Zilla and Sakha
+# 27. Organization Types (FROZEN)
 
-The current project source establishes an important distinction:
+The frozen organization type list (8 types, decided 2026-08-28):
 
 ```text
-ANCHALIKA = Administrative Unit
-
-ZILLA = Administrative Unit
-
-SAKHA = Physical Sangha Location
+KENDRA          = Central Body (unique)
+NILACHALA_KUTIRA = Spiritual Residence (unique)
+SMRUTI_MANDIRA  = Memorial Temple (unique)
+ANCHALIKA       = Administrative Unit (multiple)
+ZILLA           = Administrative Unit (multiple)
+SAKHA           = Physical Sangha Location (multiple)
+SAKHA_ASANA     = Approved Sakha, no own building (multiple)
+PATHA_CHAKRA    = Study Circle (multiple)
 ```
 
 Therefore the ERD must not assume that every organization type requires a physical address in the same manner. 

@@ -28,7 +28,9 @@ events/01_other_sevak_event_rules.md                   SOL-SEV-EVENT-001,  v1.0.
 `SEV-XXX` IDs). An earlier freeze commit referenced "SEV-013 through SEV-048" — that applied to
 the pre-restructure monolithic file; the subsequent split/renumber consolidated the core set down
 to 001–040, with an explicit note (§22) that source ID collisions (duplicate SEV-024, SEV-025,
-SEV-032) were found and deliberately not silently patched.
+SEV-032) were found and deliberately not silently patched. As of 2026-08-26, these collisions
+are formally CLOSED — each ID has one canonical meaning; retired event/attendance uses are
+superseded (see §22 Resolution Status).
 
 ---
 

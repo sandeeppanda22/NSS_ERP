@@ -42,11 +42,14 @@ and RBAC management in Administration.
 
 ## Key facts
 
-- Seven tables: `user_account`, `password_history`, `role_master`, `permission_master`,
-  `role_permission`, `user_role`, `admin_scope`. This module owns identity verification and
-  credential security (`user_account` + `password_history`); RBAC *management* of the other
-  five is owned by `docs/03_Solution/modules/administration/` (they appear here too because
-  authentication needs to *evaluate* roles/permissions/scope, not because it manages them).
+- **Seven tables appear in this document's ERD**, but ownership is exclusive per the
+  **Table Ownership Declaration (Frozen 2026-08-26, `CROSS_MODULE_PRINCIPLES.md`)**: this
+  module owns only `user_account` and `password_history` (identity verification and credential
+  security). The other five (`role_master`, `permission_master`, `role_permission`, `user_role`,
+  `admin_scope`) are exclusively owned by `docs/03_Solution/modules/administration/` — they
+  appear here too only because Authentication needs to *evaluate* roles/permissions/scope, not
+  because it manages them. Both modules may FK to the other's tables, but ownership is
+  canonical and non-overlapping.
 - No `login_history`, `session_history`, MFA, password-reset, or lockout tables frozen yet.
 
 ## Note — design/code gap

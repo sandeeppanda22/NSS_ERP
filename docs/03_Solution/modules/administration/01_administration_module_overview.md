@@ -851,11 +851,76 @@ Organizational Scope
 RBAC
 Administrative Access
 Administration Dashboard
+Correspondence Register
 ```
 
 ---
 
-# 56. Current Source-Supported RBAC Foundation
+# 56. Correspondence Register Capability
+
+**CORR-DECISION-003 — Administration Correspondence Register**
+
+Administration owns the official correspondence register for inward and outward communications.
+
+## 56.1 Scope
+
+```text
+Administration
+└── Correspondence Register
+    ├── Inward correspondence (received)
+    └── Outward correspondence (sent)
+```
+
+## 56.2 What Correspondence Register Covers
+
+- Registration of official inward/outward communications
+- Reference numbering (sequential per financial year)
+- Sender/recipient information
+- Subject and date
+- Medium (post, email, hand-delivery, circular)
+- Responsible person/office
+- Status/follow-up information
+- Association with Foundation-owned documents (`document_master`)
+
+## 56.3 Ownership Boundaries
+
+The correspondence register records official communications. It does not own the underlying business matter:
+
+```text
+Government property-tax letter
+        ↓
+Administration correspondence register (records the communication)
+        ↓
+Assets & Property (property context)
+        ↓
+Finance (payment transaction)
+```
+
+Domain-specific business requests remain with their owning modules:
+
+- Membership renewal/transfer → Membership
+- Gruhasana renewal → Membership
+- Financial transactions → Finance
+- Property matters → Assets & Property
+- Governing-body decisions → Governance
+
+## 56.4 What Correspondence Register Does Not Provide
+
+- Generic form/application engine
+- Domain-specific request workflows
+- BPM/workflow automation
+- Email/messaging system
+- Duplicate of domain-owned request lifecycles
+
+## 56.5 Architecture Status
+
+- Capability: **ACCEPTED** (CORR-DECISION-003)
+- Detailed ERD/lifecycle/business rules/table design: **TO BE DOCUMENTED**
+- Physical tables: **NOT YET FROZEN**
+
+---
+
+# 57. Current Source-Supported RBAC Foundation
 
 The existing project source identifies the following security/RBAC concepts:
 
@@ -870,7 +935,7 @@ this overview.
 
 ---
 
-# 57. Tables Not Assumed
+# 58. Tables Not Assumed
 
 This overview does NOT freeze additional tables such as:
 
@@ -887,7 +952,7 @@ unless supported by subsequent approved design.
 
 ---
 
-# 58. Administrative Principle
+# 59. Administrative Principle
 
 The central Administration principle is:
 
@@ -897,7 +962,7 @@ Centralize authorization; do not duplicate it across modules.
 
 ---
 
-# 59. Architecture Summary
+# 60. Architecture Summary
 
 ```text
                     Authentication
@@ -927,7 +992,7 @@ Centralize authorization; do not duplicate it across modules.
 
 ---
 
-# 60. Design Boundary
+# 61. Design Boundary
 
 This overview establishes:
 
@@ -958,7 +1023,7 @@ Detailed Physical Schema
 
 ---
 
-# 61. Source Alignment
+# 62. Source Alignment
 
 The frozen NSS module hierarchy explicitly identifies Administration as a
 top-level ERP module and includes:
@@ -993,7 +1058,7 @@ matrix is defined centrally in the Administration/RBAC module.
 
 ---
 
-# 62. Status
+# 63. Status
 
 DOCUMENT STATUS:
 

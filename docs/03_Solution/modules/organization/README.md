@@ -48,8 +48,10 @@ design (parent FK + `hierarchical_level` attribute) was confirmed to satisfy GOV
 child/lineage/level/status requirements without adding a 4th table.
 
 **Do not treat `CLAUDE.md`'s ANCHALIKA/ZILLA/SAKHA/PATHA_CHAKRA hierarchy description as
-frozen against this doc set** — that specific matrix is now an open item pending an
-authoritative decision, not a design already locked in.
+frozen against this doc set** — the type-to-type parent compatibility matrix remains open,
+but the **8 organization types themselves are now FROZEN** (decided 2026-08-28):
+KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA (unique), ANCHALIKA, ZILLA, SAKHA, SAKHA_ASANA,
+PATHA_CHAKRA (multiple instances). See ORG-BR-064 for details and ID prefix assignments.
 
 ---
 

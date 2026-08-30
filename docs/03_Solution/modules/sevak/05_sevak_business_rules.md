@@ -949,8 +949,23 @@ For the consolidated document:
 * The original core lifecycle identifiers are retained.
 * Event-specific attendance identifiers are no longer used in this core document.
 * Event-specific rules are maintained in their dedicated documents.
-* The final cross-document SEV identifier registry shall be finalized after all migrated rules have been reviewed.
 * No new SEV identifier shall be invented merely to hide an unresolved historical collision.
+
+### Resolution Status: CLOSED (2026-08-26)
+
+The SEV identifier sequence (SEV-001 through SEV-040) is resolved. Each
+identifier has exactly one canonical definition in this document. Historical
+uses of SEV-024, SEV-025, and SEV-032 from the pre-restructure document are
+retired and superseded.
+
+The event/attendance rules formerly associated with those historical identifiers
+are now contained in the Sevak sub-documents (`sangha/`, `seva/`, `events/`) and
+deliberately do not use SEV-### identifiers.
+
+No external project document currently references the retired meanings.
+
+A separate SEV Identifier Registry is not required — this document is the
+single authoritative source for all SEV-### rule definitions.
 
 ---
 

@@ -102,17 +102,19 @@ The current logical candidate table inventory is:
 | -: | ---------------------- | ------------------ | ----------------------------- |
 |  1 | programme_type         | Programme & Events | Candidate                     |
 |  2 | event                  | Programme & Events | Candidate                     |
-|  3 | event_session          | Programme & Events | Candidate                     |
-|  4 | event_location         | Programme & Events | Candidate                     |
-|  5 | event_history          | Programme & Events | Candidate                     |
-|  6 | financial_scope        | Finance            | Existing Finance ownership    |
-|  7 | attendance entities    | Attendance         | Existing Attendance ownership |
-|  8 | UPBS Event extension   | UPBS               | Existing/domain-specific      |
-|  9 | Kishor Event extension | Kishor             | Domain-specific               |
-| 10 | Sevak Event extension  | Sevak              | Existing/domain-specific      |
+|  3 | event_day              | Programme & Events | Candidate                     |
+|  4 | event_session          | Programme & Events | Candidate                     |
+|  5 | event_registration     | Programme & Events | Candidate                     |
+|  6 | event_location         | Programme & Events | Candidate                     |
+|  7 | event_history          | Programme & Events | Candidate                     |
+|  8 | financial_scope        | Finance            | Existing Finance ownership    |
+|  9 | attendance entities    | Attendance         | Existing Attendance ownership |
+| 10 | UPBS Event extension   | UPBS               | Existing/domain-specific      |
+| 11 | Kishor Event extension | Kishor             | Domain-specific               |
+| 12 | Sevak Event extension  | Sevak              | Existing/domain-specific      |
 
-Only the first five are candidates for common Programme & Events physical
-tables.
+Only the first seven are candidates for common Programme & Events
+physical tables.
 
 ---
 
@@ -1033,12 +1035,17 @@ table set is proposed as:
 ```text
 programme_type
 event
+event_day
 event_session
+event_registration
 event_location
 event_history
 ```
 
 This is the **current candidate set**, not yet production DDL.
+
+The reconciliation gates (A–G) are now CLOSED per
+SOL-EVT-007 (PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md).
 
 ---
 
@@ -1051,7 +1058,6 @@ event_attendance
 event_transaction
 event_receipt
 event_payment
-event_registration
 event_participant
 event_notification
 kendra_event
@@ -1073,7 +1079,9 @@ COMMON
 ────────────────────────────
 programme_type
 event
+event_day
 event_session
+event_registration
 event_location
 event_history
         │
@@ -1088,33 +1096,22 @@ The domain-specific extension remains owned by the domain module.
 
 # 49. Existing Table Reconciliation
 
-Before physical DDL is frozen, reconcile:
+The cross-module reconciliation required before physical DDL is now
+COMPLETE. All 7 gates closed per SOL-EVT-007 (2026-08-28).
 
-```text
-UPBS
-Kishor
-Sevak
-Attendance
-Finance
-Organization
-Mahila
-```
+Summary of reconciliation decisions:
 
-The reconciliation must identify:
+- Gate A: P&E owns common Event entity
+- Gate B: `upbs_event` → P&E common Event extension
+- Gate C: Kishor → P&E common Event extension
+- Gate D: Sevak → P&E common Event extension
+- Gate E: Event Session optional, organiser-defined (P&E-ARCH-002)
+- Gate F: Weekly Sangha Puja remains Attendance-owned (no change)
+- Gate G: Registration = common P&E infrastructure (P&E-ARCH-001)
 
-* duplicate Event identity;
-* duplicate Event fields;
-* existing PKs;
-* existing FKs;
-* lifecycle differences;
-* location handling;
-* organizer handling;
-* session handling;
-* attendance references;
-* financial references.
-
-The architecture source explicitly identifies this reconciliation as
-necessary before creating physical Event tables.
+The field-level reconciliation (exact column mapping from existing
+UPBS/Kishor/Sevak event tables to common Event) remains a DDL-phase
+activity.
 
 ---
 
@@ -1244,7 +1241,7 @@ TABLE DESIGN:
 DRAFT
 
 COMMON TABLE CANDIDATES:
-5
+7
 
 programme_type:
 CANDIDATE
@@ -1252,7 +1249,13 @@ CANDIDATE
 event:
 CANDIDATE
 
+event_day:
+CANDIDATE
+
 event_session:
+CANDIDATE
+
+event_registration:
 CANDIDATE
 
 event_location:
@@ -1282,9 +1285,12 @@ DOMAIN EXTENSION
 POSTGRESQL DDL:
 NOT STARTED
 
+RECONCILIATION GATES:
+ALL CLOSED (7/7) — SOL-EVT-007
+
 DOCUMENTATION FREEZE:
 PENDING
 
 NEXT:
-CROSS-DOCUMENT CONSISTENCY REVIEW
+DB STANDARDS → FK GRAPH → DDL ORDER
 ```

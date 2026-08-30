@@ -46,16 +46,16 @@ Authentication & Security foundation.
 
 ---
 
-# 3. Responsibility Split
+# 3. Responsibility Split and Table Ownership
 
-The seven tables are logically divided into two areas.
+The seven tables are logically divided into two areas with **exclusive ownership**.
 
-## Authentication / Account Security
+## Authentication & Security OWNS (DDL authority)
 
     user_account
     password_history
 
-## Authorization / RBAC
+## Administration OWNS (DDL authority)
 
     role_master
     permission_master
@@ -63,9 +63,14 @@ The seven tables are logically divided into two areas.
     user_role
     admin_scope
 
-Administration manages the RBAC portion.
-
 Authentication & Security manages authentication and credential security.
+Administration manages the RBAC/authorization portion.
+
+Both modules may **reference** the other's tables via foreign keys, but
+**ownership is exclusive** — only the owning module may alter the table's
+DDL definition, add columns, or change constraints.
+
+This ownership declaration is canonical. Frozen 2026-08-26.
 
 ---
 

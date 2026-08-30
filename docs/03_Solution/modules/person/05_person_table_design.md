@@ -38,11 +38,12 @@ The current Person Module contains:
 
 ```text
 person
-document_master
 ```
 
-The project schema baseline identifies these two tables as the current Person
-Module tables.
+`document_master` was originally defined here but has been reassigned to the
+Foundation Module as a shared document registry (DOC-ARCH-001, 2026-08-26).
+Person remains a consumer of `document_master` through explicit FK
+relationships.
 
 No additional Person table is introduced without an approved design change.
 
@@ -737,6 +738,16 @@ column.
 
 # 53. Table 2 — `document_master`
 
+## Ownership Reassignment (DOC-ARCH-001, 2026-08-26)
+
+`document_master` has been reassigned to the Foundation Module as a shared
+document registry. The logical design below is preserved for reference, but
+Foundation is the authoritative DDL owner.
+
+Person references `document_master` through an explicit FK relationship
+(exact pattern — direct FK or junction table — to be determined during
+Person DDL design).
+
 ## Purpose
 
 Stores document metadata associated with Person identity and the project's
@@ -1227,13 +1238,12 @@ document_master
 Person Module
 ────────────────────────────
 person                  1
-document_master         1
 ────────────────────────────
-TOTAL                   2
+TOTAL                   1
 ```
 
-This matches the current project schema baseline identifying two Person
-tables.
+`document_master` (previously counted here) is now owned by Foundation
+(DOC-ARCH-001, 2026-08-26).
 
 ---
 

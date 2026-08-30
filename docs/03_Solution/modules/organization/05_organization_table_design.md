@@ -550,6 +550,46 @@ structure.
 
 It shall not be used to invent a new organizational level.
 
+## 36.1 Actual NSS Organizational Hierarchy (Frozen 2026-08-26)
+
+The NSS organizational hierarchy is:
+
+```text
+Kendra → Anchalika/Zilla → Sakha
+```
+
+Anchalika and Zilla are **alternative intermediate organizational levels**.
+Neither is required to precede the other. Both of the following are valid
+organizational structures:
+
+```text
+Kendra → Anchalika → Sakha
+Kendra → Zilla → Sakha
+```
+
+The rare case:
+
+```text
+Kendra → Zilla → Anchalika → Sakha
+```
+
+is also structurally possible.
+
+**Implications for `hierarchical_level`:**
+
+* A fixed ordinal mapping (1=Kendra, 2=Anchalika, 3=Zilla, 4=Sakha) is
+  NOT safe — it incorrectly implies Anchalika always precedes Zilla.
+* The actual hierarchy depth is determined by `parent_organization_pk`
+  relationships, not by a global static ranking of organization types.
+* Moving `hierarchical_level` to `organization_type_master` would be
+  incorrect because the same organization type (e.g. Sakha) always sits
+  at the same structural depth, but Anchalika and Zilla are peers, not
+  ordered predecessors.
+
+This clarification reinforces that the physical representation of
+`hierarchical_level` remains an open design decision (§35) and must
+accommodate alternative intermediate structures.
+
 ---
 
 # 37. Hierarchical Level vs Organization Type
@@ -719,14 +759,19 @@ The Organization Module does not own duplicate geographic master tables.
 
 ---
 
-# 48. Administrative vs Physical Location
+# 48. Administrative vs Physical Location (FROZEN)
 
-The project source distinguishes:
+The frozen organization type list (8 types, decided 2026-08-28):
 
 ```text
-ANCHALIKA = Administrative Unit
-ZILLA     = Administrative Unit
-SAKHA     = Physical Sangha Location
+KENDRA          = Central Body (unique)
+NILACHALA_KUTIRA = Spiritual Residence (unique)
+SMRUTI_MANDIRA  = Memorial Temple (unique)
+ANCHALIKA       = Administrative Unit (multiple)
+ZILLA           = Administrative Unit (multiple)
+SAKHA           = Physical Sangha Location (multiple)
+SAKHA_ASANA     = Approved Sakha, no own building (multiple)
+PATHA_CHAKRA    = Study Circle (multiple)
 ```
 
 Therefore physical-address requirements shall not automatically be imposed

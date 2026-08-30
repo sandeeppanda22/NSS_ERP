@@ -1,8 +1,8 @@
 # NSS ERP — Implementation Dependency Order
 
 **Document ID:** SOL-ARCH-008  
-**Version:** 0.1.0  
-**Status:** DRAFT — IMPLEMENTATION ORDER  
+**Version:** 1.0.0  
+**Status:** FROZEN — IMPLEMENTATION TIER ORDER  
 **Parent Documents:**
 - DATABASE_DESIGN_STANDARDS.md
 - MODULE_DEPENDENCY_MAP.md
@@ -72,7 +72,7 @@ Runtime dependency describes application-level consumption.
 
 # 3. Current Module Inventory
 
-The current project contains 21 module domains:
+The current project contains 22 module domains:
 
 |  # | Module             | Status   |
 | -: | ------------------ | -------- |
@@ -97,9 +97,14 @@ The current project contains 21 module domains:
 | 19 | Sevak              | Existing |
 | 20 | UPBS               | Existing |
 | 21 | Programme & Events | Proposed |
+| 22 | Assets & Property  | Existing |
 
 **Module #21 is architecturally justified but remains pending formal
 module freeze.**
+
+**Module #22 (Assets & Property) documentation complete (SOL-AP-001
+through SOL-AP-005). 7 module-owned tables. Tier position OPEN pending
+final dependency-graph review.**
 
 ---
 
@@ -866,9 +871,9 @@ It is not a normal business FK dependency.
 
 ---
 
-# 44. Proposed Implementation Tiers
+# 44. Implementation Tiers
 
-The current recommended grouping is:
+The frozen implementation tier order is:
 
 ```text
 TIER 1   Foundation
@@ -881,7 +886,7 @@ TIER 4   Family, Membership
 
 TIER 5   Authentication, Administration, Audit
 
-TIER 6   Attendance, Governance
+TIER 6   Attendance, Governance, Assets & Property
 
 TIER 7   Programme & Events
 
@@ -896,7 +901,28 @@ TIER 11  Finance
 TIER 12  Reports, Backup & Technical
 ```
 
-**Status: PROPOSED — PENDING FINAL APPROVAL.**
+**Status: FROZEN (IMPLEMENTATION-TIER-001)**
+
+### Freeze conditions
+
+- Module count: 22
+- Tier placement reflects physical/schema dependency, not business
+  importance or workflow sequence
+- Assets & Property at Tier 6: depends on Foundation + Person +
+  Organization (all available by Tier 2); no hard FK to Finance
+- Finance at Tier 11: owns financial transactions; upstream modules
+  associate with Finance via optional cross-reference, not hard FK
+  prerequisite
+- P&E at Tier 7: common event capability after core identity/member
+  foundations are established
+- Correspondence remains an Administration capability (Tier 5), not a
+  separate module
+- Seva remains within the Sevak module (Tier 8), not a separate module
+- Weekly Sangha Puja remains Attendance-owned (Tier 6), no P&E
+  dependency
+- Pending module-level DDL decisions (ORG-PENDING-001, MEM-PENDING-001,
+  ATT-PENDING-001, P&E candidates) do not invalidate the tier freeze —
+  they affect individual module DDL, not tier ordering
 
 ---
 
@@ -1656,10 +1682,13 @@ VERTICAL SLICE
 FOUNDATION
 
 **PROGRAMME & EVENTS:**  
-MODULE #21 — PROPOSED / IMPLEMENTATION DEFERRED
+MODULE #21 — RECONCILIATION COMPLETE (SOL-EVT-007) / IMPLEMENTATION DEFERRED TO TIER 7
 
 **FINANCE:**  
-DOCUMENTATION COMPLETE / IMPLEMENTATION DEFERRED
+DOCUMENTATION COMPLETE / IMPLEMENTATION DEFERRED TO TIER 11
+
+**IMPLEMENTATION TIERS:**  
+FROZEN (IMPLEMENTATION-TIER-001)
 
 **PHYSICAL DDL:**  
 NOT STARTED
@@ -1671,4 +1700,4 @@ NOT STARTED
 NOT STARTED
 
 **NEXT:**  
-FOUNDATION DATABASE PHASE
+PHYSICAL FK DEPENDENCY GRAPH → DDL CREATION ORDER → FOUNDATION DATABASE PHASE

@@ -24,7 +24,8 @@ merge workflow, death handling (death does not delete — PER-BR-026), document 
 lifecycle doc was inserted.)
 
 `05_person_table_design.md` (was `SOL-PER-004`, filename shifted from `04_...`) — logical table
-design. **Two tables**: `person`, `document_master`.
+design. **One table: `person`.** `document_master` was reassigned to Foundation
+(`DOC-ARCH-001`, 2026-08-26, see below) — Person remains a consumer via FK, not the owner.
 
 ---
 
@@ -53,17 +54,26 @@ deliberately does **not** invent a final design for these; see `05_person_table_
   (`uq_person_primary_address`). The DDL is ahead of what the current design docs claim is
   decided — don't assume multi-address support is a closed design decision just because it's
   implemented.
-- **`document_master`** (one of the two tables in this design) has no SQL counterpart yet in
-  `database/ddl/03_person/`, which currently implements only `person` and `person_address`.
+
+## Ownership reassignment (2026-08-26)
+
+`document_master` was originally designed here as Person's second table. Project-wide
+`CROSS_MODULE_PRINCIPLES.md` (`DOC-ARCH-001`, FROZEN) reassigned it to **Foundation** as a
+shared document registry — Person, Heritage, and Publications all consume it as FKs rather
+than each owning their own copy. `05_person_table_design.md` §53 keeps the original logical
+design for reference (Foundation is now the authoritative DDL owner); the exact FK pattern
+(direct FK vs. junction table) is still TBD during Person's own DDL design. `document_master`
+itself still has no SQL counterpart anywhere, under either module.
 
 ---
 
 ## Current Status
 
 Design Complete · ERD Complete · Lifecycle Documented (SOL-PER-005) · Business Rules Complete
-(SOURCE ALIGNED) · Table Design Complete (SOURCE ALIGNED) · SQL Implementation Partial —
+(SOURCE ALIGNED) · Table Design Complete (SOURCE ALIGNED, now 1 table — see Ownership
+reassignment above) · SQL Implementation Partial —
 `database/ddl/03_person/` implements `person` and `person_address` (using `person_code`, not
-`person_id`); no `document_master` table exists in SQL.
+`person_id`).
 
 ---
 

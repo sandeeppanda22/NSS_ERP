@@ -1,29 +1,79 @@
 # database/
 
-Hand-written PostgreSQL DDL and seed data — the "Database First" track of the project. This is
-**not currently consumed by the Django app** in `backend/`; it's an independent, more detailed
-schema design that the Django ORM models don't yet read from or write to (see
-`docs/PROJECT_DOCUMENTATION.md` → Architecture/Gotchas).
+Hand-written PostgreSQL DDL and seed data — the schema authority for the NSS ERP.
 
-## `ddl/` (run in this order)
+**Owner:** NSS_ADMIN (table creation and seed insertion)
+**Runtime:** NSS_APP (application read/write)
+**Authority:** SOL-ARCH-010 (DDL Creation Order), module table-design documents
 
-- `01_foundation/` — `01_extensions.sql` (`pgcrypto`), `02_id_sequence_master.sql` (business-ID
-  counter registry: `PERSON`/`SANGHA_SEVI`/`ORGANIZATION`/`FAMILY` prefixes — no increment
-  logic implemented yet, pure config), `03_location_master_tables.sql` (country → state/province
-  → district/region → city/village, plus a postal-code map table).
-- `02_organization/` — **4 files, all 0 bytes.** Fully designed in
-  `docs/03_Solution/modules/organization/` but not implemented here yet.
-- `03_person/` — `01_person_master_tables.sql` (`gender_master`, `marital_status_master`,
-  `address_type_master`), `02_person.sql` (`person`, incl. the contact-info CHECK constraints),
-  `03_person_address.sql` (`person_address`, incl. the one-primary-address partial unique
-  index). Fully implemented, matching `docs/03_Solution/modules/person/`.
+## Execution Order
 
-## `seed/`
+### Full Foundation Build (from scratch)
 
-Mirrors `ddl/` — reference/lookup data only (4 `id_sequence_master` rows, 5 countries, and the
-person master-table values). No `02_organization/` seed folder exists (nothing to seed yet).
+```bash
+# 1. Extensions
+psql -U nss_admin -d nss_erp -f database/ddl/01_foundation/01_extensions.sql
 
-## Naming convention
+# 2. Foundation DDL (Depths 0–3, 10 tables)
+for f in database/ddl/01_foundation/0[2-9]*.sql database/ddl/01_foundation/1*.sql; do
+    psql -U nss_admin -d nss_erp -f "$f"
+done
 
-Internal UUID surrogate keys: `<entity>_pk`. Business/external identifiers: `<entity>_code`
-(never `_id`) — e.g. `person_code`, `country_code`, `sequence_code`.
+# 3. Foundation Seed Data
+for f in database/seed/01_foundation/0*.sql; do
+    psql -U nss_admin -d nss_erp -f "$f"
+done
+```
+
+See `ddl/01_foundation/README.md` and `seed/01_foundation/README.md` for
+detailed per-file execution tables.
+
+## Directory Structure
+
+```
+database/
+├── ddl/
+│   ├── 01_foundation/    10 tables (Depths 0–3) — IMPLEMENTED
+│   ├── 02_organization/  placeholder (Depth 3) — NOT YET IMPLEMENTED
+│   └── 03_person/        superseded prototype — WILL BE REPLACED
+├── seed/
+│   ├── 01_foundation/    reference data — IMPLEMENTED
+│   └── 03_person/        superseded prototype — WILL BE REPLACED
+└── README.md             this file
+```
+
+## Module Implementation Status
+
+| Module | DDL Status | Branch |
+|--------|-----------|--------|
+| Foundation (10 tables) | IMPLEMENTED | `feature/database-foundation` |
+| Organization | NOT YET | `feature/database-foundation` (future) |
+| Person | SUPERSEDED — will be rewritten | `feature/person-ddl` (future) |
+| Membership | NOT YET | `feature/membership-design` (future) |
+
+## Naming Convention
+
+- Internal UUID surrogate keys: `<entity>_pk`
+- Business/external identifiers: `<entity>_code` (never `_id`)
+- Foreign keys: `fk_<source_table>_<target_concept>`
+- Unique constraints: `uq_<table>_<columns>`
+- Check constraints: `chk_<table>_<rule>`
+- Indexes: `idx_<table>_<columns>`
+
+## Two-Pass DDL Strategy (SOL-ARCH-010 §5)
+
+- **Pass 1:** CREATE TABLE statements (files in `ddl/`) — no audit-actor FKs
+- **Pass 2:** ALTER TABLE ADD CONSTRAINT for `*_by_sangha_sevi_pk` columns —
+  executed after `sangha_sevi` table exists and contains at least one record
+
+## Superseded Artifacts
+
+The following exist on `develop` from an earlier prototype iteration and
+are NOT consistent with the frozen architecture (SOL-ARCH-009/010):
+
+- `ddl/01_foundation/02_id_sequence_master.sql` (old) → replaced by `04_id_sequence_master.sql`
+- `ddl/01_foundation/03_location_master_tables.sql` (old) → replaced by `05–11_*.sql`
+- `ddl/02_organization/*` — 0-byte placeholders
+- `ddl/03_person/*` — uses per-domain masters instead of `master_data` pattern
+- `seed/01_foundation/*` (old) → replaced by new numbered seeds
+- `seed/03_person/*` — seeds into non-existent tables (`gender_master`, etc.)

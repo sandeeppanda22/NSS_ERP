@@ -7,7 +7,7 @@ content.
 
 | Folder | Status |
 |---|---|
-| `modules/` | 21 module folders, each with a complete or largely-complete design doc set (except the new `programmes_events/`, still v0.1.0 DRAFT/not frozen) — see `modules/README.md` for the per-module status table |
+| `modules/` | 22 module folders, each with a complete or largely-complete design doc set (`programmes_events/` still v0.1.0 DRAFT/not frozen; `assets_property/`, added 2026-08-27, is the 22nd) — see `modules/README.md` for the per-module status table |
 | `architecture/` | `TECH_STACK_DECISIONS.md` (approved tech decision record) + `DEVELOPER_REFERENCE_GUIDE.md` + 5 new Programmes & Events architecture docs (`PROGRAMME_EVENT_DOMAIN_MODEL.md`, `EVENT_ENTITY_RECONCILIATION.md`, `MODULE_DEPENDENCY_MAP.md`, `IMPLEMENTATION_DEPENDENCY_ORDER.md`, `PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md`) |
 | `database/` | `DATABASE_DESIGN_STANDARDS.md` (`SOL-DB-001`) — cross-module DB conventions consolidation |
 | `security/` | `SECURITY_ARCHITECTURE.md` (`SOL-SEC-001`) — security ownership/routing map |

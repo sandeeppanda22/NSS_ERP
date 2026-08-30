@@ -1,8 +1,8 @@
 # NSS ERP — Technology Stack and Decision Matrix
 
 **Document Type:** Solution Architecture Decision Record
-**Version:** 1.1
-**Date:** 2026-08-16
+**Version:** 1.2
+**Date:** 2026-08-28
 **Status:** Approved
 **Branch:** feature/ref-documentation
 
@@ -12,6 +12,7 @@
 |---------|------|--------|
 | 1.0 | 2026-08-16 | Initial approved decision record |
 | 1.1 | 2026-08-20 | §6 Deployment and Git reconciled to live remote state: removed `pie` (Apple-internal remote, removed from the repo 2026-08-15); `org` — github.com/NilachalaSaraswataSangha/NSS_ERP is now an actual configured git remote (added 2026-08-18), not just a description — the Production remote row and Flow row now use the `org` alias consistently. No other section changed. |
+| 1.2 | 2026-08-28 | §4 Mobile Strategy: replaced PWA-first/Capacitor/conditional-Flutter with Flutter (Android + iOS) from day one (TECH-MOB-001 FROZEN). §5 Offline: added mobile-specific storage (Hive/Drift) and sync. §7 Architecture: updated client diagram. §8 Phase 5: Flutter app phases replace PWA+Capacitor. |
 
 ---
 
@@ -63,10 +64,19 @@
 
 | Parameter | Decision | Rationale |
 |-----------|----------|-----------|
-| Primary delivery | PWA (Progressive Web App) | Installable on iOS/Android home screen, no app store needed |
-| Manifest + Service Worker | Yes | Full-screen, splash screen, cached pages |
-| App Store (future) | Capacitor wrapper (only if needed) | Same web app in a native shell |
-| Native app (future) | Flutter consuming FastAPI (only if needed) | Only if PWA limits are hit — unlikely for this user base |
+| Framework | Flutter (Dart) | Camera access, Play Store / App Store presence, native performance |
+| Platforms | Android + iOS (both from day one) | Full user coverage; single codebase via Flutter |
+| Distribution | Google Play Store + Apple App Store | Discoverable, updatable, trusted install path |
+| API contract | Consumes same FastAPI JSON endpoints as web UI | Single backend, no duplication |
+| Offline | Local DB (Hive/Drift) → sync on connect | Attendance marking at venues with poor connectivity |
+| Camera | Document scanning, photo verification | Requires native — PWA camera APIs insufficient |
+| Development sequence | DB → API → Web UI → Flutter UI (per module) | Flutter begins after API for Tier 1–2 is stable |
+| Push notifications | Firebase Cloud Messaging (FCM) | Cross-platform, free tier sufficient |
+
+**Decision ID:** TECH-MOB-001
+**Status:** FROZEN
+**Date:** 2026-08-28
+**Supersedes:** Previous PWA-first / Capacitor / "Flutter only if needed" position
 
 ---
 
@@ -75,10 +85,12 @@
 | Parameter | Decision | Rationale |
 |-----------|----------|-----------|
 | Scope | Generic Event Engine (not UPBS-specific) | Any NSS event at a venue with poor connectivity |
-| Storage | IndexedDB (browser) | Local data persistence, event-scoped |
-| Sync mechanism | Service Worker + Background Sync | Queue writes offline, replay when connected |
+| Web storage | IndexedDB (browser) | Local data persistence, event-scoped |
+| Mobile storage | Hive or Drift (Flutter local DB) | Structured offline cache with typed models |
+| Web sync | Service Worker + Background Sync | Queue writes offline, replay when connected |
+| Mobile sync | Dart background isolate → FastAPI | Same queue-and-replay pattern as web |
 | Conflict resolution | Server-authoritative + audit trail | Server assigns final IDs; conflicts flagged for manual review |
-| Offline-capable modules | On-site registration, delegate/participant cards, venue attendance, receipt collection |
+| Offline-capable modules | On-site registration, delegate/participant cards, venue attendance, receipt collection, weekly attendance |
 | Online-only modules | Membership, Governance, Family, Admin, Finance |
 
 ---
@@ -100,9 +112,12 @@
 ```
 CLIENTS
   Browser (Desktop)
-  PWA (Mobile, home screen)
-  Offline Event Engine (IndexedDB + Service Worker)
-       |                         | (Background Sync)
+    Django Templates + Tailwind CSS + DaisyUI + HTMX + Alpine.js
+  Flutter App (Android + iOS)
+    Dart + Material/Cupertino widgets
+    Camera, Push Notifications (FCM)
+    Offline DB (Hive/Drift) → background sync
+       |                         |
        v                         v
 RENDER.COM (Free Tier)
   Uvicorn (ASGI)
@@ -172,12 +187,15 @@ UI-005 Member Profile
 UI-006 Family Dashboard
 ```
 
-### Phase 5 — PWA + Offline (later phase)
+### Phase 5 — Flutter App (after API for Tiers 1–2 is stable)
 
 ```
-PWA Manifest + Service Worker
-Generic Event Engine (IndexedDB + Background Sync)
-Capacitor wrapper (only if App Store needed)
+Flutter project scaffold + auth integration
+Attendance module (camera + offline sync)
+Member search + profile view
+Event registration (on-site, offline-capable)
+Push notification integration (FCM)
+Play Store + App Store submission
 ```
 
 ---
@@ -208,6 +226,9 @@ Capacitor wrapper (only if App Store needed)
 | React SPA | Doubles development time; requires separate build tooling; no benefit for the user base (elderly office bearers) |
 | Bootstrap 5 (alone) | Functional but visually flat; Tailwind + DaisyUI achieves modern look without extra complexity |
 | SQLite | No concurrent writes, no RLS, no UUID type — too limited for multi-user ERP |
+| PWA-only mobile | No camera access, no Play Store presence, limited push notification reliability on Android |
+| React Native | JavaScript bridge overhead; Flutter's Dart AOT compilation is faster; single-language consistency |
+| Capacitor wrapper | Still a web view — same PWA limitations (camera, background sync) with extra tooling overhead |
 
 ---
 

@@ -352,7 +352,31 @@ WHERE CAN YOU DO IT?
 Administration therefore consumes Authentication identity.
 
 Event authorization uses the existing Administration/RBAC framework and
-does not create an independent permission architecture. 
+does not create an independent permission architecture.
+
+## 12.1 Correspondence Register Capability
+
+Administration also owns the Correspondence Register (CORR-DECISION-003),
+which introduces three additional tables:
+
+```text
+correspondence
+correspondence_document
+correspondence_finance_reference
+```
+
+This capability adds the following dependencies to Administration:
+
+* Person (FK: sender, recipient, responsible person)
+* Organization (FK: sender, recipient, responsible organization)
+* Foundation.master_data (FK: medium, status)
+* Foundation.document_master (FK: via correspondence_document)
+* Foundation.id_sequence_master (application/service — no FK)
+* Finance.financial_transaction (optional FK via correspondence_finance_reference — deferred)
+
+The Correspondence Register is a reusable platform capability (CORR-ARCH-002).
+Any module may use it to associate official communications with its business
+records without transferring ownership to Administration. 
 
 ---
 
@@ -1302,7 +1326,7 @@ for DDL purposes.
 | Family             |          ✓ |      ✓ |              |          ✓ |            |            |         |        |
 | Membership         |          ✓ |      ✓ |            ✓ |          — |            |            |         |        |
 | Authentication     |          ✓ |      ✓ |              |          ✓ |          — |            |         |        |
-| Administration     |          ✓ |        |            ✓ |            |          ✓ |            |         |        |
+| Administration     |          ✓ |      ✓ |            ✓ |            |          ✓ |            |      ✓* |        |
 | Audit              |          ✓ |        |              |            |          ✓ |            |         |        |
 | Attendance         |          ✓ |      ✓ |            ✓ |          ✓ |          ✓ |          — |         |      ✓ |
 | Governance         |          ✓ |      ✓ |            ✓ |            |          ✓ |            |         |        |
@@ -1364,6 +1388,18 @@ Attendance
 Organization
    ↑
 Attendance
+
+Person
+   ↑
+Administration (Correspondence Register)
+
+Organization
+   ↑
+Administration (Correspondence Register)
+
+Foundation.document_master
+   ↑
+Administration (Correspondence Register)
 ```
 
 These align with the existing database standards. 
@@ -1507,11 +1543,14 @@ be completed:
 
 ```text
 MODULE INVENTORY:
-21 modules including proposed Programme & Events
+22 modules including Programme & Events and Assets & Property
 
 MODULE #21:
 ARCHITECTURALLY JUSTIFIED
-FORMAL MODULE FREEZE PENDING
+RECONCILIATION COMPLETE (SOL-EVT-007)
+
+MODULE #22:
+DOCUMENTATION COMPLETE (SOL-AP-001 to SOL-AP-005)
 
 LOGICAL DEPENDENCY MAP:
 DEFINED
@@ -1526,10 +1565,10 @@ DDL ORDER:
 NOT FROZEN
 
 IMPLEMENTATION TIERS:
-PROPOSED — NOT FROZEN
+FROZEN (IMPLEMENTATION-TIER-001, SOL-ARCH-008 v1.0.0)
 
 DATABASE IMPLEMENTATION:
-NOT STARTED FOR PROGRAMME & EVENTS
+NOT STARTED
 
 API:
 NOT STARTED
@@ -1547,7 +1586,7 @@ The next action should **not** be creating Programme & Event tables.
 The next action should be:
 
 ```text
-Review the 21-module dependency map
+Review the 22-module dependency map
         ↓
 Resolve any dependency-order conflicts
         ↓

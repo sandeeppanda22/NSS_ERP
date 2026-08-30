@@ -1,8 +1,8 @@
 # NSS ERP — Programmes & Events Cross-Module Review
 
 **Document ID:** SOL-EVT-006  
-**Version:** 0.1.0  
-**Status:** DRAFT — CROSS-MODULE REVIEW  
+**Version:** 1.1.0  
+**Status:** FROZEN — CROSS-MODULE REVIEW COMPLETE  
 **Parent Documents:**
 - SOL-EVT-001 — Programme & Event Domain Model
 - SOL-EVT-002 — Event Entity Reconciliation
@@ -1549,13 +1549,16 @@ to implement this module in the vertical module-wise sequence.**
 
 ```text
 DOCUMENT STATUS:
-DRAFT — CROSS-MODULE REVIEW
+FROZEN — CROSS-MODULE REVIEW COMPLETE
 
 VERSION:
-0.1.0
+1.1.0
 
 COMMON EVENT ARCHITECTURE:
 ARCHITECTURALLY JUSTIFIED
+
+RECONCILIATION GATES:
+ALL CLOSED (7/7) — see SOL-EVT-007
 
 UPBS:
 COMPATIBLE
@@ -1567,7 +1570,7 @@ SEVAK:
 COMPATIBLE
 
 ATTENDANCE:
-COMPATIBLE
+COMPATIBLE (Weekly Sangha Puja remains Attendance-owned)
 
 FINANCE:
 COMPATIBLE
@@ -1588,10 +1591,10 @@ BACKUP & TECHNICAL:
 COMPATIBLE
 
 MODULE #21:
-PROPOSED — PENDING FORMAL APPROVAL
+CONFIRMED — Programmes & Events
 
 PHYSICAL DATABASE:
-NOT STARTED
+NOT STARTED (deferred to implementation tier)
 
 API:
 NOT STARTED
@@ -1599,8 +1602,33 @@ NOT STARTED
 UI:
 NOT STARTED
 
+ADDITIONAL PROGRAMME TYPES CONFIRMED:
+Janmotsaba (1-day, Kendra or Sakha-organized)
+Rasautsab (5-day, Sakha-organized)
+UPBS (3-day, Kendra)
+
+NEW CANDIDATE TABLES (per SOL-EVT-007):
+event_day
+event_registration
+
 NEXT:
-MODULE #21 OWNERSHIP / INVENTORY DECISION
+DB STANDARDS → FK GRAPH → DDL ORDER → FOUNDATION VERTICAL SLICE
 ```
+
+# 80. Reconciliation Closure (2026-08-28)
+
+All 7 reconciliation gates closed. Formal decisions recorded in
+SOL-EVT-007 (PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md).
+
+Key outcomes:
+
+- Common Event architecture confirmed (Gates A–D)
+- Event Session optional, organiser-defined (Gate E, P&E-ARCH-002)
+- Weekly Sangha Puja remains Attendance-owned (Gate F)
+- Common Registration confirmed (Gate G, P&E-ARCH-001)
+- Janmotsaba (1-day) and Rasautsab (5-day) confirmed as programme types
+- `event_day` and `event_registration` added as candidate common tables
+- No Attendance dependency tier change
+- No new P&E → Attendance FK
 
 # End of Document

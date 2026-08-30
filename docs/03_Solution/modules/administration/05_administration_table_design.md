@@ -50,6 +50,28 @@ Authentication dependency:
 
 The source identifies all seven tables in the centralized Security foundation.
 
+## Table Ownership Declaration (Frozen 2026-08-26)
+
+**Administration OWNS (DDL authority):**
+
+    role_master
+    permission_master
+    role_permission
+    user_role
+    admin_scope
+    correspondence
+    correspondence_document
+    correspondence_finance_reference
+
+**Authentication & Security OWNS (DDL authority):**
+
+    user_account
+    password_history
+
+Both modules may **reference** the other's tables via foreign keys, but
+**ownership is exclusive** — only the owning module may alter the table's
+DDL definition, add columns, or change constraints.
+
 ---
 
 # 3. Database Naming Standard
@@ -1073,7 +1095,17 @@ user_role
 admin_scope
 ```
 
-for a total of seven tables.
+for a total of seven tables in the centralized Security foundation
+(five Administration-owned, two Authentication-owned).
+
+The Correspondence Register capability adds three further Administration-owned
+tables (defined in SOL-ADMIN-009):
+
+    correspondence
+    correspondence_document
+    correspondence_finance_reference
+
+bringing the Administration-owned total to eight tables.
 
 The project database standards establish the technical PK naming convention,
 FK-to-PK convention, and standard audit metadata fields.

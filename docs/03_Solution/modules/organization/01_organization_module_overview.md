@@ -323,11 +323,14 @@ The project source distinguishes organizational concepts according to NSS realit
 In particular:
 
 ```text
-ANCHALIKA = Administrative Unit
-
-ZILLA = Administrative Unit
-
-SAKHA = Physical Sangha Location
+KENDRA          = Central Body (unique)
+NILACHALA_KUTIRA = Spiritual Residence (unique)
+SMRUTI_MANDIRA  = Memorial Temple (unique)
+ANCHALIKA       = Administrative Unit (multiple)
+ZILLA           = Administrative Unit (multiple)
+SAKHA           = Physical Sangha Location (multiple)
+SAKHA_ASANA     = Approved Sakha, no own building (multiple)
+PATHA_CHAKRA    = Study Circle (multiple)
 ```
 
 Therefore an Anchalika or Zilla should not automatically be treated as having a physical address equivalent to a Sakha. 

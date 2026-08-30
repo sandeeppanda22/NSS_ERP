@@ -200,18 +200,20 @@ Notes:
 *The sections below describe the full planned module roadmap. As of this writing, only
 **Foundation, Membership, Family, Governance (stub), Attendance (stub), and Founder & Heritage**
 exist as Django apps under `backend/` — Mahila Sangha, Kumari Sangha, Kishor Puja, Sevak
-Sangha, UPBS, Reports & Analytics, Administration, Audit, Backup & Technical, Finance, and
-Programmes & Events have no app directory yet. Solution-layer design documentation (overview/
-ERD/lifecycle/business-rules/table-design) is now complete for essentially every module on this
-roadmap — Membership, Family, Attendance, Organization, Person, Founder & Heritage, Kumari
-Sangha, Kishor Puja, Mahila Sangha, Administration, Authentication & Security, Foundation,
-Governance, Publications, Reports & Analytics, UPBS, Audit, Backup & Technical, and Finance —
-and largely complete for Sevak Sangha — ahead of, and not yet reconciled with, any backend
-implementation. **Programmes & Events (Module #21) is the one exception**: still v0.1.0 DRAFT,
-explicitly not frozen, with none of its 5 candidate tables settled yet. Two of these
-(Foundation, Authentication & Security) share a name with an existing `backend/` app but design
-an unrelated schema — see `docs/PROJECT_DOCUMENTATION.md` → Gotchas. See
-`docs/PROJECT_DOCUMENTATION.md` for the current, code-verified status of each.*
+Sangha, UPBS, Reports & Analytics, Administration, Audit, Backup & Technical, Finance,
+Programmes & Events, and Assets & Property have no app directory yet. Solution-layer design
+documentation (overview/ERD/lifecycle/business-rules/table-design) is now complete for
+essentially every module on this roadmap — Membership, Family, Attendance, Organization, Person,
+Founder & Heritage, Kumari Sangha, Kishor Puja, Mahila Sangha, Administration, Authentication &
+Security, Foundation, Governance, Publications, Reports & Analytics, UPBS, Audit, Backup &
+Technical, Finance, and Assets & Property (added 2026-08-27) — and largely complete for Sevak
+Sangha — ahead of, and not yet reconciled with, any backend implementation. **Programmes &
+Events (Module #21) is the one exception**: still v0.1.0 DRAFT, explicitly not frozen — though
+as of 2026-08-28 all of its cross-module reconciliation gates are closed and its candidate
+table set has settled at 7. Two of these (Foundation, Authentication & Security) share a name
+with an existing `backend/` app but design an unrelated schema — see
+`docs/PROJECT_DOCUMENTATION.md` → Gotchas. See `docs/PROJECT_DOCUMENTATION.md` for the current,
+code-verified status of each.*
 
 ## Foundation
 
@@ -514,10 +516,10 @@ Completed:
 * Authentication Foundation
 * Organization Module Design (v1.1.0, GOVERNANCE ALIGNED — restructured 2026-08-19; type-to-type
   parent hierarchy left as an open item, not frozen)
-* Person Module Design (v1.0.0, SOURCE ALIGNED — 2 tables: person, document_master)
-* Person Database Schema (partial — `person`/`person_address` implemented; `document_master`
-  has no SQL counterpart yet, and the docs' `person_id` naming doesn't match the DDL's
-  `person_code`)
+* Person Module Design (v1.0.0, SOURCE ALIGNED — 1 table: `person`; `document_master` was
+  reassigned to Foundation, 2026-08-26, see below)
+* Person Database Schema (partial — `person`/`person_address` implemented; the docs' `person_id`
+  naming doesn't match the DDL's `person_code`)
 * Global Location Model
 * Membership Module Design
 * Family Module Design
@@ -529,10 +531,14 @@ Completed:
 * Mahila Sangha Module Design (v2.1.0, Bye-Law-aligned governance model)
 * Sevak Sangha Module Design (partially frozen — table design only; see
   `docs/PROJECT_DOCUMENTATION.md`)
-* Foundation Module Design (v1.0.0, SOURCE ALIGNED — 8 master-data/geography/sequence tables;
-  same name, different scope from the `backend/foundation/` Django app)
-* Administration Module Design (v1.0.0, SOURCE ALIGNED — 6-table RBAC framework)
-* Authentication & Security Module Design (v1.0.0, SOURCE ALIGNED — 7-table security schema;
+* Foundation Module Design (v1.0.0, SOURCE ALIGNED — now 10 tables: the original 8 master-data/
+  geography/sequence tables plus `document_master` + `field_change_log`, added 2026-08-26; same
+  name, different scope from the `backend/foundation/` Django app)
+* Administration Module Design (v1.0.0, SOURCE ALIGNED — 8 Administration-owned tables: 5 RBAC
+  tables plus the new Correspondence Register, 2026-08-27; `user_account`/`password_history` are
+  exclusively Authentication-owned)
+* Authentication & Security Module Design (v1.0.0, SOURCE ALIGNED — exclusively owns
+  `user_account`+`password_history`; references but doesn't own Administration's 5 RBAC tables;
   different schema from the real `backend/authentication/` app)
 * Governance Module Design (v1.0.0, SOURCE ALIGNED — Unified Body Governance Model + Elections,
   9 tables; freezes the Mahila Parichalana Mandali term at 3 years, conflicting with the Mahila
@@ -547,19 +553,26 @@ Completed:
   fund_master, financial_transaction, financial_receipt, financial_payment, financial_transfer;
   derives from NSS Bye-Law Section F and Mahila Sangha Bye-Law Clause 7)
 * Programmes & Events Module Design (Module #21, v0.1.0, DRAFT — NOT FROZEN — Programme Type →
-  Event Instance two-level model; 5 candidate common tables, none frozen; backed by a 21-module
-  dependency map and cross-module compatibility review, both PROPOSED)
+  Event Instance two-level model; 7 candidate common tables (grew from 5 on 2026-08-28), all
+  cross-module reconciliation gates now closed (`SOL-EVT-007`) but no table frozen DDL yet)
+* Assets & Property Module Design (Module #22, added 2026-08-27, v1.0.0, SOURCE ALIGNED — 7
+  tables: property, asset, custodianship, property_statutory_record, maintenance_record,
+  property_document, asset_document; 74 business rules)
 
 Current Focus:
 
-* Reconciling Solution-layer design docs with actual Django/SQL implementation across all 21
+* Reconciling Solution-layer design docs with actual Django/SQL implementation across all 22
   documented modules — every module now has a complete (or largely complete) design, but none
   has corresponding backend code beyond membership/family/heritage/authentication's existing
   minimal models. No release doc has been created yet for the module-doc work landed since
   v0.5.1 (heritage added; organization/person/kumari/kishor expanded or restructured; then
   foundation/administration/authentication/governance/publications/reports/upbs/audit/
   backup_technical/finance added; then programmes_events added plus new lifecycle documents for
-  person/family/governance/attendance/authentication/administration).
+  person/family/governance/attendance/authentication/administration; then, 2026-08-26/28, a
+  cross-module principles doc reassigning `document_master`/splitting RBAC table ownership, a
+  Correspondence Register sub-feature, closure of Programmes & Events' reconciliation gates,
+  three pre-DDL architecture-gate freezes (12-tier order, FK dependency graph, DDL creation
+  order), a Flutter mobile-strategy pivot, and the new Assets & Property module).
 
 Next Release Target:
 
