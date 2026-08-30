@@ -34,6 +34,8 @@ CREATE TABLE id_sequence_master
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -47,7 +49,15 @@ CREATE TABLE id_sequence_master
         CHECK (padding_length BETWEEN 4 AND 12),
 
     CONSTRAINT chk_id_sequence_current_value
-        CHECK (current_value >= 0)
+        CHECK (current_value >= 0),
+
+    CONSTRAINT chk_id_sequence_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_id_sequence_active

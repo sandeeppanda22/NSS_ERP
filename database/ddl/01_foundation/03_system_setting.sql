@@ -29,6 +29,8 @@ CREATE TABLE system_setting
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -46,6 +48,14 @@ CREATE TABLE system_setting
                 'DATE',
                 'JSON'
             )
+        ),
+
+    CONSTRAINT chk_system_setting_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
         )
 );
 

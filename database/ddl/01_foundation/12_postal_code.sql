@@ -38,6 +38,8 @@ CREATE TABLE postal_code
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -50,7 +52,15 @@ CREATE TABLE postal_code
         REFERENCES state (state_pk),
 
     CONSTRAINT uq_postal_code_country
-        UNIQUE (country_pk, postal_code)
+        UNIQUE (country_pk, postal_code),
+
+    CONSTRAINT chk_postal_code_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_postal_code_country

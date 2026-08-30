@@ -116,6 +116,24 @@ pushing, and fast-forward-merging `feature/ref-documentation` into `develop`)
 > Verified via `git status` / `git log` / `git branch` — do not trust handoff-doc claims over
 > this without re-verifying, since handoffs go stale.
 
+- **Branch/remotes (updated 2026-08-30, later same day yet again — supersedes the bullet
+  directly below for current branch/HEAD state; that bullet's content is otherwise still
+  accurate).** `/document-project` re-run found **uncommitted** work-in-progress on
+  `feature/database-foundation` (current branch, not yet committed as of this bullet): a
+  soft-delete backfill adding `deleted_at TIMESTAMPTZ NULL` + a
+  `(is_active=TRUE ⟺ deleted_at IS NULL)` CHECK constraint to all 10 Foundation tables that
+  carry `is_active`. One file, `11_city_village.sql`, had the CHECK constraint but was missing
+  the `deleted_at` column itself — would have failed at `CREATE TABLE` time
+  (`column "deleted_at" does not exist`). Flagged to the user via `AskUserQuestion` rather than
+  silently editing someone else's in-progress SQL; user confirmed the fix. Added the missing
+  column (matching the identical pattern in the other 9 files). Also brought
+  `database/ddl/01_foundation/README.md`'s per-table "Table Descriptions" section in line with
+  both this backfill (9 tables gained a `deleted_at` row; `document_master` already had one) and
+  the already-committed `5d5e17a` `postal_code` `state_pk` change, which that README's own
+  Table Descriptions section (as opposed to its separately-updated Design Decisions section) had
+  missed — Depth 1→2, added the `state_pk` FK row/index, fixed the File Execution Order table
+  and its note. **All of this remains uncommitted** — not committed here per the standing rule
+  to only commit when asked.
 - **Branch/remotes (updated 2026-08-30, later same day once more — supersedes the bullet
   directly below for current branch/HEAD state).** `feature/database-foundation` gained a real
   new commit outside this session, `5d5e17a "fix(foundation): add state_pk FK to postal_code,

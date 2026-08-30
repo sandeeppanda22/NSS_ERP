@@ -53,7 +53,15 @@ CREATE TABLE document_master
         DEFAULT TRUE,
 
     CONSTRAINT chk_document_version_positive
-        CHECK (version >= 1)
+        CHECK (version >= 1),
+
+    CONSTRAINT chk_document_master_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_document_master_type_code

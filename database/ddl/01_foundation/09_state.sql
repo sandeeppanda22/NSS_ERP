@@ -29,6 +29,8 @@ CREATE TABLE state
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -40,7 +42,15 @@ CREATE TABLE state
         UNIQUE (country_pk, state_code),
 
     CONSTRAINT uq_state_country_name
-        UNIQUE (country_pk, state_name)
+        UNIQUE (country_pk, state_name),
+
+    CONSTRAINT chk_state_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_state_country

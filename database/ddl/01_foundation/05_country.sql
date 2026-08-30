@@ -27,6 +27,8 @@ CREATE TABLE country
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -34,7 +36,15 @@ CREATE TABLE country
         UNIQUE (country_code),
 
     CONSTRAINT uq_country_name
-        UNIQUE (country_name)
+        UNIQUE (country_name),
+
+    CONSTRAINT chk_country_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_country_active

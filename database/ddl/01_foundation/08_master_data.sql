@@ -31,6 +31,8 @@ CREATE TABLE master_data
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -39,7 +41,15 @@ CREATE TABLE master_data
         REFERENCES master_category (master_category_pk),
 
     CONSTRAINT uq_master_data_category_code
-        UNIQUE (master_category_pk, value_code)
+        UNIQUE (master_category_pk, value_code),
+
+    CONSTRAINT chk_master_data_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_master_data_category

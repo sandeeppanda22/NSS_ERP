@@ -29,6 +29,8 @@ CREATE TABLE district
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -40,7 +42,15 @@ CREATE TABLE district
         UNIQUE (state_pk, district_code),
 
     CONSTRAINT uq_district_state_name
-        UNIQUE (state_pk, district_name)
+        UNIQUE (state_pk, district_name),
+
+    CONSTRAINT chk_district_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX idx_district_state

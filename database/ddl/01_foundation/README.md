@@ -23,11 +23,12 @@ by earlier-numbered files in this directory.
 | 09 | `09_state.sql` | `state` | 1 | #19 |
 | 10 | `10_district.sql` | `district` | 2 | #26 |
 | 11 | `11_city_village.sql` | `city_village` | 3 | #32 |
-| 12 | `12_postal_code.sql` | `postal_code` | 1 | #87 (amendment) |
+| 12 | `12_postal_code.sql` | `postal_code` | 2 | #87 (amendment) |
 | 13 | `13_city_village_postal_code_map.sql` | `city_village_postal_code_map` | 4 | #88 (amendment) |
 
-**Note:** Files 12–13 depend on `country` (Depth 0) and `city_village` (Depth 3)
-respectively. They are numbered after the original 11 files for clarity but
+**Note:** Files 12–13 depend on `country`+`state` (Depth 0/1, updated 2026-08-30 to add a
+direct `state_pk` FK to `postal_code`) and `city_village` (Depth 3) respectively. They are
+numbered after the original 11 files for clarity but
 execute correctly in sequence because their dependencies are already created
 by earlier files.
 
@@ -61,6 +62,7 @@ design: `master_category` + `master_data`.
 | `display_order` | INTEGER | NOT NULL, default 0 | UI presentation ordering |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Indexes:** `category_code`, `is_active`
@@ -83,6 +85,7 @@ don't warrant a code deployment to change.
 | `data_type` | VARCHAR(20) | NOT NULL, default `STRING` | CHECK: `STRING`, `INTEGER`, `BOOLEAN`, `DATE`, `JSON` |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Indexes:** `setting_key`, `is_active`
@@ -110,6 +113,7 @@ sequences — they receive fixed codes directly from seed data.
 | `description` | TEXT | NULL | Optional description |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Indexes:** `sequence_code`, `is_active`
@@ -130,6 +134,7 @@ postal_code) traces back to a country.
 | `display_order` | INTEGER | NOT NULL, default 0 | UI presentation ordering (India first) |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Indexes:** `country_code`, `is_active`
@@ -219,6 +224,7 @@ category is `GENDER`).
 | `display_order` | INTEGER | NOT NULL, default 0 | UI ordering within category |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Unique:** `(master_category_pk, value_code)` — no duplicate codes within a category
@@ -244,6 +250,7 @@ territories, or equivalent administrative divisions within a country.
 | `display_order` | INTEGER | NOT NULL, default 0 | UI ordering within country |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Unique:** `(country_pk, state_code)`, `(country_pk, state_name)`
@@ -269,6 +276,7 @@ runtime.
 | `display_order` | INTEGER | NOT NULL, default 0 | UI ordering within state |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Unique:** `(state_pk, district_code)`, `(state_pk, district_name)`
@@ -295,6 +303,7 @@ deployment or data migration.
 | `display_order` | INTEGER | NOT NULL, default 0 | UI ordering within district |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
 **Unique:** `(district_pk, city_village_code)`, `(district_pk, city_village_name)`
@@ -303,27 +312,31 @@ deployment or data migration.
 
 ---
 
-### 11. `postal_code` (Depth 1, #87 of 88 — amendment)
+### 11. `postal_code` (Depth 2, #87 of 88 — amendment, updated 2026-08-30)
 
-PIN code / postal code reference table. Country-scoped. One PIN code can
-serve multiple cities/villages (M:N via the map table). Supports address
-validation, autocomplete, and map-based search ("find nearby Sanghas").
+PIN code / postal code reference table. Country-scoped with a direct `state_pk`
+FK for administrative ownership (PIN → State is always deterministic, added
+2026-08-30). One PIN code can serve multiple cities/villages (M:N via the map
+table). Supports address validation, autocomplete, and map-based search
+("find nearby Sanghas").
 
-**FK:** `country_pk` → `country`
+**FKs:** `country_pk` → `country`, `state_pk` → `state`
 
 | Column | Type | Constraint | Purpose |
 |--------|------|-----------|---------|
 | `postal_code_pk` | UUID | PK, auto | Internal primary key |
 | `country_pk` | UUID | FK, NOT NULL | Country this PIN code belongs to |
+| `state_pk` | UUID | FK, NOT NULL | State this PIN code belongs to (reference only, not part of the unique key) |
 | `postal_code` | VARCHAR(20) | NOT NULL | The PIN / postal code value (e.g. `751024`) |
 | `post_office_name` | VARCHAR(150) | NULL | Name of the post office serving this code |
 | `created_at` | TIMESTAMPTZ | NOT NULL, auto | Row creation timestamp |
 | `updated_at` | TIMESTAMPTZ | NULL | Last modification timestamp |
+| `deleted_at` | TIMESTAMPTZ | NULL | Soft-delete timestamp |
 | `is_active` | BOOLEAN | NOT NULL, default TRUE | Soft-delete flag |
 
-**Unique:** `(country_pk, postal_code)`
+**Unique:** `(country_pk, postal_code)` — a PIN is globally unique within a country's postal system
 
-**Indexes:** `country_pk`, `postal_code`, `is_active`,
+**Indexes:** `country_pk`, `state_pk`, `postal_code`, `is_active`,
 `post_office_name` (GIN trigram, partial WHERE NOT NULL)
 
 ---
@@ -355,6 +368,14 @@ large city with multiple post offices).
 - **No audit-actor FKs** — `created_by_sangha_sevi_pk` / `updated_by_sangha_sevi_pk` /
   `deleted_by_sangha_sevi_pk` are NOT included in Foundation tables. They will be added
   via ALTER TABLE in Pass 2 after `sangha_sevi` exists (SOL-ARCH-010 §5).
+- **Soft-delete backfill (2026-08-30)** — `deleted_at TIMESTAMPTZ NULL` plus a
+  `(is_active = TRUE AND deleted_at IS NULL) OR (is_active = FALSE AND deleted_at IS NOT NULL)`
+  CHECK constraint added to all 10 tables that carry `is_active`
+  (`master_category`, `system_setting`, `id_sequence_master`, `country`, `document_master`,
+  `master_data`, `state`, `district`, `city_village`, `postal_code`) — `deleted_at` is a plain
+  timestamp, not an audit-actor FK, so unlike `deleted_by_sangha_sevi_pk` above it doesn't need
+  to wait for Pass 2. `field_change_log` and `city_village_postal_code_map` deliberately have
+  neither column — the former is an append-only log, the latter a pure M:N junction table.
 - **`document_master`** — owned by Foundation (DOC-ARCH-001); logical design from Person §54.
   Person-specific FKs (`person_pk`, `uploaded_by_sangha_sevi_pk`) deferred to Pass 2.
 - **`field_change_log`** — stores references as UUID values without FK constraints to avoid

@@ -31,6 +31,8 @@ CREATE TABLE city_village
 
     updated_at TIMESTAMPTZ NULL,
 
+    deleted_at TIMESTAMPTZ NULL,
+
     is_active BOOLEAN NOT NULL
         DEFAULT TRUE,
 
@@ -53,6 +55,14 @@ CREATE TABLE city_village
                 'TOWN',
                 'VILLAGE'
             )
+        ),
+
+    CONSTRAINT chk_city_village_soft_delete
+        CHECK
+        (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
         )
 );
 
