@@ -116,6 +116,18 @@ pushing, and fast-forward-merging `feature/ref-documentation` into `develop`)
 > Verified via `git status` / `git log` / `git branch` — do not trust handoff-doc claims over
 > this without re-verifying, since handoffs go stale.
 
+- **Branch/remotes (updated 2026-08-30, later same day once more — supersedes the bullet
+  directly below for current branch/HEAD state).** `feature/database-foundation` gained a real
+  new commit outside this session, `5d5e17a "fix(foundation): add state_pk FK to postal_code,
+  update depth and org location refs to NUMERIC(10,7)"` — adds a `state_pk` FK to `postal_code`
+  (`database/ddl/01_foundation/12_postal_code.sql`, moving it from Depth 1 to Depth 2 since it
+  now depends on `state` as well as `country`; uniqueness stays `(country_pk, postal_code)`,
+  `state_pk` is reference-only), and updates `DDL_CREATION_ORDER.md` §11 plus the Organization
+  location-field forward-reference (`postal_code` VARCHAR+`latitude`/`longitude` DECIMAL →
+  `postal_code_pk` FK + `NUMERIC(10,7)`) to match — internally consistent, no seed data or
+  `02_organization/` DDL affected (both still untouched: `postal_code` remains unseeded,
+  `02_organization/*.sql` remain 0-byte). Fast-forward-merged into `develop`
+  (`3af53f4..5d5e17a`). All other branches re-synced to this new tip; `main` untouched.
 - **Branch/remotes (updated 2026-08-30, later same day yet again — supersedes the bullet
   directly below for current branch/HEAD state; that bullet's content is otherwise unaffected).**
   User asked (twice) to merge with `develop`; the second time meant `feature/membership-design`
