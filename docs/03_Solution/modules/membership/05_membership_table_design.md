@@ -10,7 +10,7 @@
 | Document ID | SOL-MEM-005 |
 | Domain | Membership |
 | Repository Path | docs/03_Solution/modules/membership/05_membership_table_design.md |
-| Version | 1.0.0 |
+| Version | 1.1.0 |
 | Status | Draft |
 | Authority | NSS ERP Membership Module |
 | Parent Document | 01_membership_module_overview.md |
@@ -129,6 +129,22 @@ One Person
 One Membership
 ```
 
+### Local Sakha ERP ID — Not Yet on This Table (MEM-PENDING-001 annotation)
+
+The `sangha_sevi` table does not currently carry a `local_sakha_erp_id`
+column. CROSS_MODULE_PRINCIPLES.md §20.2 (MEM-PENDING-001) has frozen
+the conceptual rules and format for the Local Sakha ERP ID:
+
+```text
+Format:  <3–5 character Organization/Sakha Short Code><8-digit sequence>
+Example: EKM00000123
+```
+
+Whether this ID is added to `sangha_sevi`, placed on a candidate
+`membership_sakha_affiliation` table, or handled differently is a
+**Membership DDL-phase decision**. No column is added by this
+annotation.
+
 ---
 
 # 5. Sangha Sevi ID
@@ -156,6 +172,19 @@ SS00000001
 SS00000002
 SS00000003
 ```
+
+### Sangha Sevi ID vs. Local Sakha ERP ID (MEM-PENDING-001 annotation)
+
+These are distinct identity tiers:
+
+```text
+Sangha Sevi ID  — permanent, NSS-wide, never changes, never reused
+Local Sakha ERP ID — Sakha-scoped, one active per member, may be
+                     archived on transfer and reactivated on return
+```
+
+The Sangha Sevi ID is the primary business key on this table.
+The Local Sakha ERP ID's physical placement is a DDL-phase decision.
 
 ---
 
@@ -271,6 +300,30 @@ Old organizational association remains traceable.
 
 New organizational association becomes effective according to the approved transfer workflow.
 ```
+
+### Transfer and Local Sakha ERP ID (MEM-PENDING-001 annotation)
+
+The `old_local_sakha_number` and `new_local_sakha_number` columns on
+this table serve as **historical transition snapshots** — recording
+what the member's Local Sakha ERP ID was before and after each
+transfer. They are not the authoritative current-ID source.
+
+Key rules from MEM-PENDING-001:
+
+* On transfer: old Local Sakha ERP ID is archived (never reassigned
+  to another person). New Sakha issues the next number in sequence.
+* On return to the same Sakha: the same person's previously archived
+  ID may be reactivated (not a new issuance).
+* An existing-member Approved Darshak attending another Sakha does not
+  trigger a transfer and does not receive a second Local Sakha ERP ID.
+* A new Probationary Member (operationally also called "Darshak")
+  **does** receive a Local Sakha ERP ID from the enrolling Sakha —
+  that Sakha is their base Sakha (see MEM-PENDING-001 rule 5).
+
+This table remains the transfer-event record. The authoritative
+current Local Sakha ERP ID belongs to the member's active
+Sakha-affiliation period — physical placement is a DDL-phase
+decision (see §27.1).
 
 ---
 
@@ -694,6 +747,46 @@ Position Assignment
 
 ---
 
+# 27.1 Candidate: Membership Sakha Affiliation Table (MEM-PENDING-001 annotation)
+
+CROSS_MODULE_PRINCIPLES.md §20.2 identifies a candidate
+Membership-owned table (`membership_sakha_affiliation` or equivalent)
+that would provide authoritative effective-dated Sakha relationships.
+The candidate conceptual columns are:
+
+```text
+membership_sakha_affiliation_pk
+sangha_sevi_pk
+organization_pk
+local_sakha_erp_id
+effective_from
+effective_to
+affiliation_status          (ACTIVE / ARCHIVED / REACTIVATED)
+source_event_type           (ENROLLMENT / TRANSFER / REACTIVATION)
+source_event_pk
+created_at / created_by / updated_at / updated_by
+```
+
+This would:
+
+* Give the Local Sakha ERP ID a natural per-period home.
+* Provide explicit effective dating from initial enrollment onward.
+* Serve as the authoritative Sakha-period history that downstream
+  modules (including Sevak's `sevak_sakha_association`) can consume.
+
+**Cross-module note:** The Sevak module's `sevak_sakha_association`
+already maintains effective-dated Sakha history with the same
+conceptual shape. Whether that table remains for Sevak-specific domain
+lifecycle, is simplified to consume this Membership-authoritative
+structure, or is unaffected, is a downstream design decision — not
+decided here. See CROSS_MODULE_PRINCIPLES.md §20.2.
+
+**Status:** DDL-phase candidate — not frozen. This section is an
+annotation recording the candidate for visibility during the
+Membership DDL phase. No table is created by this annotation.
+
+---
+
 # 28. Final Membership Table Set
 
 The current logical Membership table set is:
@@ -722,8 +815,12 @@ parichaya_patra
 parichaya_patra_history
 ```
 
+**DDL-phase candidate (not yet in the table set):**
+
+```text
+membership_sakha_affiliation      (MEM-PENDING-001 — see §27.1)
+```
+
 This table set reflects the Membership architecture developed during the NSS V2 database discussions, including the later addition of probationary_member_review and the first-class identity-document entities.
 
 ---
-
-# End of Document

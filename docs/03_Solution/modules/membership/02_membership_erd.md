@@ -10,7 +10,7 @@
 | Document ID | SOL-MEM-002 |
 | Domain | Membership |
 | Repository Path | docs/03_Solution/modules/membership/02_membership_erd.md |
-| Version | 1.0.0 |
+| Version | 1.1.0 |
 | Status | Draft |
 | Authority | NSS ERP Membership Module |
 | Parent Document | 01_membership_module_overview.md |
@@ -93,6 +93,40 @@ The Sangha Sevi ID shall be:
 * Never changed.
 
 The internal database primary key remains separate from the human-readable Sangha Sevi ID.
+
+## 3.1 Local Sakha ERP ID (MEM-PENDING-001 — annotation only)
+
+In addition to the NSS-wide Sangha Sevi ID, each member holds a
+**Local Sakha ERP ID** scoped to their recognized/base Sakha. The
+conceptual rules are frozen in CROSS_MODULE_PRINCIPLES.md §20.2
+(MEM-PENDING-001). Key properties:
+
+```text
+Format:  <3–5 character Organization/Sakha Short Code><8-digit sequence>
+Example: EKM00000123
+```
+
+* One active Local Sakha ERP ID per member, issued by the
+  recognized/base Sakha.
+* "Darshak" is an operational term covering two distinct categories:
+  - **New Probationary Member** (operationally called "Darshak") — does
+    not hold a Parichaya Patra from another Sangha. **Receives a new
+    Local Sakha ERP ID** from the Sakha where membership is being
+    established.
+  - **Approved Darshak** (existing member of another Sangha) — already
+    holds a recognized Parichaya Patra elsewhere. **Does not receive a
+    second Local Sakha ERP ID**; uses their base-Sakha ID.
+* On transfer: old ID is archived (never reassigned to another
+  person); new Sakha issues the next number in its sequence.
+* On return to the same Sakha: the same person's archived ID may be
+  reactivated rather than issuing a new one.
+* Legacy Sakha register numbers are distinct from the ERP-issued ID
+  and require a migration mapping.
+
+**Physical representation** — whether Local Sakha ERP ID lives on
+`sangha_sevi`, on a candidate `membership_sakha_affiliation` table,
+or elsewhere — is **not frozen** and remains a Membership DDL-phase
+decision. See §12.1 and CROSS_MODULE_PRINCIPLES.md §20.2.
 
 ---
 
@@ -350,6 +384,25 @@ Sangha Sevi
 
 Transfer does not create a new Sangha Sevi ID.
 
+### Local Sakha ERP ID on Transfer (MEM-PENDING-001 annotation)
+
+Transfer archives the old Local Sakha ERP ID and the new Sakha issues
+the next number in its sequence. The old ID is never reassigned to
+another person. If the member later returns to the same Sakha, their
+previously archived ID may be reactivated.
+
+`membership_transfer_history` continues to store `old_local_sakha_number`
+/ `new_local_sakha_number` as historical transition snapshots. The
+authoritative current Local Sakha ERP ID belongs to the member's active
+Sakha-affiliation period — physical placement is a DDL-phase decision
+(see §12.1).
+
+Note: an existing-member Approved Darshak attending another Sakha does
+not trigger a transfer and does not receive a second Local Sakha ERP
+ID. A new Probationary Member (operationally also called "Darshak")
+**does** receive a Local Sakha ERP ID from the enrolling Sakha — see
+MEM-PENDING-001 rule 5.
+
 ---
 
 # 10. Probationary Review
@@ -395,6 +448,42 @@ membership_transfer_history
 
 A transfer therefore does not overwrite the historical relationship.
 
+## 12.1 Candidate: Membership Sakha Affiliation History (MEM-PENDING-001 annotation)
+
+`membership_transfer_history` records transfer events; it does not
+necessarily serve as the complete effective-dated affiliation history.
+CROSS_MODULE_PRINCIPLES.md §20.2 identifies a **candidate** structure
+— a Membership-owned `membership_sakha_affiliation` table (or
+equivalent) — that would provide:
+
+* Authoritative effective-dated recognized-Sakha relationships
+  (from initial enrollment onward, not just transfer events).
+* A natural per-period home for the Local Sakha ERP ID.
+* Source-event classification (ENROLLMENT / TRANSFER / REACTIVATION).
+* An authoritative Sakha-period history that downstream modules
+  (including Sevak's `sevak_sakha_association`) can consume.
+
+```text
+SANGHA_SEVI
+    |
+    +-- MEMBERSHIP_TRANSFER_HISTORY         (transfer event record — exists)
+    |
+    +-- MEMBERSHIP_SAKHA_AFFILIATION (?)    (candidate — DDL-phase decision)
+              |
+              +-- Sakha (organization_pk)
+              +-- Effective period
+              +-- Local Sakha ERP ID
+              +-- Source event
+              +-- Affiliation status
+```
+
+**This entity is a DDL-phase candidate, not a frozen design element.**
+Whether it is physically created, merged with transfer history, or
+handled differently is a Membership DDL-phase decision. The
+relationship between this candidate structure and the Sevak module's
+`sevak_sakha_association` is explicitly deferred — see
+CROSS_MODULE_PRINCIPLES.md §20.2.
+
 ---
 
 # 13. Deletion Principle
@@ -431,6 +520,19 @@ By-Law Supremacy
 Auditability
 ```
 
----
+### Pending Architectural Decisions
 
-# End of Document
+The following items from CROSS_MODULE_PRINCIPLES.md affect the
+Membership ERD but are not yet resolved at the physical level:
+
+| Decision | Reference | Status |
+|---|---|---|
+| Local Sakha ERP ID physical placement | MEM-PENDING-001 (§20.2) | Conceptual rules FROZEN; physical schema PENDING |
+| Candidate `membership_sakha_affiliation` entity | MEM-PENDING-001 (§20.2) | DDL-phase candidate — not frozen |
+| Relationship to Sevak `sevak_sakha_association` | MEM-PENDING-001 (§20.2) | Explicitly deferred to Membership DDL phase |
+| Legacy Sakha register number migration mapping | MEM-PENDING-001 (§20.2) | Unfrozen |
+
+These annotations are forward references only. No ERD entity, column,
+or relationship is added or removed by this annotation.
+
+

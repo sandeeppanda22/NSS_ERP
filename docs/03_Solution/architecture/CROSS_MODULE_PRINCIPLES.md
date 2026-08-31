@@ -557,11 +557,33 @@ and increments per Sakha independently.
    renumbering.
 4. Existing Sakha numbers remain available as historical migration
    references (legacy numbers are never discarded).
-5. An Approved Darshak attending another Sakha **does not receive a
-   second Local Sakha ERP ID**. The Darshak continues to be identified
-   using the Local Sakha ERP ID of their base/recognized Sakha; the
-   attendance record's organizational context identifies the receiving
-   Sakha.
+5. "Darshak" is an operational term that can apply to two distinct
+   categories:
+   - **New Probationary Member** (operationally called "Darshak") — a
+     person entering NSS membership who does not already hold a
+     Parichaya Patra from another Sangha. This person **receives a new
+     Local Sakha ERP ID** from the Sakha where membership is being
+     established.
+   - **Approved Darshak** (existing member of another Sangha) — a
+     person who already holds a recognized Parichaya Patra/membership
+     at a different Sakha. This person **does not receive a second
+     Local Sakha ERP ID**; they continue to be identified by the Local
+     Sakha ERP ID of their base/recognized Sakha. The attendance
+     record's organizational context identifies the receiving Sakha.
+
+   ```text
+                        DARSHAK
+                           │
+                ┌──────────┴──────────┐
+                │                     │
+         Probationary Member    Existing Member
+         (new NSS member)       (other Sangha)
+                │                     │
+         NEW local ERP ID       EXISTING base ID
+                │                     │
+         CTC00000124            EKM00000123
+   ```
+
 6. When Parichaya Patra/membership is formally transferred:
    - the previous Local Sakha ERP ID becomes **ARCHIVED**;
    - archived IDs are **never reassigned to another person**;
@@ -580,7 +602,10 @@ rules above:
   (home Sakha + approved Darshak Sakha(s))." — replaced by the
   one-active-Local-Sakha-ERP-ID rule (rule 2).
 - "Approved Darshak → local Sakha number issued by visited Sakha." —
-  replaced by rule 5 (Darshak uses base-Sakha ID).
+  replaced by rule 5 (existing-member Approved Darshak uses base-Sakha
+  ID; new Probationary Member receives an ID from the enrolling Sakha).
+- "Darshak gets no local ID" (overly broad) — replaced by the
+  two-category distinction in rule 5.
 
 ### Identity Relationship
 
@@ -596,8 +621,12 @@ One Active Local Sakha ERP ID
       │
       ├── Regular attendance at base Sakha
       │
-      └── Darshak attendance at another Sakha
-              (same Local ERP ID, different attendance context)
+      ├── Darshak attendance at another Sakha
+      │       (existing member — same Local ERP ID, different
+      │        attendance context)
+      │
+      └── Probationary Member at enrolling Sakha
+              (new member — receives Local ERP ID from this Sakha)
 ```
 
 On transfer:
@@ -627,7 +656,8 @@ for genuinely new members.
 | Scenario | Local ERP ID issued? |
 |----------|:---:|
 | Home Sakha member (new or returning) | Yes |
-| Approved Darshak (with approval) | No — uses base-Sakha ID |
+| Probationary Member / operational Darshak (new to NSS, no Parichaya Patra elsewhere) | Yes — from enrolling Sakha |
+| Approved Darshak (existing member of another Sangha, with approval) | No — uses base-Sakha ID |
 | Visitor (≤4 consecutive Sundays, no approval) | No |
 
 ### Key Properties
@@ -636,7 +666,9 @@ for genuinely new members.
 - Not a global identifier — scope is the issuing Sakha
 - Linked to `sangha_sevi_id` (which is permanent and global)
 - One active Local Sakha ERP ID per person at any time
-- Parichaya Patra remains at home Sakha for Darshak scenario
+- Parichaya Patra remains at home Sakha for Approved Darshak scenario
+- Probationary Member (operational Darshak) receives ID from enrolling
+  Sakha — this is their base Sakha, not a "visited" Sakha
 
 ### DDL-Phase Resolution Required (physical schema — PENDING)
 
@@ -706,21 +738,38 @@ is a project design decision, not a Bye-Law distinction.
 ### Visitor (no approval)
 
 ```text
-- Attends other Sakha for ≤4 consecutive Sundays
-- No local Sakha number issued
+- Existing member attending another Sakha for ≤4 consecutive Sundays
+- No local Sakha number issued by the receiving Sakha
 - Attendance recorded against sangha_sevi_id
 - Portal displays as "Visitor" in that Sakha
+- The person's existing base-Sakha Local ERP ID is unaffected
 ```
+
+Note: the Visitor threshold is an **attendance rule** governing
+cross-Sakha casual attendance. It is separate from Local Sakha ERP ID
+issuance (governed by MEM-PENDING-001). A Probationary Member at their
+own enrolling Sakha is not a "Visitor" — they are at their base Sakha
+and receive a Local Sakha ERP ID per MEM-PENDING-001 rule 5.
 
 ### Approved Darshak (with approval)
 
 ```text
 - Approval required from visited Sakha
-- No local Sakha number issued (SUPERSEDED — see MEM-PENDING-001)
+- Existing member of another Sangha (holds Parichaya Patra elsewhere)
+- No local Sakha number issued by receiving Sakha
+  (SUPERSEDED — see MEM-PENDING-001 rule 5)
 - Darshak uses base-Sakha Local ERP ID for identification
 - Attendance recorded with receiving Sakha as organizational context
 - Parichaya Patra stays at home Sakha
 ```
+
+**Important distinction (MEM-PENDING-001 rule 5):** "Darshak" is an
+operational term that applies to both new Probationary Members and
+existing members of another Sangha. Only the **existing-member**
+Approved Darshak retains their base-Sakha ID here. A new Probationary
+Member (operationally also called "Darshak") **does** receive a Local
+Sakha ERP ID from the Sakha where membership is being established —
+that Sakha is their base Sakha.
 
 ### Threshold Rule
 
