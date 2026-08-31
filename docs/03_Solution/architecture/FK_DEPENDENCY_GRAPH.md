@@ -1,9 +1,9 @@
 # NSS ERP — Physical FK Dependency Graph
 
 **Document ID:** SOL-ARCH-009
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** FROZEN
-**Date:** 2026-08-28
+**Date:** 2026-08-31
 **Parent Documents:**
 - IMPLEMENTATION_DEPENDENCY_ORDER.md (SOL-ARCH-008)
 - MODULE_DEPENDENCY_MAP.md
@@ -34,10 +34,10 @@ This is Gate ⑧ of the pre-DDL architecture gates.
 
 | Category | Count | DDL Status |
 |----------|------:|------------|
-| Frozen (executable) | 86 | Ready for DDL creation |
+| Frozen (executable) | 87 | Ready for DDL creation |
 | Candidate (P&E — Module #21 pending freeze) | 7 | NOT executable until formal module freeze |
 | Deferred FK only (no new table) | 1 | Phase 6 ALTER TABLE |
-| **Total mapped** | **94** | — |
+| **Total mapped** | **95** | — |
 
 ## 2.2 Explicitly NOT Mapped
 
@@ -143,7 +143,7 @@ Note: Heritage's `spiritual_literature` uses `publication_type_pk` and
 | 3 | `family_head_history` | family_group_pk → family_group | person_pk → person (Person) |
 | 4 | `family_transition_history` | old_family_group_pk → family_group, new_family_group_pk → family_group | person_pk → person (Person) |
 
-## Membership (11 tables)
+## Membership (12 tables)
 
 | # | Table | Module-internal FKs | Cross-module FKs |
 |--:|-------|--------------------|--------------------|
@@ -152,12 +152,13 @@ Note: Heritage's `spiritual_literature` uses `publication_type_pk` and
 | 3 | `membership_renewal_request` | sangha_sevi_pk → sangha_sevi, requested_by_sangha_sevi_pk → sangha_sevi, reviewed_by_sangha_sevi_pk → sangha_sevi | — |
 | 4 | `membership_renewal_history` | sangha_sevi_pk → sangha_sevi, approved_by_sangha_sevi_pk → sangha_sevi | — |
 | 5 | `membership_transfer_history` | sangha_sevi_pk → sangha_sevi, approved_by_sangha_sevi_pk → sangha_sevi | old_organization_pk → organization (Organization), new_organization_pk → organization (Organization) |
-| 6 | `membership_journey_event` | sangha_sevi_pk → sangha_sevi | — |
-| 7 | `probationary_member_review` | sangha_sevi_pk → sangha_sevi, reviewed_by_sangha_sevi_pk → sangha_sevi | — |
-| 8 | `anumati_patra` | sangha_sevi_pk → sangha_sevi | — |
-| 9 | `anumati_patra_history` | anumati_patra_pk → anumati_patra | — |
-| 10 | `parichaya_patra` | sangha_sevi_pk → sangha_sevi | — |
-| 11 | `parichaya_patra_history` | parichaya_patra_pk → parichaya_patra | — |
+| 6 | `membership_sakha_affiliation` | sangha_sevi_pk → sangha_sevi | organization_pk → organization (Organization). `source_event_pk` is application-level traceability (no physical FK) |
+| 7 | `membership_journey_event` | sangha_sevi_pk → sangha_sevi | — |
+| 8 | `probationary_member_review` | sangha_sevi_pk → sangha_sevi, reviewed_by_sangha_sevi_pk → sangha_sevi | — |
+| 9 | `anumati_patra` | sangha_sevi_pk → sangha_sevi | — |
+| 10 | `anumati_patra_history` | anumati_patra_pk → anumati_patra | — |
+| 11 | `parichaya_patra` | sangha_sevi_pk → sangha_sevi | — |
+| 12 | `parichaya_patra_history` | parichaya_patra_pk → parichaya_patra | — |
 
 ## Authentication (2 tables)
 
@@ -350,8 +351,8 @@ Based on the dependency graph, verified by machine topological sort
 
 ```text
 Algorithm:   Kahn's topological sort
-Input:       86 frozen tables, all explicit FK edges (excluding audit-actor)
-Result:      ALL 86 tables successfully ordered — NO CYCLES
+Input:       87 frozen tables, all explicit FK edges (excluding audit-actor)
+Result:      ALL 87 tables successfully ordered — NO CYCLES
 Max depth:   7
 ```
 
@@ -420,6 +421,7 @@ PHASE 4 — Depends on Membership (sangha_sevi)
     membership_renewal_request    (← sangha_sevi)
     membership_renewal_history    (← sangha_sevi)
     membership_transfer_history   (← sangha_sevi, organization)
+    membership_sakha_affiliation  (← sangha_sevi, organization)
     membership_journey_event      (← sangha_sevi)
     probationary_member_review    (← sangha_sevi)
     anumati_patra                 (← sangha_sevi)
@@ -620,7 +622,7 @@ PHASE 6: Deferred FK constraints (audit-actor + correspondence_finance_reference
 # 9.1 Machine-Verified Topological Depth (Frozen Tables)
 
 The following creation depths were produced by Kahn's algorithm. All
-86 frozen tables sort successfully — confirming zero cycles.
+87 frozen tables sort successfully — confirming zero cycles.
 
 | Depth | Count | Tables |
 |------:|------:|--------|
@@ -629,11 +631,11 @@ The following creation depths were produced by Kahn's algorithm. All
 | 2 | 6 | district, founder_gallery, founder_timeline, person, publication, spiritual_literature |
 | 3 | 3 | city_village, organization, user_account |
 | 4 | 12 | admin_scope, body_master, correspondence, custodianship, family_group, financial_scope, kishor_event, kumari_sangha, password_history, sangha_sevi, user_role, weekly_sangha_puja |
-| 5 | 23 | acting_position_assignment, anumati_patra, attendance_exception, attendance_review, body_member_assignment, correspondence_document, election, family_head_history, family_relationship, family_transition_history, fund_master, kishor_participant, kumari_activity, kumari_membership, membership_journey_event, membership_renewal_history, membership_renewal_request, membership_status_history, membership_transfer_history, parichaya_patra, probationary_member_review, sevak_participation, weekly_sangha_puja_attendance |
+| 5 | 24 | acting_position_assignment, anumati_patra, attendance_exception, attendance_review, body_member_assignment, correspondence_document, election, family_head_history, family_relationship, family_transition_history, fund_master, kishor_participant, kumari_activity, kumari_membership, membership_journey_event, membership_renewal_history, membership_renewal_request, membership_sakha_affiliation, membership_status_history, membership_transfer_history, parichaya_patra, probationary_member_review, sevak_participation, weekly_sangha_puja_attendance |
 | 6 | 14 | anumati_patra_history, election_nomination, election_result, election_vote, financial_transaction, financial_transfer, kishor_event_registration, kishor_guardian_history, kishor_transition, kumari_activity_participant, kumari_membership_transition, parichaya_patra_history, sevak_sakha_association, sevak_status_history |
 | 7 | 3 | financial_payment, financial_receipt, sevak_reactivation_review |
 
-**Total: 86 tables across 8 depths (0–7).**
+**Total: 87 tables across 8 depths (0–7).**
 
 ---
 
@@ -644,13 +646,13 @@ DOCUMENT STATUS:
 FROZEN
 
 VERSION:
-1.0.0
+1.1.0
 
 DATE:
-2026-08-28
+2026-08-31
 
 FROZEN TABLES:
-86
+87
 
 CANDIDATE TABLES (P&E):
 7 (not executable until Module #21 formal freeze)

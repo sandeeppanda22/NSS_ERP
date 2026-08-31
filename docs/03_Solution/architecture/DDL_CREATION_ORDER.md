@@ -1,10 +1,11 @@
 # NSS ERP — DDL Creation Order
 
 **Document ID:** SOL-ARCH-010
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** FROZEN
-**Date:** 2026-08-28
-**Amendment:** 2026-08-28 — PIN Code Geographic Model (§12 added)
+**Date:** 2026-08-31
+**Amendment:** 2026-08-28 — PIN Code Geographic Model (§11 added)
+**Amendment:** 2026-08-31 — membership_sakha_affiliation added to Depth 5 (MEM-PENDING-001)
 **Parent Documents:**
 - SOL-ARCH-009 — Physical FK Dependency Graph
 - SOL-ARCH-008 — Implementation Dependency Order
@@ -72,7 +73,7 @@ Foundation Vertical Slice (actual CREATE TABLE DDL)
 
 ---
 
-# 4. Frozen Executable Sequence (86 tables)
+# 4. Frozen Executable Sequence (87 tables)
 
 ## Depth 0 — Root Tables (17)
 
@@ -167,34 +168,35 @@ and is required before the deferred audit-actor FK pass.
 
 ---
 
-## Depth 5 — Depends on Depth 0–4 (23)
+## Depth 5 — Depends on Depth 0–4 (24)
 
 ```text
 47. membership_status_history      Membership        ← sangha_sevi, master_data
 48. membership_renewal_request     Membership        ← sangha_sevi
 49. membership_renewal_history     Membership        ← sangha_sevi
 50. membership_transfer_history    Membership        ← sangha_sevi, organization
-51. membership_journey_event       Membership        ← sangha_sevi
-52. probationary_member_review     Membership        ← sangha_sevi
-53. anumati_patra                  Membership        ← sangha_sevi
-54. parichaya_patra                Membership        ← sangha_sevi
-55. family_relationship            Family            ← family_group, person, master_data
-56. family_head_history            Family            ← family_group, person
-57. family_transition_history      Family            ← family_group, person
-58. weekly_sangha_puja_attendance  Attendance        ← weekly_sangha_puja, sangha_sevi,
+51. membership_sakha_affiliation   Membership        ← sangha_sevi, organization
+52. membership_journey_event       Membership        ← sangha_sevi
+53. probationary_member_review     Membership        ← sangha_sevi
+54. anumati_patra                  Membership        ← sangha_sevi
+55. parichaya_patra                Membership        ← sangha_sevi
+56. family_relationship            Family            ← family_group, person, master_data
+57. family_head_history            Family            ← family_group, person
+58. family_transition_history      Family            ← family_group, person
+59. weekly_sangha_puja_attendance  Attendance        ← weekly_sangha_puja, sangha_sevi,
                                                        organization
-59. attendance_exception           Attendance        ← sangha_sevi
-60. attendance_review              Attendance        ← sangha_sevi
-61. body_member_assignment         Governance        ← body_master, position_master,
+60. attendance_exception           Attendance        ← sangha_sevi
+61. attendance_review              Attendance        ← sangha_sevi
+62. body_member_assignment         Governance        ← body_master, position_master,
                                                        person, sangha_sevi
-62. acting_position_assignment     Governance        ← body_master, position_master, person
-63. election                       Governance        ← body_master, organization
-64. correspondence_document        Administration    ← correspondence, document_master
-65. fund_master                    Finance           ← financial_scope, organization
-66. kishor_participant             Kishor            ← person, organization, sangha_sevi
-67. kumari_membership              Kumari            ← kumari_sangha, person, sangha_sevi
-68. kumari_activity                Kumari            ← kumari_sangha
-69. sevak_participation            Sevak             ← person, sangha_sevi
+63. acting_position_assignment     Governance        ← body_master, position_master, person
+64. election                       Governance        ← body_master, organization
+65. correspondence_document        Administration    ← correspondence, document_master
+66. fund_master                    Finance           ← financial_scope, organization
+67. kishor_participant             Kishor            ← person, organization, sangha_sevi
+68. kumari_membership              Kumari            ← kumari_sangha, person, sangha_sevi
+69. kumari_activity                Kumari            ← kumari_sangha
+70. sevak_participation            Sevak             ← person, sangha_sevi
 ```
 
 ---
@@ -202,23 +204,23 @@ and is required before the deferred audit-actor FK pass.
 ## Depth 6 — Depends on Depth 0–5 (14)
 
 ```text
-70. anumati_patra_history          Membership        ← anumati_patra
-71. parichaya_patra_history        Membership        ← parichaya_patra
-72. election_nomination            Governance        ← election, person
-73. election_vote                  Governance        ← election
-74. election_result                Governance        ← election, person
-75. financial_transaction          Finance           ← financial_year, financial_scope,
+71. anumati_patra_history          Membership        ← anumati_patra
+72. parichaya_patra_history        Membership        ← parichaya_patra
+73. election_nomination            Governance        ← election, person
+74. election_vote                  Governance        ← election
+75. election_result                Governance        ← election, person
+76. financial_transaction          Finance           ← financial_year, financial_scope,
                                                        fund_master, person, sangha_sevi
-76. financial_transfer             Finance           ← financial_year, financial_scope,
+77. financial_transfer             Finance           ← financial_year, financial_scope,
                                                        fund_master
-77. kishor_event_registration      Kishor            ← kishor_participant, kishor_event,
+78. kishor_event_registration      Kishor            ← kishor_participant, kishor_event,
                                                        organization, sangha_sevi
-78. kishor_guardian_history         Kishor            ← kishor_participant, sangha_sevi
-79. kishor_transition              Kishor            ← kishor_participant, sangha_sevi
-80. kumari_activity_participant    Kumari            ← kumari_activity, kumari_membership
-81. kumari_membership_transition   Kumari            ← kumari_membership, sangha_sevi
-82. sevak_sakha_association        Sevak             ← sevak_participation, organization
-83. sevak_status_history           Sevak             ← sevak_participation
+79. kishor_guardian_history         Kishor            ← kishor_participant, sangha_sevi
+80. kishor_transition              Kishor            ← kishor_participant, sangha_sevi
+81. kumari_activity_participant    Kumari            ← kumari_activity, kumari_membership
+82. kumari_membership_transition   Kumari            ← kumari_membership, sangha_sevi
+83. sevak_sakha_association        Sevak             ← sevak_participation, organization
+84. sevak_status_history           Sevak             ← sevak_participation
 ```
 
 ---
@@ -226,16 +228,16 @@ and is required before the deferred audit-actor FK pass.
 ## Depth 7 — Deepest Leaf Tables (3)
 
 ```text
-84. financial_receipt              Finance           ← financial_transaction, person
-85. financial_payment              Finance           ← financial_transaction, person
-86. sevak_reactivation_review      Sevak             ← sevak_sakha_association
+85. financial_receipt              Finance           ← financial_transaction, person
+86. financial_payment              Finance           ← financial_transaction, person
+87. sevak_reactivation_review      Sevak             ← sevak_sakha_association
 ```
 
 ---
 
 # 5. Deferred Constraints (Pass 2)
 
-After all 86 tables exist and foundational seed data has been inserted:
+After all 89 tables exist and foundational seed data has been inserted:
 
 ## 5.1 Audit-Actor FK Constraints
 
@@ -270,7 +272,7 @@ ALTER TABLE correspondence_finance_reference
     REFERENCES financial_transaction (financial_transaction_pk);
 ```
 
-Precondition: `financial_transaction` table exists (Depth 6, table #75).
+Precondition: `financial_transaction` table exists (Depth 6, table #76).
 
 ---
 
@@ -413,8 +415,8 @@ merely display fields. They support:
 ## 11.4 Updated Sequence
 
 ```text
-87. postal_code                   Foundation        ← country, state
-88. city_village_postal_code_map  Foundation        ← city_village, postal_code
+88. postal_code                   Foundation        ← country, state
+89. city_village_postal_code_map  Foundation        ← city_village, postal_code
 ```
 
 `postal_code` is Depth 2 (depends on `country` at Depth 0 and `state`
@@ -425,8 +427,8 @@ Depth 3 and `postal_code` at Depth 2).
 
 ## 11.5 Impact on Global Inventory
 
-- Frozen executable tables: 86 → **88**
-- Foundation tables: 10 → **12**
+- Frozen executable tables: 87 → **89**
+- Foundation tables: 10 → **12** (unchanged by membership addition)
 - Creation depths: unchanged (still Depth 0 through Depth 7)
 - Cycle-free: YES (no new cycles — both tables are leaf additions)
 - Candidate tables: unchanged (7, Programme & Events)
@@ -458,16 +460,16 @@ DOCUMENT ID:
 SOL-ARCH-010
 
 VERSION:
-1.1.0
+1.2.0
 
 DATE:
-2026-08-28
+2026-08-31
 
 AMENDMENT:
-PIN Code Geographic Model (2026-08-28)
+PIN Code Geographic Model (2026-08-28); membership_sakha_affiliation (2026-08-31)
 
 FROZEN TABLES IN SEQUENCE:
-88
+89
 
 CREATION DEPTHS:
 8 (Depth 0 through Depth 7)
@@ -479,7 +481,7 @@ CANDIDATE (NOT EXECUTABLE):
 7 (Programme & Events)
 
 CYCLE-FREE:
-YES — machine-verified (SOL-ARCH-009 §9.1) + amendment adds no cycles
+YES — machine-verified (SOL-ARCH-009 §9.1) + amendments add no cycles
 
 AUTHORITY:
 This is the DDL creation-order authority for the NSS ERP.
