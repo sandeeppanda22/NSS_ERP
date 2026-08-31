@@ -389,8 +389,8 @@ The same one-owner-per-table principle applies to future modules.
 | Correspondence financial traceability via M:N junction (CORR-ARCH-001) | FROZEN |
 | Correspondence is a reusable cross-module platform capability (CORR-ARCH-002) | FROZEN |
 | Organization short code (3–5 letter, UNIQUE) for Sakha-level identity/correspondence (ORG-PENDING-001) | FROZEN (2026-08-30) |
-| Local Sakha number format + lifecycle (MEM-PENDING-001) | PENDING — DDL phase |
-| Visitor vs. Approved Darshak threshold (ATT-PENDING-001) | PENDING — DDL phase |
+| Local Sakha ERP ID conceptual rules + format (MEM-PENDING-001) | FROZEN (2026-08-31) — physical schema PENDING |
+| Visitor vs. Approved Darshak threshold (ATT-PENDING-001) | PENDING — DDL phase; Darshak local-number issuance SUPERSEDED |
 
 ---
 
@@ -485,7 +485,7 @@ shall be reviewed for impact on the ownership matrix, dependency graph, DB Stand
 
 **DOCUMENT STATUS:** FROZEN — PROJECT-WIDE ARCHITECTURAL PRINCIPLES
 
-**VERSION:** 1.1.0
+**VERSION:** 1.2.0
 
 **Note:** Physical implementation details remain subject to the DB Standards, final dependency graph, module table designs, and DDL phase.
 
@@ -524,75 +524,142 @@ unchanged — it is the system-generated permanent business identifier.
 
 **Dependency:** CORR-EXT-001 is now unblocked.
 
-## 20.2 Local Sakha Number Format and Lifecycle (MEM-PENDING-001)
+## 20.2 Local Sakha ERP ID — Conceptual Rules and Format (MEM-PENDING-001)
 
 **Affects:** Membership, Organization
 
-### Proposed Format (not frozen)
+**Updated:** 2026-08-31 — conceptual identity rules and ID format FROZEN;
+physical schema placement remains PENDING.
+
+### Format — FROZEN
 
 ```text
-<organization_short_code> + <8-digit sequence>
-Example: ESS00000001
+<3–5 character Organization/Sakha Short Code><8-digit sequence>
+Examples: EKM00000123, PURI00000001, BBSR00000042
 ```
 
-This is a proposed format. The exact format remains unfrozen until the
-DDL-phase decision.
+`EKM00000123` is a canonical example, not a restriction to three-character
+codes. The short code length varies by organization (see ORG-PENDING-001).
 
-### Identity Model
+The short code is the `organization_short_code` defined in
+ORG-PENDING-001. The 8-digit zero-padded sequence is Sakha-assigned
+and increments per Sakha independently.
 
-The local Sakha number belongs to a **Sakha affiliation**, not directly
-to the member. This three-level chain is architecturally significant
-because the same person may have simultaneous affiliations:
+### Conceptual Identity Rules — FROZEN
+
+1. Every Sangha Sevi has one permanent, NSS-wide **Sangha Sevi ID**
+   (e.g. `SS00000001`).
+2. A person has **one active Local Sakha ERP ID** associated with their
+   current recognized/base Sakha membership.
+3. Existing Sakha register numbers should be **carried forward into the
+   ERP Local Sakha ID wherever they can be reliably mapped** (e.g. old
+   Sakha number `123` → `EKM00000123`), avoiding unnecessary
+   renumbering.
+4. Existing Sakha numbers remain available as historical migration
+   references (legacy numbers are never discarded).
+5. An Approved Darshak attending another Sakha **does not receive a
+   second Local Sakha ERP ID**. The Darshak continues to be identified
+   using the Local Sakha ERP ID of their base/recognized Sakha; the
+   attendance record's organizational context identifies the receiving
+   Sakha.
+6. When Parichaya Patra/membership is formally transferred:
+   - the previous Local Sakha ERP ID becomes **ARCHIVED**;
+   - archived IDs are **never reassigned to another person**;
+   - if the same person returns to the same Sakha, their archived ID
+     may be **REACTIVATED**;
+   - the receiving Sakha issues the next number in its own sequence;
+   - the Sangha Sevi ID remains unchanged.
+7. Legacy → ERP number mapping must preserve historical traceability.
+
+### Superseded
+
+The following earlier proposals are explicitly **SUPERSEDED** by the
+rules above:
+
+- "A member may hold multiple ACTIVE local numbers simultaneously
+  (home Sakha + approved Darshak Sakha(s))." — replaced by the
+  one-active-Local-Sakha-ERP-ID rule (rule 2).
+- "Approved Darshak → local Sakha number issued by visited Sakha." —
+  replaced by rule 5 (Darshak uses base-Sakha ID).
+
+### Identity Relationship
 
 ```text
-Sangha Sevi (permanent global identity)
-   └── Sakha Affiliation (home, approved Darshak, etc.)
-         └── Local Sakha Number (issued by that Sakha)
+Sangha Sevi ID (permanent, NSS-wide)
+      │
+      │ 1
+      ▼
+Current recognized/base Sakha (organization_pk)
+      │
+      ▼
+One Active Local Sakha ERP ID
+      │
+      ├── Regular attendance at base Sakha
+      │
+      └── Darshak attendance at another Sakha
+              (same Local ERP ID, different attendance context)
 ```
 
-This means the eventual model likely requires a dedicated
-membership/Sakha-affiliation entity rather than inline VARCHAR fields
-in `membership_transfer_history`.
+On transfer:
+
+```text
+Old Local Sakha ERP ID → ARCHIVED (never reused)
+New Sakha sequence     → New Local Sakha ERP ID
+Sangha Sevi ID         → UNCHANGED
+```
 
 ### Lifecycle
 
 ```text
-Member joins Sakha A     → ESS00000001 (ACTIVE)
-Transfer to Sakha B      → ESS00000001 (INACTIVE), <other_org_short_code>00000042 (ACTIVE)
-Returns to Sakha A       → ESS00000001 (REACTIVATED), <other_org_short_code>00000042 (INACTIVE)
+Member joins Sakha A     → EKM00000123 (ACTIVE)
+Darshak at Sakha B       → EKM00000123 (still ACTIVE at base Sakha A)
+Transfer to Sakha B      → EKM00000123 (ARCHIVED), CTC00000042 (ACTIVE)
+Returns to Sakha A       → CTC00000042 (ARCHIVED), EKM00000123 (REACTIVATED)
 ```
+
+Archived IDs are never reassigned to another person. If the same
+Sangha Sevi returns to the same Sakha, their previous Local Sakha ERP
+ID may be reactivated. The Sakha's sequence continues independently
+for genuinely new members.
 
 ### Issuance Rules
 
-| Scenario | Local number issued? |
+| Scenario | Local ERP ID issued? |
 |----------|:---:|
-| Home Sakha member | Yes |
-| Approved Darshak (with approval) | Yes (by visited Sakha) |
+| Home Sakha member (new or returning) | Yes |
+| Approved Darshak (with approval) | No — uses base-Sakha ID |
 | Visitor (≤4 consecutive Sundays, no approval) | No |
 
 ### Key Properties
 
 - Assigned by the Sakha (not centrally)
-- Not a global identifier
+- Not a global identifier — scope is the issuing Sakha
 - Linked to `sangha_sevi_id` (which is permanent and global)
-- A member may hold multiple ACTIVE local numbers simultaneously
-  (home Sakha + approved Darshak Sakha(s))
+- One active Local Sakha ERP ID per person at any time
 - Parichaya Patra remains at home Sakha for Darshak scenario
 
-### DDL-Phase Resolution Required
+### DDL-Phase Resolution Required (physical schema — PENDING)
 
-The existing `membership_transfer_history` table stores
-`old_local_sakha_number` / `new_local_sakha_number` as simple VARCHAR
-fields. This design cannot support:
+The active Local Sakha ERP ID requires an authoritative physical
+representation. Candidate placement is `sangha_sevi`, subject to
+DDL-phase validation against membership transfer/history and migration
+requirements.
 
-- Reactivation on return (number has no status)
-- Multiple simultaneous active numbers (transfer log is event-based)
-- Darshak-issued numbers (no transfer involved)
+Additionally:
 
-The exact physical model (dedicated table vs. expanded structure)
-remains unfrozen until the Membership DDL phase.
+- The existing `membership_transfer_history` table stores
+  `old_local_sakha_number` / `new_local_sakha_number` as VARCHAR
+  snapshots. These remain useful for historical transition records but
+  do not represent the current active ID.
+- Migration mapping structure (how legacy Sakha register numbers are
+  physically stored and linked to new ERP IDs) remains unfrozen.
+- Detailed reactivation semantics (on return to a previous Sakha)
+  remain unfrozen.
+- Whether a dedicated affiliation entity is required for historical/
+  current Sakha relationships is a separate question from ID issuance
+  and remains a DDL-phase decision.
 
-**Dependency:** Requires ORG-PENDING-001 (organization_short_code).
+**Dependency:** Requires ORG-PENDING-001 (organization_short_code) — FROZEN.
 
 ## 20.3 Visitor vs. Approved Darshak Threshold (ATT-PENDING-001)
 
@@ -616,8 +683,9 @@ is a project design decision, not a Bye-Law distinction.
 
 ```text
 - Approval required from visited Sakha
-- Local Sakha number issued
-- Full local number lifecycle applies
+- No local Sakha number issued (SUPERSEDED — see MEM-PENDING-001)
+- Darshak uses base-Sakha Local ERP ID for identification
+- Attendance recorded with receiving Sakha as organizational context
 - Parichaya Patra stays at home Sakha
 ```
 
@@ -649,5 +717,5 @@ approval, the system shall enforce either:
 | ID | Title | Modules Affected | Blocking? |
 |----|-------|-----------------|:---------:|
 | ORG-PENDING-001 | Organization Short Code | Org, Mem, Admin | FROZEN (2026-08-30) — CORR-EXT-001 unblocked |
-| MEM-PENDING-001 | Local Sakha Number Format + Lifecycle | Mem, Org | Blocks Membership DDL |
-| ATT-PENDING-001 | Visitor vs. Approved Darshak Threshold | Att, Mem | No (Attendance DDL can proceed without) |
+| MEM-PENDING-001 | Local Sakha ERP ID — Conceptual Rules + Format | Mem, Org | Rules + format FROZEN (2026-08-31); physical schema PENDING — blocks Membership DDL |
+| ATT-PENDING-001 | Visitor vs. Approved Darshak Threshold | Att, Mem | No (Attendance DDL can proceed without); Darshak local-number issuance SUPERSEDED by MEM-PENDING-001 |
