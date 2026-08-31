@@ -116,6 +116,13 @@ pushing, and fast-forward-merging `feature/ref-documentation` into `develop`)
 > Verified via `git status` / `git log` / `git branch` — do not trust handoff-doc claims over
 > this without re-verifying, since handoffs go stale.
 
+- **Branch/remotes (updated 2026-08-31, later same day — supersedes the bullet directly below
+  for current branch/HEAD state; that bullet's content-level findings are unaffected and still
+  live).** User asked to sync `develop` with `feature/ref-documentation` then switch to it —
+  the two were already identical (both at `eea3058`, 0 ahead/0 behind, per the fast-forward
+  sync in the bullet below), so nothing to merge; just checked out `feature/ref-documentation`.
+  Active branch is now `feature/ref-documentation` at `eea3058`, working tree clean, 14 commits
+  ahead of `personal/feature/ref-documentation` (not yet pushed).
 - **Branch/remotes (updated 2026-08-31 — supersedes the bullet directly below for current
   branch/HEAD state; that bullet's content-level findings are unaffected and still live).** The
   soft-delete backfill left uncommitted at the end of the last `/document-project` pass (below)
