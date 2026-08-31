@@ -640,24 +640,57 @@ for genuinely new members.
 
 ### DDL-Phase Resolution Required (physical schema — PENDING)
 
-The active Local Sakha ERP ID requires an authoritative physical
-representation. Candidate placement is `sangha_sevi`, subject to
-DDL-phase validation against membership transfer/history and migration
-requirements.
+Membership owns the authoritative history of a person's recognized
+Sakha affiliations. `membership_transfer_history` records transfer
+events; it does not necessarily serve as the complete effective-dated
+affiliation history. The conceptual separation is:
 
-Additionally:
+```text
+Membership
+│
+├── Current membership
+│     └── current recognized Sakha (sangha_sevi.organization_pk)
+│
+├── Sakha affiliation history       ← candidate physical structure
+│     ├── Sakha (organization_pk)
+│     ├── effective period (effective_from / effective_to)
+│     ├── affiliation status (ACTIVE / ARCHIVED / REACTIVATED)
+│     ├── Local Sakha ERP ID
+│     └── source event (ENROLLMENT / TRANSFER / REACTIVATION)
+│
+└── Transfer history
+      └── transfer event / approval workflow details
+```
 
-- The existing `membership_transfer_history` table stores
-  `old_local_sakha_number` / `new_local_sakha_number` as VARCHAR
-  snapshots. These remain useful for historical transition records but
-  do not represent the current active ID.
+**Candidate structure:** A Membership-owned `membership_sakha_affiliation`
+table (or equivalent) providing authoritative effective-dated
+recognized-Sakha relationships. This would:
+
+- give the Local Sakha ERP ID a natural per-period home;
+- provide explicit effective dating (initial enrollment through
+  current, not just transfer events);
+- distinguish ENROLLMENT, TRANSFER, and REACTIVATION as source events;
+- serve as the authoritative Sakha-period history that downstream
+  modules (including Sevak) can consume rather than reconstructing
+  independently.
+
+**Cross-module note:** The Sevak module's `sevak_sakha_association`
+already maintains effective-dated Sakha history with the same
+conceptual shape (organization_pk, effective_from, effective_to,
+association_status, source_event_type). Whether that table remains
+necessary for Sevak-specific domain lifecycle or can be simplified
+to consume the Membership-authoritative structure is a downstream
+design decision — not frozen here.
+
+**What remains unchanged:**
+
+- `membership_transfer_history` remains the transfer-event record,
+  with `old_local_sakha_number` / `new_local_sakha_number` as
+  historical transition snapshots.
 - Migration mapping structure (how legacy Sakha register numbers are
   physically stored and linked to new ERP IDs) remains unfrozen.
-- Detailed reactivation semantics (on return to a previous Sakha)
-  remain unfrozen.
-- Whether a dedicated affiliation entity is required for historical/
-  current Sakha relationships is a separate question from ID issuance
-  and remains a DDL-phase decision.
+- Physical structure and cross-module FK/consumption pattern remain
+  **PENDING** until the Membership DDL phase.
 
 **Dependency:** Requires ORG-PENDING-001 (organization_short_code) — FROZEN.
 
