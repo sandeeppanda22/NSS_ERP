@@ -389,7 +389,7 @@ The same one-owner-per-table principle applies to future modules.
 | Correspondence financial traceability via M:N junction (CORR-ARCH-001) | FROZEN |
 | Correspondence is a reusable cross-module platform capability (CORR-ARCH-002) | FROZEN |
 | Organization short code (3–5 letter, UNIQUE) for Sakha-level identity/correspondence (ORG-PENDING-001) | FROZEN (2026-08-30) |
-| Local Sakha ERP ID conceptual rules + format (MEM-PENDING-001) | FROZEN (2026-08-31) — physical schema PENDING |
+| Local Sakha ERP ID conceptual rules + format (MEM-PENDING-001) | FROZEN (2026-08-31) — physical model ACCEPTED (`membership_sakha_affiliation`) |
 | Visitor vs. Approved Darshak threshold (ATT-PENDING-001) | PENDING — DDL phase; Darshak local-number issuance SUPERSEDED |
 
 ---
@@ -529,7 +529,7 @@ unchanged — it is the system-generated permanent business identifier.
 **Affects:** Membership, Organization
 
 **Updated:** 2026-08-31 — conceptual identity rules and ID format FROZEN;
-physical schema placement remains PENDING.
+physical model ACCEPTED (`membership_sakha_affiliation`).
 
 ### Format — FROZEN
 
@@ -670,59 +670,85 @@ for genuinely new members.
 - Probationary Member (operational Darshak) receives ID from enrolling
   Sakha — this is their base Sakha, not a "visited" Sakha
 
-### DDL-Phase Resolution Required (physical schema — PENDING)
+### DDL-Phase Resolution — ACCEPTED Physical Model (2026-08-31)
 
 Membership owns the authoritative history of a person's recognized
 Sakha affiliations. `membership_transfer_history` records transfer
-events; it does not necessarily serve as the complete effective-dated
-affiliation history. The conceptual separation is:
+events but does not serve as the complete effective-dated affiliation
+history. The accepted physical separation is:
 
 ```text
 Membership
 │
-├── Current membership
-│     └── current recognized Sakha (sangha_sevi.organization_pk)
+├── Permanent identity
+│     └── sangha_sevi (sangha_sevi_id, organization_pk)
 │
-├── Sakha affiliation history       ← candidate physical structure
+├── Sakha affiliation history       ← ACCEPTED physical table
 │     ├── Sakha (organization_pk)
 │     ├── effective period (effective_from / effective_to)
 │     ├── affiliation status (ACTIVE / ARCHIVED / REACTIVATED)
 │     ├── Local Sakha ERP ID
+│     ├── legacy Sakha number (inline, migration)
 │     └── source event (ENROLLMENT / TRANSFER / REACTIVATION)
 │
 └── Transfer history
-      └── transfer event / approval workflow details
+      └── transfer event / approval workflow details (unchanged)
 ```
 
-**Candidate structure:** A Membership-owned `membership_sakha_affiliation`
-table (or equivalent) providing authoritative effective-dated
-recognized-Sakha relationships. This would:
+**Accepted table:** `membership_sakha_affiliation`
 
-- give the Local Sakha ERP ID a natural per-period home;
-- provide explicit effective dating (initial enrollment through
-  current, not just transfer events);
-- distinguish ENROLLMENT, TRANSFER, and REACTIVATION as source events;
-- serve as the authoritative Sakha-period history that downstream
-  modules (including Sevak) can consume rather than reconstructing
-  independently.
+```text
+membership_sakha_affiliation_pk     UUID PK
+sangha_sevi_pk                      FK → sangha_sevi
+organization_pk                     FK → organization (the Sakha)
+local_sakha_erp_id                  VARCHAR NOT NULL
+effective_from                      DATE NOT NULL
+effective_to                        DATE NULL (NULL = current)
+affiliation_status                  VARCHAR NOT NULL
+                                      (ACTIVE / ARCHIVED / REACTIVATED)
+source_event_type                   VARCHAR NOT NULL
+                                      (ENROLLMENT / TRANSFER / REACTIVATION)
+source_event_pk                     UUID NULL
+legacy_sakha_number                 VARCHAR NULL (migration only)
+created_at / created_by / updated_at / updated_by
+```
+
+**Constraints:**
+- One ACTIVE/REACTIVATED affiliation per `sangha_sevi_pk` at any time
+  (partial unique index: `UNIQUE(sangha_sevi_pk) WHERE effective_to IS NULL`)
+- Local Sakha ERP ID unique within its Sakha scope:
+  `UNIQUE(organization_pk, local_sakha_erp_id)`
+- CHECK: `(effective_to IS NULL AND affiliation_status IN ('ACTIVE','REACTIVATED'))
+  OR (effective_to IS NOT NULL AND affiliation_status = 'ARCHIVED')`
+
+**Reactivation mechanics:** On return to a previously held Sakha, a
+**new affiliation period row** is created with the same
+`local_sakha_erp_id`, `affiliation_status = 'REACTIVATED'`, and
+`source_event_type = 'REACTIVATION'`. The prior ARCHIVED row is **not
+reopened** — this preserves clean historical periods for audit:
+
+```text
+2019 ─────── 2023    Ekamra   EKM00000123   ARCHIVED
+2023 ─────── 2026    Cuttack  CTC00000042   ARCHIVED
+2026 ─────── →       Ekamra   EKM00000123   REACTIVATED
+```
+
+**Decisions recorded:**
+
+| Component | Decision |
+|---|---|
+| `sangha_sevi` | No `local_sakha_erp_id` — the local ID belongs to the affiliation period |
+| `membership_sakha_affiliation` | ACCEPTED as physical table |
+| `membership_transfer_history` | RETAINED unchanged — transfer-event record |
+| Legacy mapping | Inline `legacy_sakha_number` on affiliation row; separate mapping table PENDING if multi-source evidence emerges |
+| Sevak `sevak_sakha_association` | DEFERRED — Membership affiliation is the candidate authoritative source; Sevak consumption model resolved at Sevak DDL phase |
 
 **Cross-module note:** The Sevak module's `sevak_sakha_association`
 already maintains effective-dated Sakha history with the same
-conceptual shape (organization_pk, effective_from, effective_to,
-association_status, source_event_type). Whether that table remains
-necessary for Sevak-specific domain lifecycle or can be simplified
-to consume the Membership-authoritative structure is a downstream
-design decision — not frozen here.
-
-**What remains unchanged:**
-
-- `membership_transfer_history` remains the transfer-event record,
-  with `old_local_sakha_number` / `new_local_sakha_number` as
-  historical transition snapshots.
-- Migration mapping structure (how legacy Sakha register numbers are
-  physically stored and linked to new ERP IDs) remains unfrozen.
-- Physical structure and cross-module FK/consumption pattern remain
-  **PENDING** until the Membership DDL phase.
+conceptual shape. Whether that table references `membership_sakha_affiliation`
+directly, maintains a derived copy, or retains its existing
+independent structure is a downstream design decision — not frozen
+here.
 
 **Dependency:** Requires ORG-PENDING-001 (organization_short_code) — FROZEN.
 
@@ -799,5 +825,5 @@ approval, the system shall enforce either:
 | ID | Title | Modules Affected | Blocking? |
 |----|-------|-----------------|:---------:|
 | ORG-PENDING-001 | Organization Short Code | Org, Mem, Admin | FROZEN (2026-08-30) — CORR-EXT-001 unblocked |
-| MEM-PENDING-001 | Local Sakha ERP ID — Conceptual Rules + Format | Mem, Org | Rules + format FROZEN (2026-08-31); physical schema PENDING — blocks Membership DDL |
+| MEM-PENDING-001 | Local Sakha ERP ID — Conceptual Rules + Format | Mem, Org | Rules + format FROZEN; physical model ACCEPTED (2026-08-31) — `membership_sakha_affiliation` table |
 | ATT-PENDING-001 | Visitor vs. Approved Darshak Threshold | Att, Mem | No (Attendance DDL can proceed without); Darshak local-number issuance SUPERSEDED by MEM-PENDING-001 |

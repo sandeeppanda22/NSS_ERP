@@ -123,10 +123,10 @@ Example: EKM00000123
 * Legacy Sakha register numbers are distinct from the ERP-issued ID
   and require a migration mapping.
 
-**Physical representation** — whether Local Sakha ERP ID lives on
-`sangha_sevi`, on a candidate `membership_sakha_affiliation` table,
-or elsewhere — is **not frozen** and remains a Membership DDL-phase
-decision. See §12.1 and CROSS_MODULE_PRINCIPLES.md §20.2.
+**Physical representation:** The Local Sakha ERP ID belongs to the
+affiliation period, not the permanent identity record. It resides on
+the accepted `membership_sakha_affiliation` table (see §12.1).
+`sangha_sevi` does not carry `local_sakha_erp_id`.
 
 ---
 
@@ -148,6 +148,10 @@ erDiagram
     SANGHA_SEVI ||--o{ MEMBERSHIP_RENEWAL_HISTORY : "has renewals"
 
     SANGHA_SEVI ||--o{ MEMBERSHIP_TRANSFER_HISTORY : "has transfers"
+
+    SANGHA_SEVI ||--o{ MEMBERSHIP_SAKHA_AFFILIATION : "has Sakha affiliations"
+
+    MEMBERSHIP_SAKHA_AFFILIATION }o--|| ORGANIZATION : "affiliated Sakha"
 
     SANGHA_SEVI ||--o{ MEMBERSHIP_JOURNEY_EVENT : "has journey events"
 
@@ -222,6 +226,19 @@ erDiagram
         date requested_date
         date approved_date
         date effective_date
+    }
+
+    MEMBERSHIP_SAKHA_AFFILIATION {
+        uuid membership_sakha_affiliation_pk PK
+        uuid sangha_sevi_pk FK
+        uuid organization_pk FK
+        string local_sakha_erp_id
+        date effective_from
+        date effective_to
+        string affiliation_status
+        string source_event_type
+        uuid source_event_pk FK
+        string legacy_sakha_number
     }
 
     MEMBERSHIP_JOURNEY_EVENT {
@@ -393,9 +410,8 @@ previously archived ID may be reactivated.
 
 `membership_transfer_history` continues to store `old_local_sakha_number`
 / `new_local_sakha_number` as historical transition snapshots. The
-authoritative current Local Sakha ERP ID belongs to the member's active
-Sakha-affiliation period — physical placement is a DDL-phase decision
-(see §12.1).
+authoritative current Local Sakha ERP ID resides on the accepted
+`membership_sakha_affiliation` table (see §12.1).
 
 Note: an existing-member Approved Darshak attending another Sakha does
 not trigger a transfer and does not receive a second Local Sakha ERP
@@ -448,13 +464,14 @@ membership_transfer_history
 
 A transfer therefore does not overwrite the historical relationship.
 
-## 12.1 Candidate: Membership Sakha Affiliation History (MEM-PENDING-001 annotation)
+## 12.1 Membership Sakha Affiliation History — ACCEPTED Physical Model (MEM-PENDING-001)
 
 `membership_transfer_history` records transfer events; it does not
-necessarily serve as the complete effective-dated affiliation history.
-CROSS_MODULE_PRINCIPLES.md §20.2 identifies a **candidate** structure
-— a Membership-owned `membership_sakha_affiliation` table (or
-equivalent) — that would provide:
+serve as the complete effective-dated affiliation history. The
+`membership_sakha_affiliation` table has been **accepted** as the
+physical model (CROSS_MODULE_PRINCIPLES.md §20.2, 2026-08-31).
+
+This table provides:
 
 * Authoritative effective-dated recognized-Sakha relationships
   (from initial enrollment onward, not just transfer events).
@@ -466,23 +483,28 @@ equivalent) — that would provide:
 ```text
 SANGHA_SEVI
     |
-    +-- MEMBERSHIP_TRANSFER_HISTORY         (transfer event record — exists)
+    +-- MEMBERSHIP_TRANSFER_HISTORY         (transfer event record — retained)
     |
-    +-- MEMBERSHIP_SAKHA_AFFILIATION (?)    (candidate — DDL-phase decision)
+    +-- MEMBERSHIP_SAKHA_AFFILIATION        (ACCEPTED — affiliation periods)
               |
               +-- Sakha (organization_pk)
-              +-- Effective period
               +-- Local Sakha ERP ID
-              +-- Source event
-              +-- Affiliation status
+              +-- Effective period (effective_from / effective_to)
+              +-- Affiliation status (ACTIVE / ARCHIVED / REACTIVATED)
+              +-- Source event type (ENROLLMENT / TRANSFER / REACTIVATION)
+              +-- Legacy Sakha number (migration, inline)
 ```
 
-**This entity is a DDL-phase candidate, not a frozen design element.**
-Whether it is physically created, merged with transfer history, or
-handled differently is a Membership DDL-phase decision. The
-relationship between this candidate structure and the Sevak module's
-`sevak_sakha_association` is explicitly deferred — see
-CROSS_MODULE_PRINCIPLES.md §20.2.
+**Reactivation:** On return to a previously held Sakha, a **new
+affiliation period row** is created with the same `local_sakha_erp_id`
+and `affiliation_status = 'REACTIVATED'`. The prior ARCHIVED row is
+not reopened — this preserves clean historical periods.
+
+**`sangha_sevi`** does not carry `local_sakha_erp_id`. The local ID
+belongs to the affiliation period, not the permanent identity record.
+
+**Sevak consumption model:** The relationship between this table and
+Sevak's `sevak_sakha_association` is deferred to the Sevak DDL phase.
 
 ---
 
@@ -520,17 +542,15 @@ By-Law Supremacy
 Auditability
 ```
 
-### Pending Architectural Decisions
-
-The following items from CROSS_MODULE_PRINCIPLES.md affect the
-Membership ERD but are not yet resolved at the physical level:
+### Architectural Decisions — MEM-PENDING-001
 
 | Decision | Reference | Status |
 |---|---|---|
-| Local Sakha ERP ID physical placement | MEM-PENDING-001 (§20.2) | Conceptual rules FROZEN; physical schema PENDING |
-| Candidate `membership_sakha_affiliation` entity | MEM-PENDING-001 (§20.2) | DDL-phase candidate — not frozen |
-| Relationship to Sevak `sevak_sakha_association` | MEM-PENDING-001 (§20.2) | Explicitly deferred to Membership DDL phase |
-| Legacy Sakha register number migration mapping | MEM-PENDING-001 (§20.2) | Unfrozen |
+| Local Sakha ERP ID physical placement | MEM-PENDING-001 (§20.2) | RESOLVED — belongs to `membership_sakha_affiliation` per-period row; **not** on `sangha_sevi` |
+| `membership_sakha_affiliation` entity | MEM-PENDING-001 (§20.2) | **ACCEPTED** as physical model (2026-08-31) |
+| Reactivation mechanics | MEM-PENDING-001 (§20.2) | New affiliation period row with same Local ERP ID; prior ARCHIVED row not reopened |
+| Relationship to Sevak `sevak_sakha_association` | MEM-PENDING-001 (§20.2) | DEFERRED to Sevak DDL phase |
+| Legacy Sakha register number migration mapping | MEM-PENDING-001 (§20.2) | Inline `legacy_sakha_number` on affiliation; separate table PENDING if multi-source evidence |
 
 These annotations are forward references only. No ERD entity, column,
 or relationship is added or removed by this annotation.
