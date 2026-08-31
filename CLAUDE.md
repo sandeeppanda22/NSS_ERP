@@ -116,6 +116,14 @@ pushing, and fast-forward-merging `feature/ref-documentation` into `develop`)
 > Verified via `git status` / `git log` / `git branch` — do not trust handoff-doc claims over
 > this without re-verifying, since handoffs go stale.
 
+- **Branch/remotes (updated 2026-08-31 — supersedes the bullet directly below for current
+  branch/HEAD state; that bullet's content-level findings are unaffected and still live).** The
+  soft-delete backfill left uncommitted at the end of the last `/document-project` pass (below)
+  was committed as `6321f8e` on `feature/database-foundation` — matches exactly what was staged
+  (12 files: the `city_village.sql` fix, 9 other DDL files, `database/ddl/01_foundation/
+  README.md`, and this file's own §3 note). Fast-forward-merged into `develop`
+  (`353082c..6321f8e`, no conflicts). All other branches re-synced to this tip; `main`
+  untouched. Active branch `develop` at `6321f8e`.
 - **Branch/remotes (updated 2026-08-30, later same day yet again — supersedes the bullet
   directly below for current branch/HEAD state; that bullet's content is otherwise still
   accurate).** `/document-project` re-run found **uncommitted** work-in-progress on
