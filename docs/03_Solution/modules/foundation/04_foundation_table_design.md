@@ -1,7 +1,7 @@
 # NSS ERP — Foundation Table Design
 
 **Document ID:** SOL-FND-004
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** DRAFT — SOURCE ALIGNED
 **Module:** Foundation
 **Parent System:** Nilachala Saraswata Sangha ERP
@@ -20,8 +20,9 @@ The Foundation Module provides:
 - Identifier Sequence Infrastructure
 - Geographic Reference Data
 
-The current frozen Foundation schema contains exactly eight tables, plus
-two shared-infrastructure tables added by architectural decisions:
+The current frozen Foundation schema contains exactly eight original tables,
+two shared-infrastructure tables added by architectural decisions, and two
+PIN code geographic tables added by the SOL-ARCH-010 amendment (2026-08-28):
 
     master_category
     master_data
@@ -31,8 +32,10 @@ two shared-infrastructure tables added by architectural decisions:
     state
     district
     city_village
-    document_master        (DOC-ARCH-001, 2026-08-26 — shared document registry)
-    field_change_log       (Data Change Architecture, 2026-08-26 — shared change log)
+    document_master                (DOC-ARCH-001, 2026-08-26 — shared document registry)
+    field_change_log               (Data Change Architecture, 2026-08-26 — shared change log)
+    postal_code                    (PIN Code Geographic Model, 2026-08-28)
+    city_village_postal_code_map   (PIN Code Geographic Model, 2026-08-28)
 
 ---
 
@@ -70,6 +73,8 @@ The database build plan identifies the implementation sequence as:
 | 8 | `city_village` | City/village/locality master |
 | 9 | `document_master` | Shared document registry (DOC-ARCH-001, moved from Person) |
 | 10 | `field_change_log` | Shared field-change tracking (Data Change Architecture) |
+| 11 | `postal_code` | PIN code / postal code master (PIN Code Geographic Model, 2026-08-28) |
+| 12 | `city_village_postal_code_map` | M:N mapping between city_village and postal_code (PIN Code Geographic Model, 2026-08-28) |
 
 ---
 
@@ -1014,16 +1019,20 @@ rather than create an equivalent category.
 
 # 32. Table-Level Ownership
 
-| Table                | Foundation Responsibility          |
-| -------------------- | ---------------------------------- |
-| `master_category`    | Generic category mechanism         |
-| `master_data`        | Generic value mechanism            |
-| `system_setting`     | Configuration storage              |
-| `id_sequence_master` | Identifier sequence infrastructure |
-| `country`            | Country reference                  |
-| `state`              | State/province reference           |
-| `district`           | District reference                 |
-| `city_village`       | Locality reference                 |
+| Table                          | Foundation Responsibility          |
+| ------------------------------ | ---------------------------------- |
+| `master_category`              | Generic category mechanism         |
+| `master_data`                  | Generic value mechanism            |
+| `system_setting`               | Configuration storage              |
+| `id_sequence_master`           | Identifier sequence infrastructure |
+| `country`                      | Country reference                  |
+| `state`                        | State/province reference           |
+| `district`                     | District reference                 |
+| `city_village`                 | Locality reference                 |
+| `document_master`              | Shared document registry (DOC-ARCH-001) |
+| `field_change_log`             | Shared field-change tracking       |
+| `postal_code`                  | PIN code / postal code reference   |
+| `city_village_postal_code_map` | City/village ↔ postal code mapping |
 
 ---
 
@@ -1161,11 +1170,15 @@ GEOGRAPHY
 
 country
    │
-   └──< state
-           │
-           └──< district
-                    │
-                    └──< city_village
+   ├──< state
+   │       │
+   │       └──< district
+   │                │
+   │                └──< city_village
+   │                          │
+   └──< postal_code           │
+            │                 │
+            └──< city_village_postal_code_map (M:N)
 
 
 SHARED INFRASTRUCTURE (added 2026-08-26)
@@ -1181,7 +1194,7 @@ field_change_log    (shared field-change tracking — Data Change Architecture)
 Current count:
 
 ```
-10 tables
+12 tables
 ```
 
 ```text
@@ -1193,8 +1206,10 @@ Current count:
 6. state
 7. district
 8. city_village
-9. document_master        (DOC-ARCH-001, 2026-08-26)
-10. field_change_log      (Data Change Architecture, 2026-08-26)
+9. document_master              (DOC-ARCH-001, 2026-08-26)
+10. field_change_log            (Data Change Architecture, 2026-08-26)
+11. postal_code                 (PIN Code Geographic Model, 2026-08-28)
+12. city_village_postal_code_map (PIN Code Geographic Model, 2026-08-28)
 ```
 
 ---
@@ -1210,6 +1225,11 @@ to Foundation by architectural decisions made during the pre-DB architecture
 gate (2026-08-26). Their logical column designs are defined by Person
 (for `document_master`) and the Data Change Architecture (for
 `field_change_log`); Foundation owns the physical DDL.
+
+Two PIN code geographic tables (`postal_code`, `city_village_postal_code_map`)
+were added by the SOL-ARCH-010 amendment (PIN Code Geographic Model,
+2026-08-28). `postal_code` is a country+state-scoped postal reference;
+`city_village_postal_code_map` is the M:N bridge to `city_village`.
 
 The database build plan confirms:
 
@@ -1247,9 +1267,7 @@ DRAFT — SOURCE ALIGNED
 VERSION:
 
 ```
-1.0.0
+1.1.0
 ```
 
 ---
-
-# End of Document
