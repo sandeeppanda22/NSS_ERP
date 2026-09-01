@@ -782,15 +782,17 @@ authority. Attendance Enforcement + Attendance Review are frozen.
 
 **Nine more Solution-layer module doc sets (v1.0.0 SOURCE ALIGNED, added 2026-08-20):**
 - **Foundation** (`docs/03_Solution/modules/foundation/`, distinct from the `backend/foundation/`
-  Django app — see §8): design doc describes 10 tables — the original 8 (`master_category`,
-  `master_data`, `system_setting`, `id_sequence_master`, `country`, `state`, `district`,
-  `city_village`) plus two shared-infrastructure tables added 2026-08-26 (`DOC-ARCH-001`,
-  `CROSS_MODULE_PRINCIPLES.md`, FROZEN): `document_master` (reassigned here from Person —
-  Person/Heritage/Publications all consume it via FK, none own it) and `field_change_log`
-  (business-significant field-level change tracking, distinct from each module's own `_history`
-  tables). **SQL implementation landed 2026-08-30** (`ea8a4b4`, "Foundation Vertical Slice") —
-  `database/ddl/01_foundation/` now has all 10 designed tables **plus 2 more the design doc
-  doesn't describe** (`postal_code`, `city_village_postal_code_map`) — see §3/§13. Master Data
+  Django app — see §8): design doc now describes **12 tables** (bumped to v1.1.0, `9fd3f34`,
+  2026-09-01) — the original 8 (`master_category`, `master_data`, `system_setting`,
+  `id_sequence_master`, `country`, `state`, `district`, `city_village`), two
+  shared-infrastructure tables added 2026-08-26 (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`,
+  FROZEN): `document_master` (reassigned here from Person — Person/Heritage/Publications all
+  consume it via FK, none own it) and `field_change_log` (business-significant field-level
+  change tracking, distinct from each module's own `_history` tables), and two PIN Code
+  Geographic Model tables added 2026-08-28: `postal_code`, `city_village_postal_code_map` — the
+  design doc previously only described 10 of the 12; now matches the implemented DDL exactly.
+  **SQL implementation landed 2026-08-30** (`ea8a4b4`, "Foundation Vertical Slice") —
+  `database/ddl/01_foundation/` has all 12 tables. Master Data
   Driven, Configuration Over Hardcoding, central ID sequencing (9 sequences seeded, `PERSON`
   padded to 10 digits as of `b7148c7`), geographic hierarchy explicitly separate from the NSS
   organizational hierarchy.
@@ -2003,9 +2005,7 @@ remains v0.1.0 DRAFT with no table frozen DDL.
   overview/ERD/business-rules/table-design docs or its `README.md` mention it. Needs a decision
   on whether/how to add it to the module's own design set — not done here since it's a
   design-doc content edit, not a drift correction. See §7 Organization paragraph.
-- **New (2026-08-30): reconcile Foundation's design doc with 2 implemented-but-undesigned
-  tables.** `database/ddl/01_foundation/` (12 tables, implemented via the Foundation Vertical
-  Slice, `ea8a4b4`) has 2 tables — `postal_code`, `city_village_postal_code_map` — that
-  `docs/03_Solution/modules/foundation/04_foundation_table_design.md` and its ERD don't describe
-  (that doc set still shows 10 tables). Needs the design doc updated to match, or an explicit
-  call that implementation is allowed to run ahead of design here. See §7 Foundation paragraph.
+- ~~New (2026-08-30): reconcile Foundation's design doc with 2 implemented-but-undesigned
+  tables.~~ — **resolved 2026-09-01** (`9fd3f34`): `04_foundation_table_design.md` bumped to
+  v1.1.0, now documents all 12 tables including `postal_code`/`city_village_postal_code_map`
+  (table-ownership list, geography diagram, table count, and rationale note all updated).
