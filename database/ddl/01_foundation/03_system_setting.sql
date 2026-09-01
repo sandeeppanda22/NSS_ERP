@@ -4,7 +4,7 @@
 -- File: 03_system_setting.sql
 -- Table: system_setting
 -- Depth: 0 (Root — no FK dependencies)
--- Sequence: #2 of 86
+-- Sequence: #2 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §10
 -- Owner: NSS_ADMIN

@@ -4,7 +4,7 @@
 -- File: 11_city_village.sql
 -- Table: city_village
 -- Depth: 3 (depends on district)
--- Sequence: #32 of 86
+-- Sequence: #32 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §16
 -- Owner: NSS_ADMIN

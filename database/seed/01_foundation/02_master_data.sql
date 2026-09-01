@@ -82,7 +82,8 @@ FROM master_category mc
 CROSS JOIN (VALUES
     ('PROBATIONARY', 'Probationary Member', 1),
     ('REGULAR',      'Regular Member',      2),
-    ('ASSOCIATE',    'Associate Member',    3)
+    ('ASSOCIATE',    'Associate Member',    3),
+    ('HONORARY',     'Honorary Member',     4)
 ) AS v(value_code, value_name, display_order)
 WHERE mc.category_code = 'MEMBERSHIP_TYPE';
 

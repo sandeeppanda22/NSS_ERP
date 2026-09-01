@@ -4,7 +4,7 @@
 -- File: 08_master_data.sql
 -- Table: master_data
 -- Depth: 1 (depends on master_category)
--- Sequence: #18 of 86
+-- Sequence: #18 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §7
 -- Owner: NSS_ADMIN

@@ -70,10 +70,11 @@ by `category_code` — no hardcoded UUIDs.
 **DOCUMENT_TYPE** (7 values): PHOTO, ID_PROOF, ADDRESS_PROOF, CERTIFICATE,
 CORRESPONDENCE, PROPERTY_DOCUMENT, MEETING_MINUTES
 
-**MEMBERSHIP_TYPE** (3 values, per Bye-Law):
-- `PROBATIONARY` — Probationary Member (initial membership stage)
-- `REGULAR` — Regular Member (full membership)
-- `ASSOCIATE` — Associate Member (as defined in NSS Bye-Law)
+**MEMBERSHIP_TYPE** (4 values):
+- `PROBATIONARY` — Probationary Member (initial membership stage, per Bye-Law §B)
+- `REGULAR` — Regular Member (full membership, per Bye-Law §B)
+- `ASSOCIATE` — Associate Member (per Bye-Law §B)
+- `HONORARY` — Honorary Member (ERP-FROZEN; not in current Bye-Law — added as an operational category by project decision)
 
 **MEMBERSHIP_STATUS** (7 values): ACTIVE, INACTIVE, SUSPENDED, TRANSFERRED,
 RESIGNED, EXPELLED, DECEASED

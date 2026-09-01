@@ -5,14 +5,16 @@
 -- Table: document_master
 -- Depth: 0 (Root — no FK dependencies)
 -- Sequence: #5 of 86
--- Version: 1.0
+-- Sequence: #5 of 87
+-- Version: 1.1
 -- Authority: SOL-ARCH-010, SOL-FND-004 §41, DOC-ARCH-001
 -- Owner: NSS_ADMIN
 -- Note: Logical design from Person module (§54);
 --       physical DDL owned by Foundation.
 --       person_pk and uploaded_by_sangha_sevi_pk are
---       NULLABLE and enforced via deferred Pass 2
---       constraints after those tables exist.
+--       NULLABLE columns included in Pass 1. Their FK
+--       constraints are deferred to Pass 2 (after person
+--       and sangha_sevi tables exist).
 -- =====================================================
 
 CREATE TABLE document_master
@@ -38,6 +40,10 @@ CREATE TABLE document_master
     checksum VARCHAR(128) NULL,
 
     description TEXT NULL,
+
+    person_pk UUID NULL,
+
+    uploaded_by_sangha_sevi_pk UUID NULL,
 
     uploaded_at TIMESTAMPTZ NOT NULL
         DEFAULT CURRENT_TIMESTAMP,

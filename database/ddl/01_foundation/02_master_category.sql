@@ -4,7 +4,7 @@
 -- File: 02_master_category.sql
 -- Table: master_category
 -- Depth: 0 (Root — no FK dependencies)
--- Sequence: #1 of 86
+-- Sequence: #1 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §6
 -- Owner: NSS_ADMIN

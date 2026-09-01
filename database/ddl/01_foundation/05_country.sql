@@ -4,7 +4,7 @@
 -- File: 05_country.sql
 -- Table: country
 -- Depth: 0 (Root — no FK dependencies)
--- Sequence: #4 of 86
+-- Sequence: #4 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §13
 -- Owner: NSS_ADMIN

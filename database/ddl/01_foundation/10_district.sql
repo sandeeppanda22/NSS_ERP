@@ -4,7 +4,7 @@
 -- File: 10_district.sql
 -- Table: district
 -- Depth: 2 (depends on state)
--- Sequence: #26 of 86
+-- Sequence: #26 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §15
 -- Owner: NSS_ADMIN

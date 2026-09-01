@@ -4,7 +4,7 @@
 -- File: 07_field_change_log.sql
 -- Table: field_change_log
 -- Depth: 0 (Root — no FK dependencies)
--- Sequence: #6 of 86
+-- Sequence: #6 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §41,
 --            Data Change Architecture (2026-08-26)

@@ -4,7 +4,7 @@
 -- File: 09_state.sql
 -- Table: state
 -- Depth: 1 (depends on country)
--- Sequence: #19 of 86
+-- Sequence: #19 of 87
 -- Version: 1.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §14
 -- Owner: NSS_ADMIN

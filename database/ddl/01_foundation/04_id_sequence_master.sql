@@ -4,7 +4,7 @@
 -- File: 04_id_sequence_master.sql
 -- Table: id_sequence_master
 -- Depth: 0 (Root — no FK dependencies)
--- Sequence: #3 of 86
+-- Sequence: #3 of 87
 -- Version: 2.0
 -- Authority: SOL-ARCH-010, SOL-FND-004 §11
 -- Owner: NSS_ADMIN
