@@ -1,7 +1,7 @@
 # NSS ERP — Organization Table Design
 
 **Document ID:** SOL-ORG-005  
-**Version:** 1.1.0  
+**Version:** 1.2.0  
 **Status:** DRAFT — GOVERNANCE ALIGNED  
 **Module:** Organization  
 **Parent System:** Nilachala Saraswata Sangha ERP
@@ -324,7 +324,6 @@ It represents:
 | `organization_type_pk`   |         Yes | FK     | Organization type                          |
 | `organization_status_pk` |         Yes | FK     | Current lifecycle status                   |
 | `parent_organization_pk` | Conditional | FK     | Immediate parent organization              |
-| `hierarchical_level`     |        Yes* | —      | Organization's approved hierarchical level |
 | `address_line_1`         |          No | —      | Current address line 1                     |
 | `address_line_2`         |          No | —      | Current address line 2                     |
 | `district_pk`            |          No | FK     | District reference                         |
@@ -334,8 +333,18 @@ It represents:
 | `created_at`             |         Yes | —      | Creation timestamp                         |
 | `updated_at`             |         Yes | —      | Last update timestamp                      |
 
-`*` The logical requirement is frozen; the physical representation is not
-yet prescribed by the authoritative source.
+**Note on hierarchical level:** GOV-002 requires the ERP to maintain
+hierarchical level. This requirement is satisfied without a stored column:
+
+* **Organizational level** (what kind of unit this is) is determined by
+  `organization_type_pk`.
+* **Hierarchy depth** (distance from root) is derived from
+  `parent_organization_pk` via recursive traversal when required.
+
+Storing a redundant `hierarchical_level` column would risk divergence from
+the actual parent chain and would require a physical type decision that the
+authoritative source does not prescribe. This derivation approach was
+decided 2026-09-01.
 
 ---
 
@@ -490,67 +499,72 @@ parent_organization_pk = NULL
 
 ---
 
-# 33. `hierarchical_level`
+# 33. Hierarchical Level — Resolved Design Decision (2026-09-01)
 
-`hierarchical_level` represents the organization's position/level within the
-approved organizational hierarchy.
+GOV-002 requires the ERP to maintain hierarchical level as part of
+organizational relationships.
 
-This attribute is required because GOV-002 explicitly requires the ERP to
-maintain hierarchical level as part of organizational relationships.
+The term "hierarchical level" conflates two distinct concepts:
+
+1. **Organizational type/constitutional level** — what kind of unit this is
+   (KENDRA, ZILLA, ANCHALIKA, SAKHA, etc.). This is already represented by
+   `organization_type_pk`.
+
+2. **Tree depth** — how many parent hops separate this organization from the
+   apex. This is derived from `parent_organization_pk` via recursive CTE.
+
+Neither concept requires a stored column. Therefore:
+
+```text
+hierarchical_level
+    =
+NOT a physical column in the organization table
+```
+
+This decision is driven by two facts:
+
+* The authoritative source does not prescribe a physical type or encoding.
+* The NSS organizational hierarchy permits alternative intermediate levels
+  (Anchalika and Zilla are peers, not ordered predecessors — §36.1), so
+  any fixed ordinal mapping would be incorrect.
 
 ---
 
-# 34. Hierarchical Level — Important Design Boundary
+# 34. Hierarchical Level — No Separate Master
 
-The authoritative source establishes the requirement to maintain
-hierarchical level.
-
-It does **not** establish a separate:
+The current authoritative source does not establish:
 
 ```text
 organization_level_master
 ```
 
-table.
-
-Therefore the current logical design does not introduce such a table.
+Therefore no such table is part of the Organization Module.
 
 ---
 
-# 35. Hierarchical Level — Physical Type
+# 35. Hierarchical Level — Query-Time Derivation
 
-The physical datatype and representation of:
+When reports, permissions, or workflows require hierarchical depth, it
+shall be computed at query time:
 
-```text
-hierarchical_level
+```sql
+WITH RECURSIVE org_tree AS (
+    SELECT organization_pk, parent_organization_pk, 0 AS depth
+    FROM organization
+    WHERE parent_organization_pk IS NULL
+    UNION ALL
+    SELECT o.organization_pk, o.parent_organization_pk, t.depth + 1
+    FROM organization o
+    JOIN org_tree t ON o.parent_organization_pk = t.organization_pk
+)
+SELECT * FROM org_tree;
 ```
 
-remain an implementation decision.
-
-Possible representations shall not be treated as frozen until the physical
-database design stage.
-
-This document therefore deliberately does not prescribe:
-
-```text
-INTEGER
-VARCHAR
-ENUM
-UUID
-```
-
-or another physical type.
+For the NSS hierarchy (max ~4 levels deep), this is trivially performant.
 
 ---
 
-# 36. Hierarchical Level — Statutory Meaning
-
-The value of `hierarchical_level` must reflect the approved organizational
-structure.
-
-It shall not be used to invent a new organizational level.
-
-## 36.1 Actual NSS Organizational Hierarchy (Frozen 2026-08-26)
+# 36. Actual NSS Organizational Hierarchy (Frozen 2026-08-26)
 
 The NSS organizational hierarchy is:
 
@@ -575,20 +589,8 @@ Kendra → Zilla → Anchalika → Sakha
 
 is also structurally possible.
 
-**Implications for `hierarchical_level`:**
-
-* A fixed ordinal mapping (1=Kendra, 2=Anchalika, 3=Zilla, 4=Sakha) is
-  NOT safe — it incorrectly implies Anchalika always precedes Zilla.
-* The actual hierarchy depth is determined by `parent_organization_pk`
-  relationships, not by a global static ranking of organization types.
-* Moving `hierarchical_level` to `organization_type_master` would be
-  incorrect because the same organization type (e.g. Sakha) always sits
-  at the same structural depth, but Anchalika and Zilla are peers, not
-  ordered predecessors.
-
-This clarification reinforces that the physical representation of
-`hierarchical_level` remains an open design decision (§35) and must
-accommodate alternative intermediate structures.
+This reinforces the derivation decision: a fixed ordinal level column
+cannot correctly represent alternative intermediate structures.
 
 ---
 
@@ -602,32 +604,17 @@ Organization Type
 Hierarchical Level
 ```
 
-An organization type may classify an entity, while hierarchical level
-describes its position within the organizational structure.
+An organization type classifies an entity. Hierarchical position describes
+where it sits in the parent chain.
 
-Their exact relationship must come from authoritative organizational rules.
+`organization_type_pk` answers "what is this organization?"
+`parent_organization_pk` answers "where does it sit?"
 
----
-
-# 38. Hierarchical Level vs Parent
-
-Parent relationship and hierarchical level are related but distinct.
-
-```text
-Parent Organization
-        ↓
-Structural Relationship
-
-Hierarchical Level
-        ↓
-Position within hierarchy
-```
-
-The ERP shall maintain both concepts as required by GOV-002.
+No additional column is needed.
 
 ---
 
-# 39. Hierarchical Level vs Reporting Lineage
+# 38. Hierarchical Position vs Reporting Lineage
 
 Reporting lineage represents the path:
 
@@ -894,9 +881,6 @@ organization_status_pk
 parent_organization_pk
     → valid reference when non-apex
 
-hierarchical_level
-    → valid approved hierarchy level
-
 parent-child hierarchy
     → acyclic
 
@@ -968,11 +952,12 @@ Status values shall originate from controlled master data.
 
 # 60. Hierarchical Level Integrity
 
-Every organization shall have a hierarchical-level value consistent with the
-approved organizational structure.
+Hierarchical level is derived, not stored (§33). Integrity is enforced
+through:
 
-The implementation must prevent a value that represents an unauthorized
-organizational level.
+* `organization_type_pk` — ensures the organization has a valid type
+* `parent_organization_pk` — ensures valid parent chain
+* Application validation — ensures parent-type-to-child-type compatibility
 
 ---
 
@@ -1046,7 +1031,6 @@ Organization Name Change
 Organization Type Change
 Organization Status Change
 Parent Change
-Hierarchical Level Change
 Address Change
 ```
 
@@ -1181,9 +1165,11 @@ If later authoritative requirements establish:
 * level-to-type mappings; or
 * level-specific governance,
 
-a separate master table may be considered through formal design change.
+a separate master table or stored column may be considered through formal
+design change.
 
-Such a table is not frozen by this document.
+The current decision (§33) is to derive hierarchical level from
+`organization_type_pk` and `parent_organization_pk`.
 
 ---
 
@@ -1225,7 +1211,6 @@ TOTAL                            3
 │ organization_type_pk FK          │
 │ organization_status_pk FK        │
 │ parent_organization_pk FK        │
-│ hierarchical_level               │
 │ address_line_1                   │
 │ address_line_2                   │
 │ district_pk FK                   │
@@ -1273,7 +1258,6 @@ The Organization entity therefore contains five major logical areas:
 
 4. Hierarchy
    parent_organization_pk
-   hierarchical_level
 
 5. Current Location
    address_line_1
@@ -1282,6 +1266,9 @@ The Organization entity therefore contains five major logical areas:
    state_pk
    country_pk
    postal_code
+
+(Hierarchical level is derived from organization_type_pk and
+parent_organization_pk — see §33)
 ```
 
 ---
@@ -1325,7 +1312,8 @@ The following are now frozen at the logical solution level:
 
 ✓ complete lineage to apex
 
-✓ hierarchical level is a required organization attribute
+✓ hierarchical level is derived from organization_type_pk and
+  parent_organization_pk — no stored column (decided 2026-09-01)
 
 ✓ organization type is master-driven
 
@@ -1353,17 +1341,13 @@ The following are now frozen at the logical solution level:
 The following remain implementation decisions:
 
 ```text
-Hierarchical level physical datatype
-
-Hierarchical level encoding
-
-Hierarchical level validation mechanism
-
 Exact PostgreSQL constraints
 
 Exact PostgreSQL indexes
 
 Exact database enforcement of single-root condition
+
+Parent-type-to-child-type compatibility matrix
 ```
 
 These shall be finalized during physical database design.
@@ -1385,7 +1369,7 @@ GOV-002
   │
   ├── Reporting Lineage ─────────► parent traversal
   │
-  ├── Hierarchical Level ────────► hierarchical_level
+  ├── Hierarchical Level ────────► derived from type + parent chain (§33)
   │
   └── Organizational Status ─────► organization_status_pk
 ```
@@ -1425,9 +1409,10 @@ ONE ORGANIZATION ENTITY
         ├── Organization Type
         ├── Organization Status
         ├── Parent Organization
-        ├── Hierarchical Level
         ├── Organizational Lineage
         └── Current Address
+
+(Hierarchical level derived from type + parent chain)
 ```
 
 while preserving:
@@ -1449,7 +1434,7 @@ DOCUMENT STATUS:
 DRAFT — GOVERNANCE ALIGNED
 
 VERSION:
-1.1.0
+1.2.0
 ```
 
 ---
