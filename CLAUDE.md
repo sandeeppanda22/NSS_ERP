@@ -25,12 +25,16 @@ Hand-written PostgreSQL DDL under `database/ddl/`, numeric folder order, execute
 (no migration tool for this track — see `database/README.md` for the exact commands and full
 phase-by-phase execution table):
 
-1. `01_foundation/01_extensions.sql` — `pgcrypto`, `pg_trgm`, `btree_gin`
-2. `01_foundation/*` — 12 tables (master data, sequences, geography) — **implemented, seeded**
-3. `02_organization/*` — 3 tables (`organization_type_master`, `organization_status_master`,
+1. `00_bootstrap/*` — 3 RBAC tables (`role_master`, `permission_master`, `role_permission`),
+   created before Foundation since they have no FK dependencies — **DDL written, not yet
+   committed**; seed data partial (`role_master`: 8 roles seeded; `permission_master`/
+   `role_permission`: empty, blocked on the permission catalogue being frozen)
+2. `01_foundation/01_extensions.sql` — `pgcrypto`, `pg_trgm`, `btree_gin`
+3. `01_foundation/*` — 12 tables (master data, sequences, geography) — **implemented, seeded**
+4. `02_organization/*` — 3 tables (`organization_type_master`, `organization_status_master`,
    `organization`) — **implemented, seeded**
-4. `03_person/*` — superseded prototype, will be rewritten; don't build on it
-5. `database/seed/` mirrors the same folder order
+5. `03_person/*` — superseded prototype, will be rewritten; don't build on it
+6. `database/seed/` mirrors the same folder order
 
 `./validate_foundation.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` runs Foundation's DDL+seed
 end-to-end against a running Postgres instance and checks row counts (Foundation only — doesn't
@@ -66,7 +70,9 @@ to one is reflected in the other.
 - **Hand-written SQL DDL** (`database/ddl/`) — UUID `_pk` columns, `_code` business identifiers,
   FK-based master data — is the "real" intended schema per the SOLUTION docs
   (`docs/03_Solution/modules/`), but as of this writing is not read from or written to by any
-  Django code. Only `01_foundation/` and `02_organization/` are implemented; nothing else.
+  Django code. `01_foundation/` and `02_organization/` are implemented and seeded;
+  `00_bootstrap/` (RBAC tables) has DDL written but is uncommitted with partial seed data;
+  nothing else exists yet.
 
 **Django app structure:** apps live directly under `backend/` (no `apps/` subdirectory):
 `backend/{authentication, foundation, membership, family, heritage, dashboard, governance,

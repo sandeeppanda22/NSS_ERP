@@ -54,8 +54,21 @@ Overall solution architecture documentation (cross-module, above the per-module 
   `CREATE TABLE` sequence for all 86 frozen tables ("Gate 9"), derived from SOL-ARCH-009's
   depth ordering, plus the Pass-2 deferred-constraint list (audit-actor FKs on every table).
   The 7 Programme & Events candidate tables are explicitly listed but marked NOT EXECUTABLE
-  until Module #21 is formally frozen. Status: FROZEN. Next step per the document: Foundation
-  Vertical Slice → actual `CREATE TABLE` DDL.
+  until Module #21 is formally frozen. Status: FROZEN. Foundation and Organization are now
+  implemented against this order (see `database/README.md`); Bootstrap RBAC's 3 tables have
+  DDL written but uncommitted, ahead of Foundation in execution phase — see
+  `BOOTSTRAP_ARCHITECTURE.md` below.
+- **`BOOTSTRAP_ARCHITECTURE.md`** (`SOL-ARCH-011`, FROZEN) — Defines a "Phase 0" that creates
+  and seeds `role_master`/`permission_master`/`role_permission` (zero FK dependencies) before
+  Foundation, resolving the audit-actor circular dependency (audit columns need a `sangha_sevi`
+  identity that itself depends on tables that don't exist yet at that point). Establishes the
+  `nss_admin` (PostgreSQL login, DDL-only) vs. `NSS_ADMIN` (ERP RBAC role, a `role_master` row)
+  distinction — the two are explicitly not equivalent, and `NSS_ADMIN` never bypasses RBAC
+  checks. Does not change SOL-ARCH-010's depth/sequence assignments or claim table ownership —
+  ownership of the 3 tables remains with Administration
+  (`docs/03_Solution/modules/administration/05_administration_table_design.md` §2). Permission
+  catalogue, the bootstrap administrator's actual Sangha Sevi identity, and MFA-controlled
+  privileged DB access (deferred to a future `SOL-ARCH-012`) all remain PENDING.
 - **`PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md`** (`SOL-EVT-006`, v1.1.0) — Final
   compatibility review for the Programme & Events module (Module #21) against every other
   module; concludes "architecturally justified," no hard conflicts. Status header reads
@@ -77,13 +90,15 @@ Overall solution architecture documentation (cross-module, above the per-module 
   Module #21's own formal freeze — see `docs/03_Solution/modules/programmes_events/README.md`.
 
 This is mostly the **approved target**, not yet the current code — `backend/` still runs
-Bootstrap 5 templates with no FastAPI wiring, and none of `SOL-ARCH-009`/`010`'s DDL sequence
-has been executed against `database/ddl/`, as of this writing. `PROGRAMME_EVENT_DOMAIN_MODEL.md`
-and `EVENT_ENTITY_RECONCILIATION.md` remain PROPOSED/DRAFT; `MODULE_DEPENDENCY_MAP.md`
-(`SOL-ARCH-007`) remains DRAFT overall. `IMPLEMENTATION_DEPENDENCY_ORDER.md` (`SOL-ARCH-008`),
-`FK_DEPENDENCY_GRAPH.md` (`SOL-ARCH-009`), `DDL_CREATION_ORDER.md` (`SOL-ARCH-010`),
-`CROSS_MODULE_PRINCIPLES.md` (`ARCH-CROSS-001`, except its 3 PENDING notes),
-`PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md` (`SOL-EVT-006`), and
-`PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md` (`SOL-EVT-007`) are now FROZEN, alongside the
-already-Approved `TECH_STACK_DECISIONS.md`. See `docs/PROJECT_DOCUMENTATION.md` → Architecture
-for the current code-verified state and how it differs from these decisions.
+Bootstrap 5 templates with no FastAPI wiring. Foundation (12 tables) and Organization (3
+tables) are implemented against `SOL-ARCH-009`/`010`'s DDL sequence; Bootstrap RBAC's 3 tables
+(`SOL-ARCH-011`) have DDL written but not yet committed, with partial seed data.
+`PROGRAMME_EVENT_DOMAIN_MODEL.md` and `EVENT_ENTITY_RECONCILIATION.md` remain PROPOSED/DRAFT;
+`MODULE_DEPENDENCY_MAP.md` (`SOL-ARCH-007`) remains DRAFT overall. `IMPLEMENTATION_DEPENDENCY_
+ORDER.md` (`SOL-ARCH-008`), `FK_DEPENDENCY_GRAPH.md` (`SOL-ARCH-009`), `DDL_CREATION_ORDER.md`
+(`SOL-ARCH-010`), `BOOTSTRAP_ARCHITECTURE.md` (`SOL-ARCH-011`), `CROSS_MODULE_PRINCIPLES.md`
+(`ARCH-CROSS-001`, except its 3 PENDING notes), `PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md`
+(`SOL-EVT-006`), and `PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md` (`SOL-EVT-007`) are all
+FROZEN, alongside the already-Approved `TECH_STACK_DECISIONS.md`. See
+`docs/PROJECT_DOCUMENTATION.md` → Architecture for the current code-verified state and how it
+differs from these decisions.

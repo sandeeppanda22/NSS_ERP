@@ -1,9 +1,10 @@
 # NSS ERP Administration Module
 
-Status: DRAFT — SOURCE ALIGNED, v1.0.0/v0.1.0 (lifecycle doc). Full Solution design is 9
-files (5 core + 4 Correspondence Register); there is no
-`backend/administration/` Django app — `backend/authentication/` currently implements a much
-simpler `Role`/`UserRole`/`LoginAudit` model set that predates this design (see Note below).
+Status: DRAFT — SOURCE ALIGNED, v1.0.0/v0.1.0 (lifecycle doc). Full Solution design is 10
+files (6 core, including the Bootstrap RBAC column design, + 4 Correspondence Register); there
+is no `backend/administration/` Django app — `backend/authentication/` currently implements a
+much simpler `Role`/`UserRole`/`LoginAudit` model set that predates this design (see Note
+below).
 
 ---
 
@@ -27,10 +28,19 @@ Purpose: Business rules for centralized RBAC + organizational scope. No module-s
 permission architectures permitted — e.g. Sevak-specific rules explicitly delegate to this
 central framework rather than inventing their own.
 
-05_administration_table_design.md — Version 1.0.0
+05_administration_table_design.md — Version 1.1.0
 Purpose: Physical table design. Contains the **Table Ownership Declaration (Frozen)**
 that splits RBAC-adjacent tables exclusively between this module and Authentication (see Key
-facts below).
+facts below). §8.7–8.10 add the frozen role catalogue, Role ≠ Governance Position, and
+permission-matrix status.
+
+06_bootstrap_rbac_table_design.md (`SOL-BOOT-001`) — Version 1.0.0, DRAFT — COLUMN FREEZE
+CANDIDATE. Purpose: column-level physical design for `role_master`/`permission_master`/
+`role_permission` — the "Phase 0 Bootstrap" tables (zero FK dependencies, created before
+Foundation per `docs/03_Solution/architecture/BOOTSTRAP_ARCHITECTURE.md`, `SOL-ARCH-011`).
+Confirms Administration ownership (SOL-ADMIN-004 §2) rather than reassigning it — "Bootstrap"
+is a DDL-sequencing label, not a new module. **Filename collision:** this file and
+`06_correspondence_register_erd.md` are both numbered `06` — not renamed here, flagging only.
 
 06_correspondence_register_erd.md (`SOL-ADMIN-006`)
 Purpose: 3 entities — `correspondence`, `correspondence_document` (junction to Foundation's
@@ -70,6 +80,15 @@ audit-actor FKs deferred to Pass 2).
   **`user_account` and `password_history` are exclusively Authentication & Security-
   owned** (`docs/03_Solution/modules/authentication/`) — both modules may reference the other's
   tables via FK, but ownership is exclusive and canonical per this declaration.
+  `role_master`/`permission_master`/`role_permission` are additionally sequenced as "Phase 0
+  Bootstrap RBAC" (`SOL-BOOT-001`, `SOL-ARCH-011`) — created before Foundation for DDL-ordering
+  reasons only; ownership doesn't change.
+- **Role catalogue discrepancy.** §8.7's frozen role catalogue and `SOL-BOOT-001` §4.2 both
+  list 7 roles / 4 scope levels (`KENDRA`/`ANCHALIKA`/`ZILLA`/`SAKHA`). The actual
+  `role_master` seed data and DDL CHECK constraint (`database/ddl/00_bootstrap/
+  01_role_master.sql`, `database/seed/00_bootstrap/02_role_master.sql`) implement 8 roles / 5
+  scope levels, adding `PATHA_CHAKRA_ADMIN`/`PATHA_CHAKRA`. Not yet reconciled — see
+  `docs/PROJECT_DOCUMENTATION.md` → Open questions / TODOs.
 - **Correspondence Register (`CORR-DECISION-003`, `CORR-ARCH-001`/`002`, frozen)** —
   Administration owns a generic inward/outward official-communication register (registration,
   reference numbering, sender/recipient, subject, medium, status/follow-up), explicitly *not* a
@@ -99,5 +118,8 @@ Design Complete · ERD Complete · Lifecycle Documented (SOL-ADMIN-005 — does 
 cross-reference `SOL-LIFE-001`/`002`, see `docs/PROJECT_DOCUMENTATION.md` → "Open questions /
 TODOs") · Business Rules Drafted (SOURCE
 ALIGNED) · Table Design Drafted (SOURCE ALIGNED) · Correspondence Register fully designed
-(SOL-ADMIN-006–009, one PENDING rule) · SQL Implementation Not Started ·
+(SOL-ADMIN-006–009, one PENDING rule) · **Bootstrap RBAC (`role_master`/`permission_master`/
+`role_permission`): DDL written, not yet committed; seed data partial** (`role_master`: 8
+roles; the other two: empty, pending the permission catalogue) · remaining 5 tables (2 RBAC +
+3 Correspondence Register): SQL Implementation Not Started ·
 `backend/administration/` Django app does not exist yet

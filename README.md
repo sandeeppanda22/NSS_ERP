@@ -534,6 +534,10 @@ Completed:
   under `database/ddl/02_organization/`/`database/seed/02_organization/`, matching the frozen
   generic structure exactly — still zero Django code. Combined with Foundation: **15 tables
   implemented** — see `database/README.md`)
+* Bootstrap RBAC DDL (`role_master`/`permission_master`/`role_permission`, `SOL-BOOT-001`/
+  `SOL-ARCH-011` — DDL written, not yet committed to git; `role_master` seeded with 8 roles,
+  the other two empty pending the permission catalogue; ownership stays with Administration,
+  see `docs/PROJECT_DOCUMENTATION.md` → Gotchas for a role-catalogue discrepancy this surfaced)
 * Global Location Model
 * Membership Module Design
 * Family Module Design

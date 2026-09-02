@@ -26,7 +26,8 @@ though several of Organization's own design decisions remain open (see Gotchas).
 The codebase today is an early-stage skeleton: a working Django login + dashboard + person-list
 flow, five real Django data models (`foundation`, `authentication`, `family`, `membership`,
 `heritage`), a growing raw-SQL PostgreSQL schema (Foundation: 12 tables; Organization: 3 tables;
-a superseded Person prototype — 15 tables implemented in total, see the `database/` detail
+a superseded Person prototype — 15 tables implemented in total, plus 3 more Bootstrap RBAC
+tables with DDL written but not yet committed to git; see the `database/` detail
 below), and an extensive, mature governance/documentation corpus that is significantly ahead of
 the code. Solution-layer design documentation (`docs/03_Solution/modules/`) is complete or
 near-complete across 22 module folders — with zero corresponding backend/SQL work beyond the
@@ -106,6 +107,17 @@ tables plus the Pass-2 deferred-constraint list). Tiers 1-2 (Foundation, Organiz
 02_organization/` and their matching seed folders; Tiers 3-12 remain unimplemented. Note:
 `IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing status section (§79) reflects Tier 1
 completion but hasn't been updated for Tier 2.
+
+**`BOOTSTRAP_ARCHITECTURE.md`** (`SOL-ARCH-011`, FROZEN) defines a "Phase 0" that sits *before*
+Tier 1: `role_master`/`permission_master`/`role_permission` have zero FK dependencies, so they
+are created and seeded before Foundation — resolving the same audit-actor circular dependency
+via the same two-pass strategy. It establishes `nss_admin` (PostgreSQL login, DDL-only) as
+distinct from `NSS_ADMIN` (an ERP RBAC role, a `role_master` row) — the two are explicitly not
+equivalent, and `NSS_ADMIN` never bypasses RBAC checks. DDL for all 3 tables exists under
+`database/ddl/00_bootstrap/` but is **not yet committed to git**; seed data is partial
+(`role_master`: 8 roles; `permission_master`/`role_permission`: empty, pending the permission
+catalogue). Ownership of the 3 tables remains with Administration — "Bootstrap" is a
+DDL-sequencing label, not a new module (see Gotchas).
 
 ## Directory structure
 
@@ -230,6 +242,10 @@ mapping, backed by `GDR-002`.
 ```
 database/
 ├── ddl/
+│   ├── 00_bootstrap/     DDL written, uncommitted — 3 tables: role_master,
+│   │                     permission_master, role_permission (RBAC definitions, created
+│   │                     before Foundation — zero FK dependencies; SOL-ARCH-011). Owned by
+│   │                     Administration; see Gotchas for the role-catalogue discrepancy
 │   ├── 01_foundation/    Implemented — 12 tables across 13 files (01_extensions.sql +
 │   │                     02_master_category.sql … 13_city_village_postal_code_map.sql):
 │   │                     master_category, system_setting, id_sequence_master, country,
@@ -244,6 +260,10 @@ database/
 │   │                     frozen/design specs — see Gotchas
 │   └── 03_person/        person_master_tables.sql (gender/marital_status/address_type masters), person.sql, person_address.sql — superseded prototype (uses per-domain masters, not the `master_data` pattern implemented in `01_foundation/`); will be replaced (see `feature/person-ddl`)
 └── seed/
+    ├── 00_bootstrap/     Partial — `role_master`: 8 roles seeded (includes `PATHA_CHAKRA_ADMIN`,
+    │                     not listed in the frozen role catalogue — see Gotchas);
+    │                     `permission_master`/`role_permission`: empty, pending the permission
+    │                     catalogue
     ├── 01_foundation/    Implemented — 7 seed files: 11 master categories, ~40 master data
     │                     values (GENDER/MARITAL_STATUS/ADDRESS_TYPE/DOCUMENT_TYPE/
     │                     MEMBERSHIP_TYPE/MEMBERSHIP_STATUS/RELATIONSHIP_TYPE), 9 ID sequences
@@ -270,7 +290,7 @@ database/
 │   ├── mahila/             01-05 overview/erd/lifecycle/business_rules/table_design, v2.1.0 — one body, two names (Mahila Governing Body = Mahila Parichalana Mandali); freezes the Mandali term at 2 years (MAH-040); no backend/mahila/ app
 │   ├── sevak/              01-06 core sequence (only 06_table_design FROZEN, rest DRAFT/consolidation-in-progress) + sangha/, seva/, events/ subdocs; core SEV-001..040; no backend/sevak/ app
 │   ├── foundation/         01-04 overview/erd/business_rules/table_design, v1.0.0 SOURCE ALIGNED — describes 10 tables: the original 8 (master_category, master_data, system_setting, id_sequence_master, country, state, district, city_village) plus `document_master` and `field_change_log`, Foundation-owned shared infrastructure (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`). **Same name, different scope from `backend/foundation/`** (which implements Person/Organization/Address). **Implemented in SQL** — all 10 designed tables have DDL under `database/ddl/01_foundation/`, plus 2 more the design doc doesn't describe yet (`postal_code`, `city_village_postal_code_map`) — see Gotchas
-│   ├── administration/     9 files (5 RBAC docs + 4 Correspondence Register docs) — v1.0.0 SOURCE ALIGNED — **8 Administration-owned tables**: the 5 RBAC tables (role_master, permission_master, role_permission, user_role, admin_scope) plus 3 Correspondence Register tables (correspondence, correspondence_document, correspondence_finance_reference — `CORR-DECISION-003`); `user_account`/`password_history` are exclusively Authentication-owned per the Table Ownership Declaration; no backend/administration/ app
+│   ├── administration/     10 files (5 RBAC/Bootstrap docs + 1 Bootstrap RBAC column-level design + 4 Correspondence Register docs) — v1.0.0/v1.1.0 SOURCE ALIGNED — **8 Administration-owned tables**: the 5 RBAC tables (role_master, permission_master, role_permission, user_role, admin_scope — the first 3 also sequenced as "Phase 0 Bootstrap RBAC," `SOL-BOOT-001`/`SOL-ARCH-011`, DDL written but uncommitted) plus 3 Correspondence Register tables (correspondence, correspondence_document, correspondence_finance_reference — `CORR-DECISION-003`); `user_account`/`password_history` are exclusively Authentication-owned per the Table Ownership Declaration; no backend/administration/ app. **Filename collision:** `06_bootstrap_rbac_table_design.md` and `06_correspondence_register_erd.md` share the same number — see Gotchas
 │   ├── authentication/     Solution-layer "Authentication & Security", 5 files — v1.0.0 SOURCE ALIGNED — ERD still shows 7 tables, but exclusive ownership is only `user_account`+`password_history`; the other 5 RBAC tables are exclusively Administration-owned and appear here only for evaluation, not management. Argon2/JWT/session/Aadhaar-encryption/RLS as principles. **Different schema from** the real `backend/authentication/` Django app (Role/UserRole/LoginAudit) — same folder name, unreconciled designs
 │   ├── governance/         Solution-layer ERP module, distinct from docs/00_Project_Governance/, 5 files — v1.0.0 SOURCE ALIGNED — Unified Body Governance Model (body_type_master, body_master, position_master, body_member_assignment, acting_position_assignment) + election entities (election, election_nomination, election_vote, election_result), 9 tables. **Freezes the Mahila Parichalana Mandali term at 3 years** (`04_governance_business_rules.md` GOV-BR-031) **and, per `03_governance_lifecycle.md`, a formal consensus→election→election-table reconstitution process** — both directly conflicting with mahila/'s own frozen **2-year** term (MAH-040) and its consensus-only reconstitution process; unreconciled, see Gotchas/Open questions. `backend/governance/` remains an empty stub
 │   ├── publications/       7 files (overview/erd/business_rules/table_design/functional_design/ui_workflow/notification_purchase_design), v1.0.0 SOURCE ALIGNED + USER REQUIREMENTS — zero new tables, reuses Heritage's nss_publication/publication_type_master/publication_language_master; no backend/publications/ app
@@ -295,6 +315,7 @@ database/
 │   ├── CROSS_MODULE_PRINCIPLES.md              (`ARCH-CROSS-001`), v1.1.0, FROZEN — project-wide principles: one-owner-per-table, cross-module reference not duplication, Finance sole-owner of financial transactions, `DOC-ARCH-001` (document_master + field_change_log → Foundation), Correspondence Register decision. Carries 3 explicitly PENDING (not frozen) DDL-phase design notes: org short code, local Sakha number format, Visitor vs. Approved Darshak threshold
 │   ├── FK_DEPENDENCY_GRAPH.md                  (`SOL-ARCH-009`), FROZEN — physical FK dependency graph ("Gate 8") across 86 frozen tables, topologically sorted into 8 depths, zero cycles; resolves the audit-actor circular-dependency problem via a two-pass DDL strategy
 │   ├── DDL_CREATION_ORDER.md                   (`SOL-ARCH-010`), FROZEN — the exact numbered `CREATE TABLE` sequence for all 86 tables ("Gate 9") plus the Pass-2 deferred-constraint list
+│   ├── BOOTSTRAP_ARCHITECTURE.md               (`SOL-ARCH-011`), FROZEN — Phase 0: creates/seeds `role_master`/`permission_master`/`role_permission` (zero FK deps) before Foundation; defines `nss_admin` (PostgreSQL login) ≠ `NSS_ADMIN` (ERP RBAC role); does not change SOL-ARCH-010's depth/sequence or claim table ownership (stays with Administration). Permission catalogue, bootstrap-admin Sangha Sevi identity, and MFA-controlled DB access (future `SOL-ARCH-012`) remain PENDING
 │   └── PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md (`SOL-EVT-007`), FROZEN — closes all 7 P&E cross-module reconciliation gates; freezes `P&E-ARCH-001`/`002`; candidate table set settled at 7
 ├── database/
 │   └── DATABASE_DESIGN_STANDARDS.md   (`SOL-DB-001`, DRAFT — SOURCE ALIGNED Consolidation) — cross-module DB conventions consolidated from module table-design docs: `_pk` UUID PK convention, audit columns, soft-delete, master-data architecture (generic `master_category`/`master_data` vs domain masters), module ownership boundaries (one owning module per table), cross-module FK principles, DDL build order sketch. **States a `_id` business-identifier convention (`person_id`, `organization_id`, `sangha_sevi_id`) that contradicts the project's already-frozen `_code`-only convention** — see Gotchas/Open questions
@@ -341,7 +362,8 @@ are reconstructed directly from `backend/config/settings.py` and `requirements.t
 
 2. **Database:** provision a PostgreSQL database; `database/ddl/01_foundation/
    01_extensions.sql` enables `pgcrypto`, `pg_trgm`, and `btree_gin`. Run the DDL files under
-   `database/ddl/` in numeric folder/file order (`01_foundation` — 12 tables — →
+   `database/ddl/` in numeric folder/file order (`00_bootstrap` — 3 RBAC tables, DDL written
+   but not yet committed to git, seed data partial — → `01_foundation` — 12 tables — →
    `02_organization` — 3 tables, both implemented and seeded — → `03_person`, superseded
    prototype, skip it), then load `database/seed/` in the same order (see `database/README.md`
    for the exact `psql` invocations and full phase-by-phase execution table). The repo-root
@@ -545,7 +567,10 @@ for both.
   `user_account`/`password_history` exclusively Authentication-owned and the 5 RBAC tables
   (`role_master`, `permission_master`, `role_permission`, `user_role`, `admin_scope`)
   exclusively Administration-owned — both modules may FK to the other's tables but neither
-  co-owns them. This document also carries 3 explicitly **PENDING — DDL phase** design notes
+  co-owns them. `role_master`/`permission_master`/`role_permission` are additionally sequenced
+  as "Phase 0 Bootstrap RBAC" (`SOL-BOOT-001`, `BOOTSTRAP_ARCHITECTURE.md`/`SOL-ARCH-011`) —
+  created before Foundation for DDL-ordering reasons; ownership doesn't change. This document
+  also carries 3 explicitly **PENDING — DDL phase** design notes
   (not covered by its own FROZEN status): `ORG-PENDING-001` (organization short code, 3–5
   letters), `MEM-PENDING-001` (local Sakha number format, plus a proposed three-level Sangha
   Sevi → Sakha Affiliation → Local Number identity chain — the current
@@ -634,8 +659,24 @@ for both.
   two-pass DDL strategy: create tables without audit-actor FKs first, add those constraints in
   a second pass. `DDL_CREATION_ORDER.md` turns that into the exact numbered `CREATE TABLE`
   sequence. Tiers 1-2 (Foundation, Organization) have been executed against `database/ddl/`;
-  Tiers 3-12 have not. The 7 Programmes & Events candidate tables are explicitly listed in both
+  Tiers 3-12 have not. `BOOTSTRAP_ARCHITECTURE.md` (`SOL-ARCH-011`) adds a "Phase 0" ahead of
+  Tier 1 for the 3 RBAC tables — DDL is written but not yet committed to git. The 7 Programmes
+  & Events candidate tables are explicitly listed in both
   but marked NOT EXECUTABLE pending that module's own formal freeze.
+- **Role catalogue discrepancy between the frozen design docs and the actual Bootstrap RBAC
+  DDL/seed.** `05_administration_table_design.md` §8.7 and `SOL-BOOT-001` §4.2 both describe 7
+  roles / 4 scope levels (`KENDRA`/`ANCHALIKA`/`ZILLA`/`SAKHA`). The actual
+  `database/ddl/00_bootstrap/01_role_master.sql` CHECK constraint and
+  `database/seed/00_bootstrap/02_role_master.sql` seed data implement 8 roles / 5 scope levels,
+  adding `PATHA_CHAKRA_ADMIN`/`PATHA_CHAKRA`. Neither design doc has been updated to match.
+- **`app_backend` PostgreSQL role is referenced but never defined.** `database/README.md`'s
+  header names `app_backend` as the "Runtime Read/Write" role, alongside `nss_admin` ("DDL
+  Execution Authority") — but `BOOTSTRAP_ARCHITECTURE.md` (`SOL-ARCH-011`) only formalizes the
+  `nss_admin`/`NSS_ADMIN` distinction and never mentions `app_backend` by name. No document
+  currently defines what privileges `app_backend` has.
+- **Filename collision in `docs/03_Solution/modules/administration/`.**
+  `06_bootstrap_rbac_table_design.md` (`SOL-BOOT-001`) and `06_correspondence_register_erd.md`
+  (`SOL-ADMIN-006`) share the same leading number — not renamed here, flagging only.
 
 ## Open questions / TODOs
 
@@ -744,3 +785,17 @@ for both.
   `CLAUDE.md` (`_code`). Needs an explicit correction to `SOL-DB-001` (or a project-wide
   convention change, which seems unlikely given how much existing SQL/documentation already
   uses `_code`).
+- **Reconcile the frozen role catalogue with the actual Bootstrap RBAC implementation** —
+  `05_administration_table_design.md` §8.7 and `SOL-BOOT-001` §4.2 describe 7 roles / 4 scope
+  levels; the actual DDL CHECK constraint and seed data implement 8 roles / 5 scope levels,
+  adding `PATHA_CHAKRA_ADMIN`. Needs a decision on whether to add Patha Chakra to the frozen
+  docs or trim it back out of the DDL/seed. See Gotchas.
+- **Define the `app_backend` PostgreSQL role** — named in `database/README.md`'s header as the
+  runtime read/write role, but no document specifies its actual privileges (table-level grants,
+  RLS interaction, etc.). See Gotchas.
+- **Resolve the `06_bootstrap_rbac_table_design.md`/`06_correspondence_register_erd.md`
+  filename collision** in `docs/03_Solution/modules/administration/` — both are numbered `06`.
+  See Gotchas.
+- **Commit or discard the untracked Bootstrap RBAC SQL files** — `database/ddl/00_bootstrap/`
+  and `database/seed/00_bootstrap/` (6 files) exist on disk but aren't committed to git. Not
+  acted on here per the standing rule to only commit when asked.
