@@ -50,7 +50,7 @@ Authentication dependency:
 
 The source identifies all seven tables in the centralized Security foundation.
 
-## Table Ownership Declaration (Frozen 2026-08-26)
+## Table Ownership Declaration (Frozen)
 
 **Administration OWNS (DDL authority):**
 

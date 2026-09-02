@@ -1022,8 +1022,8 @@ Multiple address history
 Additional statutory organization levels
 ```
 
-Note: "Exact organization type master values" was moved to FROZEN status
-on 2026-08-28 — see ORG-BR-064 for the authoritative 8-type list.
+Note: "Exact organization type master values" is now FROZEN — see
+ORG-BR-064 for the authoritative 8-type list.
 
 ---
 

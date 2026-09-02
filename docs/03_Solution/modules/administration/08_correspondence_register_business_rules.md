@@ -51,8 +51,8 @@ KEN/IN/2026-27/001     — Kendra inward #1
 KEN/OUT/2026-27/042    — Kendra outward #42
 ```
 
-**Classification:** ERP-FROZEN (amended 2026-08-30 per CORR-EXT-001;
-replaces previous `NSS/IN/YYYY-YY/NNN` format)
+**Classification:** ERP-FROZEN (per CORR-EXT-001; replaces previous
+`NSS/IN/YYYY-YY/NNN` format)
 
 ## 3.2 Annual Period
 
@@ -71,7 +71,7 @@ replaces previous `NSS/IN/YYYY-YY/NNN` format)
 - Each organization (Kendra, Sakha, Anchalika, Zilla, etc.) maintains its own
   independent correspondence register
 
-**Classification:** ERP-FROZEN (amended 2026-08-30 — sequences are
+**Classification:** ERP-FROZEN (per CORR-EXT-001 — sequences are
 per-organization, not global)
 
 ## 3.4 Immutability

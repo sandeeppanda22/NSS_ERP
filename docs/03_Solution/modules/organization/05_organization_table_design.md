@@ -343,8 +343,7 @@ hierarchical level. This requirement is satisfied without a stored column:
 
 Storing a redundant `hierarchical_level` column would risk divergence from
 the actual parent chain and would require a physical type decision that the
-authoritative source does not prescribe. This derivation approach was
-decided 2026-09-01.
+authoritative source does not prescribe.
 
 ---
 
@@ -499,7 +498,7 @@ parent_organization_pk = NULL
 
 ---
 
-# 33. Hierarchical Level — Resolved Design Decision (2026-09-01)
+# 33. Hierarchical Level — Resolved Design Decision
 
 GOV-002 requires the ERP to maintain hierarchical level as part of
 organizational relationships.
@@ -564,7 +563,7 @@ For the NSS hierarchy (max ~4 levels deep), this is trivially performant.
 
 ---
 
-# 36. Actual NSS Organizational Hierarchy (Frozen 2026-08-26)
+# 36. Actual NSS Organizational Hierarchy (Frozen)
 
 The NSS organizational hierarchy is:
 
@@ -748,7 +747,7 @@ The Organization Module does not own duplicate geographic master tables.
 
 # 48. Administrative vs Physical Location (FROZEN)
 
-The frozen organization type list (8 types, decided 2026-08-28):
+The frozen organization type list (8 types):
 
 ```text
 KENDRA          = Central Body (unique)
@@ -1313,7 +1312,7 @@ The following are now frozen at the logical solution level:
 ✓ complete lineage to apex
 
 ✓ hierarchical level is derived from organization_type_pk and
-  parent_organization_pk — no stored column (decided 2026-09-01)
+  parent_organization_pk — no stored column
 
 ✓ organization type is master-driven
 

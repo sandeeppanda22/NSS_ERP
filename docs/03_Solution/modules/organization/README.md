@@ -3,15 +3,9 @@
 Version: 1.1.0
 
 Status: DRAFT — overview/ERD at SOURCE ALIGNED v1.0.0, lifecycle/business-rules/table-design at
-GOVERNANCE ALIGNED v1.1.0. Designed, **not yet implemented in SQL**
-(`database/ddl/02_organization/*.sql` are all 0-byte placeholder files; see
-`docs/PROJECT_DOCUMENTATION.md` → Key workflows).
-
-As of this version the module was restructured from its original 4-file
-`01_design`/`02_erd`/`03_business_rules`/`04_table_design` pattern to the 5-file pattern below
-(matching membership/person/kumari/kishor/mahila) — the old files
-(`01_organization_design.md`, `03_organization_business_rules.md`,
-`04_organization_table_design.md`) were deleted, not renamed.
+GOVERNANCE ALIGNED v1.1.0. The generic 3-table structure is SQL Implemented at
+`database/ddl/02_organization/` — see "SQL Implementation" below; the still-open items
+(type-to-type parent matrix, `organization_code` naming) are unaffected.
 
 ---
 
@@ -49,7 +43,7 @@ child/lineage/level/status requirements without adding a 4th table.
 
 **Do not treat `CLAUDE.md`'s ANCHALIKA/ZILLA/SAKHA/PATHA_CHAKRA hierarchy description as
 frozen against this doc set** — the type-to-type parent compatibility matrix remains open,
-but the **8 organization types themselves are now FROZEN** (decided 2026-08-28):
+but the **8 organization types themselves are now FROZEN**:
 KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA (unique), ANCHALIKA, ZILLA, SAKHA, SAKHA_ASANA,
 PATHA_CHAKRA (multiple instances). See ORG-BR-064 for details and ID prefix assignments.
 
@@ -58,7 +52,28 @@ PATHA_CHAKRA (multiple instances). See ORG-BR-064 for details and ID prefix assi
 ## Current Status
 
 Design Complete · ERD Complete · Lifecycle Complete · Business Rules GOVERNANCE ALIGNED ·
-Table Design GOVERNANCE ALIGNED · SQL Implementation Not Started
+Table Design GOVERNANCE ALIGNED · **SQL Implemented** (3 tables, seeded)
+
+---
+
+## SQL Implementation
+
+`database/ddl/02_organization/` implements `organization_type_master`,
+`organization_status_master`, and `organization` — matching the frozen generic structure exactly
+(self-referencing `parent_organization_pk`, address inline, no `organization_address` table, no
+stored `hierarchical_level` column). Two things this does **not** resolve, both still open:
+
+- **`organization_code` vs. `organization_short_code`.** `ORG-PENDING-001`
+  (`CROSS_MODULE_PRINCIPLES.md` §20.1) froze a column named `organization_short_code`,
+  `VARCHAR(5)`, `UNIQUE`, `NOT NULL`. The implemented column is named `organization_code`,
+  `VARCHAR(10)`, `UNIQUE`, **nullable**. Same purpose, different name/width/nullability — not
+  yet reconciled with the frozen cross-module spec.
+- **Seeded type codes don't match this doc's short-form codes.** `database/seed/
+  02_organization/01_organization_type_master.sql` seeds `ANCHALIKA_SANGHA`/`ZILLA_SANGHA`/
+  `SAKHA_SANGHA` (plus `SAKHA_ASANA`/`PATHA_CHAKRA`, which do match) — this doc and
+  `04_organization_business_rules.md` describe the short forms `ANCHALIKA`/`ZILLA`/`SAKHA`.
+
+See `docs/PROJECT_DOCUMENTATION.md` → Open questions / TODOs for both.
 
 ---
 

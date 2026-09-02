@@ -33,7 +33,7 @@ Purpose: Physical table design — `kishor_participant`, `kishor_event`,
 ## Key facts
 
 - **Kishor ID format: `KH000001`** (KH + 6 digits) — unique, permanent, distinct from Sangha
-  Sevi ID (see `CLAUDE.md` §7); one ID spans many yearly `kishor_event_registration` rows.
+  Sevi ID; one ID spans many yearly `kishor_event_registration` rows.
 - **Guardian Model (Frozen):** every participant must have an assigned Guardian who is an NSS
   Member of the participant's Sakha, assigned by the Sakha — not necessarily the parent.
 - Registration sources: Parent Nomination or Sakha Nomination.

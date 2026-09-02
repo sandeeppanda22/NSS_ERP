@@ -4,7 +4,7 @@ Deployment/infrastructure design documentation.
 
 ## Contents
 
-- **`DEPLOYMENT_SYNC_PLAN.md`** (added 2026-08-17) — the deployment and repository-sync plan
+- **`DEPLOYMENT_SYNC_PLAN.md`** — the deployment and repository-sync plan
   covering the `personal`/`org` remote flow (dev → PR → org `main` → auto-deploy on Render.com)
   per `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md`.
 

@@ -41,7 +41,7 @@ person
 ```
 
 `document_master` was originally defined here but has been reassigned to the
-Foundation Module as a shared document registry (DOC-ARCH-001, 2026-08-26).
+Foundation Module as a shared document registry (DOC-ARCH-001).
 Person remains a consumer of `document_master` through explicit FK
 relationships.
 
@@ -738,7 +738,7 @@ column.
 
 # 53. Table 2 — `document_master`
 
-## Ownership Reassignment (DOC-ARCH-001, 2026-08-26)
+## Ownership Reassignment (DOC-ARCH-001)
 
 `document_master` has been reassigned to the Foundation Module as a shared
 document registry. The logical design below is preserved for reference, but
@@ -1243,7 +1243,7 @@ TOTAL                   1
 ```
 
 `document_master` (previously counted here) is now owned by Foundation
-(DOC-ARCH-001, 2026-08-26).
+(DOC-ARCH-001).
 
 ---
 

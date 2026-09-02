@@ -34,7 +34,7 @@ done
 
 ### 01_organization_type_master.sql
 
-Seeds 8 frozen organization types (decided 2026-08-28):
+Seeds 8 frozen organization types:
 
 | # | `organization_type_code` | Name | Cardinality |
 |--:|--------------------------|------|-------------|
@@ -84,9 +84,9 @@ A/4, Unit-9, Bhubaneswar - 751022, Odisha, India.
 
 ## Notes
 
-- Organization types are frozen per SOL-ORG-005 §48 (decided 2026-08-28).
-- Organization statuses are frozen per GOV-002 (decided 2026-09-01).
-- **Unique org hierarchy (ERP-FROZEN, decided 2026-09-01):**
+- Organization types are frozen per SOL-ORG-005 §48.
+- Organization statuses are frozen per GOV-002.
+- **Unique org hierarchy (ERP-FROZEN):**
   KEN, NKT, SMR are peer root organizations (`parent = NULL`).
   KEN remains the apex governing body. Physical location/operational
   association ≠ organizational parent-child relationship.

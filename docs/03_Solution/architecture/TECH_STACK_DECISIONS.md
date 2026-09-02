@@ -75,7 +75,6 @@
 
 **Decision ID:** TECH-MOB-001
 **Status:** FROZEN
-**Date:** 2026-08-28
 **Supersedes:** Previous PWA-first / Capacitor / "Flutter only if needed" position
 
 ---
@@ -147,7 +146,8 @@ NEON.DEV (Free Tier)
 ### Phase 1 — Database (DDL)
 
 ```
-02_organization (implement 0-byte placeholders from design doc)
+~~02_organization (implement 0-byte placeholders from design doc)~~ — done
+  ("Organization Vertical Slice")
 04_membership
 05_family
 06_governance

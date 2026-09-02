@@ -951,7 +951,7 @@ For the consolidated document:
 * Event-specific rules are maintained in their dedicated documents.
 * No new SEV identifier shall be invented merely to hide an unresolved historical collision.
 
-### Resolution Status: CLOSED (2026-08-26)
+### Resolution Status: CLOSED
 
 The SEV identifier sequence (SEV-001 through SEV-040) is resolved. Each
 identifier has exactly one canonical definition in this document. Historical

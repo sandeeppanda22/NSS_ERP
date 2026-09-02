@@ -1,7 +1,7 @@
 # Finance Module
 
 Solution-layer design for the Finance module — the common financial-management framework for
-NSS. Landed 2026-08-21, five files, `v1.0.0 DRAFT — SOURCE ALIGNED` (ERD is tagged `DRAFT —
+NSS. Five files, `v1.0.0 DRAFT — SOURCE ALIGNED` (ERD is tagged `DRAFT —
 LOGICAL DESIGN`; the document-level `Status` field remains `DRAFT` throughout, same convention
 as every other module).
 
@@ -37,18 +37,19 @@ not supersede either Bye-Law — where a conflict exists, the authoritative prov
   transaction table; `financial_receipt`/`financial_payment`/`financial_transfer` attach as
   evidence/detail rather than duplicating the ledger.
 - **Business identifier convention followed correctly** — unlike the `_id`/`_code` conflict
-  flagged elsewhere (`CLAUDE.md` §13, `DATABASE_DESIGN_STANDARDS.md`), this module's own §4.3
+  flagged elsewhere (`docs/PROJECT_DOCUMENTATION.md` → "Open questions / TODOs",
+  `DATABASE_DESIGN_STANDARDS.md`), this module's own §4.3
   explicitly specifies `year_code` (not `year_id`) alongside the UUID `financial_year_pk`,
   matching the project's actual frozen `_code` convention.
 
 ## Backend/DDL reality
 
 No corresponding `backend/` Django app and no `database/ddl/` implementation — design only,
-same as every other module added since 2026-08-19 except membership/family/heritage.
+same as every other module except membership/family/heritage.
 
 ## Not yet reconciled
 
-This module post-dates the 2026-08-21 cross-module consolidation docs
+The cross-module consolidation docs
 (`docs/03_Solution/database/DATABASE_DESIGN_STANDARDS.md`, `docs/03_Solution/security/
-SECURITY_ARCHITECTURE.md`) — neither lists Finance's 7 tables in its source inventory. Not a
+SECURITY_ARCHITECTURE.md`) don't list Finance's 7 tables in their source inventory. Not a
 contradiction, just an update those docs haven't caught up to yet.

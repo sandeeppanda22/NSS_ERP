@@ -42,8 +42,8 @@ design philosophy, ensuring that business rules are frozen before implementation
 
 # Technology Stack
 
-> **Note:** `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` (added 2026-08-16) is the
-> Approved forward-looking decision record — it replaces Bootstrap 5 with Tailwind CSS +
+> **Note:** `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` is the Approved
+> forward-looking decision record — it replaces Bootstrap 5 with Tailwind CSS +
 > DaisyUI + Alpine.js, commits to actually wiring up FastAPI, and adds a hosting/offline plan.
 > None of that is implemented in code yet; the stack below reflects the current codebase.
 
@@ -186,42 +186,40 @@ Notes:
 * PATHA_CHAKRA may operate within India or internationally.
 * SAKHA exists under ANCHALIKA or ZILLA.
 
-> **Flag (2026-08-19):** the Organization module's business rules were revised to v1.1.0
-> (`docs/03_Solution/modules/organization/04_organization_business_rules.md`, GOVERNANCE
-> ALIGNED) and now explicitly leave the exact type-to-type parent compatibility matrix shown
-> above as an **open item**, not a frozen decision — only the generic apex + self-referencing
-> 3-table structure is frozen. Treat this diagram as the current working assumption, not a
-> closed design, until that open item is resolved.
+> **Open:** the Organization module's business rules (v1.1.0, GOVERNANCE ALIGNED,
+> `docs/03_Solution/modules/organization/04_organization_business_rules.md`) explicitly leave
+> the type-to-type parent compatibility matrix shown above as an **open item**, not a frozen
+> decision — only the generic apex + self-referencing 3-table structure is frozen. Treat this
+> diagram as the current working assumption, not a closed design.
 
-> **Flag (2026-08-30):** the same business rules doc separately froze an **8-type inventory**
-> (`ea8a4b4`) — the 5 types in the diagram above, plus `NILACHALA_KUTIRA` and `SMRUTI_MANDIRA`
-> (both unique, fixed-code, not shown here since they don't participate in the parent
-> hierarchy) and `SAKHA_ASANA` (sequence-generated like `SAKHA`, not yet placed in this
-> diagram — its own parent relationship is part of the still-open matrix above). This is a
-> type-*inventory* freeze only, separate from the still-open parent-matrix question. See
-> `CLAUDE.md` §7 Organization paragraph.
+> **Frozen separately:** an **8-type inventory** — the 5 types in the diagram above, plus
+> `NILACHALA_KUTIRA` and `SMRUTI_MANDIRA` (both unique, fixed-code, not shown here since they
+> don't participate in the parent hierarchy) and `SAKHA_ASANA` (sequence-generated like `SAKHA`,
+> not yet placed in this diagram — its own parent relationship is part of the still-open matrix
+> above). This is a type-*inventory* freeze only, separate from the still-open parent-matrix
+> question.
+
+> **Open:** the generic 3-table structure is implemented in SQL, but the seeded
+> `organization_type_master` rows use `ANCHALIKA_SANGHA`/`ZILLA_SANGHA`/`SAKHA_SANGHA` as their
+> business codes, not the short `ANCHALIKA`/`ZILLA`/`SAKHA` forms shown in the diagram above. See
+> `docs/PROJECT_DOCUMENTATION.md` → Open questions / TODOs.
 
 ---
 
 # Module Structure
 
-*The sections below describe the full planned module roadmap. As of this writing, only
+*The sections below describe the full planned module roadmap. Currently only
 **Foundation, Membership, Family, Governance (stub), Attendance (stub), and Founder & Heritage**
 exist as Django apps under `backend/` — Mahila Sangha, Kumari Sangha, Kishor Puja, Sevak
 Sangha, UPBS, Reports & Analytics, Administration, Audit, Backup & Technical, Finance,
 Programmes & Events, and Assets & Property have no app directory yet. Solution-layer design
-documentation (overview/ERD/lifecycle/business-rules/table-design) is now complete for
-essentially every module on this roadmap — Membership, Family, Attendance, Organization, Person,
-Founder & Heritage, Kumari Sangha, Kishor Puja, Mahila Sangha, Administration, Authentication &
-Security, Foundation, Governance, Publications, Reports & Analytics, UPBS, Audit, Backup &
-Technical, Finance, and Assets & Property (added 2026-08-27) — and largely complete for Sevak
-Sangha — ahead of, and not yet reconciled with, any backend implementation. **Programmes &
-Events (Module #21) is the one exception**: still v0.1.0 DRAFT, explicitly not frozen — though
-as of 2026-08-28 all of its cross-module reconciliation gates are closed and its candidate
-table set has settled at 7. Two of these (Foundation, Authentication & Security) share a name
-with an existing `backend/` app but design an unrelated schema — see
-`docs/PROJECT_DOCUMENTATION.md` → Gotchas. See `docs/PROJECT_DOCUMENTATION.md` for the current,
-code-verified status of each.*
+documentation (overview/ERD/lifecycle/business-rules/table-design) is complete for essentially
+every module on this roadmap — ahead of, and not yet reconciled with, any backend
+implementation. **Programmes & Events is the one exception**: still DRAFT, explicitly not
+frozen, though its cross-module reconciliation gates are closed and its candidate table set has
+settled. Two modules (Foundation, Authentication & Security) share a name with an existing
+`backend/` app but design an unrelated schema — see `docs/PROJECT_DOCUMENTATION.md` → Gotchas.
+See `docs/PROJECT_DOCUMENTATION.md` for the current, code-verified status of each.*
 
 ## Foundation
 
@@ -494,7 +492,8 @@ UI Foundation and Authentication Complete
 
 ## v0.4.0
 
-Organization Module Design Complete *(design/ERD/business-rules/table-design docs only — SQL DDL under `database/ddl/02_organization/` is not yet implemented; see `docs/PROJECT_DOCUMENTATION.md`)*
+Organization Module Design Complete *(design/ERD/business-rules/table-design docs only — see
+v0.5.1+ and Current Development Status below for the later SQL implementation)*
 
 ---
 
@@ -522,15 +521,19 @@ Completed:
 
 * Foundation Architecture
 * Authentication Foundation
-* Organization Module Design (v1.1.0, GOVERNANCE ALIGNED — restructured 2026-08-19; type-to-type
-  parent hierarchy left as an open item, not frozen)
-* Person Module Design (v1.0.0, SOURCE ALIGNED — 1 table: `person`; `document_master` was
-  reassigned to Foundation, 2026-08-26, see below)
+* Organization Module Design (v1.1.0, GOVERNANCE ALIGNED; type-to-type parent hierarchy left as
+  an open item, not frozen)
+* Person Module Design (v1.0.0, SOURCE ALIGNED — 1 table: `person`; `document_master` is owned
+  by Foundation, see below)
 * Person Database Schema (partial — `person`/`person_address` implemented; the docs' `person_id`
   naming doesn't match the DDL's `person_code`)
-* Foundation Database Schema (**new 2026-08-30** — "Foundation Vertical Slice," `ea8a4b4`: 12
-  tables + full seed data under `database/ddl/01_foundation/`/`database/seed/01_foundation/`;
-  the first real backend/database-track implementation in the project — still zero Django code)
+* Foundation Database Schema ("Foundation Vertical Slice" — 12 tables + full seed data under
+  `database/ddl/01_foundation/`/`database/seed/01_foundation/` — still zero Django code)
+* Organization Database Schema ("Organization Vertical Slice" — 3 tables
+  (`organization_type_master`, `organization_status_master`, `organization`) + full seed data
+  under `database/ddl/02_organization/`/`database/seed/02_organization/`, matching the frozen
+  generic structure exactly — still zero Django code. Combined with Foundation: **15 tables
+  implemented** — see `database/README.md`)
 * Global Location Model
 * Membership Module Design
 * Family Module Design
@@ -543,13 +546,13 @@ Completed:
 * Sevak Sangha Module Design (partially frozen — table design only; see
   `docs/PROJECT_DOCUMENTATION.md`)
 * Foundation Module Design (v1.0.0, SOURCE ALIGNED — describes 10 tables: the original 8
-  master-data/geography/sequence tables plus `document_master` + `field_change_log`, added
-  2026-08-26; same name, different scope from the `backend/foundation/` Django app). **SQL now
-  implemented with 12 tables** (2 more than the design doc covers — see Foundation Database
-  Schema above and `docs/PROJECT_DOCUMENTATION.md`)
+  master-data/geography/sequence tables plus `document_master` + `field_change_log`; same name,
+  different scope from the `backend/foundation/` Django app). **SQL implements 12 tables** (2
+  more than the design doc covers — see Foundation Database Schema above and
+  `docs/PROJECT_DOCUMENTATION.md`)
 * Administration Module Design (v1.0.0, SOURCE ALIGNED — 8 Administration-owned tables: 5 RBAC
-  tables plus the new Correspondence Register, 2026-08-27; `user_account`/`password_history` are
-  exclusively Authentication-owned)
+  tables plus the Correspondence Register; `user_account`/`password_history` are exclusively
+  Authentication-owned)
 * Authentication & Security Module Design (v1.0.0, SOURCE ALIGNED — exclusively owns
   `user_account`+`password_history`; references but doesn't own Administration's 5 RBAC tables;
   different schema from the real `backend/authentication/` app)
@@ -566,34 +569,28 @@ Completed:
   fund_master, financial_transaction, financial_receipt, financial_payment, financial_transfer;
   derives from NSS Bye-Law Section F and Mahila Sangha Bye-Law Clause 7)
 * Programmes & Events Module Design (Module #21, v0.1.0, DRAFT — NOT FROZEN — Programme Type →
-  Event Instance two-level model; 7 candidate common tables (grew from 5 on 2026-08-28), all
-  cross-module reconciliation gates now closed (`SOL-EVT-007`) but no table frozen DDL yet)
-* Assets & Property Module Design (Module #22, added 2026-08-27, v1.0.0, SOURCE ALIGNED — 7
-  tables: property, asset, custodianship, property_statutory_record, maintenance_record,
-  property_document, asset_document; 74 business rules)
+  Event Instance two-level model; 7 candidate common tables, all cross-module reconciliation
+  gates closed (`SOL-EVT-007`) but no table frozen DDL yet)
+* Assets & Property Module Design (Module #22, v1.0.0, SOURCE ALIGNED — 7 tables: property,
+  asset, custodianship, property_statutory_record, maintenance_record, property_document,
+  asset_document; 74 business rules)
 
 Current Focus:
 
 * Reconciling Solution-layer design docs with actual Django/SQL implementation across all 22
-  documented modules — every module now has a complete (or largely complete) design, but none
-  has corresponding backend code beyond membership/family/heritage/authentication's existing
-  minimal models. No release doc has been created yet for the module-doc work landed since
-  v0.5.1 (heritage added; organization/person/kumari/kishor expanded or restructured; then
-  foundation/administration/authentication/governance/publications/reports/upbs/audit/
-  backup_technical/finance added; then programmes_events added plus new lifecycle documents for
-  person/family/governance/attendance/authentication/administration; then, 2026-08-26/28, a
-  cross-module principles doc reassigning `document_master`/splitting RBAC table ownership, a
-  Correspondence Register sub-feature, closure of Programmes & Events' reconciliation gates,
-  three pre-DDL architecture-gate freezes (12-tier order, FK dependency graph, DDL creation
-  order), a Flutter mobile-strategy pivot, and the new Assets & Property module).
+  documented modules — every module now has a complete (or largely complete) design. Two
+  modules have real SQL implementation (Foundation: 12 tables; Organization: 3 tables) — 15
+  tables total, still zero corresponding Django code for either. No release doc has been
+  created yet for either the module-documentation backlog or the Foundation/Organization SQL
+  implementation.
 
 Next Release Target:
 
 ```text
 Not yet decided — the module-documentation backlog (organization through sevak) is now largely
-complete at the design level; the next concrete milestone is backend implementation/
-reconciliation rather than another design-doc pass. See docs/PROJECT_DOCUMENTATION.md → Open
-questions / TODOs.
+complete at the design level, and backend/database implementation has begun on the SQL track
+(Foundation + Organization vertical slices, 15 tables total). No release has been cut for either
+slice yet. See docs/PROJECT_DOCUMENTATION.md → Open questions / TODOs.
 ```
 
 ---
@@ -617,7 +614,10 @@ NSS_ERP
 │   ├── 04_Testing
 │   └── 05_Releases
 │
-└── README.md
+├── CLAUDE.md
+├── README.md
+├── requirements.txt
+└── validate_foundation.sh
 ```
 
 See `docs/PROJECT_DOCUMENTATION.md` for the full, code-verified breakdown of each directory.

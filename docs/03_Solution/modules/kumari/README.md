@@ -32,7 +32,7 @@ Purpose: Physical table design — `kumari_sangha`, `kumari_membership`, `kumari
 ## Key facts
 
 - **Kumari ID format: `KM000001`** (KM + 6 digits) — unique, permanent, never reused, distinct
-  from Sangha Sevi ID (see `CLAUDE.md` §7).
+  from Sangha Sevi ID.
 - Transition to NSS Membership (Probationary/Regular) is an explicit recorded step
   (`KM000123 → SS000456`), never automatic.
 - All docs self-label DRAFT even though individual sections are titled "Frozen Table

@@ -31,7 +31,7 @@ Purpose: Physical table design for attendance records and review history.
 
 06_attendance_review_workflow.md — Version 1.0.0, **Status: FROZEN** (was `05_...`)
 Purpose: Attendance Enforcement + Attendance Review workflow — Secretary as primary operational
-authority, President as oversight/appeal authority (per `CLAUDE.md` §7).
+authority, President as oversight/appeal authority.
 
 **`DARSHAK_BUSINESS_RULE.md`** — Version 1.1, Status: Approved
 An ERP implementation decision (not derived from the Bye-Law): corrects an earlier project Rule
@@ -48,7 +48,7 @@ Design Complete
 ERD Complete
 
 Lifecycle Documented (SOL-ATT-006 — does not yet cross-reference `SOL-LIFE-001`/`002`, see
-`CLAUDE.md` §13)
+`docs/PROJECT_DOCUMENTATION.md` → "Open questions / TODOs")
 
 Business Rules Drafted
 

@@ -3,7 +3,7 @@
 Foundation Module DDL — 12 tables (Depths 0–4).
 
 Authority: SOL-ARCH-010 (DDL Creation Order) + Amendment (PIN Code Geographic
-Model, 2026-08-28), SOL-FND-004 (Foundation Table Design)
+Model), SOL-FND-004 (Foundation Table Design)
 
 ## File Execution Order
 
@@ -26,8 +26,8 @@ by earlier-numbered files in this directory.
 | 12 | `12_postal_code.sql` | `postal_code` | 2 | #87 (amendment) |
 | 13 | `13_city_village_postal_code_map.sql` | `city_village_postal_code_map` | 4 | #88 (amendment) |
 
-**Note:** Files 12–13 depend on `country`+`state` (Depth 0/1, updated 2026-08-30 to add a
-direct `state_pk` FK to `postal_code`) and `city_village` (Depth 3) respectively. They are
+**Note:** Files 12–13 depend on `country`+`state` (Depth 0/1 — `postal_code` has a direct
+`state_pk` FK) and `city_village` (Depth 3) respectively. They are
 numbered after the original 11 files for clarity but
 execute correctly in sequence because their dependencies are already created
 by earlier files.
@@ -312,11 +312,10 @@ deployment or data migration.
 
 ---
 
-### 11. `postal_code` (Depth 2, #87 of 88 — amendment, updated 2026-08-30)
+### 11. `postal_code` (Depth 2, #87 of 88 — amendment)
 
 PIN code / postal code reference table. Country-scoped with a direct `state_pk`
-FK for administrative ownership (PIN → State is always deterministic, added
-2026-08-30). One PIN code can serve multiple cities/villages (M:N via the map
+FK for administrative ownership (PIN → State is always deterministic). One PIN code can serve multiple cities/villages (M:N via the map
 table). Supports address validation, autocomplete, and map-based search
 ("find nearby Sanghas").
 
@@ -368,7 +367,7 @@ large city with multiple post offices).
 - **No audit-actor FKs** — `created_by_sangha_sevi_pk` / `updated_by_sangha_sevi_pk` /
   `deleted_by_sangha_sevi_pk` are NOT included in Foundation tables. They will be added
   via ALTER TABLE in Pass 2 after `sangha_sevi` exists (SOL-ARCH-010 §5).
-- **Soft-delete backfill (2026-08-30)** — `deleted_at TIMESTAMPTZ NULL` plus a
+- **Soft-delete backfill** — `deleted_at TIMESTAMPTZ NULL` plus a
   `(is_active = TRUE AND deleted_at IS NULL) OR (is_active = FALSE AND deleted_at IS NOT NULL)`
   CHECK constraint added to all 10 tables that carry `is_active`
   (`master_category`, `system_setting`, `id_sequence_master`, `country`, `document_master`,
@@ -380,7 +379,7 @@ large city with multiple post offices).
   Person-specific FKs (`person_pk`, `uploaded_by_sangha_sevi_pk`) deferred to Pass 2.
 - **`field_change_log`** — stores references as UUID values without FK constraints to avoid
   circular dependencies. Application layer enforces referential integrity.
-- **PIN Code Model (Amendment 2026-08-28, updated 2026-08-30)** — `postal_code` and
+- **PIN Code Model (Amendment)** — `postal_code` and
   `city_village_postal_code_map` added to support searchable geographic hierarchy and map
   visualization. PIN codes have an explicit `state_pk` FK for direct administrative ownership
   (PIN → State is always deterministic); uniqueness is `(country_pk, postal_code)`.

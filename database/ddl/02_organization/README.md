@@ -20,7 +20,7 @@ Execute AFTER all Foundation DDL (`database/ddl/01_foundation/`).
   per frozen design (SOL-ORG-005 §44).
 - **No `hierarchical_level` column** — organizational level is determined by
   `organization_type_pk`; hierarchy depth derived from `parent_organization_pk`
-  (SOL-ORG-005 §33, decided 2026-09-01).
+  (SOL-ORG-005 §33).
 - **`organization_id` is nullable** — unique organizations (Kendra, Kutira,
   Smruti Mandira) are identified by `organization_code` alone.
   `organization_id` is sequence-generated for multi-instance types only.

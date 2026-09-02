@@ -536,7 +536,7 @@ or any other dedicated address-history table.
 
 # 27. Organization Types (FROZEN)
 
-The frozen organization type list (8 types, decided 2026-08-28):
+The frozen organization type list (8 types):
 
 ```text
 KENDRA          = Central Body (unique)

@@ -756,7 +756,7 @@ Position Assignment
 
 Stores authoritative effective-dated Sakha affiliations, including the
 Local Sakha ERP ID for each period. Accepted as the physical model per
-CROSS_MODULE_PRINCIPLES.md §20.2 (2026-08-31).
+CROSS_MODULE_PRINCIPLES.md §20.2.
 
 ## Columns
 
@@ -890,7 +890,7 @@ parichaya_patra_history
 This table set reflects the Membership architecture developed during
 the NSS V2 database discussions, including the later addition of
 probationary_member_review, the first-class identity-document entities,
-and `membership_sakha_affiliation` (accepted 2026-08-31 per
+and `membership_sakha_affiliation` (accepted per
 MEM-PENDING-001 — see §27.1).
 
 ---

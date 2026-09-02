@@ -89,12 +89,12 @@ database/
 
 ## Module Implementation Status
 
-| Module | Tables | DDL Status | Commit |
-|--------|-------:|-----------|--------|
-| Foundation | 12 | IMPLEMENTED | `ce04771` on `feature/database-foundation` |
-| Organization | 3 | IMPLEMENTED | `ad70a7c` on `feature/database-organization` |
-| Person | — | SUPERSEDED — will be rewritten | future |
-| Membership | — | NOT YET | future |
+| Module | Tables | DDL Status |
+|--------|-------:|-----------|
+| Foundation | 12 | IMPLEMENTED |
+| Organization | 3 | IMPLEMENTED |
+| Person | — | SUPERSEDED — will be rewritten |
+| Membership | — | NOT YET |
 
 ## Naming Convention
 

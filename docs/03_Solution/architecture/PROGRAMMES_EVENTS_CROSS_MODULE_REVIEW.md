@@ -65,8 +65,7 @@ DOMAIN MODULES
 
 # 3. Existing Module Context
 
-The current project contains 20 documented modules after Finance was
-added:
+The current project contains 20 documented modules:
 
 1. Administration
 2. Attendance
@@ -1615,7 +1614,7 @@ NEXT:
 DB STANDARDS → FK GRAPH → DDL ORDER → FOUNDATION VERTICAL SLICE
 ```
 
-# 80. Reconciliation Closure (2026-08-28)
+# 80. Reconciliation Closure
 
 All 7 reconciliation gates closed. Formal decisions recorded in
 SOL-EVT-007 (PROGRAMMES_EVENTS_RECONCILIATION_DECISIONS.md).

@@ -1096,8 +1096,8 @@ The domain-specific extension remains owned by the domain module.
 
 # 49. Existing Table Reconciliation
 
-The cross-module reconciliation required before physical DDL is now
-COMPLETE. All 7 gates closed per SOL-EVT-007 (2026-08-28).
+The cross-module reconciliation required before physical DDL is
+COMPLETE. All 7 gates closed per SOL-EVT-007.
 
 Summary of reconciliation decisions:
 

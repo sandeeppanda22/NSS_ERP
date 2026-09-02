@@ -49,7 +49,8 @@ Purpose: Physical table design — nine tables.
   Selection+Election, one-member-one-vote, dual office holding permitted — cross-check against
   the Mahila module's own v2.1.0 correction (`docs/03_Solution/modules/mahila/`, 9 members,
   **2-year** term) before treating either term length as settled; the two module docs
-  currently disagree and this has not been reconciled (see `CLAUDE.md` §13). The new
+  currently disagree and this has not been reconciled (see `docs/PROJECT_DOCUMENTATION.md` →
+  "Open questions / TODOs"). The new
   `03_governance_lifecycle.md` (SOL-GOV-005) restates the same 3-year figure (GOV-BR-036 in its
   own numbering) and models Mahila reconstitution via a formal consensus→election→
   `election`/`election_result` table path — `mahila/03_mahila_lifecycle.md` instead describes
@@ -66,7 +67,7 @@ PARTICIPATION_LIFECYCLE_RULES.md` (SOL-LIFE-001) or `PERSON_LIFECYCLE_RULES.md` 
 even though it restates near-identical Person-death-cascade language (§36) — SOL-LIFE-001 §16
 says modules "shall reference this standard rather than duplicating these rules." Not fixed
 here; same gap exists in five other new lifecycle docs (person, family, attendance,
-authentication, administration) — see `CLAUDE.md` §13.
+authentication, administration) — see `docs/PROJECT_DOCUMENTATION.md` → "Open questions / TODOs".
 
 ---
 

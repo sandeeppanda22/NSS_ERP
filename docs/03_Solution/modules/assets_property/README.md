@@ -2,7 +2,7 @@
 
 Solution-layer design for Assets & Property — Module #22, the physical/administrative record of
 NSS movable and immovable property and assets (identification, registration, custody,
-maintenance, and lifecycle). Landed 2026-08-27, five files, `v1.0.0 DRAFT — SOURCE ALIGNED`
+maintenance, and lifecycle). Five files, `v1.0.0 DRAFT — SOURCE ALIGNED`
 (document-level `Status` field remains `DRAFT` throughout, same content-freeze convention as
 every other SOURCE ALIGNED module — this is not a lifecycle "FROZEN" promotion).
 
@@ -49,11 +49,11 @@ added at the Table Design stage to implement the Foundation `document_master` li
 ## Backend/DDL reality
 
 No corresponding `backend/` Django app and no `database/ddl/` implementation — design only,
-same as every other module added since 2026-08-19 except membership/family/heritage.
+same as every other module except membership/family/heritage.
 
 ## Not yet reconciled
 
-Added after the `docs/03_Solution/database/DATABASE_DESIGN_STANDARDS.md` and
-`docs/03_Solution/security/SECURITY_ARCHITECTURE.md` cross-module consolidation docs (2026-08-21)
-— neither lists this module's tables in its source inventory. Not a contradiction, just an
-update those docs haven't caught up to yet, same gap already noted in Finance's own README.
+The `docs/03_Solution/database/DATABASE_DESIGN_STANDARDS.md` and
+`docs/03_Solution/security/SECURITY_ARCHITECTURE.md` cross-module consolidation docs don't list
+this module's tables in their source inventory. Not a contradiction, just an update those docs
+haven't caught up to yet, same gap already noted in Finance's own README.

@@ -70,7 +70,7 @@ Both modules may **reference** the other's tables via foreign keys, but
 **ownership is exclusive** — only the owning module may alter the table's
 DDL definition, add columns, or change constraints.
 
-This ownership declaration is canonical. Frozen 2026-08-26.
+This ownership declaration is canonical and frozen.
 
 ---
 

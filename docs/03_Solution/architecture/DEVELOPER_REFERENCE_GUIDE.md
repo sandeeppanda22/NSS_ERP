@@ -74,10 +74,10 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Location master (country, state, district, city, postal) | 1. Project Standards | `docs/00_Project_Governance/STD/01_project_standards.md` |
 | | 2. Naming Conventions | `docs/00_Project_Governance/STD/02_naming_conventions.md` |
 | | 3. Master Data Catalog | `docs/00_Project_Governance/STD/03_master_data_catalog.md` |
-| | 4. Existing DDL (implemented 2026-08-30) | `database/ddl/01_foundation/05_country.sql`, `09_state.sql`, `10_district.sql`, `11_city_village.sql`, `12_postal_code.sql`, `13_city_village_postal_code_map.sql` |
+| | 4. Existing DDL (implemented) | `database/ddl/01_foundation/05_country.sql`, `09_state.sql`, `10_district.sql`, `11_city_village.sql`, `12_postal_code.sql`, `13_city_village_postal_code_map.sql` |
 | | 5. Seed Data | `database/seed/01_foundation/04_country.sql`, `05_state.sql`, `06_district.sql` (city_village/postal_code seeded at deployment, not in repo) |
 | ID Sequence (person code, sangha sevi, org code) | 1. Project Standards | `docs/00_Project_Governance/STD/01_project_standards.md` |
-| | 2. Existing DDL (implemented 2026-08-30) | `database/ddl/01_foundation/04_id_sequence_master.sql` |
+| | 2. Existing DDL (implemented) | `database/ddl/01_foundation/04_id_sequence_master.sql` |
 | | 3. Seed Data | `database/seed/01_foundation/03_id_sequence_master.sql` |
 
 ---
@@ -108,7 +108,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | | 6. Organization Lifecycle | `docs/03_Solution/modules/organization/03_organization_lifecycle.md` |
 | | 7. Organization Business Rules (v1.1.0, GOVERNANCE ALIGNED — type-to-type parent matrix explicitly left open, not frozen) | `docs/03_Solution/modules/organization/04_organization_business_rules.md` |
 | | 8. Organization Table Design (v1.1.0) | `docs/03_Solution/modules/organization/05_organization_table_design.md` |
-| | 9. DDL (currently 0-byte) | `database/ddl/02_organization/` |
+| | 9. DDL (implemented, Organization Vertical Slice) | `database/ddl/02_organization/` |
 
 ---
 
@@ -119,7 +119,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Membership types, Sangha Sevi ID, renewal, transfer | 1. REF-002 (Membership Bye-Laws) | `docs/01_Authoritative_References/NSS/SECTION-B_MEMBERSHIPS/` |
 | | 2. GOV-ORG-005 (Statutory Traceability) | `docs/00_Project_Governance/GOV/GOV-002_Organizational_Governance_Standard.md` |
 | | 3. Membership Business Rules | `docs/03_Solution/modules/membership/` (when created) |
-| | 4. CLAUDE.md Section 7 (Frozen Principles) | `CLAUDE.md` |
+| | 4. CLAUDE.md (Frozen Principles) | `CLAUDE.md` |
 | | 5. Tech Stack (ID sequence config) | `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` |
 
 ---
@@ -129,7 +129,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Work Item | Documents to Read (in order) | Path |
 |-----------|------------------------------|------|
 | Family group, relationships, head history, transitions | 1. REF-001 Clause 12 (Mahila/Family context) | `docs/01_Authoritative_References/NSS/SECTION-A_PRELIMINARY_AND_GENERAL_PROVISIONS/` |
-| | 2. CLAUDE.md Section 7 (Family First Model) | `CLAUDE.md` |
+| | 2. CLAUDE.md (Family First Model) | `CLAUDE.md` |
 | | 3. Family Business Rules | `docs/03_Solution/modules/family/` (when created) |
 | | 4. Person Module (FK dependency) | `docs/03_Solution/modules/person/` |
 
@@ -144,7 +144,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | | 3. REF-003-E (General Body) | `docs/01_Authoritative_References/NSS/SECTION-E_GENERAL_BODY/` (or composite locator file) |
 | | 4. GOV-002 (Organizational Governance) | `docs/00_Project_Governance/GOV/GOV-002_Organizational_Governance_Standard.md` |
 | | 5. GDR-004 (Authority Structure) | `docs/00_Project_Governance/GDR/GDR-004_Governance_Authority_Structure.md` |
-| | 6. CLAUDE.md Section 7 (Unified Body Governance Model) | `CLAUDE.md` |
+| | 6. CLAUDE.md (Unified Body Governance Model) | `CLAUDE.md` |
 
 ---
 
@@ -153,7 +153,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Work Item | Documents to Read (in order) | Path |
 |-----------|------------------------------|------|
 | Weekly Sangha Puja attendance, review, enforcement | 1. REF-002 (Membership, attendance requirements) | `docs/01_Authoritative_References/NSS/SECTION-B_MEMBERSHIPS/` |
-| | 2. CLAUDE.md Section 7 (Attendance rules) | `CLAUDE.md` |
+| | 2. CLAUDE.md (Attendance rules) | `CLAUDE.md` |
 | | 3. Person Module (FK dependency) | `docs/03_Solution/modules/person/` |
 | | 4. Membership Module (FK dependency) | Membership design docs |
 
@@ -164,7 +164,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Work Item | Documents to Read (in order) | Path |
 |-----------|------------------------------|------|
 | Users, roles, permissions, scope, login | 1. Security Standards | `docs/00_Project_Governance/STD/05_security_standards.md` |
-| | 2. CLAUDE.md Section 8 (RBAC, RLS, UUID PKs) | `CLAUDE.md` |
+| | 2. CLAUDE.md (UUID PKs, DB naming) | `CLAUDE.md` |
 | | 3. Organization Module (scope derives from org hierarchy) | `docs/03_Solution/modules/organization/` |
 | | 4. Tech Stack (auth architecture) | `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` |
 
@@ -176,8 +176,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 |-----------|------------------------------|------|
 | Mahila Parichalana Mandali, local Mahila Sanghas | 1. REF-001 Clause 12 (Mahila establishment) | `docs/01_Authoritative_References/NSS/SECTION-A_PRELIMINARY_AND_GENERAL_PROVISIONS/` |
 | | 2. REF-MS corpus (Mahila Bye-Laws) | `docs/01_Authoritative_References/MAHILA_SANGHA/` (22 documents) |
-| | 3. CLAUDE.md Section 7 (Mahila Sangha rules) | `CLAUDE.md` |
-| | 4. CLAUDE.md Section 12 (2026-08-14 clarification) | `CLAUDE.md` |
+| | 3. Mahila Module README (Mahila Sangha rules) | `docs/03_Solution/modules/mahila/README.md` |
 | | 5. GOV-ORG-001, GOV-ORG-002 (apex authority, precedence) | `docs/00_Project_Governance/GOV/GOV-002_Organizational_Governance_Standard.md` |
 
 ---
@@ -233,7 +232,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | | 4. Business Rules (HER-001–HER-100) | `docs/03_Solution/modules/heritage/04_founder_heritage_business_rules.md` |
 | | 5. Table Design (8 tables — only `founder_master` implemented in backend) | `docs/03_Solution/modules/heritage/05_founder_heritage_table_design.md` |
 | | 6. Existing model (`founder_master` only) | `backend/heritage/models.py` |
-| | 7. CLAUDE.md Section 8 (heritage app status) | `CLAUDE.md` |
+| | 7. Heritage Module README (app status) | `docs/03_Solution/modules/heritage/README.md` |
 
 ---
 
@@ -244,7 +243,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Generic event engine, registration, delegate cards | 1. REF-003-C(i)(2) clause (x) — Janmotsava arrangements | `docs/01_Authoritative_References/NSS/SECTION-C_.../REF-003-C(i)(2).md` |
 | | 2. REF-003-C(i)(2) clause (xii) — UPBS management | Same file |
 | | 3. Tech Stack (offline capability section) | `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` |
-| | 4. CLAUDE.md Section 10 (UPBS — partially frozen) | `CLAUDE.md` |
+| | 4. UPBS Module README | `docs/03_Solution/modules/upbs/README.md` |
 
 ---
 
@@ -254,7 +253,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 |-----------|------------------------------|------|
 | Funds, receipts, donations, budget | 1. REF-003-F (Funds of the Kendra Sangha) | `docs/01_Authoritative_References/NSS/SECTION-F_.../` (3 files: F[A], F[b], F[c]) |
 | | 2. REF-003-G (Accounts and Audit) | `docs/01_Authoritative_References/NSS/SECTION-G_.../` |
-| | 3. CLAUDE.md Section 10 (Finance — still open) | `CLAUDE.md` |
+| | 3. Finance Module README | `docs/03_Solution/modules/finance/README.md` |
 
 ---
 
@@ -264,8 +263,8 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 |------|------------|
 | Never code a business rule from memory | Trace to REF or mark as explicit ERP implementation decision |
 | Never modify a frozen module without GDR | Person, Organization, Membership identity, Family foundation are all frozen |
-| Complete current feature branch before creating next | Git branch policy (CLAUDE.md Section 4) |
-| DDL is authoritative, Django models must match it | Two-track reconciliation (CLAUDE.md Section 0) |
+| Complete current feature branch before creating next | Git branch policy (`CLAUDE.md`) |
+| DDL is authoritative, Django models must match it | Two-track reconciliation (`CLAUDE.md`) |
 | Business IDs use `_code` suffix, never `_id` | DDL naming convention |
 | FKs reference internal `_pk`, never business codes | Referential integrity standard |
 | Every table needs audit columns | `created_at`, `updated_at`, `deleted_at`, `is_active` |
@@ -284,7 +283,7 @@ If at step 1 you find the bye-law says nothing about transfer, you **cannot inve
 | Traceability requirements | `docs/00_Project_Governance/GOV/GOV-004_Requirement_Traceability_Standard.md` |
 | Change control process | `docs/00_Project_Governance/GOV/GOV-005_Governance_Change_Control_Standard.md` |
 | Past governance decisions | `docs/00_Project_Governance/GDR/GDR-001_Governance_Decision_Register.md` through `GDR-004` |
-| Frozen architecture decisions | `CLAUDE.md` Sections 2, 7, 8, 10 |
+| Frozen architecture decisions | `CLAUDE.md` |
 | Tech stack and hosting | `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` |
 | DB naming and standards | `docs/00_Project_Governance/STD/02_naming_conventions.md` |
 | Security requirements | `docs/00_Project_Governance/STD/05_security_standards.md` |

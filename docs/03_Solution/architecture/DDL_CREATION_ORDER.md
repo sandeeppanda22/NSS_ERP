@@ -4,8 +4,8 @@
 **Version:** 1.2.0
 **Status:** FROZEN
 **Date:** 2026-08-31
-**Amendment:** 2026-08-28 — PIN Code Geographic Model (§11 added)
-**Amendment:** 2026-08-31 — membership_sakha_affiliation added to Depth 5 (MEM-PENDING-001)
+**Amendment:** PIN Code Geographic Model (§11 added)
+**Amendment:** membership_sakha_affiliation added to Depth 5 (MEM-PENDING-001)
 **Parent Documents:**
 - SOL-ARCH-009 — Physical FK Dependency Graph
 - SOL-ARCH-008 — Implementation Dependency Order
@@ -387,7 +387,7 @@ principle; the standard establishes the exact format.
 
 ---
 
-# 11. Amendment — PIN Code Geographic Model (2026-08-28)
+# 11. Amendment — PIN Code Geographic Model
 
 ## 11.1 Decision
 
@@ -427,11 +427,11 @@ Depth 3 and `postal_code` at Depth 2).
 
 ## 11.5 Impact on Global Inventory
 
-- Frozen executable tables: 87 → **89**
-- Foundation tables: 10 → **12** (unchanged by membership addition)
-- Creation depths: unchanged (still Depth 0 through Depth 7)
-- Cycle-free: YES (no new cycles — both tables are leaf additions)
-- Candidate tables: unchanged (7, Programme & Events)
+- Frozen executable tables: **89**
+- Foundation tables: **12**
+- Creation depths: 8 (Depth 0 through Depth 7)
+- Cycle-free: YES (leaf additions introduce no cycles)
+- Candidate tables: 7 (Programme & Events)
 
 ## 11.6 Organization Dependency (noted, not owned by this document)
 
@@ -462,11 +462,8 @@ SOL-ARCH-010
 VERSION:
 1.2.0
 
-DATE:
-2026-08-31
-
 AMENDMENT:
-PIN Code Geographic Model (2026-08-28); membership_sakha_affiliation (2026-08-31)
+PIN Code Geographic Model; membership_sakha_affiliation
 
 FROZEN TABLES IN SEQUENCE:
 89

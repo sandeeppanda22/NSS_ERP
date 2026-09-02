@@ -22,7 +22,7 @@ The Foundation Module provides:
 
 The current frozen Foundation schema contains exactly eight original tables,
 two shared-infrastructure tables added by architectural decisions, and two
-PIN code geographic tables added by the SOL-ARCH-010 amendment (2026-08-28):
+PIN code geographic tables added by the SOL-ARCH-010 amendment:
 
     master_category
     master_data
@@ -32,10 +32,10 @@ PIN code geographic tables added by the SOL-ARCH-010 amendment (2026-08-28):
     state
     district
     city_village
-    document_master                (DOC-ARCH-001, 2026-08-26 — shared document registry)
-    field_change_log               (Data Change Architecture, 2026-08-26 — shared change log)
-    postal_code                    (PIN Code Geographic Model, 2026-08-28)
-    city_village_postal_code_map   (PIN Code Geographic Model, 2026-08-28)
+    document_master                (DOC-ARCH-001 — shared document registry)
+    field_change_log               (Data Change Architecture — shared change log)
+    postal_code                    (PIN Code Geographic Model)
+    city_village_postal_code_map   (PIN Code Geographic Model)
 
 ---
 
@@ -45,7 +45,7 @@ The PostgreSQL schema review explicitly identifies the original eight tables
 as the Foundation Module.
 
 Two additional shared-infrastructure tables have been assigned to Foundation
-by architectural decisions during the pre-DB gate (2026-08-26):
+by architectural decisions during the pre-DB gate:
 
 - `document_master` — DOC-ARCH-001 (moved from Person; shared document registry)
 - `field_change_log` — Data Change Architecture (shared field-change tracking)
@@ -73,8 +73,8 @@ The database build plan identifies the implementation sequence as:
 | 8 | `city_village` | City/village/locality master |
 | 9 | `document_master` | Shared document registry (DOC-ARCH-001, moved from Person) |
 | 10 | `field_change_log` | Shared field-change tracking (Data Change Architecture) |
-| 11 | `postal_code` | PIN code / postal code master (PIN Code Geographic Model, 2026-08-28) |
-| 12 | `city_village_postal_code_map` | M:N mapping between city_village and postal_code (PIN Code Geographic Model, 2026-08-28) |
+| 11 | `postal_code` | PIN code / postal code master (PIN Code Geographic Model) |
+| 12 | `city_village_postal_code_map` | M:N mapping between city_village and postal_code (PIN Code Geographic Model) |
 
 ---
 
@@ -1181,7 +1181,7 @@ country
             └──< city_village_postal_code_map (M:N)
 
 
-SHARED INFRASTRUCTURE (added 2026-08-26)
+SHARED INFRASTRUCTURE
 
 document_master     (shared document registry — DOC-ARCH-001)
 field_change_log    (shared field-change tracking — Data Change Architecture)
@@ -1206,10 +1206,10 @@ Current count:
 6. state
 7. district
 8. city_village
-9. document_master              (DOC-ARCH-001, 2026-08-26)
-10. field_change_log            (Data Change Architecture, 2026-08-26)
-11. postal_code                 (PIN Code Geographic Model, 2026-08-28)
-12. city_village_postal_code_map (PIN Code Geographic Model, 2026-08-28)
+9. document_master              (DOC-ARCH-001)
+10. field_change_log            (Data Change Architecture)
+11. postal_code                 (PIN Code Geographic Model)
+12. city_village_postal_code_map (PIN Code Geographic Model)
 ```
 
 ---
@@ -1222,13 +1222,13 @@ Organization, Governance and other modules.
 
 Two additional tables (`document_master`, `field_change_log`) were assigned
 to Foundation by architectural decisions made during the pre-DB architecture
-gate (2026-08-26). Their logical column designs are defined by Person
+gate. Their logical column designs are defined by Person
 (for `document_master`) and the Data Change Architecture (for
 `field_change_log`); Foundation owns the physical DDL.
 
 Two PIN code geographic tables (`postal_code`, `city_village_postal_code_map`)
-were added by the SOL-ARCH-010 amendment (PIN Code Geographic Model,
-2026-08-28). `postal_code` is a country+state-scoped postal reference;
+were added by the SOL-ARCH-010 amendment (PIN Code Geographic Model).
+`postal_code` is a country+state-scoped postal reference;
 `city_village_postal_code_map` is the M:N bridge to `city_village`.
 
 The database build plan confirms:

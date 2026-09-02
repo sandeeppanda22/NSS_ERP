@@ -17,8 +17,7 @@ system.
 
 Purpose (all 5): Membership, Activities, and Governance for the Mahila Sangha via the central
 **Mahila Parichalana Mandali** — the single Governing Body that governs every local Mahila
-Sangha across all Sakha Sanghas (per `REF-001` Clause 12 and `REF-MS-6(i)`–`REF-MS-6(viii)`; see
-`CLAUDE.md` §7).
+Sangha across all Sakha Sanghas (per `REF-001` Clause 12 and `REF-MS-6(i)`–`REF-MS-6(viii)`).
 
 ---
 

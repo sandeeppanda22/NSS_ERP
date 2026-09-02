@@ -27,15 +27,15 @@ All 7 reconciliation gates are now CLOSED.
 
 # 2. Reconciliation Gates — Final Decisions
 
-| Gate | Question | Decision | Date |
-|------|----------|----------|------|
-| A | Programme & Events owns common Event entity? | YES | 2026-08-28 |
-| B | `upbs_event` becomes extension of common Event? | YES | 2026-08-28 |
-| C | Kishor event identity becomes common Event extension? | YES | 2026-08-28 |
-| D | Sevak event types become common Event extensions? | YES | 2026-08-28 |
-| E | Event Session — common table or domain-specific? | Optional, organiser-defined (P&E-ARCH-002) | 2026-08-28 |
-| F | Weekly Sangha Puja — common Event or Attendance-owned? | Attendance-owned (no change) | 2026-08-28 |
-| G | Registration — common infrastructure or domain-specific? | Common P&E infrastructure (P&E-ARCH-001) | 2026-08-28 |
+| Gate | Question | Decision |
+|------|----------|----------|
+| A | Programme & Events owns common Event entity? | YES |
+| B | `upbs_event` becomes extension of common Event? | YES |
+| C | Kishor event identity becomes common Event extension? | YES |
+| D | Sevak event types become common Event extensions? | YES |
+| E | Event Session — common table or domain-specific? | Optional, organiser-defined (P&E-ARCH-002) |
+| F | Weekly Sangha Puja — common Event or Attendance-owned? | Attendance-owned (no change) |
+| G | Registration — common infrastructure or domain-specific? | Common P&E infrastructure (P&E-ARCH-001) |
 
 ---
 
@@ -225,7 +225,7 @@ All remain CANDIDATE until the physical DDL phase.
 
 # 9. Correspondence Extension — CORR-EXT-001
 
-**Status:** FROZEN (2026-08-30) — ORG-PENDING-001 resolved
+**Status:** FROZEN — ORG-PENDING-001 resolved
 
 The correspondence reference format is organization-scoped. Each
 organization (Kendra, Sakha, Anchalika, etc.) maintains its own
@@ -262,7 +262,7 @@ KEN/OUT/2026-27/042   — Kendra outward #42
 
 ### Dependencies — Resolved
 
-- `organization_short_code` (ORG-PENDING-001): **FROZEN** (2026-08-30)
+- `organization_short_code` (ORG-PENDING-001): **FROZEN**
 - Compatible with existing frozen schema (additive extension)
 
 ### Not a new gate or module

@@ -1,7 +1,7 @@
 # NSS ERP Sevak Sangha Module
 
 Status: DRAFT (consolidation in progress) — only the table design is Frozen. Sevak Sangha
-remains only **partially frozen** per `CLAUDE.md` §7/§10: foundation exists but executive
+remains only **partially frozen**: foundation exists but executive
 structure, formal training hierarchy, and full operational lifecycle are still incomplete. There
 is still no `backend/sevak/` Django app.
 
@@ -25,12 +25,9 @@ events/01_other_sevak_event_rules.md                   SOL-SEV-EVENT-001,  v1.0.
 
 `05_sevak_business_rules.md` is the consolidated core rule set, numbering `SEV-001`–`SEV-040`
 (the domain-specific `sangha/`, `seva/`, `events/` sub-documents use plain numbered sections, not
-`SEV-XXX` IDs). An earlier freeze commit referenced "SEV-013 through SEV-048" — that applied to
-the pre-restructure monolithic file; the subsequent split/renumber consolidated the core set down
-to 001–040, with an explicit note (§22) that source ID collisions (duplicate SEV-024, SEV-025,
-SEV-032) were found and deliberately not silently patched. As of 2026-08-26, these collisions
-are formally CLOSED — each ID has one canonical meaning; retired event/attendance uses are
-superseded (see §22 Resolution Status).
+`SEV-XXX` IDs). Source ID collisions (duplicate SEV-024, SEV-025, SEV-032) that existed in an
+earlier version of the rule set are formally CLOSED — each ID now has one canonical meaning;
+retired event/attendance uses are superseded (see §22 Resolution Status).
 
 ---
 

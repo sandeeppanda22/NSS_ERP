@@ -388,8 +388,8 @@ The same one-owner-per-table principle applies to future modules.
 | Correspondence register owned by Administration (CORR-DECISION-003) | FROZEN |
 | Correspondence financial traceability via M:N junction (CORR-ARCH-001) | FROZEN |
 | Correspondence is a reusable cross-module platform capability (CORR-ARCH-002) | FROZEN |
-| Organization short code (3–5 letter, UNIQUE) for Sakha-level identity/correspondence (ORG-PENDING-001) | FROZEN (2026-08-30) |
-| Local Sakha ERP ID conceptual rules + format (MEM-PENDING-001) | FROZEN (2026-08-31) — physical model ACCEPTED (`membership_sakha_affiliation`) |
+| Organization short code (3–5 letter, UNIQUE) for Sakha-level identity/correspondence (ORG-PENDING-001) | FROZEN |
+| Local Sakha ERP ID conceptual rules + format (MEM-PENDING-001) | FROZEN — physical model ACCEPTED (`membership_sakha_affiliation`) |
 | Visitor vs. Approved Darshak threshold (ATT-PENDING-001) | PENDING — DDL phase; Darshak local-number issuance SUPERSEDED |
 
 ---
@@ -497,7 +497,7 @@ The following design decisions are confirmed directionally but require
 physical schema resolution during the DDL phase. They do not change
 module ownership or introduce new dependencies.
 
-## 20.1 Organization Short Code (ORG-PENDING-001) — FROZEN 2026-08-30
+## 20.1 Organization Short Code (ORG-PENDING-001) — FROZEN
 
 **Affects:** Organization, Membership, Administration (Correspondence)
 
@@ -528,7 +528,7 @@ unchanged — it is the system-generated permanent business identifier.
 
 **Affects:** Membership, Organization
 
-**Updated:** 2026-08-31 — conceptual identity rules and ID format FROZEN;
+**Status:** Conceptual identity rules and ID format FROZEN;
 physical model ACCEPTED (`membership_sakha_affiliation`).
 
 ### Format — FROZEN
@@ -670,7 +670,7 @@ for genuinely new members.
 - Probationary Member (operational Darshak) receives ID from enrolling
   Sakha — this is their base Sakha, not a "visited" Sakha
 
-### DDL-Phase Resolution — ACCEPTED Physical Model (2026-08-31)
+### DDL-Phase Resolution — ACCEPTED Physical Model
 
 Membership owns the authoritative history of a person's recognized
 Sakha affiliations. `membership_transfer_history` records transfer
@@ -824,6 +824,6 @@ approval, the system shall enforce either:
 
 | ID | Title | Modules Affected | Blocking? |
 |----|-------|-----------------|:---------:|
-| ORG-PENDING-001 | Organization Short Code | Org, Mem, Admin | FROZEN (2026-08-30) — CORR-EXT-001 unblocked |
-| MEM-PENDING-001 | Local Sakha ERP ID — Conceptual Rules + Format | Mem, Org | Rules + format FROZEN; physical model ACCEPTED (2026-08-31) — `membership_sakha_affiliation` table |
+| ORG-PENDING-001 | Organization Short Code | Org, Mem, Admin | FROZEN — CORR-EXT-001 unblocked |
+| MEM-PENDING-001 | Local Sakha ERP ID — Conceptual Rules + Format | Mem, Org | Rules + format FROZEN; physical model ACCEPTED — `membership_sakha_affiliation` table |
 | ATT-PENDING-001 | Visitor vs. Approved Darshak Threshold | Att, Mem | No (Attendance DDL can proceed without); Darshak local-number issuance SUPERSEDED by MEM-PENDING-001 |

@@ -1,6 +1,7 @@
 # docs/03_Solution/ui/
 
-UI/UX design documentation (screen specs, wireframes) per the UI Roadmap in `CLAUDE.md` §9.
+UI/UX design documentation (screen specs, wireframes) per the UI Roadmap in
+`docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` (Phase 4) and `mockups/README.md`.
 
 ## Contents
 

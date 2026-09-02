@@ -469,7 +469,7 @@ A transfer therefore does not overwrite the historical relationship.
 `membership_transfer_history` records transfer events; it does not
 serve as the complete effective-dated affiliation history. The
 `membership_sakha_affiliation` table has been **accepted** as the
-physical model (CROSS_MODULE_PRINCIPLES.md §20.2, 2026-08-31).
+physical model (CROSS_MODULE_PRINCIPLES.md §20.2).
 
 This table provides:
 
@@ -547,7 +547,7 @@ Auditability
 | Decision | Reference | Status |
 |---|---|---|
 | Local Sakha ERP ID physical placement | MEM-PENDING-001 (§20.2) | RESOLVED — belongs to `membership_sakha_affiliation` per-period row; **not** on `sangha_sevi` |
-| `membership_sakha_affiliation` entity | MEM-PENDING-001 (§20.2) | **ACCEPTED** as physical model (2026-08-31) |
+| `membership_sakha_affiliation` entity | MEM-PENDING-001 (§20.2) | **ACCEPTED** as physical model |
 | Reactivation mechanics | MEM-PENDING-001 (§20.2) | New affiliation period row with same Local ERP ID; prior ARCHIVED row not reopened |
 | Relationship to Sevak `sevak_sakha_association` | MEM-PENDING-001 (§20.2) | DEFERRED to Sevak DDL phase |
 | Legacy Sakha register number migration mapping | MEM-PENDING-001 (§20.2) | Inline `legacy_sakha_number` on affiliation; separate table PENDING if multi-source evidence |
