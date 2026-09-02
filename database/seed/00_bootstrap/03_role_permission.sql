@@ -1,0 +1,13 @@
+-- =====================================================
+-- NSS ERP
+-- Module: Bootstrap RBAC
+-- File: 03_role_permission.sql (seed)
+-- Seed: Role-to-permission mappings
+-- Authority: SOL-ARCH-011 §4, SOL-ADMIN-004 §10
+--
+-- STATUS: EMPTY — depends on permission catalogue
+--
+-- This file will be populated after 01_permission_master
+-- seed is frozen. Role-permission mappings cannot exist
+-- without permissions.
+-- =====================================================

@@ -1,0 +1,13 @@
+-- =====================================================
+-- NSS ERP
+-- Module: Bootstrap RBAC
+-- File: 01_permission_master.sql (seed)
+-- Seed: Permission catalogue
+-- Authority: SOL-ARCH-011 §4, SOL-ADMIN-004 §9.5
+--
+-- STATUS: EMPTY — permission catalogue NOT YET FROZEN
+--
+-- This file will be populated when the permission
+-- catalogue is approved. Until then, no permission
+-- rows are seeded.
+-- =====================================================
