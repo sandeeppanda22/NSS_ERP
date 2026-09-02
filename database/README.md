@@ -8,25 +8,69 @@ Hand-written PostgreSQL DDL and seed data — the schema authority for the NSS E
 
 ## Execution Order
 
-### Full Foundation Build (from scratch)
+### Full Build (from scratch)
 
 ```bash
-# 1. Extensions
+# ─────────────────────────────────────────────────
+# Phase 1: Extensions
+# ─────────────────────────────────────────────────
 psql -U nss_admin -d nss_erp -f database/ddl/01_foundation/01_extensions.sql
 
-# 2. Foundation DDL (Depths 0–4, 12 tables)
+# ─────────────────────────────────────────────────
+# Phase 2: Foundation DDL (12 tables, Depths 0–4)
+# ─────────────────────────────────────────────────
 for f in database/ddl/01_foundation/0[2-9]*.sql database/ddl/01_foundation/1*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
 
-# 3. Foundation Seed Data
+# ─────────────────────────────────────────────────
+# Phase 3: Foundation Seed Data
+# ─────────────────────────────────────────────────
 for f in database/seed/01_foundation/0*.sql; do
+    psql -U nss_admin -d nss_erp -f "$f"
+done
+
+# ─────────────────────────────────────────────────
+# Phase 4: Organization DDL (3 tables, Depths 0–4)
+# ─────────────────────────────────────────────────
+for f in database/ddl/02_organization/0*.sql; do
+    psql -U nss_admin -d nss_erp -f "$f"
+done
+
+# ─────────────────────────────────────────────────
+# Phase 5: Organization Seed Data
+# ─────────────────────────────────────────────────
+for f in database/seed/02_organization/0*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
 ```
 
-See `ddl/01_foundation/README.md` and `seed/01_foundation/README.md` for
-detailed per-file execution tables.
+### Execution Sequence (all tables)
+
+| Phase | Module | File | Table | Depth | Seq# |
+|------:|--------|------|-------|------:|-----:|
+| 1 | Foundation | `01_extensions.sql` | pg_trgm, uuid-ossp | — | — |
+| 2 | Foundation | `02_master_category.sql` | `master_category` | 0 | #1 |
+| 2 | Foundation | `03_system_setting.sql` | `system_setting` | 0 | #2 |
+| 2 | Foundation | `04_id_sequence_master.sql` | `id_sequence_master` | 0 | #3 |
+| 2 | Foundation | `05_country.sql` | `country` | 0 | #4 |
+| 2 | Foundation | `06_document_master.sql` | `document_master` | 0 | #5 |
+| 2 | Foundation | `07_field_change_log.sql` | `field_change_log` | 0 | #6 |
+| 2 | Foundation | `08_master_data.sql` | `master_data` | 1 | #18 |
+| 2 | Foundation | `09_state.sql` | `state` | 1 | #19 |
+| 2 | Foundation | `10_district.sql` | `district` | 2 | #24 |
+| 2 | Foundation | `11_city_village.sql` | `city_village` | 3 | #28 |
+| 2 | Foundation | `12_postal_code.sql` | `postal_code` | 3 | #29 |
+| 2 | Foundation | `13_city_village_postal_code_map.sql` | `city_village_postal_code_map` | 4 | #32 |
+| 4 | Organization | `01_organization_type_master.sql` | `organization_type_master` | 0 | #7 |
+| 4 | Organization | `02_organization_status_master.sql` | `organization_status_master` | 0 | #8 |
+| 4 | Organization | `03_organization.sql` | `organization` | 4 | #33 |
+
+**Total implemented: 15 tables (12 Foundation + 3 Organization)**
+
+See module READMEs for per-file details:
+- `ddl/01_foundation/README.md` / `seed/01_foundation/README.md`
+- `ddl/02_organization/README.md` / `seed/02_organization/README.md`
 
 ## Directory Structure
 
@@ -34,22 +78,23 @@ detailed per-file execution tables.
 database/
 ├── ddl/
 │   ├── 01_foundation/    12 tables (Depths 0–4) — IMPLEMENTED
-│   ├── 02_organization/  placeholder (Depth 3) — NOT YET IMPLEMENTED
+│   ├── 02_organization/  3 tables (Depths 0–4) — IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
 ├── seed/
 │   ├── 01_foundation/    reference data — IMPLEMENTED
+│   ├── 02_organization/  type masters + 3 unique orgs — IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
 └── README.md             this file
 ```
 
 ## Module Implementation Status
 
-| Module | DDL Status | Branch |
-|--------|-----------|--------|
-| Foundation (12 tables) | IMPLEMENTED | `feature/database-foundation` |
-| Organization | NOT YET | `feature/database-foundation` (future) |
-| Person | SUPERSEDED — will be rewritten | `feature/person-ddl` (future) |
-| Membership | NOT YET | `feature/membership-design` (future) |
+| Module | Tables | DDL Status | Commit |
+|--------|-------:|-----------|--------|
+| Foundation | 12 | IMPLEMENTED | `ce04771` on `feature/database-foundation` |
+| Organization | 3 | IMPLEMENTED | `ad70a7c` on `feature/database-organization` |
+| Person | — | SUPERSEDED — will be rewritten | future |
+| Membership | — | NOT YET | future |
 
 ## Naming Convention
 
@@ -71,9 +116,5 @@ database/
 The following exist on `develop` from an earlier prototype iteration and
 are NOT consistent with the frozen architecture (SOL-ARCH-009/010):
 
-- `ddl/01_foundation/02_id_sequence_master.sql` (old) → replaced by `04_id_sequence_master.sql`
-- `ddl/01_foundation/03_location_master_tables.sql` (old) → replaced by `05–11_*.sql`
-- `ddl/02_organization/*` — 0-byte placeholders
 - `ddl/03_person/*` — uses per-domain masters instead of `master_data` pattern
-- `seed/01_foundation/*` (old) → replaced by new numbered seeds
 - `seed/03_person/*` — seeds into non-existent tables (`gender_master`, etc.)
