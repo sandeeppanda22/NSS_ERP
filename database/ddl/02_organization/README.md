@@ -1,6 +1,6 @@
 # database/ddl/02_organization/
 
-Organization Module DDL — 3 tables per SOL-ORG-005, SOL-ARCH-010.
+Organization Module DDL — 3 tables (Depths 0–3) per SOL-ORG-005, SOL-ARCH-010.
 
 Authority: SOL-ORG-005 v1.2.0, SOL-ARCH-010
 
@@ -12,7 +12,7 @@ Execute AFTER all Foundation DDL (`database/ddl/01_foundation/`).
 |--:|------|-------|------:|:--------:|
 | 01 | `01_organization_type_master.sql` | `organization_type_master` | 0 | #7 |
 | 02 | `02_organization_status_master.sql` | `organization_status_master` | 0 | #8 |
-| 03 | `03_organization.sql` | `organization` | 4 | #33 |
+| 03 | `03_organization.sql` | `organization` | 3 | #33 |
 
 ## Design Notes
 

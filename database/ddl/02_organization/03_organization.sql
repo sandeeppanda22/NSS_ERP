@@ -3,7 +3,7 @@
 -- Module: Organization
 -- File: 03_organization.sql
 -- Table: organization
--- Depth: 4 (depends on organization_type_master,
+-- Depth: 3 (depends on organization_type_master,
 --           organization_status_master, country,
 --           state, district)
 -- Sequence: #33 of 87

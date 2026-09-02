@@ -1,8 +1,9 @@
 # NSS ERP — Administration Table Design
 
 **Document ID:** SOL-ADMIN-004
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** DRAFT — SOURCE ALIGNED
+**Amendment:** §8.7–8.10 — Frozen Role Catalogue, Role ≠ Position, Permission Matrix Status
 **Module:** Administration
 **Parent System:** Nilachala Saraswata Sangha ERP
 
@@ -260,6 +261,75 @@ The exact unique key requires final approval.
 Roles may become inactive without destroying historical references.
 
 Historical role assignments must remain interpretable.
+
+---
+
+## 8.7 Frozen Role Catalogue
+
+The following seven RBAC roles are frozen:
+
+| Role Code | Role Class | Scope | Intended Responsibility |
+|-----------|-----------|-------|------------------------|
+| `NSS_ADMIN` | System administration | NSS-wide | System-level administration and management of ERP authorization/configuration |
+| `KENDRA_ADMIN` | Organizational administration | Kendra | Administrative operations within Kendra scope |
+| `ANCHALIKA_ADMIN` | Organizational administration | Anchalika | Administrative operations within assigned Anchalika scope |
+| `ZILLA_ADMIN` | Organizational administration | Zilla | Administrative operations within assigned Zilla scope |
+| `SAKHA_ADMIN` | Organizational administration | Sakha | Administrative operations within assigned Sakha scope |
+| `AUDITOR` | Oversight / read | Assigned/authorized scope | Audit and review access |
+| `REPORT_VIEWER` | Reporting / read | Assigned/authorized scope | Reporting and read-oriented access |
+
+These roles will become seed data in `role_master` during the
+Administration vertical slice.
+
+---
+
+## 8.8 Role ≠ Governance Position
+
+RBAC roles represent **technical authorization** in the ERP.
+Governance positions represent **organizational/governance
+responsibility** as defined by the NSS Bye-Law.
+
+```text
+RBAC Role                    Governance Position
+─────────                    ───────────────────
+NSS_ADMIN                    President
+KENDRA_ADMIN                 Vice President
+ANCHALIKA_ADMIN              Secretary
+ZILLA_ADMIN                  Assistant Secretary
+SAKHA_ADMIN                  Treasurer
+AUDITOR                      Governing Body Member
+REPORT_VIEWER
+```
+
+These are **independent concepts**. A President does not automatically
+receive the `NSS_ADMIN` RBAC role. A `SAKHA_ADMIN` does not
+automatically hold a governance position. Any mapping between them
+requires explicit design and is not frozen.
+
+Governance positions are owned by the Governance module
+(`position_master`, `body_member_assignment`), not by Administration.
+
+---
+
+## 8.9 Permission Matrix Status
+
+The role catalogue is frozen at the **role level**. The complete
+permission catalogue and role-to-permission matrix remain pending the
+Authentication/Administration physical design pass.
+
+No `role_permission` seed data shall be created until the permission
+catalogue is formally frozen.
+
+---
+
+## 8.10 SELF_SERVICE_MEMBER Exclusion
+
+`SELF_SERVICE_MEMBER` was identified as a possible role during design
+exploration but was **not frozen**. It is excluded from the role
+catalogue and shall not be seeded into `role_master`.
+
+If a member self-service role is required in the future, it must be
+separately proposed, evaluated, and frozen before inclusion.
 
 ---
 
@@ -1127,7 +1197,7 @@ DRAFT — SOURCE ALIGNED
 VERSION:
 
 ```
-1.0.0
+1.1.0
 ```
 
 ---
