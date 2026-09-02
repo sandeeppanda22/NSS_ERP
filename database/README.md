@@ -4,14 +4,14 @@ Hand-written PostgreSQL DDL and seed data — the schema authority for the NSS E
 
 **DDL Execution Authority:** PostgreSQL role `nss_admin`
 **Runtime Read/Write:** PostgreSQL role `app_backend`
-**Architecture Authority:** SOL-ARCH-010 (DDL Creation Order), module table-design documents
+**Architecture Authority:** SOL-ARCH-010 (DDL Creation Order),
+SOL-ARCH-011 (Bootstrap Architecture), module table-design documents
 
 > **Note:** PostgreSQL `nss_admin` is the *database-level* role that owns
 > tables and executes DDL/seed scripts. It is **not** the ERP application
 > role `NSS_ADMIN` (which is an RBAC role defined in `role_master` and
-> enforced by the application layer). The two share a name but operate at
-> different levels — one is a PostgreSQL login, the other is an
-> application authorization concept.
+> enforced by the application layer). See SOL-ARCH-011 §7.2 for the
+> full identity distinction.
 
 ---
 
@@ -19,7 +19,23 @@ Hand-written PostgreSQL DDL and seed data — the schema authority for the NSS E
 
 ### Full Build (from scratch)
 
+The build follows the bootstrap sequence defined in SOL-ARCH-011.
+Phase 0 establishes RBAC definitions before any business data.
+
 ```bash
+# ─────────────────────────────────────────────────
+# Phase 0: Bootstrap RBAC Definitions
+#          (3 tables, Depths 0–1)
+#          Authority: SOL-ARCH-011 §4
+# ─────────────────────────────────────────────────
+for f in database/ddl/00_bootstrap/0*.sql; do
+    psql -U nss_admin -d nss_erp -f "$f"
+done
+
+for f in database/seed/00_bootstrap/0*.sql; do
+    psql -U nss_admin -d nss_erp -f "$f"
+done
+
 # ─────────────────────────────────────────────────
 # Phase 1: Extensions
 # ─────────────────────────────────────────────────
@@ -52,6 +68,11 @@ done
 for f in database/seed/02_organization/0*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
+
+# ─────────────────────────────────────────────────
+# Phase 6+: Person, Auth/Admin remaining, etc.
+#           (not yet implemented)
+# ─────────────────────────────────────────────────
 ```
 
 ### Execution Sequence (all implemented tables)
@@ -62,6 +83,9 @@ dependency and may be created in any order.
 
 | Phase | Module | File | Table | Depth | Seq# |
 |------:|--------|------|-------|------:|-----:|
+| 0 | Bootstrap | `01_role_master.sql` | `role_master` | 0 | #13 |
+| 0 | Bootstrap | `02_permission_master.sql` | `permission_master` | 0 | #14 |
+| 0 | Bootstrap | `03_role_permission.sql` | `role_permission` | 1 | #20 |
 | 1 | Foundation | `01_extensions.sql` | pg_trgm, pgcrypto, btree_gin | — | — |
 | 2 | Foundation | `02_master_category.sql` | `master_category` | 0 | #1 |
 | 2 | Foundation | `03_system_setting.sql` | `system_setting` | 0 | #2 |
@@ -80,14 +104,17 @@ dependency and may be created in any order.
 | 4 | Organization | `03_organization.sql` | `organization` | 3 | #33 |
 
 **Total implemented: 15 tables (12 Foundation + 3 Organization)**
+**Phase 0 planned: 3 tables (Bootstrap RBAC) — column design pending**
 
 See module READMEs for per-file details:
 - `ddl/01_foundation/README.md` / `seed/01_foundation/README.md`
 - `ddl/02_organization/README.md` / `seed/02_organization/README.md`
 
+Bootstrap RBAC READMEs will be created during the Phase 0 vertical slice.
+
 ---
 
-## Two-Pass DDL Strategy (SOL-ARCH-010 §5)
+## Two-Pass DDL Strategy (SOL-ARCH-010 §5, SOL-ARCH-011 §6)
 
 - **Pass 1:** CREATE TABLE statements (files in `ddl/`) — no audit-actor FKs
 - **Pass 2:** ALTER TABLE ADD CONSTRAINT for `*_by_sangha_sevi_pk` columns —
@@ -95,6 +122,8 @@ See module READMEs for per-file details:
 
 Pass 2 is not yet implemented. It will be created when the Membership
 module vertical slice produces the `sangha_sevi` table (Depth 4, #35).
+The bootstrap administrator's Sangha Sevi identity is the precondition
+for enforcing these constraints (SOL-ARCH-011 §7.3).
 
 ---
 
@@ -103,10 +132,12 @@ module vertical slice produces the `sangha_sevi` table (Depth 4, #35).
 ```
 database/
 ├── ddl/
+│   ├── 00_bootstrap/     3 RBAC tables (Depths 0–1) — DESIGN PENDING
 │   ├── 01_foundation/    12 tables (Depths 0–4) — IMPLEMENTED
 │   ├── 02_organization/  3 tables (Depths 0–3) — IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
 ├── seed/
+│   ├── 00_bootstrap/     permissions + 7 roles + mappings — DESIGN PENDING
 │   ├── 01_foundation/    reference data — IMPLEMENTED
 │   ├── 02_organization/  type masters + 3 unique orgs — IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
@@ -119,11 +150,12 @@ database/
 
 | Module | Tables | DDL Status | Next Action |
 |--------|-------:|-----------|-------------|
+| Bootstrap RBAC | 3 | ⏳ DESIGN | Freeze role_master, permission_master, role_permission columns |
 | Foundation | 12 | ✅ IMPLEMENTED | — |
 | Organization | 3 | ✅ IMPLEMENTED | — |
 | Person | 1 | ⬜ SUPERSEDED — will be rewritten | Freeze column list |
 | Authentication | 2 | ⏳ DESIGN | Freeze user_account, password_history columns |
-| Administration | 8 | ⏳ DESIGN | Freeze RBAC + correspondence columns |
+| Administration | 5 | ⏳ DESIGN | 3 RBAC tables in Bootstrap; correspondence columns pending |
 | Heritage | 4 | ⬜ NOT YET | — |
 | Family | 3 | ⬜ NOT YET | — |
 | Membership | 9 | ⬜ NOT YET | — |
