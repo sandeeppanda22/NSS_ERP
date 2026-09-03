@@ -1,7 +1,7 @@
 # NSS ERP — Organization Table Design
 
 **Document ID:** SOL-ORG-005  
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Status:** DRAFT — GOVERNANCE ALIGNED  
 **Module:** Organization  
 **Parent System:** Nilachala Saraswata Sangha ERP
@@ -329,7 +329,10 @@ It represents:
 | `district_pk`            |          No | FK     | District reference                         |
 | `state_pk`               |          No | FK     | State/province reference                   |
 | `country_pk`             |          No | FK     | Country reference                          |
-| `postal_code`            |          No | —      | Postal/PIN code                            |
+| `city_village_pk`        |          No | FK     | City/village reference                     |
+| `postal_code_pk`         |          No | FK     | Postal/PIN code reference                  |
+| `latitude`               |          No | —      | Physical location latitude                 |
+| `longitude`              |          No | —      | Physical location longitude                |
 | `created_at`             |         Yes | —      | Creation timestamp                         |
 | `updated_at`             |         Yes | —      | Last update timestamp                      |
 
@@ -685,8 +688,21 @@ address_line_2
 district_pk
 state_pk
 country_pk
-postal_code
+city_village_pk
+postal_code_pk
+latitude
+longitude
 ```
+
+`city_village_pk` and `postal_code_pk` reference Foundation geography
+entities. The selected city_village + postal_code combination is validated
+against the Foundation `city_village_postal_code_map` at the application
+layer.
+
+`latitude` and `longitude` represent the physical location of the
+organization. These are distinct from Foundation geography — they record
+the actual coordinates of a specific organizational unit, not geographic
+reference data.
 
 ---
 
@@ -739,9 +755,15 @@ Logical references include:
 district_pk
 state_pk
 country_pk
+city_village_pk
+postal_code_pk
 ```
 
 The Organization Module does not own duplicate geographic master tables.
+
+`latitude` and `longitude` are Organization-owned attributes — they
+represent the physical location of a specific organizational unit, not
+Foundation geography reference data.
 
 ---
 
@@ -860,6 +882,8 @@ organization
 | `organization` | `district_pk`            | Common District Master       |
 | `organization` | `state_pk`               | Common State Master          |
 | `organization` | `country_pk`             | Common Country Master        |
+| `organization` | `city_village_pk`        | Common City/Village Master   |
+| `organization` | `postal_code_pk`         | Common Postal Code Master    |
 
 ---
 
@@ -1215,7 +1239,10 @@ TOTAL                            3
 │ district_pk FK                   │
 │ state_pk FK                      │
 │ country_pk FK                    │
-│ postal_code                      │
+│ city_village_pk FK               │
+│ postal_code_pk FK                │
+│ latitude                         │
+│ longitude                        │
 │ created_at                       │
 │ updated_at                       │
 └───────────────┬──────────────────┘
@@ -1264,7 +1291,10 @@ The Organization entity therefore contains five major logical areas:
    district_pk
    state_pk
    country_pk
-   postal_code
+   city_village_pk
+   postal_code_pk
+   latitude
+   longitude
 
 (Hierarchical level is derived from organization_type_pk and
 parent_organization_pk — see §33)
@@ -1433,7 +1463,13 @@ DOCUMENT STATUS:
 DRAFT — GOVERNANCE ALIGNED
 
 VERSION:
-1.2.0
+1.3.0
+
+CHANGE LOG:
+1.3.0 — Reconciled location fields with Foundation geography:
+        postal_code (VARCHAR) → postal_code_pk (FK to postal_code);
+        added city_village_pk (FK to city_village);
+        added latitude, longitude (physical coordinates).
 ```
 
 ---

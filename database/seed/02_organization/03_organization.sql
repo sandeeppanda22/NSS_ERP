@@ -21,6 +21,11 @@
 --       All addresses are editable at runtime — seed values
 --       are initial state only.
 --
+-- Note: city_village_pk and postal_code_pk are NULL because
+--       Foundation city_village and postal_code seed data is
+--       not yet implemented. These will be populated when
+--       Foundation geography seed is extended.
+--
 --       Requires 01_organization_type_master.sql and
 --       02_organization_status_master.sql to have been
 --       executed first.
@@ -35,7 +40,7 @@ INSERT INTO organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
-     address_line_1, address_line_2, postal_code, country_pk)
+     address_line_1, address_line_2, country_pk)
 SELECT
     'Nilachala Saraswata Sangha',
     ot.organization_type_pk,
@@ -44,7 +49,6 @@ SELECT
     'KEN',
     'Satsikshya Mandir, A/4, Unit-9',
     'Bhubaneswar',
-    '751022',
     c.country_pk
 FROM organization_type_master ot
 CROSS JOIN organization_status_master os
@@ -61,7 +65,7 @@ INSERT INTO organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
-     address_line_1, address_line_2, postal_code, country_pk)
+     address_line_1, address_line_2, country_pk)
 SELECT
     'Nilachala Kutira',
     ot.organization_type_pk,
@@ -69,7 +73,6 @@ SELECT
     NULL,
     'NKT',
     'Puri',
-    NULL,
     NULL,
     c.country_pk
 FROM organization_type_master ot
@@ -87,7 +90,7 @@ INSERT INTO organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
-     address_line_1, address_line_2, postal_code, country_pk)
+     address_line_1, address_line_2, country_pk)
 SELECT
     'Sri Shri Nigamananda Smruti Mandir',
     ot.organization_type_pk,
@@ -96,7 +99,6 @@ SELECT
     'SMR',
     'Swargadwar',
     'Puri',
-    NULL,
     c.country_pk
 FROM organization_type_master ot
 CROSS JOIN organization_status_master os

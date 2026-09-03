@@ -5,9 +5,9 @@
 -- Table: organization
 -- Depth: 3 (depends on organization_type_master,
 --           organization_status_master, country,
---           state, district)
+--           state, district, city_village, postal_code)
 -- Sequence: #33 of 87
--- Version: 1.0
+-- Version: 1.1
 -- Authority: SOL-ARCH-010, SOL-ORG-005 §19–§52
 -- Owner: NSS_ADMIN
 --
@@ -59,7 +59,14 @@ CREATE TABLE organization
 
     country_pk UUID NULL,
 
-    postal_code VARCHAR(20) NULL,
+    city_village_pk UUID NULL,
+
+    postal_code_pk UUID NULL,
+
+    -- Physical coordinates of this organization
+    latitude NUMERIC(10,7) NULL,
+
+    longitude NUMERIC(10,7) NULL,
 
     -- Audit
     created_at TIMESTAMPTZ NOT NULL
@@ -106,6 +113,21 @@ CREATE TABLE organization
         FOREIGN KEY (country_pk)
         REFERENCES country (country_pk),
 
+    CONSTRAINT fk_organization_city_village
+        FOREIGN KEY (city_village_pk)
+        REFERENCES city_village (city_village_pk),
+
+    CONSTRAINT fk_organization_postal_code
+        FOREIGN KEY (postal_code_pk)
+        REFERENCES postal_code (postal_code_pk),
+
+    -- Coordinate range validation
+    CONSTRAINT chk_organization_latitude
+        CHECK (latitude IS NULL OR (latitude >= -90 AND latitude <= 90)),
+
+    CONSTRAINT chk_organization_longitude
+        CHECK (longitude IS NULL OR (longitude >= -180 AND longitude <= 180)),
+
     -- Soft-delete consistency
     CONSTRAINT chk_organization_soft_delete
         CHECK
@@ -134,6 +156,12 @@ CREATE INDEX idx_organization_state
 
 CREATE INDEX idx_organization_district
     ON organization (district_pk);
+
+CREATE INDEX idx_organization_city_village
+    ON organization (city_village_pk);
+
+CREATE INDEX idx_organization_postal_code
+    ON organization (postal_code_pk);
 
 CREATE INDEX idx_organization_active
     ON organization (is_active);

@@ -225,6 +225,10 @@ check_fk_integrity "organization -> organization_status_master" \
     "SELECT COUNT(*) FROM organization o LEFT JOIN organization_status_master osm ON o.organization_status_pk = osm.organization_status_pk WHERE osm.organization_status_pk IS NULL;"
 check_fk_integrity "organization -> country" \
     "SELECT COUNT(*) FROM organization o LEFT JOIN country c ON o.country_pk = c.country_pk WHERE o.country_pk IS NOT NULL AND c.country_pk IS NULL;"
+check_fk_integrity "organization -> city_village" \
+    "SELECT COUNT(*) FROM organization o LEFT JOIN city_village cv ON o.city_village_pk = cv.city_village_pk WHERE o.city_village_pk IS NOT NULL AND cv.city_village_pk IS NULL;"
+check_fk_integrity "organization -> postal_code" \
+    "SELECT COUNT(*) FROM organization o LEFT JOIN postal_code pc ON o.postal_code_pk = pc.postal_code_pk WHERE o.postal_code_pk IS NOT NULL AND pc.postal_code_pk IS NULL;"
 echo ""
 
 # =====================================================
