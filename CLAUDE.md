@@ -26,7 +26,7 @@ Hand-written PostgreSQL DDL under `database/ddl/`, numeric folder order, execute
 phase-by-phase execution table):
 
 1. `00_bootstrap/*` — 3 RBAC tables (`role_master`, `permission_master`, `role_permission`),
-   created before Foundation since they have no FK dependencies — **DDL written, not yet
+   created before Foundation since they have no FK dependencies — **DDL implemented and
    committed**; seed data partial (`role_master`: 8 roles seeded; `permission_master`/
    `role_permission`: empty, blocked on the permission catalogue being frozen)
 2. `01_foundation/01_extensions.sql` — `pgcrypto`, `pg_trgm`, `btree_gin`
@@ -36,9 +36,12 @@ phase-by-phase execution table):
 5. `03_person/*` — superseded prototype, will be rewritten; don't build on it
 6. `database/seed/` mirrors the same folder order
 
-`./validate_foundation.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` runs Foundation's DDL+seed
-end-to-end against a running Postgres instance and checks row counts (Foundation only — doesn't
-touch Organization/Person).
+`database/scripts/01_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` runs all implemented DDL+seed
+end-to-end against a running Postgres instance (Bootstrap RBAC, Foundation, Organization — not
+Person, which is superseded); `database/scripts/02_validate.sh` (same args) then checks row
+counts and FK integrity across those same modules. `database/scripts/00_create_database.sql` is
+a one-time superuser script that creates the `nss_erp` database and the `nss_admin`/`app_backend`
+roles. The old repo-root `validate_foundation.sh` (Foundation-only) has been replaced by these.
 
 ## Running the Django app
 
@@ -70,9 +73,9 @@ to one is reflected in the other.
 - **Hand-written SQL DDL** (`database/ddl/`) — UUID `_pk` columns, `_code` business identifiers,
   FK-based master data — is the "real" intended schema per the SOLUTION docs
   (`docs/03_Solution/modules/`), but as of this writing is not read from or written to by any
-  Django code. `01_foundation/` and `02_organization/` are implemented and seeded;
-  `00_bootstrap/` (RBAC tables) has DDL written but is uncommitted with partial seed data;
-  nothing else exists yet.
+  Django code. `00_bootstrap/`, `01_foundation/`, and `02_organization/` are all implemented and
+  committed; Bootstrap RBAC seed data is partial (`role_master` seeded, `permission_master`/
+  `role_permission` empty pending the permission catalogue); nothing else exists yet.
 
 **Django app structure:** apps live directly under `backend/` (no `apps/` subdirectory):
 `backend/{authentication, foundation, membership, family, heritage, dashboard, governance,

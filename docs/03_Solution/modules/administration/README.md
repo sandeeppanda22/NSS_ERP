@@ -119,7 +119,7 @@ cross-reference `SOL-LIFE-001`/`002`, see `docs/PROJECT_DOCUMENTATION.md` → "O
 TODOs") · Business Rules Drafted (SOURCE
 ALIGNED) · Table Design Drafted (SOURCE ALIGNED) · Correspondence Register fully designed
 (SOL-ADMIN-006–009, one PENDING rule) · **Bootstrap RBAC (`role_master`/`permission_master`/
-`role_permission`): DDL written, not yet committed; seed data partial** (`role_master`: 8
+`role_permission`): DDL implemented and committed; seed data partial** (`role_master`: 8
 roles; the other two: empty, pending the permission catalogue) · remaining 5 tables (2 RBAC +
 3 Correspondence Register): SQL Implementation Not Started ·
 `backend/administration/` Django app does not exist yet

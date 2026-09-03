@@ -56,7 +56,7 @@ Overall solution architecture documentation (cross-module, above the per-module 
   The 7 Programme & Events candidate tables are explicitly listed but marked NOT EXECUTABLE
   until Module #21 is formally frozen. Status: FROZEN. Foundation and Organization are now
   implemented against this order (see `database/README.md`); Bootstrap RBAC's 3 tables have
-  DDL written but uncommitted, ahead of Foundation in execution phase — see
+  DDL implemented and committed, ahead of Foundation in execution phase — see
   `BOOTSTRAP_ARCHITECTURE.md` below.
 - **`BOOTSTRAP_ARCHITECTURE.md`** (`SOL-ARCH-011`, FROZEN) — Defines a "Phase 0" that creates
   and seeds `role_master`/`permission_master`/`role_permission` (zero FK dependencies) before
@@ -90,9 +90,10 @@ Overall solution architecture documentation (cross-module, above the per-module 
   Module #21's own formal freeze — see `docs/03_Solution/modules/programmes_events/README.md`.
 
 This is mostly the **approved target**, not yet the current code — `backend/` still runs
-Bootstrap 5 templates with no FastAPI wiring. Foundation (12 tables) and Organization (3
-tables) are implemented against `SOL-ARCH-009`/`010`'s DDL sequence; Bootstrap RBAC's 3 tables
-(`SOL-ARCH-011`) have DDL written but not yet committed, with partial seed data.
+Bootstrap 5 templates with no FastAPI wiring. Bootstrap RBAC (3 tables, `SOL-ARCH-011`),
+Foundation (12 tables), and Organization (3 tables) are all implemented and committed against
+`SOL-ARCH-009`/`010`'s DDL sequence; Bootstrap RBAC's seed data remains partial (`role_master`
+seeded, `permission_master`/`role_permission` empty pending the permission catalogue).
 `PROGRAMME_EVENT_DOMAIN_MODEL.md` and `EVENT_ENTITY_RECONCILIATION.md` remain PROPOSED/DRAFT;
 `MODULE_DEPENDENCY_MAP.md` (`SOL-ARCH-007`) remains DRAFT overall. `IMPLEMENTATION_DEPENDENCY_
 ORDER.md` (`SOL-ARCH-008`), `FK_DEPENDENCY_GRAPH.md` (`SOL-ARCH-009`), `DDL_CREATION_ORDER.md`

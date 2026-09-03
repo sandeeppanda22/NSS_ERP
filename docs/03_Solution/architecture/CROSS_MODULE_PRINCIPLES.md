@@ -535,10 +535,10 @@ physical model ACCEPTED (`membership_sakha_affiliation`).
 
 ```text
 <3–5 character Organization/Sakha Short Code><8-digit sequence>
-Examples: EKM00000123, PURI00000001, BBSR00000042
+Examples: ESS00000123, PURI00000001, BBSR00000042
 ```
 
-`EKM00000123` is a canonical example, not a restriction to three-character
+`ESS00000123` is a canonical example, not a restriction to three-character
 codes. The short code length varies by organization (see ORG-PENDING-001).
 
 The short code is the `organization_short_code` defined in
@@ -553,7 +553,7 @@ and increments per Sakha independently.
    current recognized/base Sakha membership.
 3. Existing Sakha register numbers should be **carried forward into the
    ERP Local Sakha ID wherever they can be reliably mapped** (e.g. old
-   Sakha number `123` → `EKM00000123`), avoiding unnecessary
+   Sakha number `123` → `ESS00000123`), avoiding unnecessary
    renumbering.
 4. Existing Sakha numbers remain available as historical migration
    references (legacy numbers are never discarded).
@@ -581,7 +581,7 @@ and increments per Sakha independently.
                 │                     │
          NEW local ERP ID       EXISTING base ID
                 │                     │
-         CTC00000124            EKM00000123
+         CTC00000124            ESS00000123
    ```
 
 6. When Parichaya Patra/membership is formally transferred:
@@ -640,10 +640,10 @@ Sangha Sevi ID         → UNCHANGED
 ### Lifecycle
 
 ```text
-Member joins Sakha A     → EKM00000123 (ACTIVE)
-Darshak at Sakha B       → EKM00000123 (still ACTIVE at base Sakha A)
-Transfer to Sakha B      → EKM00000123 (ARCHIVED), CTC00000042 (ACTIVE)
-Returns to Sakha A       → CTC00000042 (ARCHIVED), EKM00000123 (REACTIVATED)
+Member joins Sakha A     → ESS00000123 (ACTIVE)
+Darshak at Sakha B       → ESS00000123 (still ACTIVE at base Sakha A)
+Transfer to Sakha B      → ESS00000123 (ARCHIVED), CTC00000042 (ACTIVE)
+Returns to Sakha A       → CTC00000042 (ARCHIVED), ESS00000123 (REACTIVATED)
 ```
 
 Archived IDs are never reassigned to another person. If the same
@@ -728,9 +728,9 @@ created_at / created_by / updated_at / updated_by
 reopened** — this preserves clean historical periods for audit:
 
 ```text
-2019 ─────── 2023    Ekamra   EKM00000123   ARCHIVED
+2019 ─────── 2023    Ekamra   ESS00000123   ARCHIVED
 2023 ─────── 2026    Cuttack  CTC00000042   ARCHIVED
-2026 ─────── →       Ekamra   EKM00000123   REACTIVATED
+2026 ─────── →       Ekamra   ESS00000123   REACTIVATED
 ```
 
 **Decisions recorded:**

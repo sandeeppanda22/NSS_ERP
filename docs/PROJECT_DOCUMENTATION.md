@@ -25,10 +25,10 @@ though several of Organization's own design decisions remain open (see Gotchas).
 
 The codebase today is an early-stage skeleton: a working Django login + dashboard + person-list
 flow, five real Django data models (`foundation`, `authentication`, `family`, `membership`,
-`heritage`), a growing raw-SQL PostgreSQL schema (Foundation: 12 tables; Organization: 3 tables;
-a superseded Person prototype — 15 tables implemented in total, plus 3 more Bootstrap RBAC
-tables with DDL written but not yet committed to git; see the `database/` detail
-below), and an extensive, mature governance/documentation corpus that is significantly ahead of
+`heritage`), a growing raw-SQL PostgreSQL schema (Bootstrap RBAC: 3 tables; Foundation: 12
+tables; Organization: 3 tables — 18 tables implemented and committed in total, plus a
+superseded Person prototype; see the `database/` detail below), and an extensive, mature
+governance/documentation corpus that is significantly ahead of
 the code. Solution-layer design documentation (`docs/03_Solution/modules/`) is complete or
 near-complete across 22 module folders — with zero corresponding backend/SQL work beyond the
 five Django apps and the Foundation/Organization DDL noted above. Two Solution-layer module
@@ -114,10 +114,11 @@ are created and seeded before Foundation — resolving the same audit-actor circ
 via the same two-pass strategy. It establishes `nss_admin` (PostgreSQL login, DDL-only) as
 distinct from `NSS_ADMIN` (an ERP RBAC role, a `role_master` row) — the two are explicitly not
 equivalent, and `NSS_ADMIN` never bypasses RBAC checks. DDL for all 3 tables exists under
-`database/ddl/00_bootstrap/` but is **not yet committed to git**; seed data is partial
-(`role_master`: 8 roles; `permission_master`/`role_permission`: empty, pending the permission
-catalogue). Ownership of the 3 tables remains with Administration — "Bootstrap" is a
-DDL-sequencing label, not a new module (see Gotchas).
+`database/ddl/00_bootstrap/` and is **implemented and committed** (`feat(bootstrap): Phase 0
+Bootstrap RBAC DDL and seed data`); seed data is partial (`role_master`: 8 roles;
+`permission_master`/`role_permission`: empty, pending the permission catalogue). Ownership of
+the 3 tables remains with Administration — "Bootstrap" is a DDL-sequencing label, not a new
+module (see Gotchas).
 
 ## Directory structure
 
@@ -147,9 +148,12 @@ NSS_ERP/
 ├── BY-LAW/                       Original source PDFs/docx of the NSS and Mahila Sangha Bye-Laws — the primary source both `docs/01_Authoritative_References/NSS/` and `.../MAHILA_SANGHA/` are transcribed from
 ├── requirements.txt              Python dependencies (pip, not pinned to a venv tool)
 ├── CLAUDE.md                     AI-agent operating memory/context (terse, instruction-oriented)
-├── README.md                     Project pitch / high-level status
-└── validate_foundation.sh        Runs Foundation's DDL+seed end-to-end against a live Postgres instance and checks row counts
+└── README.md                     Project pitch / high-level status
 ```
+
+`database/scripts/` holds the executable build/validate scripts (`00_create_database.sql`,
+`01_build.sh`, `02_validate.sh`) that replaced the old repo-root `validate_foundation.sh`
+(deleted) — see the `database/` detail below.
 
 ### `backend/` — Django project detail
 
@@ -241,8 +245,12 @@ mapping, backed by `GDR-002`.
 
 ```
 database/
+├── scripts/              00_create_database.sql (superuser: creates the nss_erp database +
+│                         nss_admin/app_backend PostgreSQL roles), 01_build.sh (runs all
+│                         implemented DDL+seed in phase order), 02_validate.sh (row-count/FK
+│                         integrity checks) — replaced the old repo-root validate_foundation.sh
 ├── ddl/
-│   ├── 00_bootstrap/     DDL written, uncommitted — 3 tables: role_master,
+│   ├── 00_bootstrap/     Implemented, committed — 3 tables: role_master,
 │   │                     permission_master, role_permission (RBAC definitions, created
 │   │                     before Foundation — zero FK dependencies; SOL-ARCH-011). Owned by
 │   │                     Administration; see Gotchas for the role-catalogue discrepancy
@@ -290,7 +298,7 @@ database/
 │   ├── mahila/             01-05 overview/erd/lifecycle/business_rules/table_design, v2.1.0 — one body, two names (Mahila Governing Body = Mahila Parichalana Mandali); freezes the Mandali term at 2 years (MAH-040); no backend/mahila/ app
 │   ├── sevak/              01-06 core sequence (only 06_table_design FROZEN, rest DRAFT/consolidation-in-progress) + sangha/, seva/, events/ subdocs; core SEV-001..040; no backend/sevak/ app
 │   ├── foundation/         01-04 overview/erd/business_rules/table_design, v1.0.0 SOURCE ALIGNED — describes 10 tables: the original 8 (master_category, master_data, system_setting, id_sequence_master, country, state, district, city_village) plus `document_master` and `field_change_log`, Foundation-owned shared infrastructure (`DOC-ARCH-001`, `CROSS_MODULE_PRINCIPLES.md`). **Same name, different scope from `backend/foundation/`** (which implements Person/Organization/Address). **Implemented in SQL** — all 10 designed tables have DDL under `database/ddl/01_foundation/`, plus 2 more the design doc doesn't describe yet (`postal_code`, `city_village_postal_code_map`) — see Gotchas
-│   ├── administration/     10 files (5 RBAC/Bootstrap docs + 1 Bootstrap RBAC column-level design + 4 Correspondence Register docs) — v1.0.0/v1.1.0 SOURCE ALIGNED — **8 Administration-owned tables**: the 5 RBAC tables (role_master, permission_master, role_permission, user_role, admin_scope — the first 3 also sequenced as "Phase 0 Bootstrap RBAC," `SOL-BOOT-001`/`SOL-ARCH-011`, DDL written but uncommitted) plus 3 Correspondence Register tables (correspondence, correspondence_document, correspondence_finance_reference — `CORR-DECISION-003`); `user_account`/`password_history` are exclusively Authentication-owned per the Table Ownership Declaration; no backend/administration/ app. **Filename collision:** `06_bootstrap_rbac_table_design.md` and `06_correspondence_register_erd.md` share the same number — see Gotchas
+│   ├── administration/     10 files (5 RBAC/Bootstrap docs + 1 Bootstrap RBAC column-level design + 4 Correspondence Register docs) — v1.0.0/v1.1.0 SOURCE ALIGNED — **8 Administration-owned tables**: the 5 RBAC tables (role_master, permission_master, role_permission, user_role, admin_scope — the first 3 also sequenced as "Phase 0 Bootstrap RBAC," `SOL-BOOT-001`/`SOL-ARCH-011`, DDL implemented and committed) plus 3 Correspondence Register tables (correspondence, correspondence_document, correspondence_finance_reference — `CORR-DECISION-003`); `user_account`/`password_history` are exclusively Authentication-owned per the Table Ownership Declaration; no backend/administration/ app. **Filename collision:** `06_bootstrap_rbac_table_design.md` and `06_correspondence_register_erd.md` share the same number — see Gotchas
 │   ├── authentication/     Solution-layer "Authentication & Security", 5 files — v1.0.0 SOURCE ALIGNED — ERD still shows 7 tables, but exclusive ownership is only `user_account`+`password_history`; the other 5 RBAC tables are exclusively Administration-owned and appear here only for evaluation, not management. Argon2/JWT/session/Aadhaar-encryption/RLS as principles. **Different schema from** the real `backend/authentication/` Django app (Role/UserRole/LoginAudit) — same folder name, unreconciled designs
 │   ├── governance/         Solution-layer ERP module, distinct from docs/00_Project_Governance/, 5 files — v1.0.0 SOURCE ALIGNED — Unified Body Governance Model (body_type_master, body_master, position_master, body_member_assignment, acting_position_assignment) + election entities (election, election_nomination, election_vote, election_result), 9 tables. **Freezes the Mahila Parichalana Mandali term at 3 years** (`04_governance_business_rules.md` GOV-BR-031) **and, per `03_governance_lifecycle.md`, a formal consensus→election→election-table reconstitution process** — both directly conflicting with mahila/'s own frozen **2-year** term (MAH-040) and its consensus-only reconstitution process; unreconciled, see Gotchas/Open questions. `backend/governance/` remains an empty stub
 │   ├── publications/       7 files (overview/erd/business_rules/table_design/functional_design/ui_workflow/notification_purchase_design), v1.0.0 SOURCE ALIGNED + USER REQUIREMENTS — zero new tables, reuses Heritage's nss_publication/publication_type_master/publication_language_master; no backend/publications/ app
@@ -362,14 +370,16 @@ are reconstructed directly from `backend/config/settings.py` and `requirements.t
 
 2. **Database:** provision a PostgreSQL database; `database/ddl/01_foundation/
    01_extensions.sql` enables `pgcrypto`, `pg_trgm`, and `btree_gin`. Run the DDL files under
-   `database/ddl/` in numeric folder/file order (`00_bootstrap` — 3 RBAC tables, DDL written
-   but not yet committed to git, seed data partial — → `01_foundation` — 12 tables — →
+   `database/ddl/` in numeric folder/file order (`00_bootstrap` — 3 RBAC tables, implemented
+   and committed, seed data partial — → `01_foundation` — 12 tables — →
    `02_organization` — 3 tables, both implemented and seeded — → `03_person`, superseded
    prototype, skip it), then load `database/seed/` in the same order (see `database/README.md`
-   for the exact `psql` invocations and full phase-by-phase execution table). The repo-root
-   `./validate_foundation.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` script runs Foundation's
-   DDL+seed end-to-end against a live Postgres instance and checks row counts (Foundation only
-   — doesn't touch Organization/Person). Note this raw-SQL schema is **not** currently consumed
+   for the exact `psql` invocations and full phase-by-phase execution table). `database/scripts/
+   01_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` runs all three implemented modules'
+   DDL+seed end-to-end against a live Postgres instance, and `database/scripts/02_validate.sh`
+   (same args) checks row counts and FK integrity afterward — these replaced the old repo-root
+   `validate_foundation.sh` (Foundation-only, now deleted). Note this raw-SQL schema is **not**
+   currently consumed
    by the Django app (see Architecture) — it exists independently, so setting it up is only
    required if you're working on the SQL/DB-first track rather than the Django app itself.
 
@@ -660,7 +670,7 @@ for both.
   a second pass. `DDL_CREATION_ORDER.md` turns that into the exact numbered `CREATE TABLE`
   sequence. Tiers 1-2 (Foundation, Organization) have been executed against `database/ddl/`;
   Tiers 3-12 have not. `BOOTSTRAP_ARCHITECTURE.md` (`SOL-ARCH-011`) adds a "Phase 0" ahead of
-  Tier 1 for the 3 RBAC tables — DDL is written but not yet committed to git. The 7 Programmes
+  Tier 1 for the 3 RBAC tables — DDL is implemented and committed. The 7 Programmes
   & Events candidate tables are explicitly listed in both
   but marked NOT EXECUTABLE pending that module's own formal freeze.
 - **Role catalogue discrepancy between the frozen design docs and the actual Bootstrap RBAC
@@ -796,6 +806,14 @@ for both.
 - **Resolve the `06_bootstrap_rbac_table_design.md`/`06_correspondence_register_erd.md`
   filename collision** in `docs/03_Solution/modules/administration/` — both are numbered `06`.
   See Gotchas.
-- **Commit or discard the untracked Bootstrap RBAC SQL files** — `database/ddl/00_bootstrap/`
-  and `database/seed/00_bootstrap/` (6 files) exist on disk but aren't committed to git. Not
-  acted on here per the standing rule to only commit when asked.
+- **Fix `database/scripts/02_validate.sh`'s `id_sequence_master` duplicate check** — it checks
+  `check_no_duplicates "id_sequence_master" "entity_name"`, but that table's actual unique
+  business column (`database/ddl/01_foundation/04_id_sequence_master.sql`) is `sequence_code`,
+  not `entity_name` — the check will error out rather than validate anything. A code fix, not a
+  doc fix; flagged here since it surfaced during a docs pass.
+- **Reconcile `database/ddl/01_foundation/README.md`'s Design Decisions section with the actual
+  `organization` table.** It states Organization stores `postal_code_pk` (FK to `postal_code`)
+  plus `latitude`/`longitude` `NUMERIC(10,7)` — but the implemented `organization` table
+  (`database/ddl/02_organization/03_organization.sql`) has only a plain-text `postal_code
+  VARCHAR(20)` column and no `latitude`/`longitude` at all. That README section describes a
+  future/aspirational design, not what's built.

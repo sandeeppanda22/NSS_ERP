@@ -383,8 +383,11 @@ large city with multiple post offices).
   `city_village_postal_code_map` added to support searchable geographic hierarchy and map
   visualization. PIN codes have an explicit `state_pk` FK for direct administrative ownership
   (PIN → State is always deterministic); uniqueness is `(country_pk, postal_code)`.
-  M:N relationship to `city_village` via mapping table. Organization stores `postal_code_pk`
-  (FK to `postal_code`) plus `latitude`/`longitude` NUMERIC(10,7) for exact coordinates.
+  M:N relationship to `city_village` via mapping table. **Note:** the implemented `organization`
+  table (`database/ddl/02_organization/03_organization.sql`) does not yet consume this model —
+  it stores a plain-text `postal_code VARCHAR(20)` column with no FK to `postal_code` and no
+  `latitude`/`longitude` columns at all; wiring Organization to this PIN Code model remains
+  open (see `docs/PROJECT_DOCUMENTATION.md` → Open questions / TODOs).
 - **Supersedes** — this replaces the previous `country_master`, `state_province_master`,
   `district_region_master`, `city_village_master` tables from the prototype iteration.
   The new `postal_code` and `city_village_postal_code_map` tables preserve the same

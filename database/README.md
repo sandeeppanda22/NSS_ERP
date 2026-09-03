@@ -103,14 +103,13 @@ dependency and may be created in any order.
 | 4 | Organization | `02_organization_status_master.sql` | `organization_status_master` | 0 | #8 |
 | 4 | Organization | `03_organization.sql` | `organization` | 3 | #33 |
 
-**Total implemented: 15 tables (12 Foundation + 3 Organization)**
-**Phase 0 planned: 3 tables (Bootstrap RBAC) — column design pending**
+**Total implemented: 18 tables (3 Bootstrap RBAC + 12 Foundation + 3 Organization)**
+**Phase 0 seed partial: `role_master` seeded (8 roles); `permission_master`/`role_permission` empty, pending the permission catalogue freeze**
 
 See module READMEs for per-file details:
+- `ddl/00_bootstrap/README.md` / `seed/00_bootstrap/README.md`
 - `ddl/01_foundation/README.md` / `seed/01_foundation/README.md`
 - `ddl/02_organization/README.md` / `seed/02_organization/README.md`
-
-Bootstrap RBAC READMEs will be created during the Phase 0 vertical slice.
 
 ---
 
@@ -131,13 +130,17 @@ for enforcing these constraints (SOL-ARCH-011 §7.3).
 
 ```
 database/
+├── scripts/
+│   ├── 00_create_database.sql   Create DB + PostgreSQL roles (superuser)
+│   ├── 01_build.sh              Full schema build (all implemented phases)
+│   └── 02_validate.sh               Post-build validation (all modules)
 ├── ddl/
-│   ├── 00_bootstrap/     3 RBAC tables (Depths 0–1) — DESIGN PENDING
+│   ├── 00_bootstrap/     3 RBAC tables (Depths 0–1) — IMPLEMENTED
 │   ├── 01_foundation/    12 tables (Depths 0–4) — IMPLEMENTED
 │   ├── 02_organization/  3 tables (Depths 0–3) — IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
 ├── seed/
-│   ├── 00_bootstrap/     permissions + 7 roles + mappings — DESIGN PENDING
+│   ├── 00_bootstrap/     8 roles seeded; permission catalogue PENDING
 │   ├── 01_foundation/    reference data — IMPLEMENTED
 │   ├── 02_organization/  type masters + 3 unique orgs — IMPLEMENTED
 │   └── 03_person/        superseded prototype — WILL BE REPLACED
@@ -150,7 +153,7 @@ database/
 
 | Module | Tables | DDL Status | Next Action |
 |--------|-------:|-----------|-------------|
-| Bootstrap RBAC | 3 | ⏳ DESIGN | Freeze role_master, permission_master, role_permission columns |
+| Bootstrap RBAC | 3 | ✅ IMPLEMENTED | `permission_master`/`role_permission` seed pending permission catalogue freeze |
 | Foundation | 12 | ✅ IMPLEMENTED | — |
 | Organization | 3 | ✅ IMPLEMENTED | — |
 | Person | 1 | ⬜ SUPERSEDED — will be rewritten | Freeze column list |
@@ -177,23 +180,85 @@ implementation tier order (SOL-ARCH-008).
 
 ---
 
-## Validation
+## Scripts
 
-Module-level validation scripts live at the repository root:
+All executable scripts live in `database/scripts/`. Run from the
+repository root. Each accepts optional positional parameters:
 
-| Script | Scope |
-|--------|-------|
-| `validate_foundation.sh` | Foundation DDL + seed (12 tables) |
-
-Usage:
-
-```bash
-./validate_foundation.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+```
+DB_NAME  (default: nss_erp)
+DB_USER  (default: nss_admin)
+DB_HOST  (default: localhost)
+DB_PORT  (default: 5432)
 ```
 
-Defaults: `nss_erp`, `nss_admin`, `localhost`, `5432`.
+### 00_create_database.sql — Database and Role Setup
 
-Organization validation script is planned but not yet created.
+Run **once** by a PostgreSQL **superuser** (e.g. `postgres`).
+Creates the `nss_erp` database, the `nss_admin` role (DDL/schema
+owner), and the `app_backend` role (application runtime). Idempotent
+— uses `IF NOT EXISTS`; does not drop anything.
+
+```bash
+psql -U postgres -f database/scripts/00_create_database.sql
+```
+
+**Important:** This creates PostgreSQL-level roles only. The ERP
+application role `NSS_ADMIN` is a row in `role_master` (Phase 0 seed)
+and is a separate security boundary (SOL-ARCH-011 §7.2).
+
+No credentials are stored in this file. Set passwords externally via
+`ALTER ROLE ... PASSWORD '...'` or `.pgpass` / environment variables.
+
+### 01_build.sh — Full Schema Build
+
+Executes all DDL and seed scripts for currently implemented modules
+in SOL-ARCH-011 phase order. Runs as `nss_admin`.
+
+```bash
+./database/scripts/01_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+```
+
+Phases executed:
+
+| Phase | Module | Content |
+|------:|--------|---------|
+| 0 | Bootstrap RBAC | 3 tables + seed (roles, permissions, mappings) |
+| 1 | Foundation | PostgreSQL extensions (pgcrypto, pg_trgm, btree_gin) |
+| 2 | Foundation | 12 tables (Depths 0–4) |
+| 3 | Foundation | Seed data (categories, locations, settings) |
+| 4 | Organization | 3 tables (Depths 0–3) |
+| 5 | Organization | Seed data (types, statuses, named orgs) |
+
+**Not executed:** `03_person/` (superseded prototype), Pass 2
+audit-actor FK constraints (deferred until `sangha_sevi` exists).
+
+The script uses `set -euo pipefail` and `ON_ERROR_STOP=1` — any
+failed SQL file halts the build immediately.
+
+**This script is NOT idempotent.** Running it twice on the same
+database will fail on `CREATE TABLE`. For a fresh rebuild, drop and
+recreate the database first.
+
+### 02_validate.sh — Post-Build Validation
+
+Validates that all implemented modules were built correctly.
+**Does NOT execute any DDL or seed scripts** — run `01_build.sh`
+first. Covers all currently implemented modules.
+
+```bash
+./database/scripts/02_validate.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+```
+
+Validation checks per module:
+
+| Module | Tables | Checks |
+|--------|-------:|--------|
+| Bootstrap RBAC | 3 | Existence, 8 roles seeded, unique `role_code`, FK integrity (`role_permission` → both parents) |
+| Foundation | 12 | Existence, row counts (categories, locations, settings), unique codes, FK integrity (location hierarchy, `master_data` → `master_category`), deferred columns on `document_master` |
+| Organization | 3 | Existence, 8 types / 6 statuses / 3 orgs seeded, unique codes, FK integrity (org → type, status, country) |
+
+**Extend this script when new modules are added to `01_build.sh`.**
 
 ---
 
