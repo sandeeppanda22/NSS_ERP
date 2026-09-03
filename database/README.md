@@ -226,7 +226,7 @@ Phases executed:
 | 0 | Bootstrap RBAC | 3 tables + seed (roles, permissions, mappings) |
 | 1 | Foundation | PostgreSQL extensions (pgcrypto, pg_trgm, btree_gin) |
 | 2 | Foundation | 12 tables (Depths 0–4) |
-| 3 | Foundation | Seed data (categories, locations, settings) |
+| 3 | Foundation | Seed data (categories, locations, settings, postal codes) |
 | 4 | Organization | 3 tables (Depths 0–3) |
 | 5 | Organization | Seed data (types, statuses, named orgs) |
 
@@ -256,7 +256,7 @@ Validation checks per module:
 |--------|-------:|--------|
 | Bootstrap RBAC | 3 | Existence, 8 roles seeded, unique `role_code`, FK integrity (`role_permission` → both parents) |
 | Foundation | 12 | Existence, row counts (categories, locations, settings), unique codes, FK integrity (location hierarchy, `master_data` → `master_category`), deferred columns on `document_master` |
-| Organization | 3 | Existence, 8 types / 6 statuses / 3 orgs seeded, unique codes, FK integrity (org → type, status, country) |
+| Organization | 3 | Existence, 8 types / 6 statuses / 3 orgs seeded, unique codes, FK integrity (org → type, status, country, city_village, postal_code) |
 
 **Extend this script when new modules are added to `01_build.sh`.**
 

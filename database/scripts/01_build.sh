@@ -146,6 +146,7 @@ FOUNDATION_SEED=(
     "state (seed)|05_state.sql"
     "district (seed)|06_district.sql"
     "system_setting (seed)|07_system_setting.sql"
+    "postal_code (seed)|08_postal_code.sql"
 )
 for entry in "${FOUNDATION_SEED[@]}"; do
     label="${entry%%|*}"

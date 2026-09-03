@@ -176,6 +176,7 @@ check_row_count "country" 5
 check_row_count "state" 112
 check_row_count "district" 700
 check_row_count "system_setting" 5
+check_row_count "postal_code" 2
 
 echo "  Unique constraints:"
 check_no_duplicates "master_category" "category_code"
