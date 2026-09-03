@@ -19,6 +19,7 @@ Files must be run in numeric order (each may depend on data from earlier files).
 | 05 | `05_state.sql` | `state` | `04_country.sql` |
 | 06 | `06_district.sql` | `district` | `05_state.sql` |
 | 07 | `07_system_setting.sql` | `system_setting` | DDL complete |
+| 08 | `08_postal_code.sql` | `postal_code` | `04_country.sql`, `05_state.sql` |
 
 ## Execution Command
 
@@ -203,6 +204,22 @@ defaults; actual production values are configured during deployment.
 
 ---
 
+### 08_postal_code.sql
+
+Seeds 2 postal codes into `postal_code` — the minimal bootstrap set required
+by Organization seed data (FK references from `organization.postal_code_pk`).
+Uses JOIN to resolve `country_pk` and `state_pk` from existing seed data.
+
+| # | Postal Code | Post Office | Used By |
+|--:|-------------|-------------|---------|
+| 1 | `751022` | Unit 9 SO, Bhubaneswar | Kendra Sangha (Satsikshya Mandir) |
+| 2 | `752001` | Puri HO | Nilachala Kutira, Smruti Mandira |
+
+Full postal code data (India Post PIN codes) is loaded during deployment
+or data migration — this file only seeds what the Organization bootstrap needs.
+
+---
+
 ## Notes
 
 - Seed data uses `CROSS JOIN ... VALUES` with subqueries to resolve parent PKs
@@ -210,5 +227,6 @@ defaults; actual production values are configured during deployment.
 - Additional categories and values will be added by downstream module seeds
   (e.g., Organization adds organization-type values to `master_data`).
 - Cities/villages are not seeded — populated during deployment or data migration.
-- Postal codes (PIN codes) are not seeded — populated from India Post data
-  during deployment.
+- Postal codes: a minimal bootstrap set (751022 Bhubaneswar, 752001 Puri) is
+  seeded to satisfy Organization seed FK references. Full postal code data
+  (India Post PIN codes) is populated during deployment or data migration.

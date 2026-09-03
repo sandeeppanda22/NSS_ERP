@@ -21,15 +21,15 @@
 --       All addresses are editable at runtime — seed values
 --       are initial state only.
 --
--- Note: city_village_pk and postal_code_pk are NULL because
---       Foundation city_village and postal_code seed data is
---       not yet implemented. These will be populated when
---       Foundation geography seed is extended.
+-- Note: city_village_pk is NULL because Foundation
+--       city_village seed data is not yet implemented.
+--       postal_code_pk references Foundation postal_code
+--       seed (08_postal_code.sql).
 --
 --       Requires 01_organization_type_master.sql and
 --       02_organization_status_master.sql to have been
 --       executed first.
---       Uses subqueries to resolve type/status PKs.
+--       Uses subqueries to resolve type/status/postal PKs.
 -- =====================================================
 
 -- -------------------------------------------------
@@ -40,7 +40,7 @@ INSERT INTO organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
-     address_line_1, address_line_2, country_pk)
+     address_line_1, address_line_2, postal_code_pk, country_pk)
 SELECT
     'Nilachala Saraswata Sangha',
     ot.organization_type_pk,
@@ -49,13 +49,17 @@ SELECT
     'KEN',
     'Satsikshya Mandir, A/4, Unit-9',
     'Bhubaneswar',
+    pc.postal_code_pk,
     c.country_pk
 FROM organization_type_master ot
 CROSS JOIN organization_status_master os
 CROSS JOIN country c
+CROSS JOIN postal_code pc
 WHERE ot.organization_type_code = 'KENDRA'
   AND os.organization_status_code = 'ACTIVE'
-  AND c.country_code = 'IN';
+  AND c.country_code = 'IN'
+  AND pc.postal_code = '751022'
+  AND pc.country_pk = c.country_pk;
 
 -- -------------------------------------------------
 -- Nilachala Kutira (Eternal Abode, Puri)
@@ -65,7 +69,7 @@ INSERT INTO organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
-     address_line_1, address_line_2, country_pk)
+     address_line_1, address_line_2, postal_code_pk, country_pk)
 SELECT
     'Nilachala Kutira',
     ot.organization_type_pk,
@@ -74,13 +78,17 @@ SELECT
     'NKT',
     'Puri',
     NULL,
+    pc.postal_code_pk,
     c.country_pk
 FROM organization_type_master ot
 CROSS JOIN organization_status_master os
 CROSS JOIN country c
+CROSS JOIN postal_code pc
 WHERE ot.organization_type_code = 'NILACHALA_KUTIRA'
   AND os.organization_status_code = 'ACTIVE'
-  AND c.country_code = 'IN';
+  AND c.country_code = 'IN'
+  AND pc.postal_code = '752001'
+  AND pc.country_pk = c.country_pk;
 
 -- -------------------------------------------------
 -- Smruti Mandira (Nigamananda Smruti Mandir — memorial temple)
@@ -90,7 +98,7 @@ INSERT INTO organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
-     address_line_1, address_line_2, country_pk)
+     address_line_1, address_line_2, postal_code_pk, country_pk)
 SELECT
     'Sri Shri Nigamananda Smruti Mandir',
     ot.organization_type_pk,
@@ -99,10 +107,14 @@ SELECT
     'SMR',
     'Swargadwar',
     'Puri',
+    pc.postal_code_pk,
     c.country_pk
 FROM organization_type_master ot
 CROSS JOIN organization_status_master os
 CROSS JOIN country c
+CROSS JOIN postal_code pc
 WHERE ot.organization_type_code = 'SMRUTI_MANDIRA'
   AND os.organization_status_code = 'ACTIVE'
-  AND c.country_code = 'IN';
+  AND c.country_code = 'IN'
+  AND pc.postal_code = '752001'
+  AND pc.country_pk = c.country_pk;
