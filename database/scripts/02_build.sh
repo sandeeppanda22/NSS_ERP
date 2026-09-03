@@ -12,7 +12,7 @@
 # Version: 1.0
 #
 # Usage:
-#   ./database/scripts/01_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+#   ./database/scripts/02_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
 #
 # Defaults:
 #   DB_NAME  = nss_erp
@@ -23,15 +23,15 @@
 # Prerequisites:
 #   - PostgreSQL running and accessible
 #   - Database and roles created (see 00_create_database.sql)
+#   - Extensions installed (see 01_extensions.sql)
 #   - Run from the repository root directory
 #
 # Implemented phases:
 #   Phase 0  — Bootstrap RBAC (3 tables + seed)
-#   Phase 1  — Foundation extensions
-#   Phase 2  — Foundation DDL (12 tables)
-#   Phase 3  — Foundation seed data
-#   Phase 4  — Organization DDL (3 tables)
-#   Phase 5  — Organization seed data
+#   Phase 1  — Foundation DDL (12 tables)
+#   Phase 2  — Foundation seed data
+#   Phase 3  — Organization DDL (3 tables)
+#   Phase 4  — Organization seed data
 #
 # NOT executed:
 #   - database/ddl/03_person/  (superseded prototype)
@@ -103,16 +103,9 @@ run_sql "role_permission (seed)"   "${SEED_BASE}/00_bootstrap/03_role_permission
 echo ""
 
 # -------------------------------------------------
-# Phase 1: Extensions
+# Phase 1: Foundation DDL (12 tables, Depths 0–4)
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 1] Foundation — Extensions${NC}"
-run_sql "pgcrypto, pg_trgm, btree_gin" "${DDL_BASE}/01_foundation/01_extensions.sql"
-echo ""
-
-# -------------------------------------------------
-# Phase 2: Foundation DDL (12 tables, Depths 0–4)
-# -------------------------------------------------
-echo -e "${CYAN}[Phase 2] Foundation — DDL (12 tables)${NC}"
+echo -e "${CYAN}[Phase 1] Foundation — DDL (12 tables)${NC}"
 FOUNDATION_DDL=(
     "master_category|02_master_category.sql"
     "system_setting|03_system_setting.sql"
@@ -135,9 +128,9 @@ done
 echo ""
 
 # -------------------------------------------------
-# Phase 3: Foundation Seed Data
+# Phase 2: Foundation Seed Data
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 3] Foundation — Seed Data${NC}"
+echo -e "${CYAN}[Phase 2] Foundation — Seed Data${NC}"
 FOUNDATION_SEED=(
     "master_category (seed)|01_master_category.sql"
     "master_data (seed)|02_master_data.sql"
@@ -156,18 +149,18 @@ done
 echo ""
 
 # -------------------------------------------------
-# Phase 4: Organization DDL (3 tables, Depths 0–3)
+# Phase 3: Organization DDL (3 tables, Depths 0–3)
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 4] Organization — DDL (3 tables)${NC}"
+echo -e "${CYAN}[Phase 3] Organization — DDL (3 tables)${NC}"
 run_sql "organization_type_master"   "${DDL_BASE}/02_organization/01_organization_type_master.sql"
 run_sql "organization_status_master" "${DDL_BASE}/02_organization/02_organization_status_master.sql"
 run_sql "organization"               "${DDL_BASE}/02_organization/03_organization.sql"
 echo ""
 
 # -------------------------------------------------
-# Phase 5: Organization Seed Data
+# Phase 4: Organization Seed Data
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 5] Organization — Seed Data${NC}"
+echo -e "${CYAN}[Phase 4] Organization — Seed Data${NC}"
 run_sql "organization_type_master (seed)"   "${SEED_BASE}/02_organization/01_organization_type_master.sql"
 run_sql "organization_status_master (seed)" "${SEED_BASE}/02_organization/02_organization_status_master.sql"
 run_sql "organization (seed)"               "${SEED_BASE}/02_organization/03_organization.sql"

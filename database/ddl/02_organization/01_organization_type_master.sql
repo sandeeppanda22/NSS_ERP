@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE organization_type_master
+CREATE TABLE nss.organization_type_master
 (
     organization_type_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -50,4 +50,4 @@ CREATE TABLE organization_type_master
 );
 
 CREATE INDEX idx_organization_type_active
-    ON organization_type_master (is_active);
+    ON nss.organization_type_master (is_active);

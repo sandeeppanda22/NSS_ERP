@@ -10,7 +10,7 @@
 --       values configured during deployment.
 -- =====================================================
 
-INSERT INTO system_setting
+INSERT INTO nss.system_setting
 (
     setting_key,
     setting_value,

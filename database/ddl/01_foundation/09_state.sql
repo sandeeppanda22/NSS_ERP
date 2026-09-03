@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE state
+CREATE TABLE nss.state
 (
     state_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -36,7 +36,7 @@ CREATE TABLE state
 
     CONSTRAINT fk_state_country
         FOREIGN KEY (country_pk)
-        REFERENCES country (country_pk),
+        REFERENCES nss.country (country_pk),
 
     CONSTRAINT uq_state_country_code
         UNIQUE (country_pk, state_code),
@@ -54,10 +54,10 @@ CREATE TABLE state
 );
 
 CREATE INDEX idx_state_country
-    ON state (country_pk);
+    ON nss.state (country_pk);
 
 CREATE INDEX idx_state_active
-    ON state (is_active);
+    ON nss.state (is_active);
 
 CREATE INDEX idx_state_name
-    ON state USING gin (state_name gin_trgm_ops);
+    ON nss.state USING gin (state_name gin_trgm_ops);

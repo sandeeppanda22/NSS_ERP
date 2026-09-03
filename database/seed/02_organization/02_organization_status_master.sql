@@ -8,7 +8,7 @@
 -- Note: 6 lifecycle statuses per GOV-002
 -- =====================================================
 
-INSERT INTO organization_status_master
+INSERT INTO nss.organization_status_master
     (organization_status_code, organization_status_name, description, sort_order)
 VALUES
     ('PROPOSED',  'Proposed',

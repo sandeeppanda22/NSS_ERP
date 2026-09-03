@@ -20,9 +20,15 @@ SOL-ARCH-011 (Bootstrap Architecture), module table-design documents
 ### Full Build (from scratch)
 
 The build follows the bootstrap sequence defined in SOL-ARCH-011.
-Phase 0 establishes RBAC definitions before any business data.
+Prerequisites (superuser) must complete before the nss_admin phases.
 
 ```bash
+# ─────────────────────────────────────────────────
+# Prerequisites (run as PostgreSQL superuser)
+# ─────────────────────────────────────────────────
+psql -U postgres -d postgres -f database/scripts/00_create_database.sql
+psql -U postgres -d nss_erp  -f database/scripts/01_extensions.sql
+
 # ─────────────────────────────────────────────────
 # Phase 0: Bootstrap RBAC Definitions
 #          (3 tables, Depths 0–1)
@@ -37,33 +43,28 @@ for f in database/seed/00_bootstrap/0*.sql; do
 done
 
 # ─────────────────────────────────────────────────
-# Phase 1: Extensions
-# ─────────────────────────────────────────────────
-psql -U nss_admin -d nss_erp -f database/ddl/01_foundation/01_extensions.sql
-
-# ─────────────────────────────────────────────────
-# Phase 2: Foundation DDL (12 tables, Depths 0–4)
+# Phase 1: Foundation DDL (12 tables, Depths 0–4)
 # ─────────────────────────────────────────────────
 for f in database/ddl/01_foundation/0[2-9]*.sql database/ddl/01_foundation/1*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
 
 # ─────────────────────────────────────────────────
-# Phase 3: Foundation Seed Data
+# Phase 2: Foundation Seed Data
 # ─────────────────────────────────────────────────
 for f in database/seed/01_foundation/0*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
 
 # ─────────────────────────────────────────────────
-# Phase 4: Organization DDL (3 tables, Depths 0–3)
+# Phase 3: Organization DDL (3 tables, Depths 0–3)
 # ─────────────────────────────────────────────────
 for f in database/ddl/02_organization/0*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
 done
 
 # ─────────────────────────────────────────────────
-# Phase 5: Organization Seed Data
+# Phase 4: Organization Seed Data
 # ─────────────────────────────────────────────────
 for f in database/seed/02_organization/0*.sql; do
     psql -U nss_admin -d nss_erp -f "$f"
@@ -86,22 +87,21 @@ dependency and may be created in any order.
 | 0 | Bootstrap | `01_role_master.sql` | `role_master` | 0 | #13 |
 | 0 | Bootstrap | `02_permission_master.sql` | `permission_master` | 0 | #14 |
 | 0 | Bootstrap | `03_role_permission.sql` | `role_permission` | 1 | #20 |
-| 1 | Foundation | `01_extensions.sql` | pg_trgm, pgcrypto, btree_gin | — | — |
-| 2 | Foundation | `02_master_category.sql` | `master_category` | 0 | #1 |
-| 2 | Foundation | `03_system_setting.sql` | `system_setting` | 0 | #2 |
-| 2 | Foundation | `04_id_sequence_master.sql` | `id_sequence_master` | 0 | #3 |
-| 2 | Foundation | `05_country.sql` | `country` | 0 | #4 |
-| 2 | Foundation | `06_document_master.sql` | `document_master` | 0 | #5 |
-| 2 | Foundation | `07_field_change_log.sql` | `field_change_log` | 0 | #6 |
-| 2 | Foundation | `08_master_data.sql` | `master_data` | 1 | #18 |
-| 2 | Foundation | `09_state.sql` | `state` | 1 | #19 |
-| 2 | Foundation | `10_district.sql` | `district` | 2 | #26 |
-| 2 | Foundation | `12_postal_code.sql` | `postal_code` | 2 | #88 |
-| 2 | Foundation | `11_city_village.sql` | `city_village` | 3 | #32 |
-| 2 | Foundation | `13_city_village_postal_code_map.sql` | `city_village_postal_code_map` | 4 | #89 |
-| 4 | Organization | `01_organization_type_master.sql` | `organization_type_master` | 0 | #7 |
-| 4 | Organization | `02_organization_status_master.sql` | `organization_status_master` | 0 | #8 |
-| 4 | Organization | `03_organization.sql` | `organization` | 3 | #33 |
+| 1 | Foundation | `02_master_category.sql` | `master_category` | 0 | #1 |
+| 1 | Foundation | `03_system_setting.sql` | `system_setting` | 0 | #2 |
+| 1 | Foundation | `04_id_sequence_master.sql` | `id_sequence_master` | 0 | #3 |
+| 1 | Foundation | `05_country.sql` | `country` | 0 | #4 |
+| 1 | Foundation | `06_document_master.sql` | `document_master` | 0 | #5 |
+| 1 | Foundation | `07_field_change_log.sql` | `field_change_log` | 0 | #6 |
+| 1 | Foundation | `08_master_data.sql` | `master_data` | 1 | #18 |
+| 1 | Foundation | `09_state.sql` | `state` | 1 | #19 |
+| 1 | Foundation | `10_district.sql` | `district` | 2 | #26 |
+| 1 | Foundation | `12_postal_code.sql` | `postal_code` | 2 | #88 |
+| 1 | Foundation | `11_city_village.sql` | `city_village` | 3 | #32 |
+| 1 | Foundation | `13_city_village_postal_code_map.sql` | `city_village_postal_code_map` | 4 | #89 |
+| 3 | Organization | `01_organization_type_master.sql` | `organization_type_master` | 0 | #7 |
+| 3 | Organization | `02_organization_status_master.sql` | `organization_status_master` | 0 | #8 |
+| 3 | Organization | `03_organization.sql` | `organization` | 3 | #33 |
 
 **Total implemented: 18 tables (3 Bootstrap RBAC + 12 Foundation + 3 Organization)**
 **Phase 0 seed partial: `role_master` seeded (8 roles); `permission_master`/`role_permission` empty, pending the permission catalogue freeze**
@@ -131,9 +131,10 @@ for enforcing these constraints (SOL-ARCH-011 §7.3).
 ```
 database/
 ├── scripts/
-│   ├── 00_create_database.sql   Create DB + PostgreSQL roles (superuser)
-│   ├── 01_build.sh              Full schema build (all implemented phases)
-│   └── 02_validate.sh               Post-build validation (all modules)
+│   ├── 00_create_database.sql   Create DB + roles + dblink (superuser, postgres DB)
+│   ├── 01_extensions.sql        Install extensions (superuser, nss_erp DB)
+│   ├── 02_build.sh              Full schema build (all implemented phases)
+│   └── 03_validate.sh           Post-build validation (all modules)
 ├── ddl/
 │   ├── 00_bootstrap/     3 RBAC tables (Depths 0–1) — IMPLEMENTED
 │   ├── 01_foundation/    12 tables (Depths 0–4) — IMPLEMENTED
@@ -194,29 +195,50 @@ DB_PORT  (default: 5432)
 
 ### 00_create_database.sql — Database and Role Setup
 
-Run **once** by a PostgreSQL **superuser** (e.g. `postgres`).
-Creates the `nss_erp` database, the `nss_admin` role (DDL/schema
-owner), and the `app_backend` role (application runtime). Idempotent
-— uses `IF NOT EXISTS`; does not drop anything.
+Run **once** by a PostgreSQL **superuser** (e.g. `postgres`) against
+the `postgres` database. Installs `dblink` (for idempotent database
+creation), creates the `nss_admin` and `app_backend` roles, creates
+the `nss_erp` database, and grants CONNECT to `app_backend`.
+
+Fully idempotent — safe to re-run.
 
 ```bash
-psql -U postgres -f database/scripts/00_create_database.sql
+psql -U postgres -d postgres -f database/scripts/00_create_database.sql
 ```
 
-**Important:** This creates PostgreSQL-level roles only. The ERP
-application role `NSS_ADMIN` is a row in `role_master` (Phase 0 seed)
-and is a separate security boundary (SOL-ARCH-011 §7.2).
+**Important:** This creates PostgreSQL-level roles only (`NOLOGIN` —
+grant LOGIN per environment via `ALTER ROLE`). The ERP application
+role `NSS_ADMIN` is a row in `role_master` (Phase 0 seed) and is a
+separate security boundary (SOL-ARCH-011 §7.2). `nss_admin` is
+intentionally not a SUPERUSER.
 
 No credentials are stored in this file. Set passwords externally via
 `ALTER ROLE ... PASSWORD '...'` or `.pgpass` / environment variables.
 
-### 01_build.sh — Full Schema Build
+### 01_extensions.sql — PostgreSQL Extensions
+
+Run by a PostgreSQL **superuser** against the `nss_erp` database,
+after `00_create_database.sql`. Installs application extensions
+required by Foundation DDL. Idempotent — safe to re-run.
+
+```bash
+psql -U postgres -d nss_erp -f database/scripts/01_extensions.sql
+```
+
+| Extension | Purpose |
+|-----------|---------|
+| `pgcrypto` | UUID generation (`gen_random_uuid` for PK defaults) |
+| `pg_trgm` | Trigram indexes for fuzzy/partial text search |
+| `btree_gin` | GIN indexes on non-array scalar types |
+| `postgis` | Geospatial types, indexes, and functions (distance, containment) |
+
+### 02_build.sh — Full Schema Build
 
 Executes all DDL and seed scripts for currently implemented modules
 in SOL-ARCH-011 phase order. Runs as `nss_admin`.
 
 ```bash
-./database/scripts/01_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+./database/scripts/02_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
 ```
 
 Phases executed:
@@ -224,11 +246,10 @@ Phases executed:
 | Phase | Module | Content |
 |------:|--------|---------|
 | 0 | Bootstrap RBAC | 3 tables + seed (roles, permissions, mappings) |
-| 1 | Foundation | PostgreSQL extensions (pgcrypto, pg_trgm, btree_gin) |
-| 2 | Foundation | 12 tables (Depths 0–4) |
-| 3 | Foundation | Seed data (categories, locations, settings, postal codes) |
-| 4 | Organization | 3 tables (Depths 0–3) |
-| 5 | Organization | Seed data (types, statuses, named orgs) |
+| 1 | Foundation | 12 tables (Depths 0–4) |
+| 2 | Foundation | Seed data (categories, locations, settings, postal codes) |
+| 3 | Organization | 3 tables (Depths 0–3) |
+| 4 | Organization | Seed data (types, statuses, named orgs) |
 
 **Not executed:** `03_person/` (superseded prototype), Pass 2
 audit-actor FK constraints (deferred until `sangha_sevi` exists).
@@ -240,14 +261,14 @@ failed SQL file halts the build immediately.
 database will fail on `CREATE TABLE`. For a fresh rebuild, drop and
 recreate the database first.
 
-### 02_validate.sh — Post-Build Validation
+### 03_validate.sh — Post-Build Validation
 
 Validates that all implemented modules were built correctly.
-**Does NOT execute any DDL or seed scripts** — run `01_build.sh`
+**Does NOT execute any DDL or seed scripts** — run `02_build.sh`
 first. Covers all currently implemented modules.
 
 ```bash
-./database/scripts/02_validate.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+./database/scripts/03_validate.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
 ```
 
 Validation checks per module:
@@ -255,10 +276,10 @@ Validation checks per module:
 | Module | Tables | Checks |
 |--------|-------:|--------|
 | Bootstrap RBAC | 3 | Existence, 8 roles seeded, unique `role_code`, FK integrity (`role_permission` → both parents) |
-| Foundation | 12 | Existence, row counts (categories, locations, settings), unique codes, FK integrity (location hierarchy, `master_data` → `master_category`), deferred columns on `document_master` |
+| Foundation | 12 | Existence, row counts (categories, locations, settings, postal codes), unique codes, FK integrity (location hierarchy, `master_data` → `master_category`), deferred columns on `document_master` |
 | Organization | 3 | Existence, 8 types / 6 statuses / 3 orgs seeded, unique codes, FK integrity (org → type, status, country, city_village, postal_code) |
 
-**Extend this script when new modules are added to `01_build.sh`.**
+**Extend this script when new modules are added to `02_build.sh`.**
 
 ---
 

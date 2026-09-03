@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE system_setting
+CREATE TABLE nss.system_setting
 (
     system_setting_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -60,7 +60,7 @@ CREATE TABLE system_setting
 );
 
 CREATE INDEX idx_system_setting_active
-    ON system_setting (is_active);
+    ON nss.system_setting (is_active);
 
 CREATE INDEX idx_system_setting_key
-    ON system_setting (setting_key);
+    ON nss.system_setting (setting_key);

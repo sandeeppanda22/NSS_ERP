@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE district
+CREATE TABLE nss.district
 (
     district_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -36,7 +36,7 @@ CREATE TABLE district
 
     CONSTRAINT fk_district_state
         FOREIGN KEY (state_pk)
-        REFERENCES state (state_pk),
+        REFERENCES nss.state (state_pk),
 
     CONSTRAINT uq_district_state_code
         UNIQUE (state_pk, district_code),
@@ -54,10 +54,10 @@ CREATE TABLE district
 );
 
 CREATE INDEX idx_district_state
-    ON district (state_pk);
+    ON nss.district (state_pk);
 
 CREATE INDEX idx_district_active
-    ON district (is_active);
+    ON nss.district (is_active);
 
 CREATE INDEX idx_district_name
-    ON district USING gin (district_name gin_trgm_ops);
+    ON nss.district USING gin (district_name gin_trgm_ops);

@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE master_category
+CREATE TABLE nss.master_category
 (
     master_category_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -50,7 +50,7 @@ CREATE TABLE master_category
 );
 
 CREATE INDEX idx_master_category_active
-    ON master_category (is_active);
+    ON nss.master_category (is_active);
 
 CREATE INDEX idx_master_category_code
-    ON master_category (category_code);
+    ON nss.master_category (category_code);

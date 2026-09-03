@@ -29,19 +29,21 @@ phase-by-phase execution table):
    created before Foundation since they have no FK dependencies — **DDL implemented and
    committed**; seed data partial (`role_master`: 8 roles seeded; `permission_master`/
    `role_permission`: empty, blocked on the permission catalogue being frozen)
-2. `01_foundation/01_extensions.sql` — `pgcrypto`, `pg_trgm`, `btree_gin`
+2. Extensions (`pgcrypto`, `pg_trgm`, `btree_gin`, `postgis`) — in `database/scripts/01_extensions.sql`
 3. `01_foundation/*` — 12 tables (master data, sequences, geography) — **implemented, seeded**
 4. `02_organization/*` — 3 tables (`organization_type_master`, `organization_status_master`,
    `organization`) — **implemented, seeded**
 5. `03_person/*` — superseded prototype, will be rewritten; don't build on it
 6. `database/seed/` mirrors the same folder order
 
-`database/scripts/01_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` runs all implemented DDL+seed
+`database/scripts/02_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]` runs all implemented DDL+seed
 end-to-end against a running Postgres instance (Bootstrap RBAC, Foundation, Organization — not
-Person, which is superseded); `database/scripts/02_validate.sh` (same args) then checks row
+Person, which is superseded); `database/scripts/03_validate.sh` (same args) then checks row
 counts and FK integrity across those same modules. `database/scripts/00_create_database.sql` is
 a one-time superuser script that creates the `nss_erp` database and the `nss_admin`/`app_backend`
-roles. The old repo-root `validate_foundation.sh` (Foundation-only) has been replaced by these.
+roles; `database/scripts/01_extensions.sql` installs pgcrypto/pg_trgm/btree_gin in nss_erp
+(also superuser). The old repo-root `validate_foundation.sh` (Foundation-only) has been replaced
+by these.
 
 ## Running the Django app
 

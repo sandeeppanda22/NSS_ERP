@@ -7,7 +7,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-INSERT INTO master_category
+INSERT INTO nss.master_category
 (
     category_code,
     category_name,

@@ -3,17 +3,20 @@
 -- Script: 00_create_database.sql
 -- Purpose: Create database and PostgreSQL technical roles
 -- Authority: SOL-ARCH-011 §7.2
--- Version: 1.0
+-- Version: 1.2
 -- =====================================================
 --
--- Run as a PostgreSQL SUPERUSER (e.g. postgres):
+-- Run ONCE as a PostgreSQL SUPERUSER (e.g. postgres)
+-- against the postgres database:
 --
---   psql -U postgres -f database/scripts/00_create_database.sql
+--   psql -U postgres -d postgres -f database/scripts/00_create_database.sql
 --
 -- This script creates:
---   1. Role: nss_admin   — owns all schema objects, executes DDL/seed
---   2. Role: app_backend — runtime read/write for the application layer
---   3. Database: nss_erp — owned by nss_admin
+--   1. Extension: dblink (in postgres DB, for idempotent DB creation)
+--   2. Role: nss_admin   — owns all schema objects, executes DDL/seed
+--   3. Role: app_backend — runtime read/write for the application layer
+--   4. Database: nss_erp — owned by nss_admin (idempotent via dblink)
+--   5. GRANT CONNECT on nss_erp to app_backend
 --
 -- IMPORTANT DISTINCTION (SOL-ARCH-011 §7.2):
 --   PostgreSQL role "nss_admin" is the DATABASE-LEVEL owner.
@@ -21,14 +24,32 @@
 --   (a row in role_master, enforced by the application layer).
 --   These are separate security boundaries.
 --
--- This script is idempotent — safe to re-run.
+-- This script is fully idempotent — safe to re-run.
 -- It does NOT drop any existing objects.
+--
 -- No credentials are stored here; set passwords externally
 -- via ALTER ROLE or .pgpass / environment variables.
+--
+-- nss_admin is intentionally NOT a SUPERUSER. It owns the
+-- NSS ERP database/schema objects without PostgreSQL-wide
+-- superuser privileges.
+--
+-- After running this script, run:
+--   psql -U postgres -d nss_erp -f database/scripts/01_extensions.sql
+-- to install application extensions (pgcrypto, pg_trgm, btree_gin, postgis)
+-- and create the nss schema.
 -- =====================================================
 
 -- -------------------------------------------------
--- 1. PostgreSQL role: nss_admin (DDL / schema owner)
+-- 1. Extension: dblink (in postgres DB)
+--    Required for idempotent CREATE DATABASE below.
+-- -------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS dblink;
+
+-- -------------------------------------------------
+-- 2. PostgreSQL role: nss_admin (DDL / schema owner)
+--    NOLOGIN — grant LOGIN separately per environment.
+--    NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT.
 -- -------------------------------------------------
 DO $$
 BEGIN
@@ -36,11 +57,12 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_roles
         WHERE rolname = 'nss_admin'
     ) THEN
-        CREATE ROLE nss_admin WITH
-            LOGIN
+        CREATE ROLE nss_admin
+            NOLOGIN
             NOSUPERUSER
-            CREATEDB
-            NOCREATEROLE;
+            NOCREATEDB
+            NOCREATEROLE
+            NOINHERIT;
         RAISE NOTICE 'Role nss_admin created.';
     ELSE
         RAISE NOTICE 'Role nss_admin already exists — skipping.';
@@ -49,7 +71,8 @@ END
 $$;
 
 -- -------------------------------------------------
--- 2. PostgreSQL role: app_backend (runtime)
+-- 3. PostgreSQL role: app_backend (runtime)
+--    NOLOGIN — grant LOGIN separately per environment.
 -- -------------------------------------------------
 DO $$
 BEGIN
@@ -57,11 +80,12 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_roles
         WHERE rolname = 'app_backend'
     ) THEN
-        CREATE ROLE app_backend WITH
-            LOGIN
+        CREATE ROLE app_backend
+            NOLOGIN
             NOSUPERUSER
             NOCREATEDB
-            NOCREATEROLE;
+            NOCREATEROLE
+            NOINHERIT;
         RAISE NOTICE 'Role app_backend created.';
     ELSE
         RAISE NOTICE 'Role app_backend already exists — skipping.';
@@ -70,23 +94,9 @@ END
 $$;
 
 -- -------------------------------------------------
--- 3. Database: nss_erp (owned by nss_admin)
+-- 4. Database: nss_erp (owned by nss_admin)
+--    Idempotent via dblink — safe to re-run.
 -- -------------------------------------------------
--- Note: CREATE DATABASE cannot run inside a transaction
--- block. If using psql, this works as a top-level statement.
--- If the database already exists, this will raise a
--- non-fatal notice and continue.
--- -------------------------------------------------
-
-SELECT 'CREATE DATABASE nss_erp OWNER nss_admin'
-WHERE NOT EXISTS (
-    SELECT 1 FROM pg_database WHERE datname = 'nss_erp'
-);
-
--- The SELECT above only prints the command text as a hint.
--- PostgreSQL does not support IF NOT EXISTS for CREATE DATABASE
--- in plain SQL. Use the conditional below instead:
-
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -100,18 +110,12 @@ BEGIN
     ELSE
         RAISE NOTICE 'Database nss_erp already exists — skipping.';
     END IF;
-EXCEPTION
-    WHEN undefined_function THEN
-        -- dblink not available; fall back to manual instruction
-        RAISE NOTICE 'dblink not available. Run manually if needed:';
-        RAISE NOTICE '  CREATE DATABASE nss_erp OWNER nss_admin;';
 END
 $$;
 
 -- -------------------------------------------------
--- 4. Grant app_backend CONNECT on nss_erp
+-- 5. Grant app_backend CONNECT on nss_erp
 -- -------------------------------------------------
--- This must run after the database exists.
 -- Additional table-level GRANTs for app_backend will be
 -- added when the API layer is implemented (Phase 7+).
 -- -------------------------------------------------

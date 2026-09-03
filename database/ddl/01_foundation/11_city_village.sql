@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE city_village
+CREATE TABLE nss.city_village
 (
     city_village_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -38,7 +38,7 @@ CREATE TABLE city_village
 
     CONSTRAINT fk_city_village_district
         FOREIGN KEY (district_pk)
-        REFERENCES district (district_pk),
+        REFERENCES nss.district (district_pk),
 
     CONSTRAINT uq_city_village_district_code
         UNIQUE (district_pk, city_village_code),
@@ -67,10 +67,10 @@ CREATE TABLE city_village
 );
 
 CREATE INDEX idx_city_village_district
-    ON city_village (district_pk);
+    ON nss.city_village (district_pk);
 
 CREATE INDEX idx_city_village_active
-    ON city_village (is_active);
+    ON nss.city_village (is_active);
 
 CREATE INDEX idx_city_village_name
-    ON city_village USING gin (city_village_name gin_trgm_ops);
+    ON nss.city_village USING gin (city_village_name gin_trgm_ops);

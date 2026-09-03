@@ -7,7 +7,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-INSERT INTO country
+INSERT INTO nss.country
 (
     country_code,
     country_name,

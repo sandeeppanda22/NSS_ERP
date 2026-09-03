@@ -20,7 +20,7 @@
 --       not part of the unique key.
 -- =====================================================
 
-CREATE TABLE postal_code
+CREATE TABLE nss.postal_code
 (
     postal_code_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -45,11 +45,11 @@ CREATE TABLE postal_code
 
     CONSTRAINT fk_postal_code_country
         FOREIGN KEY (country_pk)
-        REFERENCES country (country_pk),
+        REFERENCES nss.country (country_pk),
 
     CONSTRAINT fk_postal_code_state
         FOREIGN KEY (state_pk)
-        REFERENCES state (state_pk),
+        REFERENCES nss.state (state_pk),
 
     CONSTRAINT uq_postal_code_country
         UNIQUE (country_pk, postal_code),
@@ -64,17 +64,17 @@ CREATE TABLE postal_code
 );
 
 CREATE INDEX idx_postal_code_country
-    ON postal_code (country_pk);
+    ON nss.postal_code (country_pk);
 
 CREATE INDEX idx_postal_code_state
-    ON postal_code (state_pk);
+    ON nss.postal_code (state_pk);
 
 CREATE INDEX idx_postal_code_code
-    ON postal_code (postal_code);
+    ON nss.postal_code (postal_code);
 
 CREATE INDEX idx_postal_code_active
-    ON postal_code (is_active);
+    ON nss.postal_code (is_active);
 
 CREATE INDEX idx_postal_code_post_office
-    ON postal_code USING gin (post_office_name gin_trgm_ops)
+    ON nss.postal_code USING gin (post_office_name gin_trgm_ops)
     WHERE post_office_name IS NOT NULL;

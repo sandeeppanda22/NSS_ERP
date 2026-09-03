@@ -7,7 +7,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-INSERT INTO id_sequence_master
+INSERT INTO nss.id_sequence_master
 (
     sequence_code,
     sequence_name,

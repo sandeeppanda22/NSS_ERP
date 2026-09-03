@@ -8,7 +8,7 @@
 -- Note: 8 frozen organization types (decided 2026-08-28)
 -- =====================================================
 
-INSERT INTO organization_type_master
+INSERT INTO nss.organization_type_master
     (organization_type_code, organization_type_name, description, sort_order)
 VALUES
     ('KENDRA',           'Kendra Sangha',

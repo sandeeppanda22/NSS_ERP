@@ -36,7 +36,7 @@
 -- Kendra Sangha (apex governing body)
 -- -------------------------------------------------
 
-INSERT INTO organization
+INSERT INTO nss.organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
@@ -51,10 +51,10 @@ SELECT
     'Bhubaneswar',
     pc.postal_code_pk,
     c.country_pk
-FROM organization_type_master ot
-CROSS JOIN organization_status_master os
-CROSS JOIN country c
-CROSS JOIN postal_code pc
+FROM nss.organization_type_master ot
+CROSS JOIN nss.organization_status_master os
+CROSS JOIN nss.country c
+CROSS JOIN nss.postal_code pc
 WHERE ot.organization_type_code = 'KENDRA'
   AND os.organization_status_code = 'ACTIVE'
   AND c.country_code = 'IN'
@@ -65,7 +65,7 @@ WHERE ot.organization_type_code = 'KENDRA'
 -- Nilachala Kutira (Eternal Abode, Puri)
 -- -------------------------------------------------
 
-INSERT INTO organization
+INSERT INTO nss.organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
@@ -80,10 +80,10 @@ SELECT
     NULL,
     pc.postal_code_pk,
     c.country_pk
-FROM organization_type_master ot
-CROSS JOIN organization_status_master os
-CROSS JOIN country c
-CROSS JOIN postal_code pc
+FROM nss.organization_type_master ot
+CROSS JOIN nss.organization_status_master os
+CROSS JOIN nss.country c
+CROSS JOIN nss.postal_code pc
 WHERE ot.organization_type_code = 'NILACHALA_KUTIRA'
   AND os.organization_status_code = 'ACTIVE'
   AND c.country_code = 'IN'
@@ -94,7 +94,7 @@ WHERE ot.organization_type_code = 'NILACHALA_KUTIRA'
 -- Smruti Mandira (Nigamananda Smruti Mandir — memorial temple)
 -- -------------------------------------------------
 
-INSERT INTO organization
+INSERT INTO nss.organization
     (organization_name, organization_type_pk,
      organization_status_pk, parent_organization_pk,
      organization_code,
@@ -109,10 +109,10 @@ SELECT
     'Puri',
     pc.postal_code_pk,
     c.country_pk
-FROM organization_type_master ot
-CROSS JOIN organization_status_master os
-CROSS JOIN country c
-CROSS JOIN postal_code pc
+FROM nss.organization_type_master ot
+CROSS JOIN nss.organization_status_master os
+CROSS JOIN nss.country c
+CROSS JOIN nss.postal_code pc
 WHERE ot.organization_type_code = 'SMRUTI_MANDIRA'
   AND os.organization_status_code = 'ACTIVE'
   AND c.country_code = 'IN'

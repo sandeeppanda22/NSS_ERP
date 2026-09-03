@@ -14,9 +14,9 @@
 -- GENDER values
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     ('MALE',   'Male',   1),
     ('FEMALE', 'Female', 2),
@@ -28,9 +28,9 @@ WHERE mc.category_code = 'GENDER';
 -- MARITAL_STATUS values
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     ('UNMARRIED', 'Unmarried', 1),
     ('MARRIED',   'Married',   2),
@@ -44,9 +44,9 @@ WHERE mc.category_code = 'MARITAL_STATUS';
 -- ADDRESS_TYPE values
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     ('PERMANENT', 'Permanent Address', 1),
     ('CURRENT',   'Current Address',   2),
@@ -58,9 +58,9 @@ WHERE mc.category_code = 'ADDRESS_TYPE';
 -- DOCUMENT_TYPE values
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     ('PHOTO',              'Photograph',           1),
     ('ID_PROOF',           'Identity Proof',       2),
@@ -76,9 +76,9 @@ WHERE mc.category_code = 'DOCUMENT_TYPE';
 -- MEMBERSHIP_TYPE values
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     ('PROBATIONARY', 'Probationary Member', 1),
     ('REGULAR',      'Regular Member',      2),
@@ -91,9 +91,9 @@ WHERE mc.category_code = 'MEMBERSHIP_TYPE';
 -- MEMBERSHIP_STATUS values
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     ('ACTIVE',      'Active',      1),
     ('INACTIVE',    'Inactive',    2),
@@ -111,9 +111,9 @@ WHERE mc.category_code = 'MEMBERSHIP_STATUS';
 --  used by Family module for family_relationship)
 -- -------------------------------------------------
 
-INSERT INTO master_data (master_category_pk, value_code, value_name, display_order)
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
 SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
-FROM master_category mc
+FROM nss.master_category mc
 CROSS JOIN (VALUES
     -- Immediate family
     ('SPOUSE',             'Spouse',                   1),

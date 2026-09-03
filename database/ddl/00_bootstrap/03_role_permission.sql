@@ -11,7 +11,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE role_permission
+CREATE TABLE nss.role_permission
 (
     role_permission_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -36,11 +36,11 @@ CREATE TABLE role_permission
     -- Foreign keys
     CONSTRAINT fk_role_permission_role
         FOREIGN KEY (role_master_pk)
-        REFERENCES role_master (role_master_pk),
+        REFERENCES nss.role_master (role_master_pk),
 
     CONSTRAINT fk_role_permission_permission
         FOREIGN KEY (permission_master_pk)
-        REFERENCES permission_master (permission_master_pk),
+        REFERENCES nss.permission_master (permission_master_pk),
 
     -- Unique constraint: no duplicate mapping
     CONSTRAINT uq_role_permission_mapping
@@ -58,10 +58,10 @@ CREATE TABLE role_permission
 
 -- Indexes
 CREATE INDEX idx_role_permission_role
-    ON role_permission (role_master_pk);
+    ON nss.role_permission (role_master_pk);
 
 CREATE INDEX idx_role_permission_permission
-    ON role_permission (permission_master_pk);
+    ON nss.role_permission (permission_master_pk);
 
 CREATE INDEX idx_role_permission_active
-    ON role_permission (is_active);
+    ON nss.role_permission (is_active);

@@ -13,9 +13,9 @@
 -- INDIA — 28 States + 8 Union Territories
 -- =========================================================
 
-INSERT INTO state (country_pk, state_code, state_name, display_order)
+INSERT INTO nss.state (country_pk, state_code, state_name, display_order)
 SELECT c.country_pk, v.state_code, v.state_name, v.display_order
-FROM country c
+FROM nss.country c
 CROSS JOIN (VALUES
     -- States (28)
     ('AP', 'Andhra Pradesh',       1),
@@ -62,9 +62,9 @@ WHERE c.country_code = 'IN';
 -- UNITED STATES — 50 States + DC
 -- =========================================================
 
-INSERT INTO state (country_pk, state_code, state_name, display_order)
+INSERT INTO nss.state (country_pk, state_code, state_name, display_order)
 SELECT c.country_pk, v.state_code, v.state_name, v.display_order
-FROM country c
+FROM nss.country c
 CROSS JOIN (VALUES
     ('AL', 'Alabama',        1),
     ('AK', 'Alaska',         2),
@@ -124,9 +124,9 @@ WHERE c.country_code = 'US';
 -- UNITED KINGDOM — Countries/Regions
 -- =========================================================
 
-INSERT INTO state (country_pk, state_code, state_name, display_order)
+INSERT INTO nss.state (country_pk, state_code, state_name, display_order)
 SELECT c.country_pk, v.state_code, v.state_name, v.display_order
-FROM country c
+FROM nss.country c
 CROSS JOIN (VALUES
     ('ENG', 'England',          1),
     ('SCO', 'Scotland',         2),
@@ -139,9 +139,9 @@ WHERE c.country_code = 'GB';
 -- AUSTRALIA — States and Territories
 -- =========================================================
 
-INSERT INTO state (country_pk, state_code, state_name, display_order)
+INSERT INTO nss.state (country_pk, state_code, state_name, display_order)
 SELECT c.country_pk, v.state_code, v.state_name, v.display_order
-FROM country c
+FROM nss.country c
 CROSS JOIN (VALUES
     ('NSW', 'New South Wales',              1),
     ('VIC', 'Victoria',                     2),
@@ -158,9 +158,9 @@ WHERE c.country_code = 'AU';
 -- CANADA — Provinces and Territories
 -- =========================================================
 
-INSERT INTO state (country_pk, state_code, state_name, display_order)
+INSERT INTO nss.state (country_pk, state_code, state_name, display_order)
 SELECT c.country_pk, v.state_code, v.state_name, v.display_order
-FROM country c
+FROM nss.country c
 CROSS JOIN (VALUES
     ('ON', 'Ontario',                    1),
     ('QC', 'Quebec',                     2),

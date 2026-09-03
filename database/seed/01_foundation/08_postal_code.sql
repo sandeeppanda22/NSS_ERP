@@ -11,17 +11,17 @@
 -- =====================================================
 
 -- Bhubaneswar — Kendra (Satsikshya Mandir, Unit-9)
-INSERT INTO postal_code (country_pk, state_pk, postal_code, post_office_name)
+INSERT INTO nss.postal_code (country_pk, state_pk, postal_code, post_office_name)
 SELECT c.country_pk, s.state_pk, '751022', 'Unit 9 SO'
-FROM country c
-JOIN state s ON s.country_pk = c.country_pk
+FROM nss.country c
+JOIN nss.state s ON s.country_pk = c.country_pk
 WHERE c.country_code = 'IN'
   AND s.state_code = 'OD';
 
 -- Puri — Nilachala Kutira, Smruti Mandira (Swargadwar area)
-INSERT INTO postal_code (country_pk, state_pk, postal_code, post_office_name)
+INSERT INTO nss.postal_code (country_pk, state_pk, postal_code, post_office_name)
 SELECT c.country_pk, s.state_pk, '752001', 'Puri HO'
-FROM country c
-JOIN state s ON s.country_pk = c.country_pk
+FROM nss.country c
+JOIN nss.state s ON s.country_pk = c.country_pk
 WHERE c.country_code = 'IN'
   AND s.state_code = 'OD';

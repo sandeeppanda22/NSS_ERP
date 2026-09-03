@@ -10,7 +10,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE master_data
+CREATE TABLE nss.master_data
 (
     master_data_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -38,7 +38,7 @@ CREATE TABLE master_data
 
     CONSTRAINT fk_master_data_category
         FOREIGN KEY (master_category_pk)
-        REFERENCES master_category (master_category_pk),
+        REFERENCES nss.master_category (master_category_pk),
 
     CONSTRAINT uq_master_data_category_code
         UNIQUE (master_category_pk, value_code),
@@ -53,13 +53,13 @@ CREATE TABLE master_data
 );
 
 CREATE INDEX idx_master_data_category
-    ON master_data (master_category_pk);
+    ON nss.master_data (master_category_pk);
 
 CREATE INDEX idx_master_data_active
-    ON master_data (is_active);
+    ON nss.master_data (is_active);
 
 CREATE INDEX idx_master_data_value_code
-    ON master_data (value_code);
+    ON nss.master_data (value_code);
 
 CREATE INDEX idx_master_data_value_name
-    ON master_data USING gin (value_name gin_trgm_ops);
+    ON nss.master_data USING gin (value_name gin_trgm_ops);

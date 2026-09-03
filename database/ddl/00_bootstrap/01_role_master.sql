@@ -11,7 +11,7 @@
 -- Owner: NSS_ADMIN
 -- =====================================================
 
-CREATE TABLE role_master
+CREATE TABLE nss.role_master
 (
     role_master_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -76,10 +76,10 @@ CREATE TABLE role_master
 
 -- Indexes
 CREATE INDEX idx_role_master_active
-    ON role_master (is_active);
+    ON nss.role_master (is_active);
 
 CREATE INDEX idx_role_master_code
-    ON role_master (role_code);
+    ON nss.role_master (role_code);
 
 CREATE INDEX idx_role_master_class
-    ON role_master (role_class);
+    ON nss.role_master (role_class);

@@ -16,7 +16,7 @@
 --       enforces referential integrity.
 -- =====================================================
 
-CREATE TABLE field_change_log
+CREATE TABLE nss.field_change_log
 (
     field_change_log_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -40,10 +40,10 @@ CREATE TABLE field_change_log
 );
 
 CREATE INDEX idx_field_change_log_table_record
-    ON field_change_log (table_name, record_pk);
+    ON nss.field_change_log (table_name, record_pk);
 
 CREATE INDEX idx_field_change_log_changed_at
-    ON field_change_log (changed_at);
+    ON nss.field_change_log (changed_at);
 
 CREATE INDEX idx_field_change_log_field
-    ON field_change_log (table_name, field_name);
+    ON nss.field_change_log (table_name, field_name);

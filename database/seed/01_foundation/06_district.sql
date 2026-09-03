@@ -13,9 +13,9 @@
 -- INDIA — ODISHA (30 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ANG', 'Angul',            1),
     ('BLG', 'Balangir',         2),
@@ -54,9 +54,9 @@ WHERE s.state_code = 'OD';
 -- INDIA — ANDHRA PRADESH (26 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ALV', 'Alluri Sitharama Raju', 1),
     ('ANA', 'Anakapalli',            2),
@@ -91,9 +91,9 @@ WHERE s.state_code = 'AP';
 -- INDIA — ARUNACHAL PRADESH (26 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ANJ', 'Anjaw',                1),
     ('CHA', 'Changlang',            2),
@@ -128,9 +128,9 @@ WHERE s.state_code = 'AR';
 -- INDIA — ASSAM (35 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('BAK', 'Baksa',            1),
     ('BAR', 'Barpeta',          2),
@@ -174,9 +174,9 @@ WHERE s.state_code = 'AS';
 -- INDIA — BIHAR (38 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ARA', 'Araria',           1),
     ('ARW', 'Arwal',            2),
@@ -223,9 +223,9 @@ WHERE s.state_code = 'BR';
 -- INDIA — CHHATTISGARH (33 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('BAL', 'Balod',                1),
     ('BLP', 'Baloda Bazar',         2),
@@ -267,9 +267,9 @@ WHERE s.state_code = 'CG';
 -- INDIA — GOA (2 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('NGO', 'North Goa', 1),
     ('SGO', 'South Goa', 2)
@@ -280,9 +280,9 @@ WHERE s.state_code = 'GA';
 -- INDIA — GUJARAT (33 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AHM', 'Ahmedabad',       1),
     ('AMR', 'Amreli',          2),
@@ -324,9 +324,9 @@ WHERE s.state_code = 'GJ';
 -- INDIA — HARYANA (22 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AMB', 'Ambala',          1),
     ('BHI', 'Bhiwani',         2),
@@ -357,9 +357,9 @@ WHERE s.state_code = 'HR';
 -- INDIA — HIMACHAL PRADESH (12 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('BIL', 'Bilaspur',        1),
     ('CHA', 'Chamba',          2),
@@ -380,9 +380,9 @@ WHERE s.state_code = 'HP';
 -- INDIA — JHARKHAND (24 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('BOK', 'Bokaro',           1),
     ('CHA', 'Chatra',           2),
@@ -415,9 +415,9 @@ WHERE s.state_code = 'JH';
 -- INDIA — KARNATAKA (31 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('BGL', 'Bagalkot',             1),
     ('BLU', 'Bengaluru Urban',      2),
@@ -457,9 +457,9 @@ WHERE s.state_code = 'KA';
 -- INDIA — KERALA (14 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ALP', 'Alappuzha',        1),
     ('ERN', 'Ernakulam',        2),
@@ -482,9 +482,9 @@ WHERE s.state_code = 'KL';
 -- INDIA — MADHYA PRADESH (55 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AGR', 'Agar Malwa',       1),
     ('ALI', 'Alirajpur',        2),
@@ -548,9 +548,9 @@ WHERE s.state_code = 'MP';
 -- INDIA — MAHARASHTRA (36 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AHN', 'Ahmednagar',       1),
     ('AKO', 'Akola',            2),
@@ -595,9 +595,9 @@ WHERE s.state_code = 'MH';
 -- INDIA — MANIPUR (16 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('BIS', 'Bishnupur',        1),
     ('CHA', 'Chandel',          2),
@@ -622,9 +622,9 @@ WHERE s.state_code = 'MN';
 -- INDIA — MEGHALAYA (12 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('EGH', 'East Garo Hills',         1),
     ('EJH', 'East Jaintia Hills',       2),
@@ -645,9 +645,9 @@ WHERE s.state_code = 'ML';
 -- INDIA — MIZORAM (11 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AIZ', 'Aizawl',          1),
     ('CHA', 'Champhai',        2),
@@ -667,9 +667,9 @@ WHERE s.state_code = 'MZ';
 -- INDIA — NAGALAND (16 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('CHU', 'Chumoukedima',     1),
     ('DIM', 'Dimapur',          2),
@@ -694,9 +694,9 @@ WHERE s.state_code = 'NL';
 -- INDIA — PUNJAB (23 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AMR', 'Amritsar',         1),
     ('BAR', 'Barnala',          2),
@@ -728,9 +728,9 @@ WHERE s.state_code = 'PB';
 -- INDIA — RAJASTHAN (50 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AJM', 'Ajmer',            1),
     ('ALW', 'Alwar',            2),
@@ -789,9 +789,9 @@ WHERE s.state_code = 'RJ';
 -- INDIA — SIKKIM (6 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('EAS', 'East Sikkim',      1),
     ('NOR', 'North Sikkim',     2),
@@ -806,9 +806,9 @@ WHERE s.state_code = 'SK';
 -- INDIA — TAMIL NADU (38 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ARI', 'Ariyalur',             1),
     ('CHG', 'Chengalpattu',         2),
@@ -855,9 +855,9 @@ WHERE s.state_code = 'TN';
 -- INDIA — TELANGANA (33 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ADI', 'Adilabad',              1),
     ('BHD', 'Bhadradri Kothagudem', 2),
@@ -899,9 +899,9 @@ WHERE s.state_code = 'TS';
 -- INDIA — TRIPURA (8 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('DHT', 'Dhalai',           1),
     ('GOM', 'Gomati',           2),
@@ -918,9 +918,9 @@ WHERE s.state_code = 'TR';
 -- INDIA — UTTAR PRADESH (75 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('AGR', 'Agra',              1),
     ('ALG', 'Aligarh',           2),
@@ -1004,9 +1004,9 @@ WHERE s.state_code = 'UP';
 -- INDIA — UTTARAKHAND (13 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ALM', 'Almora',           1),
     ('BAG', 'Bageshwar',        2),
@@ -1028,9 +1028,9 @@ WHERE s.state_code = 'UK';
 -- INDIA — WEST BENGAL (23 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ALI', 'Alipurduar',           1),
     ('BAN', 'Bankura',              2),
@@ -1062,9 +1062,9 @@ WHERE s.state_code = 'WB';
 -- INDIA — DELHI (11 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('CEN', 'Central Delhi',       1),
     ('EAS', 'East Delhi',          2),
@@ -1084,9 +1084,9 @@ WHERE s.state_code = 'DL';
 -- INDIA — JAMMU AND KASHMIR (20 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('ANA', 'Anantnag',         1),
     ('BAN', 'Bandipora',        2),
@@ -1115,9 +1115,9 @@ WHERE s.state_code = 'JK';
 -- INDIA — LADAKH (2 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('LEH', 'Leh',     1),
     ('KAR', 'Kargil',  2)
@@ -1128,9 +1128,9 @@ WHERE s.state_code = 'LA';
 -- INDIA — CHANDIGARH (1 district)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('CHD', 'Chandigarh', 1)
 ) AS v(district_code, district_name, display_order)
@@ -1140,9 +1140,9 @@ WHERE s.state_code = 'CH';
 -- INDIA — PUDUCHERRY (4 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('PUD', 'Puducherry',   1),
     ('KAR', 'Karaikal',     2),
@@ -1155,9 +1155,9 @@ WHERE s.state_code = 'PY';
 -- INDIA — ANDAMAN AND NICOBAR ISLANDS (3 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('NMI', 'Nicobar',              1),
     ('NAN', 'North and Middle Andaman', 2),
@@ -1169,9 +1169,9 @@ WHERE s.state_code = 'AN';
 -- INDIA — DADRA AND NAGAR HAVELI AND DAMAN AND DIU (3 districts)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('DNH', 'Dadra and Nagar Haveli', 1),
     ('DAM', 'Daman',                  2),
@@ -1183,9 +1183,9 @@ WHERE s.state_code = 'DN';
 -- INDIA — LAKSHADWEEP (1 district)
 -- =========================================================
 
-INSERT INTO district (state_pk, district_code, district_name, display_order)
+INSERT INTO nss.district (state_pk, district_code, district_name, display_order)
 SELECT s.state_pk, v.district_code, v.district_name, v.display_order
-FROM state s
+FROM nss.state s
 CROSS JOIN (VALUES
     ('LKD', 'Lakshadweep', 1)
 ) AS v(district_code, district_name, display_order)

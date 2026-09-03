@@ -10,9 +10,11 @@ Model), SOL-FND-004 (Foundation Table Design)
 Execute files in numeric order. Each file depends only on tables created
 by earlier-numbered files in this directory.
 
+> **Note:** Extensions (`pgcrypto`, `pg_trgm`, `btree_gin`) have moved to
+> `database/scripts/01_extensions.sql` — run as a prerequisite before DDL.
+
 | # | File | Table | Depth | Global Seq |
 |--:|------|-------|------:|-----------:|
-| 01 | `01_extensions.sql` | — (pgcrypto, pg_trgm, btree_gin) | — | — |
 | 02 | `02_master_category.sql` | `master_category` | 0 | #1 |
 | 03 | `03_system_setting.sql` | `system_setting` | 0 | #2 |
 | 04 | `04_id_sequence_master.sql` | `id_sequence_master` | 0 | #3 |

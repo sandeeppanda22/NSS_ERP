@@ -24,7 +24,7 @@
 --       separate organization_address table).
 -- =====================================================
 
-CREATE TABLE organization
+CREATE TABLE nss.organization
 (
     organization_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -89,37 +89,37 @@ CREATE TABLE organization
     -- Foreign keys: classification + lifecycle
     CONSTRAINT fk_organization_type
         FOREIGN KEY (organization_type_pk)
-        REFERENCES organization_type_master (organization_type_pk),
+        REFERENCES nss.organization_type_master (organization_type_pk),
 
     CONSTRAINT fk_organization_status
         FOREIGN KEY (organization_status_pk)
-        REFERENCES organization_status_master (organization_status_pk),
+        REFERENCES nss.organization_status_master (organization_status_pk),
 
     -- Self-referencing FK: hierarchy
     CONSTRAINT fk_organization_parent
         FOREIGN KEY (parent_organization_pk)
-        REFERENCES organization (organization_pk),
+        REFERENCES nss.organization (organization_pk),
 
     -- Location FKs (Foundation tables)
     CONSTRAINT fk_organization_district
         FOREIGN KEY (district_pk)
-        REFERENCES district (district_pk),
+        REFERENCES nss.district (district_pk),
 
     CONSTRAINT fk_organization_state
         FOREIGN KEY (state_pk)
-        REFERENCES state (state_pk),
+        REFERENCES nss.state (state_pk),
 
     CONSTRAINT fk_organization_country
         FOREIGN KEY (country_pk)
-        REFERENCES country (country_pk),
+        REFERENCES nss.country (country_pk),
 
     CONSTRAINT fk_organization_city_village
         FOREIGN KEY (city_village_pk)
-        REFERENCES city_village (city_village_pk),
+        REFERENCES nss.city_village (city_village_pk),
 
     CONSTRAINT fk_organization_postal_code
         FOREIGN KEY (postal_code_pk)
-        REFERENCES postal_code (postal_code_pk),
+        REFERENCES nss.postal_code (postal_code_pk),
 
     -- Coordinate range validation
     CONSTRAINT chk_organization_latitude
@@ -140,31 +140,31 @@ CREATE TABLE organization
 
 -- Indexes
 CREATE INDEX idx_organization_type
-    ON organization (organization_type_pk);
+    ON nss.organization (organization_type_pk);
 
 CREATE INDEX idx_organization_status
-    ON organization (organization_status_pk);
+    ON nss.organization (organization_status_pk);
 
 CREATE INDEX idx_organization_parent
-    ON organization (parent_organization_pk);
+    ON nss.organization (parent_organization_pk);
 
 CREATE INDEX idx_organization_country
-    ON organization (country_pk);
+    ON nss.organization (country_pk);
 
 CREATE INDEX idx_organization_state
-    ON organization (state_pk);
+    ON nss.organization (state_pk);
 
 CREATE INDEX idx_organization_district
-    ON organization (district_pk);
+    ON nss.organization (district_pk);
 
 CREATE INDEX idx_organization_city_village
-    ON organization (city_village_pk);
+    ON nss.organization (city_village_pk);
 
 CREATE INDEX idx_organization_postal_code
-    ON organization (postal_code_pk);
+    ON nss.organization (postal_code_pk);
 
 CREATE INDEX idx_organization_active
-    ON organization (is_active);
+    ON nss.organization (is_active);
 
 CREATE INDEX idx_organization_name
-    ON organization USING gin (organization_name gin_trgm_ops);
+    ON nss.organization USING gin (organization_name gin_trgm_ops);

@@ -5,7 +5,7 @@
 #
 # Validates that all implemented modules were built
 # correctly. Does NOT execute any DDL or seed scripts —
-# run 01_build.sh first.
+# run 02_build.sh first.
 #
 # Checks: table existence, row counts, unique constraints,
 # FK integrity, and deferred column presence.
@@ -13,7 +13,7 @@
 # Authority: SOL-ARCH-010, SOL-ARCH-011
 #
 # Usage:
-#   ./database/scripts/02_validate.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
+#   ./database/scripts/03_validate.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
 #
 # Defaults:
 #   DB_NAME  = nss_erp
@@ -57,7 +57,7 @@ log_warn() { echo -e "  ${YELLOW}[WARN]${NC} $1"; warn_count=$((warn_count + 1))
 check_table_exists() {
     local table="$1"
     local result
-    result=$(${PSQL} -c "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '${table}');" 2>/dev/null || echo "f")
+    result=$(${PSQL} -c "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'nss' AND table_name = '${table}');" 2>/dev/null || echo "f")
     if [ "$result" = "t" ]; then
         log_pass "${table} exists"
     else
@@ -69,7 +69,7 @@ check_row_count() {
     local table="$1"
     local expected="$2"
     local count
-    count=$(${PSQL} -c "SELECT COUNT(*) FROM ${table};" 2>/dev/null || echo "ERROR")
+    count=$(${PSQL} -c "SELECT COUNT(*) FROM nss.${table};" 2>/dev/null || echo "ERROR")
     if [ "$count" = "ERROR" ]; then
         log_fail "${table}: query failed"
     elif [ "$count" -ge "$expected" ] 2>/dev/null; then
@@ -83,7 +83,7 @@ check_no_duplicates() {
     local table="$1"
     local column="$2"
     local dups
-    dups=$(${PSQL} -c "SELECT COUNT(*) FROM (SELECT ${column} FROM ${table} GROUP BY ${column} HAVING COUNT(*) > 1) x;" 2>/dev/null || echo "ERROR")
+    dups=$(${PSQL} -c "SELECT COUNT(*) FROM (SELECT ${column} FROM nss.${table} GROUP BY ${column} HAVING COUNT(*) > 1) x;" 2>/dev/null || echo "ERROR")
     if [ "$dups" = "0" ]; then
         log_pass "${table}: no duplicate ${column}"
     elif [ "$dups" = "ERROR" ]; then
@@ -111,7 +111,7 @@ check_column_exists() {
     local table="$1"
     local column="$2"
     local result
-    result=$(${PSQL} -c "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '${table}' AND column_name = '${column}');" 2>/dev/null || echo "f")
+    result=$(${PSQL} -c "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'nss' AND table_name = '${table}' AND column_name = '${column}');" 2>/dev/null || echo "f")
     if [ "$result" = "t" ]; then
         log_pass "${table}.${column} present"
     else
@@ -148,9 +148,9 @@ check_no_duplicates "role_master" "role_code"
 
 echo "  FK integrity:"
 check_fk_integrity "role_permission -> role_master" \
-    "SELECT COUNT(*) FROM role_permission rp LEFT JOIN role_master rm ON rp.role_master_pk = rm.role_master_pk WHERE rm.role_master_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.role_permission rp LEFT JOIN nss.role_master rm ON rp.role_master_pk = rm.role_master_pk WHERE rm.role_master_pk IS NULL;"
 check_fk_integrity "role_permission -> permission_master" \
-    "SELECT COUNT(*) FROM role_permission rp LEFT JOIN permission_master pm ON rp.permission_master_pk = pm.permission_master_pk WHERE pm.permission_master_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.role_permission rp LEFT JOIN nss.permission_master pm ON rp.permission_master_pk = pm.permission_master_pk WHERE pm.permission_master_pk IS NULL;"
 echo ""
 
 # =====================================================
@@ -185,15 +185,15 @@ check_no_duplicates "id_sequence_master" "sequence_code"
 
 echo "  FK integrity:"
 check_fk_integrity "master_data -> master_category" \
-    "SELECT COUNT(*) FROM master_data md LEFT JOIN master_category mc ON md.master_category_pk = mc.master_category_pk WHERE mc.master_category_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.master_data md LEFT JOIN nss.master_category mc ON md.master_category_pk = mc.master_category_pk WHERE mc.master_category_pk IS NULL;"
 check_fk_integrity "state -> country" \
-    "SELECT COUNT(*) FROM state s LEFT JOIN country c ON s.country_pk = c.country_pk WHERE c.country_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.state s LEFT JOIN nss.country c ON s.country_pk = c.country_pk WHERE c.country_pk IS NULL;"
 check_fk_integrity "district -> state" \
-    "SELECT COUNT(*) FROM district d LEFT JOIN state s ON d.state_pk = s.state_pk WHERE s.state_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.district d LEFT JOIN nss.state s ON d.state_pk = s.state_pk WHERE s.state_pk IS NULL;"
 check_fk_integrity "postal_code -> country" \
-    "SELECT COUNT(*) FROM postal_code p LEFT JOIN country c ON p.country_pk = c.country_pk WHERE c.country_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.postal_code p LEFT JOIN nss.country c ON p.country_pk = c.country_pk WHERE c.country_pk IS NULL;"
 check_fk_integrity "postal_code -> state" \
-    "SELECT COUNT(*) FROM postal_code p LEFT JOIN state s ON p.state_pk = s.state_pk WHERE s.state_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.postal_code p LEFT JOIN nss.state s ON p.state_pk = s.state_pk WHERE s.state_pk IS NULL;"
 
 echo "  Deferred columns:"
 check_column_exists "document_master" "person_pk"
@@ -221,15 +221,15 @@ check_no_duplicates "organization" "organization_code"
 
 echo "  FK integrity:"
 check_fk_integrity "organization -> organization_type_master" \
-    "SELECT COUNT(*) FROM organization o LEFT JOIN organization_type_master otm ON o.organization_type_pk = otm.organization_type_pk WHERE otm.organization_type_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.organization_type_master otm ON o.organization_type_pk = otm.organization_type_pk WHERE otm.organization_type_pk IS NULL;"
 check_fk_integrity "organization -> organization_status_master" \
-    "SELECT COUNT(*) FROM organization o LEFT JOIN organization_status_master osm ON o.organization_status_pk = osm.organization_status_pk WHERE osm.organization_status_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.organization_status_master osm ON o.organization_status_pk = osm.organization_status_pk WHERE osm.organization_status_pk IS NULL;"
 check_fk_integrity "organization -> country" \
-    "SELECT COUNT(*) FROM organization o LEFT JOIN country c ON o.country_pk = c.country_pk WHERE o.country_pk IS NOT NULL AND c.country_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.country c ON o.country_pk = c.country_pk WHERE o.country_pk IS NOT NULL AND c.country_pk IS NULL;"
 check_fk_integrity "organization -> city_village" \
-    "SELECT COUNT(*) FROM organization o LEFT JOIN city_village cv ON o.city_village_pk = cv.city_village_pk WHERE o.city_village_pk IS NOT NULL AND cv.city_village_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.city_village cv ON o.city_village_pk = cv.city_village_pk WHERE o.city_village_pk IS NOT NULL AND cv.city_village_pk IS NULL;"
 check_fk_integrity "organization -> postal_code" \
-    "SELECT COUNT(*) FROM organization o LEFT JOIN postal_code pc ON o.postal_code_pk = pc.postal_code_pk WHERE o.postal_code_pk IS NOT NULL AND pc.postal_code_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.postal_code pc ON o.postal_code_pk = pc.postal_code_pk WHERE o.postal_code_pk IS NOT NULL AND pc.postal_code_pk IS NULL;"
 echo ""
 
 # =====================================================

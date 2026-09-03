@@ -6,7 +6,7 @@
 -- Authority: SOL-ARCH-011 §4, SOL-ADMIN-004 §8.7
 -- =====================================================
 
-INSERT INTO role_master
+INSERT INTO nss.role_master
     (role_code, role_name, role_class, scope_level, description, display_order)
 VALUES
     ('NSS_ADMIN',

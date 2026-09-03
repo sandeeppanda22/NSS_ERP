@@ -13,7 +13,7 @@
 --       localities; one locality can have multiple PINs.
 -- =====================================================
 
-CREATE TABLE city_village_postal_code_map
+CREATE TABLE nss.city_village_postal_code_map
 (
     city_village_postal_code_map_pk UUID PRIMARY KEY
         DEFAULT gen_random_uuid(),
@@ -27,18 +27,18 @@ CREATE TABLE city_village_postal_code_map
 
     CONSTRAINT fk_cv_pc_map_city_village
         FOREIGN KEY (city_village_pk)
-        REFERENCES city_village (city_village_pk),
+        REFERENCES nss.city_village (city_village_pk),
 
     CONSTRAINT fk_cv_pc_map_postal_code
         FOREIGN KEY (postal_code_pk)
-        REFERENCES postal_code (postal_code_pk),
+        REFERENCES nss.postal_code (postal_code_pk),
 
     CONSTRAINT uq_cv_pc_map
         UNIQUE (city_village_pk, postal_code_pk)
 );
 
 CREATE INDEX idx_cv_pc_map_city_village
-    ON city_village_postal_code_map (city_village_pk);
+    ON nss.city_village_postal_code_map (city_village_pk);
 
 CREATE INDEX idx_cv_pc_map_postal_code
-    ON city_village_postal_code_map (postal_code_pk);
+    ON nss.city_village_postal_code_map (postal_code_pk);
