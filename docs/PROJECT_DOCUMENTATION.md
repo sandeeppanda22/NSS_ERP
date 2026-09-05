@@ -120,6 +120,122 @@ Bootstrap RBAC DDL and seed data`); seed data is partial (`role_master`: 8 roles
 the 3 tables remains with Administration — "Bootstrap" is a DDL-sequencing label, not a new
 module (see Gotchas).
 
+## Tier-wise Implementation Plan
+
+The system is built **vertically by tier**: each tier completes DB → API → UI before the
+next tier begins. This is distinct from the DDL depth order (which is an internal database
+concern within each tier's DB phase).
+
+**Authority:** `docs/03_Solution/architecture/IMPLEMENTATION_DEPENDENCY_ORDER.md`
+(`SOL-ARCH-008`, `IMPLEMENTATION-TIER-001`)
+
+### Tier sequence
+
+| Tier | Modules | Focus |
+|-----:|---------|-------|
+| 0 | Bootstrap | PostgreSQL bootstrap (database, roles, extensions, `nss` schema) + initial RBAC tables |
+| 1 | Foundation | Common master/reference infrastructure (master_data, geography, sequences, settings) |
+| 2 | Person + Organization | People identity (Sangha Sevi ID) and organizational hierarchy (Kendra → Anchalika/Zilla → Sakha) |
+| 3 | Heritage | Founder biography, teachings, objectives, historical milestones, office bearers |
+| 4 | Family + Membership | Family groups, membership types (Probationary/Regular/Associate), Sakha affiliation, local IDs, transfer |
+| 5 | Authentication + Administration + Audit | User accounts, RBAC enforcement, organizational scopes, audit trail |
+| 6 | Attendance + Governance + Assets & Property | Sangha Puja attendance, governance positions, immovable/movable property |
+| 7 | Programme & Events | Event types, instances, sessions, registration (Janmotsaba, Rasoutsaba, etc.) |
+| 8 | Kumari + Kishor + Sevak | Youth participation domains (Kumari/Kishor IDs, Seva architecture, Dina-Lipi, Niyam Panchak) |
+| 9 | Mahila | Mahila-specific operations (not a separate membership category — Mahila Puja is Sangha Puja with majority women) |
+| 10 | Publications + UPBS | Publication catalogue/operations, UPBS operational integration |
+| 11 | Finance | Financial transactions (Pranami, event fees, publication sales, property income) — deliberately late, references upstream domains |
+| 12 | Reports + Backup & Technical | Reporting, analytics, backup/restore, technical administration |
+
+### Vertical slice per tier
+
+Each tier follows the same internal sequence:
+
+```
+Database
+  ├── Review frozen table design
+  ├── DDL (CREATE TABLE in dependency-depth order)
+  ├── Constraints + indexes
+  ├── Seed data
+  └── DB validation
+       │
+       ▼
+API
+  ├── Design + schemas
+  ├── Endpoints
+  └── Authorization
+       │
+       ▼
+UI
+  ├── Pages + forms
+  ├── Tables + lists
+  └── API integration
+       │
+       ▼
+Integration test → freeze tier → next tier
+```
+
+### Key architectural facts per tier
+
+**Tier 0 (Bootstrap):** PostgreSQL `nss_admin` role (database-level DDL owner) is distinct
+from ERP `NSS_ADMIN` role (application RBAC row in `role_master`). Bootstrap RBAC tables
+(`role_master`, `permission_master`, `role_permission`) are owned by the Administration
+module — "Bootstrap" is a DDL-sequencing label, not a new module. Permission catalogue is
+not yet frozen.
+
+**Tier 2 (Person + Organization):** Person is the central human identity. The global Sangha
+Sevi ID (e.g. `SS000001`) is permanent, unique across NSS, never changes, never reused.
+Organization hierarchy: Kendra → Anchalika/Zilla → Sakha → Sakha Asana → Patha Chakra.
+Nilachala Kutira and Smruti Mandira are separate roots, not children of Kendra. Organization
+stores location inline (country, city_village, postal_code FKs + lat/long), no separate
+`organization_address` table.
+
+**Tier 4 (Family + Membership):** Membership is not the same as Sakha affiliation.
+`membership_sakha_affiliation` carries effective-dated Sakha assignment. Transfer: old local
+ID archived, new local ID issued, global Sangha Sevi ID unchanged. Local ID format:
+`<3-5 char org code><8 digit sequence>` (e.g. `ESS00000123`).
+
+**Tier 5 (Auth + Admin + Audit):** Effective access = User + Role + Permission +
+Organizational Scope. Audit is separate from change history — `field_change_log` (Foundation)
+handles field-level change tracking; `audit_master`/`system_event_log` handle security and
+system events.
+
+**Tier 6 (Attendance):** Membership Sakha ≠ Attendance Sakha. A member affiliated with
+Sakha A can attend Sangha at Sakha B — the attendance record identifies the actual Sakha
+where attendance occurred. Weekly Sangha Puja is owned by Attendance, not Programme & Events.
+Attendance types: REGULAR, DARSHAK, VISITOR.
+
+**Tier 6 (Assets & Property):** Legal owner, registered holder, and custodian are distinct
+concepts. Covers acquisition, disposal, custody, maintenance, valuation, depreciation,
+insurance, statutory obligations, restricted property.
+
+**Tier 7 (Programme & Events):** Common structure: Programme Type → Event → Event Instance
+→ Event Day → Event Session, plus Registration. Finance owns actual event financial
+transactions. Attendance remains Attendance-owned.
+
+**Tier 8 (Kumari/Kishor/Sevak):** These are not adult Membership categories. Kumari and
+Kishor have separate identity/participation domains. Sevak architecture: Seva → Seva Head →
+Application → Recommendation → Approval. Guardian model for minors includes
+`guardian_sangha_sevi_pk`.
+
+**Tier 11 (Finance):** Financial year 1 April – 31 March. Finance owns all actual
+transactions. Other modules reference Finance — they do not create competing transaction
+ledgers.
+
+### Current position
+
+Tier 0 (Bootstrap) and Tier 1 (Foundation) DB phases are **implemented**. Tier 2
+(Organization) DB phase is **implemented**. Tier 2 (Person) DB phase is **pending** (the
+`03_person/` DDL is a superseded prototype awaiting rewrite). All API and UI phases remain
+**unimplemented** across all tiers.
+
+### Database schema
+
+All application tables live in the `nss` schema (`CREATE SCHEMA nss`). The `public` schema
+is reserved for PostgreSQL extensions (pgcrypto, pg_trgm, btree_gin, postgis). The database
+default `search_path` is set to `nss, public`. All DDL uses explicit `nss.` prefix on table
+names, FK references, and index targets.
+
 ## Directory structure
 
 ```
