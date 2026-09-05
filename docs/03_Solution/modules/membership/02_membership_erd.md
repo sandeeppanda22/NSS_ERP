@@ -103,7 +103,7 @@ conceptual rules are frozen in CROSS_MODULE_PRINCIPLES.md §20.2
 
 ```text
 Format:  <3–5 character Organization/Sakha Short Code><8-digit sequence>
-Example: EKM00000123
+Example: ESS00000123
 ```
 
 * One active Local Sakha ERP ID per member, issued by the

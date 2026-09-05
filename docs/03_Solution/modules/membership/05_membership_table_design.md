@@ -142,7 +142,7 @@ Format (FROZEN in CROSS_MODULE_PRINCIPLES.md §20.2):
 
 ```text
 Format:  <3–5 character Organization/Sakha Short Code><8-digit sequence>
-Example: EKM00000123
+Example: ESS00000123
 ```
 
 ---
@@ -829,9 +829,9 @@ row** is created with the same `local_sakha_erp_id`,
 The prior ARCHIVED row is **not reopened**.
 
 ```text
-2019 ─────── 2023    Ekamra   EKM00000123   ARCHIVED
+2019 ─────── 2023    Ekamra   ESS00000123   ARCHIVED
 2023 ─────── 2026    Cuttack  CTC00000042   ARCHIVED
-2026 ─────── →       Ekamra   EKM00000123   REACTIVATED
+2026 ─────── →       Ekamra   ESS00000123   REACTIVATED
 ```
 
 **Probationary Member (operational Darshak):** Same as enrollment —
