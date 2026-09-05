@@ -103,7 +103,7 @@ BEGIN
         SELECT 1 FROM pg_database WHERE datname = 'nss_erp'
     ) THEN
         PERFORM dblink_exec(
-            'dbname=postgres',
+            'dbname=postgres host=localhost user=postgres password=root',
             'CREATE DATABASE nss_erp OWNER nss_admin'
         );
         RAISE NOTICE 'Database nss_erp created.';
