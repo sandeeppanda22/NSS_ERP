@@ -761,6 +761,54 @@
                 Registered before without membership details?
                 <a href="#" @click.prevent="goLookupExisting()">Add membership now</a>
             </div>
+            <div class="login-link">
+                New Darshak? <a href="#" @click.prevent="goDarshakEntry()">Apply here</a>
+            </div>
+
+            <hr class="reg-divider">
+            <p class="register-footer">Sri Shri Nigamananda Smruti Mandir, Puri</p>
+        </div>
+
+        <!-- ════════════════════════════════════════════════
+             Standalone Darshak Entry: Person ID or new?
+             ════════════════════════════════════════════════ -->
+        <div class="register-card" x-show="step === 'darshak-entry'" x-cloak>
+
+            <div style="text-align: center;">
+                <img src="/assets/img/nss-logo.png" alt="NSS Logo" class="logo-img">
+                <h1>Nilachala Saraswata Sangha</h1>
+                <p class="subtitle">Apply for Darshak</p>
+            </div>
+
+            <hr class="reg-divider">
+
+            <template x-if="error">
+                <div class="alert-box"><span x-text="error"></span></div>
+            </template>
+
+            <div class="section-heading">
+                Do you already have a Person ID?
+            </div>
+            <p style="font-size: 0.8rem; color: #6b7280; margin: 0 0 0.85rem;">
+                A Person ID (e.g. P00001) was issued if you registered with
+                Nilachala Saraswata Sangha before, even without membership.
+            </p>
+
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+                <button class="btn-gold" @click="startDarshakExisting()">
+                    Yes, I have a Person ID
+                </button>
+                <button class="btn-outline" @click="startDarshakNew()">
+                    No, I'm new
+                </button>
+            </div>
+
+            <div style="margin-top: 1rem;">
+                <button class="btn-outline" style="width: 100%;"
+                        @click="darshakFlow = false; form.has_membership = false; step = 1; error = ''">
+                    ← Back
+                </button>
+            </div>
 
             <hr class="reg-divider">
             <p class="register-footer">Sri Shri Nigamananda Smruti Mandir, Puri</p>
@@ -804,7 +852,7 @@
             </div>
 
             <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                <button class="btn-outline" @click="step = 1; error = ''" style="flex: 1;" :disabled="lookup.loading">
+                <button class="btn-outline" @click="step = (darshakFlow ? 'darshak-entry' : 1); error = ''" style="flex: 1;" :disabled="lookup.loading">
                     ← Back
                 </button>
                 <button class="btn-gold" @click="lookupExisting()" style="flex: 1;"
@@ -826,7 +874,7 @@
             <div style="text-align: center;">
                 <img src="/assets/img/nss-logo.png" alt="NSS Logo" class="logo-img">
                 <h1>Nilachala Saraswata Sangha</h1>
-                <p class="subtitle">New Member Registration</p>
+                <p class="subtitle" x-text="darshakFlow ? 'Apply for Darshak' : 'New Member Registration'"></p>
             </div>
 
             <hr class="reg-divider">
@@ -844,7 +892,7 @@
 
             <div class="section-heading">
                 <span class="step-badge">2</span>
-                Membership Details
+                <span x-text="darshakFlow ? 'Darshak Details' : 'Membership Details'"></span>
             </div>
 
             <!-- Previously-registered identity banner (existing mode only) -->
@@ -859,8 +907,11 @@
 
             <!-- Not Applicable toggle (new registration only — a previously-
                  registered person reached this step specifically to add
-                 membership, so it's always on for them) -->
-            <div class="toggle-row" x-show="mode !== 'existing'">
+                 membership, so it's always on for them; the standalone
+                 Darshak flow also keeps it on, since applying for Darshak
+                 IS applying for membership — toggling off would contradict
+                 the flow the applicant chose). -->
+            <div class="toggle-row" x-show="mode !== 'existing' && !darshakFlow">
                 <div>
                     <div class="toggle-label">I have membership credentials</div>
                     <div class="toggle-sublabel">
@@ -880,7 +931,7 @@
                 <div class="reg-group-grid cols-2">
                 <div class="reg-group-col">
                     <!-- Membership Type -->
-                    <div class="form-group">
+                    <div class="form-group" x-show="!darshakFlow">
                         <label class="reg-label">Membership Type *</label>
                         <select x-model="form.membership_type_master_data_pk"
                                 @change="onMembershipTypeChange()"
@@ -892,6 +943,15 @@
                                 </option>
                             </template>
                         </select>
+                    </div>
+
+                    <!-- Membership type pre-locked for the standalone
+                         "Apply for Darshak" flow — no select, just a
+                         read-only confirmation. -->
+                    <div class="form-group" x-show="darshakFlow">
+                        <label class="reg-label">Membership Type</label>
+                        <input type="text" value="Darshaka (Probationary Member)" class="reg-input"
+                               disabled style="background: #f3f4f6; color: #6b7280;">
                     </div>
 
                     <!-- Sakha Selection -->
@@ -909,8 +969,11 @@
                         </p>
                     </div>
 
-                    <!-- Local Sakha Number — shown AFTER Sakha is selected (AUTH-BR-085) -->
-                    <template x-if="form.organization_pk">
+                    <!-- Local Sakha Number — shown AFTER Sakha is selected (AUTH-BR-085).
+                         Not shown for the standalone Apply-for-Darshak flow: that
+                         number is system-generated at admin approval, not
+                         self-reported by the applicant. -->
+                    <template x-if="form.organization_pk && !darshakFlow">
                         <div class="form-group">
                             <label class="reg-label">
                                 Local Sakha Number
@@ -937,8 +1000,10 @@
                          Anumati Patra issued later, not claimed at registration.
                          Distinct from Local Sakha Number: this is the annual
                          Kendra/Sakha-wide credential number, not the Tier 2
-                         per-Sakha identity. -->
-                    <template x-if="form.organization_pk">
+                         per-Sakha identity. Not shown for the standalone
+                         Apply-for-Darshak flow — the Anumati Patra number is
+                         system-generated at admin approval, not self-reported. -->
+                    <template x-if="form.organization_pk && !darshakFlow">
                         <div class="form-group">
                             <label class="reg-label">
                                 <span x-text="isDarshaka() ? 'Anumati Patra Number' : 'Parichaya Patra Number'"></span>
@@ -959,8 +1024,10 @@
                         </div>
                     </template>
 
-                    <!-- Joining Date -->
-                    <div class="form-group" x-data="nssDatePicker('form.joining_date')" style="position:relative;" data-dp-input-class="reg-input" data-dp-disabled="loading">
+                    <!-- Joining Date — not asked for the standalone Apply-for-Darshak
+                         flow; the join date there is the approval date, not
+                         something the applicant chooses. -->
+                    <div class="form-group" x-show="!darshakFlow" x-data="nssDatePicker('form.joining_date')" style="position:relative;" data-dp-input-class="reg-input" data-dp-disabled="loading">
                         <label class="reg-label"> Sakha Joining Date</label>
                     </div>
 
@@ -971,7 +1038,7 @@
                          Contact Information / Address — so this one card
                          doesn't read as a single unbroken wall of fields. -->
                 </div>
-                <div class="reg-group-col">
+                <div class="reg-group-col" x-show="!darshakFlow">
 
                     <hr class="reg-divider reg-divider-stack-only">
 
@@ -992,8 +1059,9 @@
                         <div>
                             
                             <div class="toggle-sublabel">
-                                If you are attending a different Sakha as a Darshak, check this box and provide that Sakha's details below. This is optional;
-                        
+                                If you are attending a different Sakha as a Darshak, check this box and provide that Sakha's details below. This is optional — your home Sakha membership stays as selected above.
+                            </div>
+                        </div>
                     </div>
 
                     <template x-if="form.is_attending_as_darshak">

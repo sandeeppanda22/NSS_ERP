@@ -49,8 +49,10 @@ frontend/
 ├── admin.html                Administration Dashboard (Tier 5) — Users, Create User/Person/Sangha
 │                             Sevi/Organization, Reference Data, Geography, Organization Hierarchy,
 │                             Assign Sakhas, Person Directory, Member Directory, Roles & System
-│                             Settings, Geo Approvals (member-proposed geography review), Registration Approvals (claims review), and Org Dashboard
-│                             tabs
+│                             Settings, Geo Approvals (member-proposed geography review), Registration Approvals (claims review),
+│                             Change Requests (Sakha transfer / Apply for Darshak review), Member Credentials,
+│                             a collapsible Governance nav group (Body Types & Positions, Governance Bodies,
+│                             Assignments, Elections; Tier 6), and Org Dashboard tabs
 ├── assets/
 │   ├── css/
 │   │   ├── badges.css          Single source of truth for ALL badge CSS (status/account/claim/type/affiliation/gender/role/muted) + data-identity typography — mirrors docs/03_Solution/ui/mockups/status_badge_preview.html
@@ -587,7 +589,8 @@ Single source of truth for every badge CSS class used across the pages, plus the
 identity typographic classes. Loaded by `admin.html` and `dashboard.html` only (see the page/asset
 matrix under Directory Structure), right after `style.css` and before `nss-layout.css`. The
 prefix counts below were re-verified against the file (18 `badge-status-*`, 4 `badge-account-*`,
-3 `badge-claim-*`, 4 `badge-type-*`, 3 `badge-aff-*`, 3 `badge-gender-*`, 3 `badge-role-*`, 6 `data-*`).
+3 `badge-claim-*`, 4 `badge-type-*`, 3 `badge-aff-*`, 3 `badge-gender-*`, 3 `badge-role-*`, 4 `badge-changereq-*`,
+4 `badge-cred-state-*`, 4 `badge-cred-status-*`, 6 `data-*`).
 
 Its geometry and lifecycle palette are copied **verbatim** (px values included) from
 `docs/03_Solution/ui/mockups/status_badge_preview.html`, which is the visual source of truth, so
@@ -609,6 +612,9 @@ placeholders, data-type hints. This keeps real statuses visually dominant.
 | `.badge-type-*` | 4 | Membership type (`probationary`/`regular`/`associate`/`honorary`) |
 | `.badge-aff-*` | 3 | Sakha affiliation status (`active`/`archived`/`reactivated`) |
 | `.badge-gender-*` | 3 | Gender (`male`/`female`/`other`) |
+| `.badge-changereq-*` | 4 | `membership_change_request.status` (`pending-release`/`pending-accept`/`completed`/`rejected`; both `REJECTED_BY_*` values share `rejected`) — Sakha Transfer / Apply for Darshak |
+| `.badge-cred-state-*` | 4 | Per-member credential health (`ok`/`expiring`/`lapsed`/`missing`) — admin Credentials tab |
+| `.badge-cred-status-*` | 4 | Individual Anumati/Parichaya Patra row status (`active`/`expired`/`lapsed`/`cancelled`) — credential timeline |
 | `.badge-marital` | 1 | Marital status (single generic style, not per-value) |
 | `.badge-role-*` | 3 | Role indicators (`viewer` = "YOU", `head` = "HEAD", `admin` = "ADMIN") |
 | `.badge-identity` / `.badge-org` / `.badge-attention` | 3 | Context chips — Sangha Sevi ID, organization name, needs-action. They exist so pages stop hand-rolling `style="background:…"` on `.badge` elements |
@@ -652,6 +658,10 @@ state/logic that any page's inline bindings or `*.js` file calls directly as `NS
 | `GENDER_BADGE_MAP` / `genderBadgeClass(code)` | Gender → `.badge-gender-*` class |
 | `ACCOUNT_BADGE_MAP` / `accountBadgeClass(status)` | `user_account.account_status` → `.badge-account-*` class |
 | `CLAIM_BADGE_MAP` / `claimBadgeClass(status)` | `registration_claim.claim_status` → `.badge-claim-*` class |
+| `CREDENTIAL_STATE_BADGE_MAP` / `credentialStateBadgeClass(state)` | Per-member credential health (`OK`/`EXPIRING`/`LAPSED`/`MISSING`) → `.badge-cred-state-*` |
+| `CREDENTIAL_STATUS_BADGE_MAP` / `credentialStatusBadgeClass(status)` | Credential row status (`ACTIVE`/`EXPIRED`/`LAPSED`/`CANCELLED`) → `.badge-cred-status-*` |
+| `CHANGE_REQUEST_BADGE_MAP` / `changeRequestBadgeClass(status)` | `membership_change_request.status` (all five values) → `.badge-changereq-*` |
+| `CHANGE_REQUEST_STATUS_LABELS` / `changeRequestStatusLabel(status)` | Human-readable label for the same statuses (e.g. `PENDING_SOURCE_RELEASE` → "Awaiting your current Sakha"); falls back to the raw code |
 | `showParichayaPatra(typeCode)` | Always `true` — kept as a named method for one documented home, even though the rule doesn't currently vary |
 | `showAnumatiPatra(typeCode)` | `true` for every membership type except `ASSOCIATE` (MBR-019A/B) — used by the Anumati Patra `x-show` bindings on `admin.html`/`dashboard.html` (originally `membership.html`/`family.html`) |
 | `DEFAULT_COUNTRY_CODE` (`"+91"`), `MAX_PAGE_SIZE` (`500`), `PASSWORD_MIN_LENGTH` (`8`), `REDIRECT_DELAY_MS` (`1500`) | Shared constants used across `register.js`/`admin.js`/etc. instead of scattered magic numbers |
@@ -824,9 +834,9 @@ page's root `x-data`:
 | File | Factory | Notes |
 |------|---------|-------|
 | `login.js` (288 lines) | `loginApp()` | `login()` → `POST /api/v1/auth/login`; `changePassword()` (forced change / expiry); `openForgotPassword()`/`submitForgotPassword()`/`submitResetPassword()` drive the **in-page** forgot/reset-password panels via `POST /api/v1/auth/forgot-password` and `/reset-password` (there is no separate forgot-password page) |
-| `register.js` (699 lines) | `registerApp()` | 3-step form — `step` 1 personal details, 2 optional membership claim (Sakha chosen first, then Local Sakha Number), 3 password — then a success screen (`step = 4`, shows the Person ID only, pending admin approval). A "Previously registered? Add membership" mode (`goLookupExisting()` → `step = 'lookup'`, `lookupExisting()` → `POST /api/v1/register/lookup-existing` with Person ID + DOB, then `submitExistingClaim()` → `POST /api/v1/register/claim`) is for people who registered without membership: they have no account yet, so the claim creates it. `submit()` dispatches to `submitNewRegistration()` or `submitExistingClaim()` by `mode`. Form state (minus password) is drafted to `sessionStorage` (`nss_register_draft`) and restored on reload; the Sakha dropdown lists all Sakhas with those near the chosen state/district first (`sakhasNearFirst`). Uses `NSSLocation` against `/api/v1/register/*` and `POST /api/v1/register/check-duplicate`; submits `POST /api/v1/register` |
-| `dashboard.js` (3363 lines) | `dashboardApp()` (+ module-level `_avatarClass()`, `_buildCoupleTree()`; `_renderGenSubtree()` is a method) | Member dashboard: `personal`, `membership`, `family`, `documents`, `attendance`, `governance`, and `orgDashboard` tabs; admin entries are added to the sidebar dynamically from the caller's role scopes (`ADMIN_TAB_MAP`, `DASHBOARD_LEVELS`, `ROLE_ORG_LABELS`, `FAMILY_BROWSER_ROLES`) |
-| `admin.js` (4500 lines) | `adminApp()` (+ module-level `ROLE_ORG_LABELS`, `DASHBOARD_LEVELS`, a copy of `dashboard.js`'s — there is no cross-file include mechanism) | Admin console; tabs (from `admin.html`'s `activeTab` values): `users`, `detail`, `create`, `createSS`, `createOrg`, `organizations`, `orgHierarchy`, `assignSakha`, `refData`, `geography`, `geoApprovals`, `personDir`, `memberDir`, `claims`, `sysSettings`, `password`, `orgDashboard`; a `tabLoaders` map in `init()` re-fires each lazy tab's loader on hash-restore |
+| `register.js` (753 lines) | `registerApp()` | 3-step form — `step` 1 personal details, 2 optional membership claim (Sakha chosen first, then Local Sakha Number), 3 password — then a success screen (`step = 4`, shows the Person ID only, pending admin approval). A "Previously registered? Add membership" mode (`goLookupExisting()` → `step = 'lookup'`, `lookupExisting()` → `POST /api/v1/register/lookup-existing` with Person ID + DOB, then `submitExistingClaim()` → `POST /api/v1/register/claim`) is for people who registered without membership: they have no account yet, so the claim creates it. `submit()` dispatches to `submitNewRegistration()` or `submitExistingClaim()` by `mode`. A standalone "Apply for Darshak" entry (`goDarshakEntry()` → `step = 'darshak-entry'`, linked from step 1 as "New Darshak? Apply here") asks whether the applicant already has a Person ID (`startDarshakExisting()` reuses the lookup/claim path; `startDarshakNew()` reuses the step-1 wizard with `has_membership = true`), sets `darshakFlow`, pre-locks the membership type to Darshaka (`darshakaTypePk()`) and hides the Local Sakha Number field (system-generated at admin approval) Form state (minus password) is drafted to `sessionStorage` (`nss_register_draft`) and restored on reload; the Sakha dropdown lists all Sakhas with those near the chosen state/district first (`sakhasNearFirst`). Uses `NSSLocation` against `/api/v1/register/*` and `POST /api/v1/register/check-duplicate`; submits `POST /api/v1/register` |
+| `dashboard.js` (3660 lines) | `dashboardApp()` (+ module-level `_avatarClass()`, `_buildCoupleTree()`; `_renderGenSubtree()` is a method) | Member dashboard: `personal`, `membership`, `family`, `documents`, `attendance`, `governance`, and `orgDashboard` tabs (the governance tab lists "Open Elections — Cast Your Vote" via `GET /api/v1/governance/elections/open-for-voting` + `POST /elections/{pk}/votes/self` (`castMySelfVote()`), and "Governance Bodies" via `GET /governance/public/national-bodies`; the Find-a-Sakha view loads President/Secretary via `GET /governance/public/sakha-office-bearers`; a `canViewGovernance` getter adds a sidebar link to `/admin#govCatalog`; the membership tab has a "My Change Requests" panel — Sakha Transfer / Apply for Darshak — over `/api/v1/membership/change-requests`, `openChangeRequestModal()`/`submitChangeRequest()`/`_loadMyChangeRequests()`); admin entries are added to the sidebar dynamically from the caller's role scopes (`ADMIN_TAB_MAP`, `DASHBOARD_LEVELS`, `ROLE_ORG_LABELS`, `FAMILY_BROWSER_ROLES`) |
+| `admin.js` (6052 lines) | `adminApp()` (+ module-level `ROLE_ORG_LABELS`, `DASHBOARD_LEVELS`, a copy of `dashboard.js`'s — there is no cross-file include mechanism) | Admin console; tabs (from `admin.html`'s `activeTab` values): `users`, `detail`, `create`, `createSS`, `createOrg`, `organizations`, `orgHierarchy`, `assignSakha`, `refData`, `geography`, `geoApprovals`, `personDir`, `memberDir`, `claims`, `changeRequests`, `credentials`, `govCatalog`, `govBodies`, `govAssignments`, `govElections`, `sysSettings`, `password`, `orgDashboard`; a `tabLoaders` map in `init()` re-fires each lazy tab's loader on hash-restore. **Governance (Tier 6):** `canViewGovernance` (`GOVERNANCE_VIEW` or `GOVERNANCE_MANAGE`) shows the collapsible Governance nav group; `canManageGovernance` (`GOVERNANCE_MANAGE`) gates every create/edit/end/declare/apply control. ~38 `*Gov*` methods cover body types and positions (`loadGovCatalog`, `createGovBodyType`, `createGovPosition`, …), bodies (`loadGovBodies`, `createGovBody`, `saveGovBody`), assignments (`createGovAssignment`, `endGovAssignment`) and elections (`createGovElection`, `changeGovElectionStatus`, `createGovNomination`, `loadGovTally`, `declareGovResult`, `applyGovResult`, `resetGovBallots`, `castOfficerVote`). The user-detail view also shows a read-only "Auto-Granted Access (§63)" card from `selectedUser.auto_granted_scopes` (derived live from governance positions, not stored `user_role` rows, so no Revoke). The `changeRequests` tab (`loadChangeRequests`, release/accept/reject actions) and `credentials` tab (`loadCredentials`, `openCredentialTimeline`, `submitIssueCredential`, `submitPromote`) were also added |
 
 (The header comments of `admin.js` — "Tabs: Users list, User detail, Create user, Change password"
 — and `dashboard.js` — "same logic as family.html" — are stale.)
@@ -967,7 +977,7 @@ All endpoints are read-only. No authentication. No CRUD.
 | Method | URL | Response | Tier 0 State |
 |--------|-----|----------|-------------|
 | GET | `/api/v1/bootstrap/health` | `{ status, database }` | `{ "status": "ok", "database": "connected" }` |
-| GET | `/api/v1/bootstrap/roles` | `RoleResponse[]` | 9 frozen roles |
+| GET | `/api/v1/bootstrap/roles` | `RoleResponse[]` | 10 frozen roles |
 | GET | `/api/v1/bootstrap/permissions` | `PermissionResponse[]` | Empty array (by design) |
 | GET | `/api/v1/bootstrap/roles/{role_pk}/permissions` | `PermissionResponse[]` | Empty array (no mappings); 404 if role not found |
 

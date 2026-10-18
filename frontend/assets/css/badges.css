@@ -124,6 +124,33 @@
 .badge-claim-rejected  { background-color: #dc2626 !important; }  /* red-600  */
 
 /* ══════════════════════════════════════════════════════════════
+   MEMBERSHIP CHANGE REQUEST STATUS BADGES
+   membership_change_request.status CHECK —
+   chk_mem_change_req_status (database/ddl/05_membership/18_
+   membership_change_request.sql). Sakha Transfer / Apply for Darshak.
+   ══════════════════════════════════════════════════════════════ */
+
+.badge-changereq-pending-release  { background-color: #d97706 !important; }  /* amber-600 */
+.badge-changereq-pending-accept   { background-color: #2563eb !important; }  /* blue-600  */
+.badge-changereq-completed        { background-color: #16a34a !important; }  /* green-600 */
+.badge-changereq-rejected         { background-color: #dc2626 !important; }  /* red-600   */
+
+/* ══════════════════════════════════════════════════════════════
+   CORRESPONDENCE REGISTER BADGES (Tier 6, SOL-ADMIN-009)
+   correspondence.status (CORRESPONDENCE_STATUS master_data) and
+   correspondence.direction (INWARD/OUTWARD) — see
+   api/routers/correspondence.py.
+   ══════════════════════════════════════════════════════════════ */
+
+.badge-corr-status-registered      { background-color: #2563eb !important; color: #fff !important; }  /* blue-600  */
+.badge-corr-status-pending_action  { background-color: #d97706 !important; color: #fff !important; }  /* amber-600 */
+.badge-corr-status-actioned        { background-color: #0d9488 !important; color: #fff !important; }  /* teal-600  */
+.badge-corr-status-closed          { background-color: #16a34a !important; color: #fff !important; }  /* green-600 */
+
+.badge-corr-direction-inward       { background-color: #0284c7 !important; color: #fff !important; }  /* sky-600    */
+.badge-corr-direction-outward      { background-color: #7c3aed !important; color: #fff !important; }  /* violet-600 */
+
+/* ══════════════════════════════════════════════════════════════
    MUTED / ANNOTATION BADGE
    Outline, not solid — see the fill convention in the header. Used for
    record counts, "Not implemented yet" placeholders and data-type hints,
@@ -156,6 +183,22 @@
 .badge-aff-active         { background-color: #16a34a !important; color: #fff !important; }  /* green-600 */
 .badge-aff-archived       { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500  */
 .badge-aff-reactivated    { background-color: #2563eb !important; color: #fff !important; }  /* blue-600  */
+
+/* ══════════════════════════════════════════════════════════════
+   MEMBER CREDENTIAL BADGES (Anumati/Parichaya Patra, MBR-019B)
+   ══════════════════════════════════════════════════════════════ */
+
+/* Per-member credential health (admin Credentials tab) */
+.badge-cred-state-ok         { background-color: #16a34a !important; color: #fff !important; }  /* green-600  */
+.badge-cred-state-expiring   { background-color: #d97706 !important; color: #fff !important; }  /* amber-600  */
+.badge-cred-state-lapsed     { background-color: #dc2626 !important; color: #fff !important; }  /* red-600    */
+.badge-cred-state-missing    { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500   */
+
+/* Individual credential row status (timeline viewer) */
+.badge-cred-status-active    { background-color: #16a34a !important; color: #fff !important; }  /* green-600  */
+.badge-cred-status-expired   { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500   */
+.badge-cred-status-lapsed    { background-color: #dc2626 !important; color: #fff !important; }  /* red-600    */
+.badge-cred-status-cancelled { background-color: #991b1b !important; color: #fff !important; }  /* red-800    */
 
 /* ══════════════════════════════════════════════════════════════
    GENDER / MARITAL / INFO BADGES (detail panels)

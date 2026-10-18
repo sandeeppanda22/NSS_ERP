@@ -91,6 +91,23 @@ const NSS = {
         OTHER:  "badge-gender-other",
     },
 
+    // Per-member credential health (admin Credentials tab) — computed
+    // server-side in GET /api/v1/admin/credentials/members.
+    CREDENTIAL_STATE_BADGE_MAP: {
+        OK:       "badge-cred-state-ok",
+        EXPIRING: "badge-cred-state-expiring",
+        LAPSED:   "badge-cred-state-lapsed",
+        MISSING:  "badge-cred-state-missing",
+    },
+
+    // Individual Anumati/Parichaya Patra row status (timeline viewer).
+    CREDENTIAL_STATUS_BADGE_MAP: {
+        ACTIVE:    "badge-cred-status-active",
+        EXPIRED:   "badge-cred-status-expired",
+        LAPSED:    "badge-cred-status-lapsed",
+        CANCELLED: "badge-cred-status-cancelled",
+    },
+
     // user_account.account_status — a separate domain from the STATUS
     // master_data category, so it has its own badge prefix. Values are the
     // full set allowed by chk_user_account_status.
@@ -107,6 +124,41 @@ const NSS = {
         PENDING:  "badge-claim-pending",
         APPROVED: "badge-claim-approved",
         REJECTED: "badge-claim-rejected",
+    },
+
+    // membership_change_request.status — full set per
+    // chk_mem_change_req_status (Sakha Transfer / Apply for Darshak).
+    CHANGE_REQUEST_BADGE_MAP: {
+        PENDING_SOURCE_RELEASE:      "badge-changereq-pending-release",
+        PENDING_DESTINATION_ACCEPT:  "badge-changereq-pending-accept",
+        COMPLETED:                   "badge-changereq-completed",
+        REJECTED_BY_SOURCE:          "badge-changereq-rejected",
+        REJECTED_BY_DESTINATION:     "badge-changereq-rejected",
+    },
+
+    // correspondence.status (CORRESPONDENCE_STATUS master_data value_code) —
+    // the §6.2 precondition table's four states (api/routers/correspondence.py).
+    CORRESPONDENCE_STATUS_BADGE_MAP: {
+        REGISTERED:      "badge-corr-status-registered",
+        PENDING_ACTION:  "badge-corr-status-pending_action",
+        ACTIONED:        "badge-corr-status-actioned",
+        CLOSED:          "badge-corr-status-closed",
+    },
+
+    // correspondence.direction — INWARD/OUTWARD only.
+    CORRESPONDENCE_DIRECTION_BADGE_MAP: {
+        INWARD:  "badge-corr-direction-inward",
+        OUTWARD: "badge-corr-direction-outward",
+    },
+
+    // Human-readable label for the same status values — the raw codes
+    // read awkwardly in a member-facing list (e.g. "PENDING_SOURCE_RELEASE").
+    CHANGE_REQUEST_STATUS_LABELS: {
+        PENDING_SOURCE_RELEASE:     "Awaiting your current Sakha",
+        PENDING_DESTINATION_ACCEPT: "Awaiting destination Sakha",
+        COMPLETED:                  "Completed",
+        REJECTED_BY_SOURCE:         "Rejected by current Sakha",
+        REJECTED_BY_DESTINATION:    "Rejected by destination Sakha",
     },
 
     /**
@@ -146,6 +198,24 @@ const NSS = {
     },
 
     /**
+     * Per-member credential health → badge CSS class.
+     * @param {string} state - OK | EXPIRING | LAPSED | MISSING
+     * @returns {string} CSS class
+     */
+    credentialStateBadgeClass(state) {
+        return this.CREDENTIAL_STATE_BADGE_MAP[state] || "badge-muted";
+    },
+
+    /**
+     * Individual Anumati/Parichaya Patra row status → badge CSS class.
+     * @param {string} status - ACTIVE | EXPIRED | LAPSED | CANCELLED
+     * @returns {string} CSS class
+     */
+    credentialStatusBadgeClass(status) {
+        return this.CREDENTIAL_STATUS_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
      * User account status → badge CSS class.
      * @param {string} status - user_account.account_status
      * @returns {string} CSS class
@@ -161,6 +231,43 @@ const NSS = {
      */
     claimBadgeClass(status) {
         return this.CLAIM_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Membership change-request status → badge CSS class.
+     * @param {string} status - membership_change_request.status
+     * @returns {string} CSS class
+     */
+    changeRequestBadgeClass(status) {
+        return this.CHANGE_REQUEST_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Membership change-request status → human-readable label.
+     * @param {string} status - membership_change_request.status
+     * @returns {string} label text
+     */
+    changeRequestStatusLabel(status) {
+        return this.CHANGE_REQUEST_STATUS_LABELS[status] || status;
+    },
+
+    /**
+     * Correspondence status (REGISTERED/PENDING_ACTION/ACTIONED/CLOSED)
+     * → badge CSS class.
+     * @param {string} status - correspondence.status_value_code
+     * @returns {string} CSS class
+     */
+    correspondenceStatusBadgeClass(status) {
+        return this.CORRESPONDENCE_STATUS_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Correspondence direction (INWARD/OUTWARD) → badge CSS class.
+     * @param {string} direction - correspondence.direction
+     * @returns {string} CSS class
+     */
+    correspondenceDirectionBadgeClass(direction) {
+        return this.CORRESPONDENCE_DIRECTION_BADGE_MAP[direction] || "badge-muted";
     },
 
     /* ── Document visibility rules ──────────────────────────────

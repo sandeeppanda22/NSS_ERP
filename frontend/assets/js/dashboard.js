@@ -344,6 +344,20 @@ function dashboardApp() {
         createFamilyStatePk: "",
         createFamilyDistrictPk: "",
 
+        // Membership Change Request modal (Sakha Transfer / Apply for
+        // Darshak, MBR-048/MBR-049) — self-service, POST /api/v1/
+        // membership/change-requests.
+        showChangeRequestModal: false,
+        changeRequestType: "",           // "TRANSFER" or "DARSHAK"
+        changeRequestOrgPk: "",
+        changeRequestReason: "",
+        changeRequestSaving: false,
+        changeRequestError: "",
+        changeRequestSakhaList: [],
+        changeRequestSakhaLoading: false,
+        myChangeRequests: [],
+        myChangeRequestsLoading: false,
+
         // Find a Sakha / Patha Chakra directory (member dashboard).
         // Both a browsable directory (unfiltered load on tab open, capped
         // at NSS.MAX_PAGE_SIZE) and a search — free-text over the loaded
@@ -363,6 +377,44 @@ function dashboardApp() {
         findOrgCountryPk: "",
         findOrgStatePk: "",
         findOrgDistrictPk: "",
+        // Per-Sakha President/Secretary (name + mobile), keyed by
+        // organization_pk, from the public governance endpoint. Loaded once
+        // with the directory and merged into rows client-side (no N+1).
+        findOrgOfficeBearers: {},
+
+        // ── Governance tab (read-only, all logged-in users) ──
+        // 4 bodies: the 3 NSS-wide singletons + the viewer's own Sakha
+        // Governing Body, each with current composition. Public endpoint,
+        // no GOVERNANCE_VIEW required.
+        govBodies: [],
+        govLoading: false,
+        govError: "",
+        govLoaded: false,
+
+        // Open elections — member self-service voting (GOV-BR-045)
+        govOpenElections: [],
+        govVotingLoading: false,
+        govVotingError: "",
+        govSelectedNomination: {},   // key: electionPk + '-' + positionPk -> election_nomination_pk
+        govVoteSubmitting: {},       // key: electionPk + '-' + positionPk -> bool
+        govVoteError: {},            // key: electionPk -> message
+        govVoteSuccess: {},          // key: electionPk -> message
+
+        // GOV-BR-043-A — Parichalak-only "probationary candidate exception"
+        // nomination. is_parichalak comes from the server (single source of
+        // truth: _resolve_current_parichalak_sangha_sevi_pk in
+        // api/routers/governance.py) — never inferred client-side. The panel
+        // this drives only ever appears inside the member's own Governance
+        // tab, for whoever is actually, currently seated as Parichalak.
+        isParichalak: false,
+        parichalakExceptionForm: {
+            show: false, saving: false, error: "", success: "",
+            elections: [], electionsLoading: false, election_pk: "",
+            positions: [], positionsLoading: false, position_master_pk: "",
+            candidateQuery: "", candidateResults: [], candidateSearching: false, selectedCandidate: null,
+            probationary_exception_reason: "",
+        },
+        _parichalakCandidateTimer: null,
 
         // Transfer Head modal — themed replacement for the plain confirm()
         transferHeadTarget: null,     // the member being made Head, or null = closed
@@ -512,6 +564,10 @@ function dashboardApp() {
                 // Fetch real dashboard stats (non-blocking)
                 this._loadAdminStats();
 
+                // GOV-BR-043-A — non-blocking self-check; drives the
+                // Parichalak-only exception panel inside the Governance tab.
+                this._loadParichalakStatus();
+
                 // Step 2: Fetch person + membership + family data in parallel
                 const fetches = [];
 
@@ -606,6 +662,12 @@ function dashboardApp() {
             // the same way findOrg is covered above.
             if (this.tab === "personal") {
                 this.loadSessions();
+            }
+
+            // Same direct-load coverage for the Governance tab.
+            if (this.tab === "governance") {
+                this._loadGovernanceBodies();
+                this._loadOpenElectionsForVoting();
             }
         },
 
@@ -1928,24 +1990,124 @@ function dashboardApp() {
         // ── Edit Profile ─────────────────────────────────
 
         // ── Membership self-service requests ──────────────────
-        // Entry points only. Darshak attendance at another Sangha and Sakha
-        // transfer are both membership-change requests whose eligibility,
-        // approval routing, and Local Sakha ERP ID handling are implemented in
-        // the Governance module — these buttons announce that so the option is
-        // discoverable now, rather than silently submitting to an endpoint
-        // that does not exist yet.
+        // Sakha Transfer (MBR-048) and Apply for Darshak (MBR-049) are
+        // both membership-change requests on the same two-step request/
+        // release/accept workflow (api/routers/membership_change_
+        // request.py) — these two entry points just pre-set request_type
+        // and open the shared modal; openChangeRequestModal() does the
+        // rest.
         applyDarshak() {
-            NSSDialog.alert(
-                "Requesting to attend another Sangha as a Darshak — without transferring your membership, so you keep your current Sakha and Local Sakha ERP ID. This request is processed through the Governance module (coming soon).",
-                "Apply for Darshak"
-            );
+            this.openChangeRequestModal("DARSHAK");
         },
 
         requestSakhaTransfer() {
-            NSSDialog.alert(
-                "Requesting to transfer your membership to another Sakha Sangha. A transfer moves your affiliation to the receiving Sakha, subject to approval. This request is processed through the Governance module (coming soon).",
-                "Request Sakha Transfer"
-            );
+            this.openChangeRequestModal("TRANSFER");
+        },
+
+        async openChangeRequestModal(requestType) {
+            this.changeRequestType = requestType;
+            this.changeRequestOrgPk = "";
+            this.changeRequestReason = "";
+            this.changeRequestError = "";
+            this.showChangeRequestModal = true;
+            if (this.changeRequestSakhaList.length === 0) {
+                await this._loadChangeRequestSakhaList();
+            }
+        },
+
+        closeChangeRequestModal() {
+            this.showChangeRequestModal = false;
+        },
+
+        // Same public-safe /organizations/selectable endpoint Create
+        // Family's Sakha picker uses (authenticated members only, no
+        // ORGANIZATION_VIEW required) — unfiltered, capped at
+        // NSS.MAX_PAGE_SIZE. No geography cascade here; the destination
+        // Sakha list for a transfer/Darshak request is small enough that
+        // the near-me filter Create Family needs isn't warranted yet.
+        // Excludes the member's own current Sakha — attending or
+        // transferring to the Sakha you're already affiliated with isn't
+        // a valid request either way.
+        async _loadChangeRequestSakhaList() {
+            this.changeRequestSakhaLoading = true;
+            try {
+                const params = new URLSearchParams({
+                    type_code: "SAKHA_SANGHA",
+                    limit: NSS.MAX_PAGE_SIZE,
+                });
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/organization/organizations/selectable?${params.toString()}`
+                );
+                if (res.ok) {
+                    const list = await res.json();
+                    const currentOrgPk = this.member?.organization_pk;
+                    this.changeRequestSakhaList = currentOrgPk
+                        ? list.filter(s => s.organization_pk !== currentOrgPk)
+                        : list;
+                }
+            } catch (e) {
+                console.error("Failed to load Sakha list", e);
+            } finally {
+                this.changeRequestSakhaLoading = false;
+            }
+        },
+
+        async submitChangeRequest() {
+            if (!this.changeRequestOrgPk) {
+                this.changeRequestError = "Please select a Sakha.";
+                return;
+            }
+            this.changeRequestError = "";
+            this.changeRequestSaving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/membership/change-requests", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        sangha_sevi_pk: this.user.sangha_sevi_pk,
+                        request_type: this.changeRequestType,
+                        new_organization_pk: this.changeRequestOrgPk,
+                        transfer_reason: this.changeRequestReason.trim() || null,
+                    }),
+                });
+                if (res.ok) {
+                    this.showChangeRequestModal = false;
+                    await this._loadMyChangeRequests();
+                    await NSSDialog.alert(
+                        "Your request has been submitted and is awaiting your current Sakha's decision.",
+                        this.changeRequestType === "DARSHAK" ? "Apply for Darshak" : "Request Sakha Transfer"
+                    );
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    this.changeRequestError = data.detail || "Failed to submit request.";
+                }
+            } catch (e) {
+                console.error("Failed to submit change request", e);
+                this.changeRequestError = "Unable to connect to server.";
+            } finally {
+                this.changeRequestSaving = false;
+            }
+        },
+
+        // My Change Requests — self-scoped list (list_change_requests()
+        // forces this to the caller's own rows when they hold neither
+        // MEMBERSHIP_VIEW nor MEMBERSHIP_APPROVE, mirroring the self-or-
+        // permission pattern Person/Membership detail already use).
+        async _loadMyChangeRequests() {
+            if (!this.user?.sangha_sevi_pk) return;
+            this.myChangeRequestsLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/membership/change-requests?page_size=${NSS.MAX_PAGE_SIZE}`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.myChangeRequests = data.requests || [];
+                }
+            } catch (e) {
+                console.error("Failed to load change requests", e);
+            } finally {
+                this.myChangeRequestsLoading = false;
+            }
         },
 
         startEditProfile() {
@@ -2164,9 +2326,269 @@ function dashboardApp() {
                 }
             }
             await this._loadFindOrgResults();
+            this._loadFindOrgOfficeBearers();
         },
 
-        // type_code is repeated as separate query-string entries so the
+        // One bulk fetch of every Sakha's President/Secretary (name + mobile),
+        // merged into directory rows client-side via orgOfficeBearers(pk).
+        // Public endpoint — any logged-in member. Fire-and-forget: the row
+        // template renders fine before (and without) this data.
+        async _loadFindOrgOfficeBearers() {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/public/sakha-office-bearers`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.findOrgOfficeBearers = data.office_bearers || {};
+                }
+            } catch (e) {
+                console.error("Failed to load Sakha office-bearers", e);
+            }
+        },
+
+        // President/Secretary entry for a directory row, or null (Patha
+        // Chakra rows and Sakhas with no Governing Body have no entry).
+        orgOfficeBearers(organizationPk) {
+            return this.findOrgOfficeBearers[organizationPk] || null;
+        },
+
+        // ── Governance tab loader ────────────────────────
+        async _loadGovernanceBodies() {
+            this.govLoading = true;
+            this.govError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/public/national-bodies`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.govBodies = data.bodies || [];
+                } else {
+                    this.govError = "Failed to load governance bodies.";
+                }
+            } catch (e) {
+                console.error("Failed to load governance bodies", e);
+                this.govError = "Failed to load governance bodies.";
+            } finally {
+                this.govLoading = false;
+                this.govLoaded = true;
+            }
+        },
+
+        // ── GOV-BR-043-A: Parichalak-only probationary candidate exception ──
+        async _loadParichalakStatus() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/me/parichalak-status");
+                this.isParichalak = res.ok ? !!(await res.json()).is_parichalak : false;
+            } catch (e) {
+                console.error("Failed to load Parichalak status", e);
+                this.isParichalak = false;
+            }
+        },
+        toggleParichalakExceptionForm() {
+            this.parichalakExceptionForm.show = !this.parichalakExceptionForm.show;
+            if (this.parichalakExceptionForm.show && this.parichalakExceptionForm.elections.length === 0) {
+                this._loadParichalakExceptionElections();
+            }
+        },
+        async _loadParichalakExceptionElections() {
+            const f = this.parichalakExceptionForm;
+            f.electionsLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections?election_status=NOMINATION&page_size=${NSS.MAX_PAGE_SIZE}`
+                );
+                f.elections = res.ok ? ((await res.json()).items || []) : [];
+            } catch (e) {
+                console.error("Failed to load elections open for nomination", e);
+                f.elections = [];
+            } finally {
+                f.electionsLoading = false;
+            }
+        },
+        async onParichalakExceptionElectionChange() {
+            const f = this.parichalakExceptionForm;
+            f.position_master_pk = "";
+            f.positions = [];
+            const election = f.elections.find(e => e.election_pk === f.election_pk);
+            if (!election) return;
+            f.positionsLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/bodies/${election.body_master_pk}/allowed-positions`
+                );
+                // GOV-BR-043-A only ever applies to Sakha President/Secretary —
+                // narrow the dropdown here as a UX convenience; the server
+                // (create_nomination / _require_candidate_eligible) remains the
+                // sole source of truth and will reject anything else regardless.
+                const all = res.ok ? ((await res.json()).positions || []) : [];
+                f.positions = all.filter(p => p.position_code === "PRESIDENT" || p.position_code === "SECRETARY");
+            } catch (e) {
+                console.error("Failed to load allowed positions", e);
+                f.positions = [];
+            } finally {
+                f.positionsLoading = false;
+            }
+        },
+        onParichalakExceptionCandidateSearch() {
+            const f = this.parichalakExceptionForm;
+            clearTimeout(this._parichalakCandidateTimer);
+            f.selectedCandidate = null;
+            const q = (f.candidateQuery || "").trim();
+            if (q.length < 2) { f.candidateResults = []; return; }
+            this._parichalakCandidateTimer = setTimeout(async () => {
+                f.candidateSearching = true;
+                try {
+                    const res = await NSSAuth.apiFetch(`/api/v1/membership/search?q=${encodeURIComponent(q)}`);
+                    f.candidateResults = res.ok ? ((await res.json()).members || []) : [];
+                } catch {
+                    f.candidateResults = [];
+                } finally {
+                    f.candidateSearching = false;
+                }
+            }, 300);
+        },
+        selectParichalakExceptionCandidate(m) {
+            const f = this.parichalakExceptionForm;
+            f.selectedCandidate = m;
+            const label = `${m.first_name} ${m.last_name || ""}`.trim();
+            f.candidateQuery = m.sangha_sevi_id ? `${label} (${m.sangha_sevi_id})` : label;
+            f.candidateResults = [];
+        },
+        async submitParichalakException() {
+            const f = this.parichalakExceptionForm;
+            f.error = "";
+            f.success = "";
+            if (!f.election_pk) { f.error = "Select an election."; return; }
+            if (!f.position_master_pk) { f.error = "Select a position."; return; }
+            if (!f.selectedCandidate) { f.error = "Search for and select the candidate."; return; }
+            if (!f.probationary_exception_reason || !f.probationary_exception_reason.trim()) {
+                f.error = "A reason is required for a probationary candidate exception.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${f.election_pk}/nominations`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            position_master_pk: f.position_master_pk,
+                            candidate_person_pk: f.selectedCandidate.person_pk,
+                            probationary_exception_reason: f.probationary_exception_reason.trim(),
+                        }),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                f.success = "Nomination recorded with the probationary candidate exception.";
+                f.position_master_pk = "";
+                f.candidateQuery = "";
+                f.selectedCandidate = null;
+                f.probationary_exception_reason = "";
+            } catch (err) {
+                f.error = err.message || "Failed to submit the nomination.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Open elections — member self-service voting (GOV-BR-045) ──
+        async _loadOpenElectionsForVoting() {
+            this.govVotingLoading = true;
+            this.govVotingError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/open-for-voting`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.govOpenElections = data.items || [];
+                } else {
+                    this.govVotingError = "Failed to load open elections.";
+                }
+            } catch (e) {
+                console.error("Failed to load open elections", e);
+                this.govVotingError = "Failed to load open elections.";
+            } finally {
+                this.govVotingLoading = false;
+            }
+        },
+
+        // Groups an election's accepted nominations by position, for the
+        // per-position ballot rendering (one radio group + submit per position).
+        govPositionsForElection(el) {
+            const byPosition = {};
+            const order = [];
+            for (const nom of el.nominations || []) {
+                if (!byPosition[nom.position_master_pk]) {
+                    byPosition[nom.position_master_pk] = {
+                        position_master_pk: nom.position_master_pk,
+                        position_name: nom.position_name,
+                        candidates: [],
+                    };
+                    order.push(nom.position_master_pk);
+                }
+                byPosition[nom.position_master_pk].candidates.push(nom);
+            }
+            return order.map((pk) => byPosition[pk]);
+        },
+
+        async castMySelfVote(el, positionPk) {
+            const key = el.election_pk + "-" + positionPk;
+            const nominationPk = this.govSelectedNomination[key];
+            if (!nominationPk) return;
+
+            this.govVoteSubmitting[key] = true;
+            delete this.govVoteError[el.election_pk];
+            delete this.govVoteSuccess[el.election_pk];
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${el.election_pk}/votes/self`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ election_nomination_pk: nominationPk }),
+                    }
+                );
+                if (res.ok) {
+                    if (!el.voted_position_pks.includes(positionPk)) {
+                        el.voted_position_pks.push(positionPk);
+                    }
+                    this.govVoteSuccess[el.election_pk] = "Your vote has been recorded.";
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    this.govVoteError[el.election_pk] =
+                        err.detail || "Failed to cast your vote. You may have already voted for this position.";
+                }
+            } catch (e) {
+                console.error("Failed to cast vote", e);
+                this.govVoteError[el.election_pk] = "Failed to cast your vote.";
+            } finally {
+                this.govVoteSubmitting[key] = false;
+            }
+        },
+
+        // Badge class per governance position, using the badge classes
+        // defined in badges.css (no DaisyUI colour badges here). Named
+        // office-bearers get the NSS identity badge; plain members the muted
+        // outline, mirroring the status-badge preview palette.
+        govPositionBadge(positionName) {
+            const n = (positionName || "").toLowerCase();
+            if (!n || n.includes("member")) return "badge-muted";
+            return "badge-identity";
+        },
+
+        // 'Jun 2024' from an ISO date string, or '—'.
+        govMonthYear(isoDate) {
+            if (!isoDate) return "—";
+            const d = new Date(isoDate);
+            if (isNaN(d)) return "—";
+            return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        },
         // backend's list[str] param picks up an OR match across both
         // types (organization.py 2026-10-02) — a single-value `type_code`
         // param would only ever match one type.
@@ -2997,6 +3419,7 @@ function dashboardApp() {
                     // Both render parichaya/anumati/affiliation/journey data,
                     // all of which _fetchMembershipDetail() populates.
                     if (this.member?.sangha_sevi_pk) this._fetchMembershipDetail();
+                    if (tab === "membership") this._loadMyChangeRequests();
                 } else if (tab === "family") {
                     if (this.family?.family_group_pk) this._fetchFamilyDetail();
                 } else if (tab === "findOrg") {
@@ -3005,6 +3428,9 @@ function dashboardApp() {
                     this._loadAdminStats();
                 } else if (tab === "personal") {
                     this.loadSessions();
+                } else if (tab === "governance") {
+                    this._loadGovernanceBodies();
+                    this._loadOpenElectionsForVoting();
                 }
                 // personal: the person/address fetch is inline in init() with
                 // no reusable loader, and saveProfile() already re-fetches
@@ -3013,9 +3439,10 @@ function dashboardApp() {
                 // (Active Sessions is the exception: it has its own loader,
                 // loadSessions(), wired above.)
                 //
-                // attendance / governance: no endpoint exists yet (no
-                // attendance-session or governance table in the schema), so
-                // there is deliberately nothing to refresh.
+                // attendance: no endpoint exists yet (no attendance-session
+                // table in the schema), so there is deliberately nothing to
+                // refresh. Governance is covered above via the public
+                // national-bodies endpoint.
                 //
                 // orgDashboard: openOrgDashboard() forces a remount which
                 // re-runs the nested component's x-init; refreshing here too
@@ -3254,6 +3681,16 @@ function dashboardApp() {
         get canApproveRegistrations() {
             const perms = this.user?.permissions || [];
             return CLAIM_APPROVAL_PERMISSIONS.some(p => perms.includes(p));
+        },
+
+        /**
+         * Whether this user may open the Governance (Tier 6) admin views
+         * — mirrors the API's GOVERNANCE_VIEW/GOVERNANCE_MANAGE guard on
+         * every /api/v1/governance endpoint.
+         */
+        get canViewGovernance() {
+            const perms = this.user?.permissions || [];
+            return perms.includes("GOVERNANCE_VIEW") || perms.includes("GOVERNANCE_MANAGE");
         },
 
         /**

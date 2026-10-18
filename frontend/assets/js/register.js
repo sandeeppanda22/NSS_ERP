@@ -31,6 +31,15 @@ function registerApp() {
         // verifies a Person ID + DOB that has no account/claim/SS yet.
         // Submits to POST /register/claim instead of POST /register.
         mode: "new",
+
+        // Standalone "Apply for Darshak" entry (step === 'darshak-entry') —
+        // a dedicated, visitor-facing shortcut into the SAME wizard/claim
+        // plumbing above. It only decides which branch to start (existing
+        // Person ID via lookupExisting(), or a fresh person via the normal
+        // step-1 wizard) and pre-locks the membership type to Darshaka
+        // (PROBATIONARY) once personal/identity details are settled — no
+        // new backend endpoint, no duplicate submit logic.
+        darshakFlow: false,
         lookup: {
             person_id: "",
             date_of_birth: "",
@@ -328,6 +337,42 @@ function registerApp() {
             return t.value_code === "PROBATIONARY" ? "Darshaka" : t.value_name;
         },
 
+        /**
+         * The Darshaka (PROBATIONARY) membership type's master_data_pk —
+         * used by the standalone Darshak flow to pre-lock Step 2's
+         * Membership Type instead of asking the applicant to pick it.
+         */
+        darshakaTypePk() {
+            const t = this.membershipTypes.find(m => m.value_code === "PROBATIONARY");
+            return t ? t.master_data_pk : "";
+        },
+
+        // ── Standalone "Apply for Darshak" entry ────────────────────────
+        // Branches on whether the applicant already has a Person ID:
+        //   - Yes: reuse the existing lookupExisting() → POST /register/claim
+        //     path (verifies Person ID + DOB, then applies at a Sakha).
+        //   - No: reuse the normal Step 1 wizard → POST /register with
+        //     has_membership=true (creates the person, then applies at a
+        //     Sakha). Both branches lock Step 2's membership type to
+        //     Darshaka — no new endpoint, no duplicated submit logic.
+
+        goDarshakEntry() {
+            this.error = "";
+            this.step = "darshak-entry";
+        },
+
+        startDarshakExisting() {
+            this.darshakFlow = true;
+            this.goLookupExisting();
+        },
+
+        startDarshakNew() {
+            this.darshakFlow = true;
+            this.error = "";
+            this.form.has_membership = true;
+            this.step = 1;
+        },
+
         // ── "Previously registered? Add membership" flow ────────────────
         // For a person who registered earlier with has_membership=false:
         // no account exists for them (user decision, 2026-10-06), so they
@@ -365,6 +410,9 @@ function registerApp() {
                 };
                 this.mode = "existing";
                 this.form.has_membership = true;
+                if (this.darshakFlow) {
+                    this.form.membership_type_master_data_pk = this.darshakaTypePk();
+                }
                 this.step = 2;
             } catch (err) {
                 this.error = "Unable to connect to server. Please try again.";
@@ -451,6 +499,9 @@ function registerApp() {
                 // Non-blocking — if the check fails, the backend will catch it on submit
             }
 
+            if (this.darshakFlow) {
+                this.form.membership_type_master_data_pk = this.darshakaTypePk();
+            }
             this.step = 2;
         },
 
@@ -470,7 +521,10 @@ function registerApp() {
                 // Local Sakha Number is required for every membership type,
                 // including Darshaka (AUTH-BR-086) — Darshak members get a
                 // number in a separate namespace, not no number at all.
-                if (!this.form.claimed_local_sakha_number.trim()) {
+                // Exception: the standalone Apply-for-Darshak flow never
+                // shows this field — that number is system-generated at
+                // admin approval, not self-reported by the applicant.
+                if (!this.darshakFlow && !this.form.claimed_local_sakha_number.trim()) {
                     this.error = "Local Sakha Number is required.";
                     return;
                 }
@@ -478,7 +532,7 @@ function registerApp() {
                 // Parichaya Patra Number is mandatory for every membership
                 // type except Darshaka — Darshak members hold an Anumati
                 // Patra instead, which is issued later, not claimed here.
-                if (!this.isDarshaka() && !this.form.claimed_credential_document_number.trim()) {
+                if (!this.darshakFlow && !this.isDarshaka() && !this.form.claimed_credential_document_number.trim()) {
                     this.error = "Parichaya Patra Number is required.";
                     return;
                 }

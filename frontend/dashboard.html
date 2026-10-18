@@ -872,6 +872,16 @@
                         </svg>
                         Registration Approvals
                     </a>
+                    <!-- Governance (Tier 6) — gated on GOVERNANCE_VIEW/
+                         GOVERNANCE_MANAGE, the same pair the API's
+                         /api/v1/governance endpoints require. Opens the
+                         admin page's own Governance tab group. -->
+                    <a class="nav-item" href="/admin#govCatalog" x-show="canViewGovernance">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.964 0a9 9 0 1 0-11.964 0m11.964 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
+                        Governance
+                    </a>
                     <!-- Org dashboards — one entry per tier this admin's own
                          scope covers (NSS-WIDE -> Kendra). Each opens the
                          org-dashboard tab on that tier's first org; the
@@ -1204,13 +1214,20 @@
 
                     <!-- ═══ Membership Tab ═══ -->
                     <div x-show="tab === 'membership'">
-                        <!-- Membership self-service actions. The request workflow
-                             (eligibility, approval, ERP-ID handling) is built in the
-                             Governance module; these are the entry points for it. -->
-                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                            <button class="btn-action" @click="applyDarshak()">Apply for Darshak (at another Sangha)</button>
-                            <button class="btn-action" @click="requestSakhaTransfer()">Request Sakha Transfer</button>
+                        <!-- Membership self-service actions (MBR-048 Sakha
+                             Transfer / MBR-049 Apply for Darshak) — opens
+                             the shared Change Request modal below. -->
+                        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                            <button @click="applyDarshak()" class="nss-hover-fade" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/></svg>
+                                Apply for Darshak (at another Sangha)
+                            </button>
+                            <button @click="requestSakhaTransfer()" class="nss-hover-fade" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                                Request Sakha Transfer
+                            </button>
                         </div>
+
                         <div class="card-grid">
                             <!-- Membership Details -->
                             <div class="data-card">
@@ -1336,6 +1353,34 @@
                             </div>
                             <div class="data-rows" x-show="journeyEvents.length === 0">
                                 <p style="color: #9ca3af; font-size: 0.8rem; text-align: center; padding: 1rem 0;">No journey events recorded</p>
+                            </div>
+                        </div>
+
+                        <!-- My Change Requests (Sakha Transfer / Apply for Darshak) -->
+                        <div class="data-card" style="margin-top: 1rem;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
+                                <h2 class="data-card-title" style="padding: 0;">My Change Requests</h2>
+                                <span class="badge badge-xs badge-muted" x-text="myChangeRequests.length + ' request' + (myChangeRequests.length !== 1 ? 's' : '')"></span>
+                            </div>
+                            <div class="data-rows" x-show="myChangeRequests.length > 0">
+                                <template x-for="r in myChangeRequests" :key="r.membership_change_request_pk">
+                                    <div style="padding: 0.65rem 0; border-bottom: 1px solid #f3f4f6;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                            <span class="data-value" x-text="r.request_type === 'DARSHAK' ? 'Apply for Darshak' : 'Sakha Transfer'"></span>
+                                            <span class="badge badge-xs" :class="NSS.changeRequestBadgeClass(r.status)" x-text="NSS.changeRequestStatusLabel(r.status)"></span>
+                                        </div>
+                                        <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">
+                                            <span x-text="r.old_organization_name"></span>
+                                            <span> → </span>
+                                            <span x-text="r.new_organization_name"></span>
+                                            <span x-text="' · requested ' + formatDate(r.requested_date)"></span>
+                                        </div>
+                                        <p x-show="r.transfer_reason" style="font-size: 0.75rem; color: #9ca3af; font-style: italic; margin: 0.25rem 0 0;" x-text="r.transfer_reason"></p>
+                                    </div>
+                                </template>
+                            </div>
+                            <div class="data-rows" x-show="myChangeRequests.length === 0">
+                                <p style="color: #9ca3af; font-size: 0.8rem; text-align: center; padding: 1rem 0;">No change requests on record</p>
                             </div>
                         </div>
                     </div>
@@ -2283,6 +2328,64 @@
                         </template>
                     </div>
 
+                    <!-- ═══ Change Request Modal (Sakha Transfer / Apply for Darshak) ═══
+                         Deliberately a sibling of every tab <div>, not nested inside one —
+                         the two trigger buttons now live on the Membership tab, and an
+                         Alpine x-show="tab === '...'" on an ancestor sets display:none on
+                         its whole subtree, which hid this modal whenever it was opened from
+                         a tab other than Family. Must stay outside all tab-scoped divs so it
+                         shows regardless of which tab is active when the button is clicked. -->
+                    <template x-if="showChangeRequestModal">
+                        <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
+                            <!-- Backdrop -->
+                            <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeChangeRequestModal()"></div>
+                            <!-- Modal -->
+                            <div style="position:relative;background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.15);width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+                                <!-- Header -->
+                                <div style="padding:1.25rem 1.5rem;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
+                                    <div>
+                                        <h3 style="margin:0;font-size:1rem;font-weight:700;color:#1B2A4A;" x-text="changeRequestType === 'DARSHAK' ? 'Apply for Darshak' : 'Request Sakha Transfer'"></h3>
+                                        <p style="margin:0.25rem 0 0;font-size:0.75rem;color:#6b7280;" x-text="changeRequestType === 'DARSHAK' ? 'Attend another Sangha without transferring your membership — you keep your current Sakha and Local Sakha ERP ID.' : 'Move your affiliation to another Sakha, subject to its approval and your current Sakha\'s release.'"></p>
+                                    </div>
+                                    <button @click="closeChangeRequestModal()" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:1.25rem;padding:0.25rem;">✕</button>
+                                </div>
+                                <!-- Body -->
+                                <div style="padding:1.25rem 1.5rem;">
+                                    <!-- Error -->
+                                    <template x-if="changeRequestError">
+                                        <div style="padding:0.5rem 0.75rem;border-radius:0.375rem;background:#fef2f2;border:1px solid #fecaca;font-size:0.75rem;color:#991b1b;margin-bottom:0.75rem;" x-text="changeRequestError"></div>
+                                    </template>
+
+                                    <!-- Destination Sakha -->
+                                    <div style="margin-bottom:1rem;">
+                                        <label style="display:block;font-size:0.75rem;font-weight:600;color:#374151;margin-bottom:0.35rem;" x-text="changeRequestType === 'DARSHAK' ? 'Sakha to attend' : 'Destination Sakha'"></label>
+                                        <select x-model="changeRequestOrgPk" class="nss-select">
+                                            <option value="">Select Sakha...</option>
+                                            <template x-for="s in changeRequestSakhaList" :key="s.organization_pk">
+                                                <option :value="s.organization_pk" x-text="s.organization_name"></option>
+                                            </template>
+                                        </select>
+                                        <p x-show="changeRequestSakhaList.length === 0 && !changeRequestSakhaLoading" style="font-size:0.7rem;color:#94a3b8;margin:0.25rem 0 0;">No Sakhas found.</p>
+                                    </div>
+
+                                    <!-- Reason -->
+                                    <div style="margin-bottom:1rem;">
+                                        <label style="display:block;font-size:0.75rem;font-weight:600;color:#374151;margin-bottom:0.35rem;">Reason</label>
+                                        <textarea x-model="changeRequestReason" rows="3" placeholder="Optional notes for the reviewing Sakha..." style="width:100%;padding:0.5rem 0.75rem;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;outline:none;resize:vertical;box-sizing:border-box;"></textarea>
+                                    </div>
+                                </div>
+                                <!-- Footer -->
+                                <div style="padding:1rem 1.5rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;">
+                                    <button @click="closeChangeRequestModal()" style="padding:0.5rem 1rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;color:#64748b;cursor:pointer;">Cancel</button>
+                                    <button @click="submitChangeRequest()" :disabled="changeRequestSaving || !changeRequestOrgPk" style="padding:0.5rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer;opacity:1;transition:opacity 0.15s;" :style="(!changeRequestOrgPk || changeRequestSaving) ? 'opacity:0.5;cursor:not-allowed;' : ''">
+                                        <span x-show="!changeRequestSaving">Submit Request</span>
+                                        <span x-show="changeRequestSaving">Submitting...</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
                     <!-- ═══ Find a Sakha / Patha Chakra Tab ═══ -->
                     <div x-show="tab === 'findOrg'">
                         <div class="data-card">
@@ -2364,6 +2467,26 @@
                                                         <span x-show="o.postal_code && o.phone_number"> · </span>
                                                         <span x-show="o.phone_number" x-text="o.phone_number"></span>
                                                     </div>
+                                                    <!-- Office bearers (Sakha Governing Body President/Secretary + mobile).
+                                                         Patha Chakra rows have no entry and render nothing. -->
+                                                    <template x-if="orgOfficeBearers(o.organization_pk)">
+                                                        <div style="font-size: 0.78rem; color: #6b7280; display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.15rem;">
+                                                            <template x-if="orgOfficeBearers(o.organization_pk).president">
+                                                                <span>
+                                                                    <span style="font-weight: 600; color: #1B2A4A;">President:</span>
+                                                                    <span x-text="orgOfficeBearers(o.organization_pk).president.name || '—'"></span>
+                                                                    <span x-show="orgOfficeBearers(o.organization_pk).president.mobile" style="color: #94a3b8;" x-text="'· ' + orgOfficeBearers(o.organization_pk).president.mobile"></span>
+                                                                </span>
+                                                            </template>
+                                                            <template x-if="orgOfficeBearers(o.organization_pk).secretary">
+                                                                <span>
+                                                                    <span style="font-weight: 600; color: #1B2A4A;">Secretary:</span>
+                                                                    <span x-text="orgOfficeBearers(o.organization_pk).secretary.name || '—'"></span>
+                                                                    <span x-show="orgOfficeBearers(o.organization_pk).secretary.mobile" style="color: #94a3b8;" x-text="'· ' + orgOfficeBearers(o.organization_pk).secretary.mobile"></span>
+                                                                </span>
+                                                            </template>
+                                                        </div>
+                                                    </template>
                                                 </div>
                                             </template>
                                         </div>
@@ -2386,13 +2509,221 @@
 
                     <!-- ═══ Governance Tab ═══ -->
                     <div x-show="tab === 'governance'">
-                        <div class="placeholder-card">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21" />
-                            </svg>
-                            <h3>Governance Roles</h3>
-                            <p>Current and past governance positions (President, Parichalaka, Secretary, Cashier) will be shown here once the Governance module is implemented.</p>
+                        <h1 class="text-2xl font-bold mb-1">Governance</h1>
+                        <p class="text-sm text-base-content/60 mb-6">Statutory NSS-wide bodies and your Sakha's Governing Body.</p>
+
+                        <!-- ═══ Parichalak-only: probationary candidate exception (GOV-BR-043-A) ═══ -->
+                        <div class="mb-8" x-show="isParichalak" x-cloak>
+                            <div class="card bg-base-100 border border-base-200 shadow-sm">
+                                <div class="card-body p-5">
+                                    <div class="flex items-start justify-between gap-2 flex-wrap">
+                                        <div>
+                                            <h2 class="text-lg font-semibold">Probationary Candidate Exception</h2>
+                                            <p class="text-xs text-base-content/50">As the seated Parichalak, you may nominate a Darshaka (probationary) member for Sakha President or Secretary with a valid Anumati Patra (GOV-BR-043-A).</p>
+                                        </div>
+                                        <button class="btn btn-sm" @click="toggleParichalakExceptionForm()"
+                                                x-text="parichalakExceptionForm.show ? 'Cancel' : 'New Nomination'"></button>
+                                    </div>
+
+                                    <div x-show="parichalakExceptionForm.show" x-cloak class="mt-4 pt-4 border-t border-base-200 flex flex-col gap-3">
+                                        <div class="alert-msg alert-error" x-show="parichalakExceptionForm.error" x-text="parichalakExceptionForm.error"></div>
+                                        <div class="alert-msg alert-success" x-show="parichalakExceptionForm.success" x-text="parichalakExceptionForm.success"></div>
+
+                                        <div>
+                                            <label class="form-label">Election</label>
+                                            <select class="form-input" x-model="parichalakExceptionForm.election_pk" @change="onParichalakExceptionElectionChange()">
+                                                <option value="">Select…</option>
+                                                <template x-for="el in parichalakExceptionForm.elections" :key="el.election_pk">
+                                                    <option :value="el.election_pk" x-text="el.election_name + ' — ' + el.body_name"></option>
+                                                </template>
+                                            </select>
+                                            <p class="text-xs text-base-content/40 mt-1" x-show="parichalakExceptionForm.electionsLoading">Loading elections…</p>
+                                        </div>
+
+                                        <div x-show="parichalakExceptionForm.election_pk">
+                                            <label class="form-label">Position</label>
+                                            <select class="form-input" x-model="parichalakExceptionForm.position_master_pk">
+                                                <option value="">Select…</option>
+                                                <template x-for="p in parichalakExceptionForm.positions" :key="p.position_master_pk">
+                                                    <option :value="p.position_master_pk" x-text="p.position_name"></option>
+                                                </template>
+                                            </select>
+                                            <p class="text-xs text-base-content/40 mt-1" x-show="parichalakExceptionForm.positionsLoading">Loading positions…</p>
+                                        </div>
+
+                                        <div style="position:relative;">
+                                            <label class="form-label">Candidate (probationary member)</label>
+                                            <input type="text" class="form-input" x-model="parichalakExceptionForm.candidateQuery"
+                                                   @input="onParichalakExceptionCandidateSearch()" placeholder="Search member…" autocomplete="off">
+                                            <div x-show="parichalakExceptionForm.candidateResults.length > 0" style="position:absolute; z-index:20; background:#fff; border:1px solid #e5e7eb; border-radius:0.4rem; width:100%; max-height:14rem; overflow-y:auto; box-shadow:0 4px 10px rgba(0,0,0,0.08);">
+                                                <template x-for="m in parichalakExceptionForm.candidateResults" :key="m.person_pk">
+                                                    <div style="padding:0.4rem 0.6rem; cursor:pointer; font-size:0.82rem;" @click="selectParichalakExceptionCandidate(m)">
+                                                        <span x-text="m.first_name + ' ' + (m.last_name || '')"></span>
+                                                        <span class="mono" style="color:#94a3b8; margin-left:0.4rem;" x-text="m.sangha_sevi_id"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label class="form-label">Reason for exception</label>
+                                            <textarea class="form-input" rows="2" x-model="parichalakExceptionForm.probationary_exception_reason"
+                                                      placeholder="Why is this probationary candidate being permitted to stand?"></textarea>
+                                        </div>
+
+                                        <div>
+                                            <button class="btn-action primary" :disabled="parichalakExceptionForm.saving" @click="submitParichalakException()"
+                                                    x-text="parichalakExceptionForm.saving ? 'Saving…' : 'Submit Nomination'"></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+
+                        <!-- ═══ Open Elections — Cast Your Vote ═══ -->
+                        <div class="mb-8">
+                            <h2 class="text-lg font-semibold mb-3">Open Elections — Cast Your Vote</h2>
+
+                            <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="govVotingLoading">
+                                <div class="spinner"></div>
+                            </div>
+                            <div class="alert-msg alert-error" x-show="govVotingError" x-text="govVotingError"></div>
+
+                            <template x-if="!govVotingLoading && !govVotingError">
+                                <div>
+                                    <div x-show="!govOpenElections.length" class="placeholder-card">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                        </svg>
+                                        <h3>No Open Elections</h3>
+                                        <p>There are no elections currently open for voting.</p>
+                                    </div>
+
+                                    <template x-for="el in govOpenElections" :key="el.election_pk">
+                                        <div class="card bg-base-100 border border-base-200 shadow-sm mb-5">
+                                            <div class="card-body p-5">
+                                                <div class="flex items-start justify-between gap-2 flex-wrap">
+                                                    <div>
+                                                        <h3 class="font-semibold" x-text="el.election_name"></h3>
+                                                        <p class="text-xs text-base-content/50" x-text="el.body_name"></p>
+                                                    </div>
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="badge badge-sm" :class="el.is_secret_ballot ? 'badge-identity' : 'badge-muted'" x-text="el.is_secret_ballot ? 'Secret Ballot' : 'Open Ballot'"></span>
+                                                        <span class="badge badge-sm badge-muted" x-show="el.voting_end_date" x-text="'Closes ' + govMonthYear(el.voting_end_date)"></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="alert-msg alert-error mt-3" x-show="govVoteError[el.election_pk]" x-text="govVoteError[el.election_pk]"></div>
+                                                <div class="alert-msg alert-success mt-3" x-show="govVoteSuccess[el.election_pk]" x-text="govVoteSuccess[el.election_pk]"></div>
+
+                                                <template x-for="pos in govPositionsForElection(el)" :key="el.election_pk + '-' + pos.position_master_pk">
+                                                    <div class="mt-4 pt-4 border-t border-base-200">
+                                                        <div class="flex items-center justify-between gap-2 mb-2">
+                                                            <h4 class="text-sm font-semibold" x-text="pos.position_name"></h4>
+                                                            <span class="badge badge-sm badge-success" x-show="el.voted_position_pks.includes(pos.position_master_pk)">You Voted</span>
+                                                        </div>
+
+                                                        <template x-if="!el.voted_position_pks.includes(pos.position_master_pk)">
+                                                            <div>
+                                                                <div class="flex flex-col gap-2 mb-3">
+                                                                    <template x-for="cand in pos.candidates" :key="cand.election_nomination_pk">
+                                                                        <label class="flex items-center gap-2 text-sm cursor-pointer">
+                                                                            <input type="radio" class="radio radio-sm" :name="'vote-' + el.election_pk + '-' + pos.position_master_pk"
+                                                                                   :value="cand.election_nomination_pk"
+                                                                                   @change="govSelectedNomination[el.election_pk + '-' + pos.position_master_pk] = cand.election_nomination_pk">
+                                                                            <span x-text="cand.candidate_name"></span>
+                                                                        </label>
+                                                                    </template>
+                                                                </div>
+                                                                <button type="button" class="btn btn-sm btn-primary"
+                                                                        :disabled="!govSelectedNomination[el.election_pk + '-' + pos.position_master_pk] || govVoteSubmitting[el.election_pk + '-' + pos.position_master_pk]"
+                                                                        @click="castMySelfVote(el, pos.position_master_pk)">
+                                                                    <span x-show="govVoteSubmitting[el.election_pk + '-' + pos.position_master_pk]" class="spinner spinner-sm"></span>
+                                                                    Cast My Vote
+                                                                </button>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="govLoading">
+                            <div class="spinner"></div>
+                        </div>
+                        <div class="alert-msg alert-error" x-show="govError" x-text="govError"></div>
+
+                        <template x-if="!govLoading && !govError">
+                            <div>
+                                <div x-show="govLoaded && !govBodies.length" class="placeholder-card">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21" />
+                                    </svg>
+                                    <h3>Governance Bodies</h3>
+                                    <p>No governance bodies are available to view yet.</p>
+                                </div>
+
+                                <!-- Bodies overview cards -->
+                                <div x-show="govBodies.length" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+                                    <template x-for="b in govBodies" :key="'card-' + b.body_master_pk">
+                                        <div class="card bg-orange-50 border border-orange-200">
+                                            <div class="card-body p-5">
+                                                <div class="flex items-start justify-between gap-2">
+                                                    <h3 class="font-semibold" style="color: #B45309;" x-text="b.body_name"></h3>
+                                                    <span class="badge badge-sm" :class="b.scope_label === 'NSS-wide' ? 'badge-muted' : 'badge-identity'" x-text="b.scope_label"></span>
+                                                </div>
+                                                <p class="text-sm mt-1" x-text="b.member_count + (b.member_count === 1 ? ' member' : ' members')"></p>
+                                                <p class="text-xs text-base-content/50 mt-1" x-show="b.organization_name" x-text="b.organization_name"></p>
+                                                <p class="text-xs text-base-content/50 mt-1" x-show="b.description" x-text="b.description"></p>
+                                                <span class="badge badge-sm mt-2" :class="NSS.statusBadgeClass(b.body_status)" x-text="b.body_status"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <!-- Current composition per body -->
+                                <template x-for="b in govBodies" :key="'comp-' + b.body_master_pk">
+                                    <div class="mb-8">
+                                        <h2 class="text-lg font-semibold mb-3" x-text="b.body_name + ' — Current Composition'"></h2>
+                                        <div class="overflow-x-auto bg-base-100 rounded-xl shadow-sm">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Position</th>
+                                                        <th>Name</th>
+                                                        <th>Sangha Sevi ID</th>
+                                                        <th>Sakha</th>
+                                                        <th>Anchalika / Zilla</th>
+                                                        <th>Since</th>
+                                                        <th>Term Ends</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="(m, i) in b.members" :key="b.body_master_pk + '-' + i">
+                                                        <tr>
+                                                            <td><span class="badge badge-sm" :class="govPositionBadge(m.position_name)" x-text="m.position_name"></span></td>
+                                                            <td class="font-medium" x-text="m.person_name || '—'"></td>
+                                                            <td class="font-mono text-sm" x-text="m.sangha_sevi_id || '—'"></td>
+                                                            <td x-text="m.sakha_name || '—'"></td>
+                                                            <td x-text="m.anchalika_zilla_name || '—'"></td>
+                                                            <td x-text="govMonthYear(m.effective_from)"></td>
+                                                            <td x-text="govMonthYear(m.effective_to)"></td>
+                                                        </tr>
+                                                    </template>
+                                                    <tr x-show="!b.members.length">
+                                                        <td colspan="7" class="text-center text-base-content/50 py-6">No current members on record for this body.</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                     </div>
 
                     <!-- ═══ Documents Tab ═══ -->
