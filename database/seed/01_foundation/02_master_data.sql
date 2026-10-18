@@ -2,6 +2,9 @@
 -- NSS ERP
 -- Module: Foundation
 -- Seed File: 02_master_data.sql
+-- Version: 1.3 — add CORRESPONDENCE_MEDIUM / CORRESPONDENCE_STATUS values
+--          (Tier 6, 2026-10-17): filling a seed gap for value lists already
+--          ERP-FROZEN in business rules §10.1 / §6.1 — not a new decision.
 -- Version: 1.2 — ON CONFLICT DO NOTHING (2026-10-05): a re-run must never
 --          overwrite a row an admin has since edited through the UI
 --          (e.g. a renamed master-data label). Insert-if-missing only.
@@ -228,4 +231,60 @@ CROSS JOIN (VALUES
     ('O_NEGATIVE',  'O-',  8)
 ) AS v(value_code, value_name, display_order)
 WHERE mc.category_code = 'BLOOD_GROUP'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE values
+-- (correspondence_finance_reference.relationship_type_master_data_pk —
+--  SOL-ADMIN-009 §6.5, owner-confirmed 2026-10-17)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('PAYMENT',    'Payment',    1),
+    ('RECEIPT',    'Receipt',    2),
+    ('REFUND',     'Refund',     3),
+    ('TAX',        'Tax',        4),
+    ('ADJUSTMENT', 'Adjustment', 5),
+    ('OTHER',      'Other',      6)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- CORRESPONDENCE_MEDIUM values
+-- (correspondence.medium_master_data_pk — business rules §10.1, ERP-FROZEN)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('POST',          'Post',          1),
+    ('EMAIL',         'Email',         2),
+    ('HAND_DELIVERY', 'Hand Delivery', 3),
+    ('CIRCULAR',      'Circular',      4),
+    ('FAX',           'Fax',           5),
+    ('COURIER',       'Courier',       6)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'CORRESPONDENCE_MEDIUM'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- CORRESPONDENCE_STATUS values
+-- (correspondence.status_master_data_pk — business rules §6.1, ERP-FROZEN)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('REGISTERED',      'Registered',      1),
+    ('PENDING_ACTION',  'Pending Action',  2),
+    ('ACTIONED',        'Actioned',        3),
+    ('CLOSED',          'Closed',          4)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'CORRESPONDENCE_STATUS'
 ON CONFLICT (master_category_pk, value_code) DO NOTHING;

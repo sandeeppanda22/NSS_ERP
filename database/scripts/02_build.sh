@@ -51,9 +51,24 @@
 #              password_history, registration_claim, password_reset_token,
 #              user_session)
 #   Phase 11 — Administration DDL (2 tables)
+#   Phase 11b— Governance DDL (10 tables: body_type_master,
+#              position_master, body_master, body_member_assignment,
+#              acting_position_assignment, election,
+#              election_nomination, election_vote, election_result,
+#              election_vote_participation) + ballot-immutability
+#              triggers (11_governance_immutability.sql)
+#   Phase 11c— Governance Seed Data (body_type_master, position_master)
+#   Phase 11d— Correspondence DDL (4 tables: correspondence,
+#              correspondence_document, correspondence_finance_reference,
+#              correspondence_sequence_counter —
+#              Tier 6, Administration-owned; moved from Tier 5,
+#              owner-confirmed 2026-10-16)
 #   Phase 12 — Grant nss_db_writer write access (Tier 5)
 #   Phase 13 — Admin bootstrap seed (NSS Admin superuser)
 #   Phase 14 — Audit DDL (system_event_log table + DB trigger)
+#   Phase 15 — (OPTIONAL, local dev only) demo/test seed, run only when
+#              RUN_DEMO_SEED is truthy and database/seed/demo/nss_demo_seed.sql
+#              exists (gitignored; never on Render)
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data — Person data lives in
@@ -161,6 +176,26 @@ table_exists() {
 
 # Create a table only if it does not already exist.
 #   run_ddl <label> <table_name> <ddl_file>
+#
+# CAVEAT — existence-gating is per-TABLE, not per-COLUMN or
+# per-CONSTRAINT. If the table is already present its DDL is skipped
+# wholesale; there is no "the DDL file changed, re-apply it" detection.
+# So editing a column or a CHECK in an existing table's DDL has NO
+# effect on a re-run of this script — the live table keeps its old
+# shape indefinitely. Only a hard rebuild (01_drop.sh / DROP SCHEMA nss
+# CASCADE, then this script) picks such a change up. Same behaviour as
+# render_build.sh; see the long caveat block there and
+# docs/03_Solution/architecture/GETTING_STARTED.md §7a-2 "Incremental
+# Rebuild is NOT enough".
+#
+# Known instances as of 2026-10-09:
+#   - 08_governance/06_election.sql — new election_type column +
+#     chk_election_type + chk_election_nomination_mode_no_voting. The
+#     API SELECTs and INSERTs election_type, so an existing database
+#     that skips this DDL fails every election endpoint with
+#     'column "election_type" does not exist'. Hard rebuild required.
+#   - 07_administration/02_admin_scope.sql — widened
+#     chk_admin_scope_org_consistency.
 run_ddl() {
     local label="$1" table="$2" file="$3"
     echo -e "  ${CYAN}[CHECK]${NC} ${label}  (nss.${table}) ..."
@@ -331,7 +366,7 @@ echo ""
 # Note: sangha_sevi must be created first — all
 #       other membership tables depend on it.
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 7] Membership — DDL (14 tables + Sakha-only trigger)${NC}"
+echo -e "${CYAN}[Phase 7] Membership — DDL (16 tables + Sakha-only trigger)${NC}"
 run_ddl "sangha_sevi"                    "sangha_sevi"                    "${DDL_BASE}/05_membership/01_sangha_sevi.sql"
 run_ddl "membership_status_history"      "membership_status_history"      "${DDL_BASE}/05_membership/02_membership_status_history.sql"
 run_ddl "membership_renewal_request"     "membership_renewal_request"     "${DDL_BASE}/05_membership/03_membership_renewal_request.sql"
@@ -347,6 +382,8 @@ run_ddl "anumati_patra_history"          "anumati_patra_history"          "${DDL
 run_ddl "darshak_attendance_registration" "darshak_attendance_registration" "${DDL_BASE}/05_membership/13_darshak_attendance_registration.sql"
 run_sql "sakha_only_membership_trigger"  "${DDL_BASE}/05_membership/14_sakha_only_membership_trigger.sql"
 run_ddl "credential_sequence_counter"    "credential_sequence_counter"    "${DDL_BASE}/05_membership/15_credential_sequence_counter.sql"
+run_ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "${DDL_BASE}/05_membership/17_sakha_local_number_counter.sql"
+run_ddl "membership_change_request"      "membership_change_request"      "${DDL_BASE}/05_membership/18_membership_change_request.sql"
 echo ""
 
 # -------------------------------------------------
@@ -406,6 +443,75 @@ run_ddl "admin_scope"  "admin_scope" "${DDL_BASE}/07_administration/02_admin_sco
 echo ""
 
 # -------------------------------------------------
+# Phase 11b: Governance DDL (9 tables, Tier 6, Depths 0–6)
+# Unified Body Governance Model (GOV-BR-004).
+# Depends only on body_type_master/position_master (Depth 0),
+# organization, person, sangha_sevi — all created in earlier
+# phases — so it slots in after Administration and before the
+# writer grant, letting Phase 12 GRANT ON ALL TABLES and
+# Phase 14 attach the audit trigger to these tables too.
+#   body_type_master, position_master       (Depth 0)
+#   body_master                              (Depth 4)
+#   body_member_assignment,
+#   acting_position_assignment, election     (Depth 5)
+#   election_nomination, election_vote,
+#   election_result                          (Depth 6)
+# -------------------------------------------------
+echo -e "${CYAN}[Phase 11b] Governance — DDL (10 tables + ballot immutability)${NC}"
+run_ddl "body_type_master"           "body_type_master"           "${DDL_BASE}/08_governance/01_body_type_master.sql"
+run_ddl "position_master"            "position_master"            "${DDL_BASE}/08_governance/02_position_master.sql"
+run_ddl "body_master"                "body_master"                "${DDL_BASE}/08_governance/03_body_master.sql"
+run_ddl "body_member_assignment"     "body_member_assignment"     "${DDL_BASE}/08_governance/04_body_member_assignment.sql"
+run_ddl "acting_position_assignment" "acting_position_assignment" "${DDL_BASE}/08_governance/05_acting_position_assignment.sql"
+run_ddl "election"                   "election"                   "${DDL_BASE}/08_governance/06_election.sql"
+run_ddl "election_nomination"        "election_nomination"        "${DDL_BASE}/08_governance/07_election_nomination.sql"
+run_ddl "election_vote"              "election_vote"              "${DDL_BASE}/08_governance/08_election_vote.sql"
+run_ddl "election_result"            "election_result"            "${DDL_BASE}/08_governance/09_election_result.sql"
+run_ddl "election_vote_participation" "election_vote_participation" "${DDL_BASE}/08_governance/10_election_vote_participation.sql"
+# Ballot immutability: function + BEFORE UPDATE triggers on
+# election_vote and election_vote_participation. Not a table —
+# run_sql (CREATE OR REPLACE / DROP..CREATE TRIGGER are idempotent).
+run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_immutability.sql"
+echo ""
+
+# -------------------------------------------------
+# Phase 11c: Governance — Seed Data
+# Starter catalogues for the two Depth-0 masters (body_type_master,
+# position_master), plus the 3 NSS-wide singleton body_master rows
+# (Kendra Governing Body, Advisory Board, central Mahila Parichalana
+# Mandali) that are auto-created here rather than through the Add Body
+# UI — only seeded if the table was newly created above, same
+# existence-gated pattern as every other seed in this script.
+# -------------------------------------------------
+echo -e "${CYAN}[Phase 11c] Governance — Seed Data${NC}"
+run_seed "body_type_master (seed)" "body_type_master" "${SEED_BASE}/08_governance/01_body_type_master.sql"
+run_seed "position_master (seed)"  "position_master"  "${SEED_BASE}/08_governance/02_position_master.sql"
+run_seed "body_master (seed)"      "body_master"       "${SEED_BASE}/08_governance/03_body_master.sql"
+echo ""
+
+# -------------------------------------------------
+# Phase 11d: Correspondence DDL (4 tables, Tier 6, Depths 1-5)
+# correspondence FK -> person, organization, master_data (Depth 4)
+# correspondence_document FK -> correspondence, document_master (Depth 5)
+# correspondence_finance_reference FK -> correspondence only in Pass 1;
+#   financial_transaction FK deferred to Pass 2 (Finance/Tier 12 not
+#   yet built) per SOL-ADMIN-009 §6.8/§7.2.
+# correspondence_sequence_counter FK -> organization only (Depth 1);
+#   backs api/helpers.py::next_correspondence_reference_number()
+#   (CORR-EXT-001).
+# Administration-owned capability; moved from Tier 5 to Tier 6
+# (owner-confirmed 2026-10-16) since Tier 5 (v0.11.0) already shipped
+# without it. Placed after Governance so Phase 12's writer grant and
+# Phase 14's audit trigger both cover these tables too.
+# -------------------------------------------------
+echo -e "${CYAN}[Phase 11d] Correspondence — DDL (4 tables)${NC}"
+run_ddl "correspondence"                   "correspondence"                   "${DDL_BASE}/09_correspondence/01_correspondence.sql"
+run_ddl "correspondence_document"          "correspondence_document"          "${DDL_BASE}/09_correspondence/02_correspondence_document.sql"
+run_ddl "correspondence_finance_reference" "correspondence_finance_reference" "${DDL_BASE}/09_correspondence/03_correspondence_finance_reference.sql"
+run_ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "${DDL_BASE}/09_correspondence/04_correspondence_sequence_counter.sql"
+echo ""
+
+# -------------------------------------------------
 # Phase 12: Grant nss_db_writer write access (Tier 5)
 # Must run AFTER Auth + Admin DDL so the tables exist.
 # Grants SELECT on ALL tables (login lookups) +
@@ -447,6 +553,31 @@ echo -e "${CYAN}[Phase 14] Audit — DDL (1 table + trigger)${NC}"
 run_ddl "system_event_log"  "system_event_log" "${DDL_BASE}/01_foundation/14_system_event_log.sql"
 run_sql "audit_trigger"     "${DDL_BASE}/01_foundation/15_audit_trigger.sql"
 echo ""
+
+# -------------------------------------------------
+# Phase 15 (OPTIONAL): Demo / test seed — LOCAL DEV ONLY.
+# Gitignored (database/seed/demo/), so absent from clean clones and
+# never on Render. Runs ONLY when RUN_DEMO_SEED is truthy AND the file
+# is present; otherwise skipped silently. Runs AFTER the audit trigger
+# so demo rows are audited like any real insert. NOT mirrored into
+# render_build.sh — demo data must never land in a deployed environment.
+# -------------------------------------------------
+DEMO_SEED_FILE="${SEED_BASE}/demo/nss_demo_seed.sql"
+case "$(printf '%s' "${RUN_DEMO_SEED:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    true|1|yes|on)
+        if [ -f "${DEMO_SEED_FILE}" ]; then
+            echo -e "${CYAN}[Phase 15] Demo / test seed (RUN_DEMO_SEED set)${NC}"
+            run_sql "demo_seed" "${DEMO_SEED_FILE}"
+            echo ""
+        else
+            echo -e "${YELLOW}[Phase 15] RUN_DEMO_SEED set but ${DEMO_SEED_FILE} not found — skipped.${NC}"
+            echo ""
+        fi
+        ;;
+    *)
+        : # demo seed not requested — skip silently
+        ;;
+esac
 
 # -------------------------------------------------
 # Summary

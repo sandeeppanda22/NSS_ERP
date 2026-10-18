@@ -43,9 +43,22 @@
 #              password_history, registration_claim, password_reset_token,
 #              user_session)
 #   Phase 11 - Administration DDL (2 tables)
+#   Phase 11b- Governance DDL (9 tables: body_type_master,
+#              position_master, body_master, body_member_assignment,
+#              acting_position_assignment, election, election_nomination,
+#              election_vote, election_result)
+#   Phase 11c- Governance Seed Data (body_type_master, position_master)
+#   Phase 11d- Correspondence DDL (4 tables: correspondence,
+#              correspondence_document, correspondence_finance_reference,
+#              correspondence_sequence_counter -
+#              Tier 6, Administration-owned; moved from Tier 5,
+#              owner-confirmed 2026-10-16)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
 #   Phase 13 - Admin bootstrap seed (NSS Admin superuser)
 #   Phase 14 - Audit DDL (system_event_log table + DB trigger)
+#   Phase 15 - (OPTIONAL, local dev only) demo/test seed, run only when
+#              $env:RUN_DEMO_SEED is truthy and database\seed\demo\nss_demo_seed.sql
+#              exists (gitignored; never on Render)
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data - Person data lives in
@@ -275,7 +288,7 @@ Write-Host ""
 # Phase 7: Membership DDL (14 tables)
 # Note: sangha_sevi must be created first - all
 #       other membership tables depend on it.
-Write-Host "[Phase 7] Membership - DDL (14 tables + Sakha-only trigger)" -ForegroundColor Cyan
+Write-Host "[Phase 7] Membership - DDL (16 tables + Sakha-only trigger)" -ForegroundColor Cyan
 Invoke-Ddl "sangha_sevi"                    "sangha_sevi"                    "$DdlBase\05_membership\01_sangha_sevi.sql"
 Invoke-Ddl "membership_status_history"      "membership_status_history"      "$DdlBase\05_membership\02_membership_status_history.sql"
 Invoke-Ddl "membership_renewal_request"     "membership_renewal_request"     "$DdlBase\05_membership\03_membership_renewal_request.sql"
@@ -291,6 +304,8 @@ Invoke-Ddl "anumati_patra_history"          "anumati_patra_history"          "$D
 Invoke-Ddl "darshak_attendance_registration" "darshak_attendance_registration" "$DdlBase\05_membership\13_darshak_attendance_registration.sql"
 Invoke-Sql "sakha_only_membership_trigger"  "$DdlBase\05_membership\14_sakha_only_membership_trigger.sql"
 Invoke-Ddl "credential_sequence_counter"    "credential_sequence_counter"    "$DdlBase\05_membership\15_credential_sequence_counter.sql"
+Invoke-Ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "$DdlBase\05_membership\17_sakha_local_number_counter.sql"
+Invoke-Ddl "membership_change_request"      "membership_change_request"      "$DdlBase\05_membership\18_membership_change_request.sql"
 Write-Host ""
 
 # Phase 7b: Deferred Foundation Audit FKs
@@ -335,6 +350,56 @@ Write-Host ""
 Write-Host "[Phase 11] Administration - DDL (2 tables)" -ForegroundColor Cyan
 Invoke-Ddl "user_role"    "user_role"   "$DdlBase\07_administration\01_user_role.sql"
 Invoke-Ddl "admin_scope"  "admin_scope" "$DdlBase\07_administration\02_admin_scope.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11b: Governance DDL (9 tables, Tier 6, Depths 0-6)
+# Unified Body Governance Model (GOV-BR-004). Depends only on
+# body_type_master/position_master (Depth 0), organization,
+# person, sangha_sevi - all created in earlier phases - so it
+# slots in after Administration and before the writer grant,
+# letting Phase 12 GRANT ON ALL TABLES and Phase 14 attach the
+# audit trigger to these tables too.
+# -------------------------------------------------
+Write-Host "[Phase 11b] Governance - DDL (9 tables)" -ForegroundColor Cyan
+Invoke-Ddl "body_type_master"           "body_type_master"           "$DdlBase\08_governance\01_body_type_master.sql"
+Invoke-Ddl "position_master"            "position_master"            "$DdlBase\08_governance\02_position_master.sql"
+Invoke-Ddl "body_master"                "body_master"                "$DdlBase\08_governance\03_body_master.sql"
+Invoke-Ddl "body_member_assignment"     "body_member_assignment"     "$DdlBase\08_governance\04_body_member_assignment.sql"
+Invoke-Ddl "acting_position_assignment" "acting_position_assignment" "$DdlBase\08_governance\05_acting_position_assignment.sql"
+Invoke-Ddl "election"                   "election"                   "$DdlBase\08_governance\06_election.sql"
+Invoke-Ddl "election_nomination"        "election_nomination"        "$DdlBase\08_governance\07_election_nomination.sql"
+Invoke-Ddl "election_vote"              "election_vote"              "$DdlBase\08_governance\08_election_vote.sql"
+Invoke-Ddl "election_result"            "election_result"            "$DdlBase\08_governance\09_election_result.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11c: Governance — Seed Data
+# Starter catalogues for the two Depth-0 masters, existence-gated.
+# -------------------------------------------------
+Write-Host "[Phase 11c] Governance - Seed Data" -ForegroundColor Cyan
+Invoke-Seed "body_type_master (seed)" "body_type_master" "$SeedBase\08_governance\01_body_type_master.sql"
+Invoke-Seed "position_master (seed)"  "position_master"  "$SeedBase\08_governance\02_position_master.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11d: Correspondence DDL (4 tables, Tier 6, Depths 1-5)
+# correspondence FK -> person, organization, master_data (Depth 4)
+# correspondence_document FK -> correspondence, document_master (Depth 5)
+# correspondence_finance_reference FK -> correspondence only in Pass 1;
+# financial_transaction FK deferred to Pass 2 (Finance/Tier 12 not yet
+# built) per SOL-ADMIN-009 Sec 6.8/7.2.
+# correspondence_sequence_counter FK -> organization only (Depth 1);
+# backs api/helpers.py::next_correspondence_reference_number() (CORR-EXT-001).
+# Administration-owned capability; moved from Tier 5 to Tier 6
+# (owner-confirmed 2026-10-16). Placed after Governance so Phase 12's
+# writer grant and Phase 14's audit trigger both cover these tables too.
+# -------------------------------------------------
+Write-Host "[Phase 11d] Correspondence - DDL (4 tables)" -ForegroundColor Cyan
+Invoke-Ddl "correspondence"                   "correspondence"                   "$DdlBase\09_correspondence\01_correspondence.sql"
+Invoke-Ddl "correspondence_document"          "correspondence_document"          "$DdlBase\09_correspondence\02_correspondence_document.sql"
+Invoke-Ddl "correspondence_finance_reference" "correspondence_finance_reference" "$DdlBase\09_correspondence\03_correspondence_finance_reference.sql"
+Invoke-Ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "$DdlBase\09_correspondence\04_correspondence_sequence_counter.sql"
 Write-Host ""
 
 # -------------------------------------------------
@@ -386,6 +451,27 @@ Write-Host "[Phase 14] Audit - DDL (1 table + trigger)" -ForegroundColor Cyan
 Invoke-Ddl "system_event_log"  "system_event_log" "$DdlBase\01_foundation\14_system_event_log.sql"
 Invoke-Sql "audit_trigger"     "$DdlBase\01_foundation\15_audit_trigger.sql"
 Write-Host ""
+
+# -------------------------------------------------
+# Phase 15 (OPTIONAL): Demo / test seed - LOCAL DEV ONLY.
+# Gitignored (database\seed\demo\), so absent from clean clones and
+# never on Render. Runs ONLY when $env:RUN_DEMO_SEED is truthy AND the
+# file is present; otherwise skipped silently. Runs AFTER the audit
+# trigger so demo rows are audited like any real insert. NOT mirrored
+# into render_build.sh - demo data must never land in a deployed env.
+# -------------------------------------------------
+$DemoSeedFile = "$SeedBase\demo\nss_demo_seed.sql"
+$runDemo = ("$($env:RUN_DEMO_SEED)").Trim().ToLower()
+if ($runDemo -in @('true','1','yes','on')) {
+    if (Test-Path $DemoSeedFile) {
+        Write-Host "[Phase 15] Demo / test seed (RUN_DEMO_SEED set)" -ForegroundColor Cyan
+        Invoke-Sql "demo_seed" $DemoSeedFile
+        Write-Host ""
+    } else {
+        Write-Host "[Phase 15] RUN_DEMO_SEED set but $DemoSeedFile not found - skipped." -ForegroundColor Yellow
+        Write-Host ""
+    }
+}
 
 # -------------------------------------------------
 # Summary

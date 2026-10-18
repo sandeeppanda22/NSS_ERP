@@ -15,9 +15,9 @@ in file order `01` → `02` → `03`).
 
 | File | Status |
 |---|---|
-| `02_role_master.sql` | 9 roles seeded (3 SYSTEM: `NSS_ERP_ADMIN`, `NSS_ERP_AUDITOR`, `NSS_ERP_REPORT_VIEWER`; 6 ORGANIZATIONAL, one per scope level: `NSS_ERP_KENDRA_ADMIN`, `NSS_ERP_ANCHALIKA_ADMIN`, `NSS_ERP_ZILLA_ADMIN`, `NSS_ERP_SAKHA_ADMIN`, `NSS_ERP_PATHA_CHAKRA_ADMIN`, `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN`) |
-| `01_permission_master.sql` | Populated — 21 permissions: `BOOTSTRAP_VIEW`, `FOUNDATION_VIEW`/`_MANAGE`/`_CALENDAR_MANAGE`, `ORGANIZATION_VIEW`/`_MANAGE`, `PERSON_VIEW`/`_MANAGE`/`_VIEW_SENSITIVE`, `FAMILY_VIEW`/`_MANAGE`, `MEMBERSHIP_VIEW`/`_MANAGE`/`_APPROVE`, `ADMIN_USER_VIEW`/`_MANAGE`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_PERMISSION_VIEW`, `AUDIT_VIEW`, `REPORT_VIEW` |
-| `03_role_permission.sql` | Populated — 113 role-to-permission mappings: `NSS_ERP_ADMIN` 21 (all permissions, including `FOUNDATION_CALENDAR_MANAGE`, which no other role holds) and `NSS_ERP_KENDRA_ADMIN` 20 (all but that one), `NSS_ERP_ANCHALIKA_ADMIN`/`ZILLA_ADMIN`/`SAKHA_ADMIN`/`PATHA_CHAKRA_ADMIN`/`KENDRA_MAHILA_SANGHA_ADMIN` and `NSS_ERP_AUDITOR` 11 each, `NSS_ERP_REPORT_VIEWER` 6 |
+| `02_role_master.sql` | 10 roles seeded (3 SYSTEM: `NSS_ERP_ADMIN`, `NSS_ERP_AUDITOR`, `NSS_ERP_REPORT_VIEWER`; 7 ORGANIZATIONAL, one per scope level: `NSS_ERP_KENDRA_ADMIN`, `NSS_ERP_ANCHALIKA_ADMIN`, `NSS_ERP_ZILLA_ADMIN`, `NSS_ERP_SAKHA_ADMIN`, `NSS_ERP_PATHA_CHAKRA_ADMIN`, `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN`, `NSS_ERP_ADVISORY_BOARD_ADMIN` (added 2026-10-09, §63 composite auto-grant rule)) |
+| `01_permission_master.sql` | Populated — 25 permissions: `BOOTSTRAP_VIEW`, `FOUNDATION_VIEW`/`_MANAGE`/`_CALENDAR_MANAGE`, `ORGANIZATION_VIEW`/`_MANAGE`, `PERSON_VIEW`/`_MANAGE`/`_VIEW_SENSITIVE`, `FAMILY_VIEW`/`_MANAGE`, `MEMBERSHIP_VIEW`/`_MANAGE`/`_APPROVE`, `ADMIN_USER_VIEW`/`_MANAGE`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_PERMISSION_VIEW`, `AUDIT_VIEW`, `REPORT_VIEW`, `GOVERNANCE_VIEW`/`_MANAGE` and `CORRESPONDENCE_VIEW`/`_MANAGE` (Tier 6) |
+| `03_role_permission.sql` | Populated — 140 role-to-permission mappings: `NSS_ERP_ADMIN` 25 (all permissions, including `FOUNDATION_CALENDAR_MANAGE`, which no other role holds), `NSS_ERP_KENDRA_ADMIN` 24 (all but that one), `NSS_ERP_SAKHA_ADMIN` 15, `NSS_ERP_ANCHALIKA_ADMIN`/`ZILLA_ADMIN`/`PATHA_CHAKRA_ADMIN`/`KENDRA_MAHILA_SANGHA_ADMIN` 14 each, `NSS_ERP_AUDITOR` 13, `NSS_ERP_REPORT_VIEWER` 7 (`CORRESPONDENCE_VIEW` to every role with rows; `CORRESPONDENCE_MANAGE` to the org-scoped admin roles). `NSS_ERP_ADVISORY_BOARD_ADMIN` has no rows — it is granted at runtime by `api/services/rbac_service.py::load_composite_grants` (§63) |
 
 Numbered `01`/`02`/`03` reflects the DDL file numbering (`permission_master` before
 `role_master` before `role_permission`), not execution readiness — dependency order at
@@ -26,10 +26,12 @@ no cross-dependency), then `03_role_permission.sql` last (depends on both).
 
 ## Design Notes
 
-The 9 seeded roles match the frozen catalogue in SOL-ADMIN-004 §8.7
-(updated to 9 roles / 6 scope levels). `NSS_ERP_PATHA_CHAKRA_ADMIN`
-(scope `PATHA_CHAKRA`) and, later, `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN`
-(scope `KENDRA_MAHILA_SANGHA`) were added to both the seed and the design doc
+The 10 seeded roles match the frozen catalogue in SOL-ADMIN-004 §8.7
+(updated to 10 roles / 7 scope levels). `NSS_ERP_PATHA_CHAKRA_ADMIN`
+(scope `PATHA_CHAKRA`), `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN`
+(scope `KENDRA_MAHILA_SANGHA`), and, later, `NSS_ERP_ADVISORY_BOARD_ADMIN`
+(scope `ADVISORY_BOARD`, added 2026-10-09 as part of the §63 composite
+auto-grant rule) were added to both the seed and the design doc
 to align with the organizational hierarchy (see
 `docs/03_Solution/modules/organization/04_organization_business_rules.md` §28) and the
 `scope_level` CHECK

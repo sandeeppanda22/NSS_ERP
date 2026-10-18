@@ -14,8 +14,8 @@ Run from the repository root.
 | `00_create_database.sql` | superuser (`postgres`) | `postgres` | Creates `nss_erp` database, `nss_db_owner`/`nss_db_backend`/`nss_db_writer` roles (all with LOGIN, NOSUPERUSER, no password), and grants `CONNECT` on `nss_erp` to `nss_db_backend` and `nss_db_writer`. Installs `dblink` (used to `CREATE DATABASE` idempotently; its internal connection string hardcodes a local-dev `postgres` superuser password — edit it for any non-local environment). Fully idempotent. |
 | `01_extensions.sql` | superuser (`postgres`) | `nss_erp` | Installs `pgcrypto`, `pg_trgm`, `btree_gin`, `postgis`. Creates `nss` schema owned by `nss_db_owner`. Idempotent. |
 | `06_setup_env.sh` (bash only — no `.ps1` counterpart) | superuser (`postgres`; optionally pass a different superuser name as the first arg) | `postgres` | Verifies the 3 roles exist, prompts for each role's password, runs `ALTER ROLE ... PASSWORD` on all three, and writes `api/.env` (`DB_NAME`/`DB_USER=nss_db_backend`/`DB_PASSWORD`/`DB_HOST`/`DB_PORT`, `DB_WRITE_USER`/`DB_WRITE_PASSWORD`, a random `JWT_SECRET_KEY` from `openssl rand -hex 32`, plus `JWT_ACCESS_TOKEN_MINUTES=30`/`JWT_REFRESH_TOKEN_DAYS=7`/`JWT_ABSOLUTE_SESSION_DAYS=30`). Run once after `00_create_database.sql`; if `api/.env` already exists it exits without changes unless `--force` is given. Its closing "Next steps" text points to `./database/scripts/02_build.sh`, then `python3 -m uvicorn api.main:app --reload --port 8001` from the repository root. |
-| `02_build.sh` / `.ps1` | `nss_db_owner` | `nss_erp` | First runs `pip install -r requirements.txt`, then all implemented DDL + seed (Phases 0–14: Bootstrap RBAC through Audit DDL; Phase 8 is an empty placeholder). Idempotent re-run: in `02_build.sh`/`.ps1`, table DDL/seed is existence-gated (`run_ddl`/`run_seed` in bash, `Invoke-Ddl`/`Invoke-Seed` in PowerShell, via `to_regclass`; a pre-existing table's DDL and seed are both skipped); non-table files (triggers, grants, FKs): a file whose output contains `already exists` or `duplicate key value violates unique constraint` is reported `[SKIP]`, any other psql error aborts the build. **48 tables** created in total (see phase table below). |
-| `03_validate.sh` / `.ps1` | `nss_db_owner` | `nss_erp` | Post-build checks: table existence, row counts (each is a **minimum** — `count >= expected`, below it is a `[WARN]`, not a failure), duplicate checks, FK orphan checks, key-column presence. Covers Bootstrap RBAC, Foundation (11 tables; not `post_office`/`festival_*`/`system_event_log`), Organization, Person, Authentication, Administration. Family, Membership and `system_event_log` get existence checks only (see "Validation coverage" below). Does not execute any DDL/seed. |
+| `02_build.sh` / `.ps1` | `nss_db_owner` | `nss_erp` | First runs `pip install -r requirements.txt`, then all implemented DDL + seed (Phases 0–14: Bootstrap RBAC through Audit DDL, incl. Governance Phases 11b/11c and Correspondence Phase 11d; Phase 8 is an empty placeholder), then an optional Phase 15 demo seed (see below). Idempotent re-run: in `02_build.sh`/`.ps1`, table DDL/seed is existence-gated (`run_ddl`/`run_seed` in bash, `Invoke-Ddl`/`Invoke-Seed` in PowerShell, via `to_regclass`; a pre-existing table's DDL and seed are both skipped); non-table files (triggers, grants, FKs): a file whose output contains `already exists` or `duplicate key value violates unique constraint` is reported `[SKIP]`, any other psql error aborts the build. **64 tables** created in total (see phase table below). |
+| `03_validate.sh` / `.ps1` | `nss_db_owner` | `nss_erp` | Post-build checks: table existence, row counts (each is a **minimum** — `count >= expected`, below it is a `[WARN]`, not a failure), duplicate checks, FK orphan checks, key-column presence. Covers Bootstrap RBAC, Foundation (11 tables; not `post_office`/`festival_*`/`system_event_log`), Organization, Person, Authentication, Administration. Family, Membership, `system_event_log` and Governance (Module 8) get existence checks (plus a few column/FK-orphan checks for Governance) only (see "Validation coverage" below). Does not execute any DDL/seed. |
 | `04_grant_backend.sql` | `nss_db_owner` | `nss_erp` | Grants `nss_db_backend` read-only access: `USAGE` on `nss` schema, `SELECT` on all tables, `ALTER DEFAULT PRIVILEGES` for future tables. Idempotent. Run as Phase 9 inside `02_build.sh`. |
 | `05_create_writer_role.sql` | `nss_db_owner` | `nss_erp` | Grants `nss_db_writer` `USAGE` on the `nss` schema, `SELECT` and `INSERT`/`UPDATE` on **all** current tables in `nss` (not just auth/admin tables), and the same three via `ALTER DEFAULT PRIVILEGES` for future tables. No `DELETE`/`TRUNCATE`/`REFERENCES`/`TRIGGER`, no DDL (soft-delete only). Idempotent. Run as Phase 12 inside `02_build.sh`. |
 
@@ -40,9 +40,9 @@ SOL-ARCH-011 phase order. Authority: SOL-ARCH-010 (DDL Creation Order), SOL-ARCH
 | DDL | `ddl/00_bootstrap/01_role_master.sql` | `role_master` | 0 |
 | DDL | `ddl/00_bootstrap/02_permission_master.sql` | `permission_master` | 0 |
 | DDL | `ddl/00_bootstrap/03_role_permission.sql` | `role_permission` | 1 |
-| Seed | `seed/00_bootstrap/01_permission_master.sql` | 21 permissions (`BOOTSTRAP_VIEW`, `FOUNDATION_VIEW`/`_MANAGE`/`_CALENDAR_MANAGE`, `ORGANIZATION_VIEW`/`_MANAGE`, `PERSON_VIEW`/`_MANAGE`/`_VIEW_SENSITIVE`, `FAMILY_VIEW`/`_MANAGE`, `MEMBERSHIP_VIEW`/`_MANAGE`/`_APPROVE`, `ADMIN_USER_VIEW`/`_MANAGE`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_PERMISSION_VIEW`, `AUDIT_VIEW`, `REPORT_VIEW`) | — |
-| Seed | `seed/00_bootstrap/02_role_master.sql` | 9 frozen roles | — |
-| Seed | `seed/00_bootstrap/03_role_permission.sql` | 113 role↔permission mappings (`NSS_ERP_ADMIN` 21, `NSS_ERP_KENDRA_ADMIN` 20 — `FOUNDATION_CALENDAR_MANAGE` is ADMIN-only; the other 5 organizational admin roles plus `NSS_ERP_AUDITOR` 11 each, `NSS_ERP_REPORT_VIEWER` 6) | — |
+| Seed | `seed/00_bootstrap/01_permission_master.sql` | 25 permissions (`BOOTSTRAP_VIEW`, `FOUNDATION_VIEW`/`_MANAGE`/`_CALENDAR_MANAGE`, `ORGANIZATION_VIEW`/`_MANAGE`, `PERSON_VIEW`/`_MANAGE`/`_VIEW_SENSITIVE`, `FAMILY_VIEW`/`_MANAGE`, `MEMBERSHIP_VIEW`/`_MANAGE`/`_APPROVE`, `ADMIN_USER_VIEW`/`_MANAGE`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_PERMISSION_VIEW`, `AUDIT_VIEW`, `REPORT_VIEW`, `GOVERNANCE_VIEW`/`_MANAGE`, `CORRESPONDENCE_VIEW`/`_MANAGE`) | — |
+| Seed | `seed/00_bootstrap/02_role_master.sql` | 10 frozen roles | — |
+| Seed | `seed/00_bootstrap/03_role_permission.sql` | 140 role↔permission mappings (`NSS_ERP_ADMIN` 25, `NSS_ERP_KENDRA_ADMIN` 24 — `FOUNDATION_CALENDAR_MANAGE` is ADMIN-only; `NSS_ERP_SAKHA_ADMIN` 15; `ANCHALIKA`/`ZILLA`/`PATHA_CHAKRA`/`KENDRA_MAHILA_SANGHA` admins 14 each, `NSS_ERP_AUDITOR` 13, `NSS_ERP_REPORT_VIEWER` 7; `NSS_ERP_ADVISORY_BOARD_ADMIN` has no rows — it is auto-granted at runtime by `rbac_service.load_composite_grants`) | — |
 
 ### Phase 1 — Foundation DDL (14 tables, Depths 0–4)
 
@@ -133,7 +133,7 @@ and is not run.
 | DDL | `ddl/04_family/06_family_admin.sql` | `family_admin` |
 | DDL | `ddl/04_family/07_family_move_transition_guard.sql` | *(deferred constraint trigger on `family_relationship`, no table)* |
 
-### Phase 7 — Membership DDL (14 tables + 1 trigger, Depths 2–4)
+### Phase 7 — Membership DDL (16 tables + 1 trigger, Depths 2–4)
 
 `sangha_sevi` is created first — all other membership tables depend on it.
 
@@ -154,6 +154,8 @@ and is not run.
 | DDL | `ddl/05_membership/13_darshak_attendance_registration.sql` | `darshak_attendance_registration` |
 | DDL | `ddl/05_membership/14_sakha_only_membership_trigger.sql` | *(trigger, no table — MBR-038A)* |
 | DDL | `ddl/05_membership/15_credential_sequence_counter.sql` | `credential_sequence_counter` |
+| DDL | `ddl/05_membership/17_sakha_local_number_counter.sql` | `sakha_local_number_counter` (Tier 6) |
+| DDL | `ddl/05_membership/18_membership_change_request.sql` | `membership_change_request` (Tier 6) |
 
 ### Phase 7b — Deferred Foundation Audit FKs
 
@@ -207,6 +209,37 @@ is what matters. The same applies to Phase 11 (`user_role` header says 3, `admin
 | DDL | `ddl/07_administration/01_user_role.sql` | `user_role` | 4 |
 | DDL | `ddl/07_administration/02_admin_scope.sql` | `admin_scope` | 5 |
 
+### Phase 11b — Governance DDL (10 tables + ballot immutability)
+
+Unified Body Governance Model (GOV-BR-004).
+
+| Step | File | Table | Depth |
+|-----:|------|-------|------:|
+| DDL | `ddl/08_governance/01_body_type_master.sql` | `body_type_master` | 0 |
+| DDL | `ddl/08_governance/02_position_master.sql` | `position_master` | 0 |
+| DDL | `ddl/08_governance/03_body_master.sql` | `body_master` | 4 |
+| DDL | `ddl/08_governance/04_body_member_assignment.sql` | `body_member_assignment` | 5 |
+| DDL | `ddl/08_governance/05_acting_position_assignment.sql` | `acting_position_assignment` | 5 |
+| DDL | `ddl/08_governance/06_election.sql` | `election` | 5 |
+| DDL | `ddl/08_governance/07_election_nomination.sql` | `election_nomination` | 6 |
+| DDL | `ddl/08_governance/08_election_vote.sql` | `election_vote` | 6 |
+| DDL | `ddl/08_governance/09_election_result.sql` | `election_result` | 6 |
+| DDL | `ddl/08_governance/10_election_vote_participation.sql` | `election_vote_participation` | 6 |
+| DDL | `ddl/08_governance/11_governance_immutability.sql` | *(ballot-immutability function + triggers, no table)* | — |
+
+### Phase 11c — Governance Seed Data
+
+Starter catalogues for the two Depth-0 masters, plus the 3 NSS-wide singleton `body_master` rows.
+
+| Step | File | Seeds |
+|-----:|------|-------|
+| Seed | `seed/08_governance/01_body_type_master.sql` | 8 body types (`KENDRA_GOVERNING_BODY`, `SAKHA_GOVERNING_BODY`, `ADVISORY_BOARD`, `MAHILA_PARICHALANA_MANDALI`, `SEVAK_SANGHA_EXECUTIVE`, plus `ANCHALIKA_GOVERNING_BODY`/`ZILLA_GOVERNING_BODY`/`PATHA_CHAKRA_GOVERNING_BODY` added 2026-10-09 for the §63 composite auto-grant rule) |
+| Seed | `seed/08_governance/02_position_master.sql` | 10 positions (`PRESIDENT`, `VICE_PRESIDENT`, `PARICHALAK`, `SECRETARY`, `ASSISTANT_SECRETARY`, `JOINT_SECRETARY`, `TREASURER`, `CASHIER`, `MUKHYA_PUJAKA`, `MEMBER`) |
+| Seed | `seed/08_governance/03_body_master.sql` | 3 NSS-wide bodies: Kendra Governing Body, Advisory Board, central Mahila Parichalana Mandali |
+
+Both catalogues remain caller-extensible via the Governance API (`POST`/`PATCH /body-types`,
+`/positions`) for anything the starter seed doesn't cover.
+
 ### Phase 12 — Grant Writer Access
 
 | Step | File | Purpose |
@@ -241,6 +274,12 @@ the **write** connection in `api/dependencies/auth.py::get_write_connection()` �
 on the same connection the write runs on, or the trigger sees NULL. Because this phase runs after
 Phase 13, the admin-bootstrap rows and all seed data are not audited.
 
+### Phase 15 — Demo / test seed (optional, local dev only)
+
+| Step | File | Purpose |
+|-----:|------|---------|
+| Seed | `seed/demo/nss_demo_seed.sql` (gitignored) | Runs only when `RUN_DEMO_SEED` is truthy (`true`/`1`/`yes`/`on`, case/whitespace-insensitive) **and** the file exists; otherwise skipped (silently if not requested, with a warning if requested but missing). Runs after the Phase 14 audit trigger so demo rows are audited. Gives each active Sakha 10 members with credentials for exercising search/governance/election screens. Never mirrored into `render_build.sh`. |
+
 ### Tables created per phase
 
 | Phase | Module | Tables |
@@ -250,29 +289,31 @@ Phase 13, the admin-bootstrap rows and all seed data are not audited.
 | 3 | Organization | 1 |
 | 5 | Person | 2 |
 | 6 | Family | 6 |
-| 7 | Membership | 14 |
-| 10 | Authentication | 4 |
+| 7 | Membership | 16 |
+| 10 | Authentication | 5 |
 | 11 | Administration | 2 |
+| 11b | Governance | 10 |
+| 11d | Correspondence | 4 |
 | 14 | Audit (Foundation) | 1 |
-| | **Total** | **47** |
+| | **Total** | **64** |
 
 ### Validation coverage (`03_validate.sh`/`.ps1`)
 
-The two wrappers run the same checks (107 check calls each, including the `city_village.district_pk`
+The two wrappers are meant to run the same checks (~156 check calls in `.sh`, ~144 in `.ps1`; the `.ps1` lacks the Governance key-column and FK-orphan checks, so the two wrappers are not fully identical; including the `city_village.district_pk`
 column and its minimum district-coverage percentage). Covered: Bootstrap RBAC (3 tables), Foundation's
-11 tables (not `post_office`, `festival_*`, `system_event_log`), `organization`, `person`/`person_address`, the 4 Authentication tables, and
-`user_role`/`admin_scope`. The 6 `family_*` tables, the 14 Membership tables (incl.
-`credential_sequence_counter`) and `system_event_log` get **existence checks only**. Row-count checks
+11 tables (not `post_office`, `festival_*`, `system_event_log`), `organization`, `person`/`person_address`, the 5 Authentication tables, and
+`user_role`/`admin_scope`. The 6 `family_*` tables, the 16 Membership tables (incl.
+`credential_sequence_counter`, `sakha_local_number_counter`, `membership_change_request`), `system_event_log` and all 10 Governance tables (Module 8) get **existence checks**, plus (`.sh` only) 3 Governance key-column and 3 FK-orphan checks. The 4 Correspondence tables (Tier 6) get existence, 9 key-column, 5 FK-orphan and a `reference_number` uniqueness check (no seed; the deferred `financial_transaction` FK is not checked). Row-count checks
 pass when `count >= expected` and only WARN below it; the minimums track the current seed:
-`role_master` 9, `master_data` 89, `id_sequence_master` 14, `system_setting` 5, `organization` 178
+`role_master` 10, `master_data` 89, `id_sequence_master` 14, `system_setting` 5, `organization` 178
 (after Phase 4), `person` 0, `user_account`/`user_role`/`admin_scope` 1 (the bootstrap admin). The geography minimums are current: `state` 112, `district` 780 (785 seeded),
 `postal_code` 17800 (17,869 seeded), `city_village` 673000.
 
 ### Render parity
 
-`render_build.sh` (repo root, run by `render.yaml`) repeats Phases 0–7b and 9–14 with the same file
+`render_build.sh` (repo root, run by `render.yaml`) repeats Phases 0–7b and 9–14 (including 11b/11c Governance and 11d Correspondence) with the same file
 order and the same `[OK]`/`[SKIP]`/abort rule; its phase/file order currently matches `02_build.sh` v2.6, and it carries the same existence-gated `run_ddl`/`run_seed` model (header "Version 3.0"). `RUN_DB_BOOTSTRAP` gates only its Phase 13 admin seed, not DDL/seed.
-Differences: it builds Tailwind and installs Python deps first; it substitutes for
+Differences: it has no Phase 15 demo seed (`RUN_DEMO_SEED` is honoured only by `02_build.sh`/`.ps1`); it builds Tailwind and installs Python deps first; it substitutes for
 `00_create_database.sql`/`01_extensions.sql` by running `CREATE SCHEMA IF NOT EXISTS nss`,
 `ALTER DATABASE ... SET search_path`, and best-effort `pgcrypto`/`pg_trgm`/`btree_gin` (no
 `postgis`); it creates the three `nss_db_*` roles inline (reusing `DB_PASSWORD`, or
@@ -284,7 +325,8 @@ Differences: it builds Tailwind and installs Python deps first; it substitutes f
   Tier 5 table)
 - MFA enforcement (Tier 5.1) — self-reset OTP (forgot-password) and permission-gating on
   Tier 1–4 endpoints are both already implemented, not future work
-- All remaining modules (Governance, Attendance, etc.)
+- All remaining modules (Attendance, etc.) — Governance (Phase 11b/11c, 10 tables) and Correspondence (Phase 11d, 4 tables) is now
+  implemented and wired into the build; it is no longer future work
 
 ## Role Naming Convention
 

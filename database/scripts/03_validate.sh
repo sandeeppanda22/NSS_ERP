@@ -29,6 +29,7 @@
 #   - Authentication (5 tables)
 #   - Administration (2 tables)
 #   - Family (6), Membership (14, incl. credential_sequence_counter), system_event_log — existence only
+#   - Governance (9 tables — existence only, no seed)
 #
 # Extend this script when new modules are added.
 # =====================================================
@@ -167,7 +168,7 @@ check_table_exists "permission_master"
 check_table_exists "role_permission"
 
 echo "  Row counts:"
-check_row_count "role_master" 9
+check_row_count "role_master" 10
 
 echo "  Unique constraints:"
 check_no_duplicates "role_master" "role_code"
@@ -394,7 +395,76 @@ check_table_exists "anumati_patra"
 check_table_exists "anumati_patra_history"
 check_table_exists "darshak_attendance_registration"
 check_table_exists "credential_sequence_counter"
+check_table_exists "sakha_local_number_counter"
+check_table_exists "membership_change_request"
 check_table_exists "system_event_log"
+echo ""
+
+# =====================================================
+# Module 8: Governance (10 tables — existence only, no seed)
+# Unified Body Governance Model (GOV-BR-004).
+# =====================================================
+echo -e "${CYAN}--- Governance ---${NC}"
+echo "  Tables (existence only — no seed data):"
+check_table_exists "body_type_master"
+check_table_exists "position_master"
+check_table_exists "body_master"
+check_table_exists "body_member_assignment"
+check_table_exists "acting_position_assignment"
+check_table_exists "election"
+check_table_exists "election_nomination"
+check_table_exists "election_vote"
+check_table_exists "election_vote_participation"
+check_table_exists "election_result"
+echo "  Key columns:"
+check_column_exists "body_master" "body_type_master_pk"
+check_column_exists "body_member_assignment" "person_pk"
+check_column_exists "election_vote" "voter_person_pk"
+echo "  FK integrity (no orphans — vacuously true until seeded):"
+check_fk_integrity "body_master -> body_type_master" \
+    "SELECT COUNT(*) FROM nss.body_master bm LEFT JOIN nss.body_type_master bt ON bm.body_type_master_pk = bt.body_type_master_pk WHERE bt.body_type_master_pk IS NULL;"
+check_fk_integrity "body_member_assignment -> body_master" \
+    "SELECT COUNT(*) FROM nss.body_member_assignment bma LEFT JOIN nss.body_master bm ON bma.body_master_pk = bm.body_master_pk WHERE bm.body_master_pk IS NULL;"
+check_fk_integrity "election_result -> election" \
+    "SELECT COUNT(*) FROM nss.election_result er LEFT JOIN nss.election e ON er.election_pk = e.election_pk WHERE e.election_pk IS NULL;"
+echo ""
+
+# =====================================================
+# Correspondence (4 tables, Tier 6 — existence only, no seed)
+# Administration-owned capability; moved from Tier 5 to Tier 6
+# (owner-confirmed 2026-10-16). financial_transaction FK on
+# correspondence_finance_reference is deferred to Pass 2 (Finance/
+# Tier 12 not yet built) — not checked here.
+# =====================================================
+echo -e "${CYAN}--- Correspondence ---${NC}"
+echo "  Tables (existence only — no seed data):"
+check_table_exists "correspondence"
+check_table_exists "correspondence_document"
+check_table_exists "correspondence_finance_reference"
+check_table_exists "correspondence_sequence_counter"
+echo "  Key columns:"
+check_column_exists "correspondence" "reference_number"
+check_column_exists "correspondence" "register_organization_pk"
+check_column_exists "correspondence" "sender_person_capacity"
+check_column_exists "correspondence_document" "correspondence_pk"
+check_column_exists "correspondence_finance_reference" "relationship_type_master_data_pk"
+check_column_exists "correspondence_sequence_counter" "register_organization_pk"
+check_column_exists "correspondence_sequence_counter" "direction"
+check_column_exists "correspondence_sequence_counter" "financial_year_start"
+check_column_exists "correspondence_sequence_counter" "current_value"
+echo "  FK integrity (no orphans — vacuously true until seeded):"
+check_fk_integrity "correspondence -> organization (register owner)" \
+    "SELECT COUNT(*) FROM nss.correspondence c LEFT JOIN nss.organization o ON c.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+check_fk_integrity "correspondence_document -> correspondence" \
+    "SELECT COUNT(*) FROM nss.correspondence_document cd LEFT JOIN nss.correspondence c ON cd.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
+check_fk_integrity "correspondence_finance_reference -> correspondence" \
+    "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.correspondence c ON cfr.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
+check_fk_integrity "correspondence_finance_reference -> master_data (relationship_type)" \
+    "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.master_data md ON cfr.relationship_type_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
+check_fk_integrity "correspondence_sequence_counter -> organization" \
+    "SELECT COUNT(*) FROM nss.correspondence_sequence_counter csc LEFT JOIN nss.organization o ON csc.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+echo "  Unique constraints:"
+check_no_duplicates "correspondence" "reference_number"
 echo ""
 
 # =====================================================

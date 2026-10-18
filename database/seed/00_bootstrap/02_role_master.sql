@@ -2,7 +2,13 @@
 -- NSS ERP
 -- Module: Bootstrap RBAC
 -- File: 02_role_master.sql (seed)
--- Seed: 9 frozen roles (SOL-ADMIN-004 §8.7)
+-- Seed: 10 frozen roles (SOL-ADMIN-004 §8.7)
+-- Version: 1.3 — added NSS_ERP_ADVISORY_BOARD_ADMIN (Tier 6 governance
+--          auto-provisioning, owner-confirmed 2026-10-08): held by the
+--          Advisory Board President/Secretary (auto-granted from their
+--          governance position) or a third person manually appointed by
+--          NSS_ERP_ADMIN. New scope level ADVISORY_BOARD (organization_pk
+--          NULL, like NSS-WIDE, but a strictly narrower RBAC footprint).
 -- Version: 1.2 — ON CONFLICT DO NOTHING, not DO UPDATE (2026-10-05): a
 --          re-run must never overwrite a role's live-edited fields.
 --          Insert-if-missing only.
@@ -77,5 +83,12 @@ VALUES
      'ORGANIZATIONAL',
      'KENDRA_MAHILA_SANGHA',
      'Administrative authority scoped to the Kendra Mahila Sangha',
-     9)
+     9),
+
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN',
+     'Advisory Board Administrator',
+     'ORGANIZATIONAL',
+     'ADVISORY_BOARD',
+     'Administrative authority scoped to the Advisory Board. Held by the AB President or Secretary (auto-granted from their governance position) or a third person manually appointed by NSS_ERP_ADMIN.',
+     10)
 ON CONFLICT (role_code) DO NOTHING;

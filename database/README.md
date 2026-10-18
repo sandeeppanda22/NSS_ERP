@@ -29,6 +29,16 @@ SOL-ARCH-011 (Bootstrap Architecture), module table-design documents
 > FAM-036 performance indexes now live in the table DDL itself). See `database/seed/README.md`,
 > `database/scripts/README.md`, and `docs/PROJECT_DOCUMENTATION.md` → Architecture ("Tier 5").
 
+> **Tier 6 (Governance) is in progress — uncommitted on `feature/tier6-governance`.** It adds
+> `ddl/08_governance/` (10 tables + `11_governance_immutability.sql` ballot-immutability triggers,
+> build Phases 11b/11c with `seed/08_governance/`: 8 body types, 10 positions, 3 NSS-wide bodies),
+> two Membership tables (`sakha_local_number_counter`, `membership_change_request`; Phase 7 is now
+> 16 tables), `13_darshak_attendance_registration.sql` v1.1 (`initiated_by_sangha_sevi_pk` +
+> `request_source`), `02_admin_scope.sql` v1.1 / `role_master` (`ADVISORY_BOARD` scope level), a
+> 10th role (`NSS_ERP_ADVISORY_BOARD_ADMIN`, granted at runtime — no `role_permission` rows) and two
+> permissions (`GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) — **12 new tables, 60 in total**, plus an
+> optional local-only demo seed (Phase 15, `RUN_DEMO_SEED`, `seed/demo/`, not in `render_build.sh`).
+
 ---
 
 ## Execution Order
@@ -45,7 +55,7 @@ psql -U postgres -d postgres -f database/scripts/00_create_database.sql   # DB +
 psql -U postgres -d nss_erp  -f database/scripts/01_extensions.sql        # extensions + nss schema
 ./database/scripts/06_setup_env.sh      # sets passwords on all 3 roles, writes api/.env (+ JWT secret)
 
-# Build (as nss_db_owner) — runs pip install, then Phases 0-14, and calls
+# Build (as nss_db_owner) — runs pip install, then Phases 0-14 (plus the optional Phase 15 demo seed when `RUN_DEMO_SEED` is set), and calls
 # scripts/bootstrap_admin.py as Phase 13 (seeds admin SS1 / Admin@123)
 ./database/scripts/02_build.sh          # Windows: database\scripts\02_build.ps1
 ./database/scripts/03_validate.sh       # optional post-build checks (see its known gaps below)
@@ -64,22 +74,26 @@ Build phases (authoritative detail in `scripts/README.md`):
 
 | Phase | Content |
 |------:|---------|
-| 0 | Bootstrap RBAC — 3 tables + seed (9 roles, 21 permissions, 113 mappings) |
+| 0 | Bootstrap RBAC — 3 tables + seed (10 roles, 25 permissions, 140 mappings) |
 | 1 | Foundation DDL — 14 tables (incl. `post_office`, `festival_master`/`festival_calendar_date`) |
 | 2 | Foundation seed (incl. all-India PINs, post offices, ~673k `city_village` rows, festival calendar) |
 | 3 | Organization DDL — 1 table + 2 triggers |
 | 4 | Organization seed — 3 unique orgs, 56 Sakha PINs, 175 Sakha branches, counter sync |
 | 5 | Person DDL — 2 tables |
 | 6 | Family DDL — 6 tables + move-transition guard trigger |
-| 7 | Membership DDL — 14 tables + Sakha-only trigger |
+| 7 | Membership DDL — 16 tables + Sakha-only trigger |
 | 7b | Foundation audit FKs (`05_membership/16_foundation_audit_fk.sql`) |
 | 8 | (reserved — demo seeds removed) |
 | 9 | Grant `nss_db_backend` read-only |
 | 10 | Authentication DDL — 5 tables |
 | 11 | Administration DDL — 2 tables |
+| 11b | Governance DDL — 10 tables + ballot-immutability triggers (`08_governance/`) |
+| 11c | Governance seed — body types, positions, 3 NSS-wide bodies |
+| 11d | Correspondence DDL — 4 tables (`09_correspondence/`) |
 | 12 | Grant `nss_db_writer` |
 | 13 | Admin bootstrap (`scripts/bootstrap_admin.py`) |
 | 14 | Audit DDL — `system_event_log` + `fn_audit_trigger()` attached to every table |
+| 15 | (optional, local dev) demo seed via `RUN_DEMO_SEED` — `seed/demo/nss_demo_seed.sql`, gitignored, not in `render_build.sh` |
 
 ### Execution Sequence (all implemented tables)
 
@@ -114,21 +128,23 @@ Depth/Seq# breakdown lives in their own module READMEs rather than being duplica
 - `ddl/04_family/README.md` (6 tables: `family_group`, `family_relationship`,
   `family_head_history`, `family_transition_history`, `family_link`, `family_admin`, plus the
   move-transition guard trigger)
-- `ddl/05_membership/README.md` (14 tables, `sangha_sevi` first, plus the Sakha-only trigger)
+- `ddl/05_membership/README.md` (16 tables, `sangha_sevi` first, plus the Sakha-only trigger)
 - `ddl/06_authentication/README.md` (5 tables) and `ddl/07_administration/README.md` (2 tables) —
   Tier 5
+- `ddl/08_governance/README.md` (10 tables + immutability triggers) — Tier 6
+- `ddl/09_correspondence/README.md` (4 tables, Correspondence Register) — Tier 6
 - `ddl/01_foundation/README.md` also documents
   `festival_master`/`festival_calendar_date`, and Phase 14's
   `system_event_log` (15th Foundation table) and `fn_audit_trigger()`
 
-**Total implemented: 48 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
-1 Organization + 2 Person + 6 Family + 14 Membership + 5 Authentication + 2 Administration
+**Total implemented: 64 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
+1 Organization + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 4 Correspondence
 (verified by counting `CREATE TABLE` across `database/ddl/**`). Of those, 11 are Tier 5 additions
-(see the banner above) and 3 more Foundation tables arrived on the same branch; the v0.10.4
+(see the banner above), 3 more Foundation tables arrived on the same branch, and 16 are Tier 6 (10 Governance + 4 Correspondence + 2 Membership); the v0.10.4
 baseline was 34.
 **Organization type/status moved to Foundation `master_data` — standalone tables retired.**
-**Phase 0 seed complete:** `role_master` (9 roles), `permission_master` (21), `role_permission`
-(113) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
+**Phase 0 seed complete:** `role_master` (10 roles), `permission_master` (25), `role_permission`
+(140) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
 
 See module READMEs for per-file details:
 - `ddl/00_bootstrap/README.md` / `seed/00_bootstrap/README.md`
@@ -164,7 +180,7 @@ database/
 ├── scripts/
 │   ├── 00_create_database.sql    Create DB + 3 roles + dblink (superuser, postgres DB)
 │   ├── 01_extensions.sql         Install extensions + nss schema (superuser, nss_erp DB)
-│   ├── 02_build.sh / .ps1        Full schema build (Phases 0-14)
+│   ├── 02_build.sh / .ps1        Full schema build (Phases 0-14, optional 15)
 │   ├── 03_validate.sh / .ps1     Post-build validation (partial coverage — see below)
 │   ├── 04_grant_backend.sql      Grant nss_db_backend read-only access to nss schema
 │   ├── 05_create_writer_role.sql Grant nss_db_writer SELECT + INSERT/UPDATE (no DELETE) on nss.*
@@ -180,19 +196,22 @@ database/
 │   ├── 03_person/        2 tables (`person`, `person_address`); the superseded
 │   │                     `01_person_master_tables.sql` stub has been deleted
 │   ├── 04_family/        6 tables (incl. `family_admin`) + `07_family_move_transition_guard.sql`
-│   ├── 05_membership/    14 tables (`sangha_sevi` first; incl. `darshak_attendance_registration`,
-│   │                     `credential_sequence_counter`) + `14_sakha_only_membership_trigger.sql`, `16_foundation_audit_fk.sql` (ALTER only)
+│   ├── 05_membership/    16 tables (`sangha_sevi` first; incl. `darshak_attendance_registration`,
+│   │                     `credential_sequence_counter`, `sakha_local_number_counter`, `membership_change_request`) + `14_sakha_only_membership_trigger.sql`, `16_foundation_audit_fk.sql` (ALTER only)
 │   ├── 06_authentication/ 5 tables: user_account, password_history, registration_claim,
 │   │                     password_reset_token, user_session (Tier 5)
-│   └── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
+│   ├── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
+│   └── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql` (Tier 6)
 ├── seed/
-│   ├── 00_bootstrap/     9 roles, 21 permissions, 113 role-permission mappings
+│   ├── 00_bootstrap/     10 roles, 25 permissions, 140 role-permission mappings
 │   ├── 01_foundation/    reference + bulk geography data (files 01-11b; `09_sakha_postal_codes.sql` runs in Phase 4)
 │   ├── 02_organization/  3 unique orgs + 175 real Sakha branches + org-code counter sync
 │   ├── 03_person/        no seed data (README only)
 │   ├── 04_admin/         one admin superuser, via scripts/bootstrap_admin.py (not plain psql)
 │   ├── 04_family/        no seed data (README only)
-│   └── 05_membership/    no seed data (README only)
+│   ├── 05_membership/    no seed data (README only)
+│   ├── 08_governance/    8 body types, 10 positions, 3 NSS-wide bodies (Tier 6)
+│   └── demo/             optional local-only demo seed (gitignored; RUN_DEMO_SEED)
 │                         (no seed folders for 06_authentication/07_administration)
 └── README.md             this file
 ```
@@ -208,18 +227,19 @@ There is no `database/migrations/` or `database/fixes/` folder.
 
 | Module | Tables | DDL Status | Next Action |
 |--------|-------:|-----------|-------------|
-| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (9 roles / 21 permissions / 113 mappings) | — |
+| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (10 roles / 25 permissions / 140 mappings) | — |
 | Foundation | 15 | ✅ IMPLEMENTED (12 original/geography incl. `post_office`, 2 festival tables, + `system_event_log`) | — |
 | Organization | 1 | ✅ IMPLEMENTED (+ 2 triggers) | — |
 | Person | 2 | ✅ IMPLEMENTED | — |
 | Family | 6 | ✅ IMPLEMENTED (`family_admin` Tier 5; + move-transition guard trigger) | — |
-| Membership | 14 | ✅ IMPLEMENTED (`darshak_attendance_registration`, `credential_sequence_counter` Tier 5; + Sakha-only trigger) | — |
-| Authentication | 4 | ⏳ Tier 5, released in v0.11.0 | Not merged/released; freeze DDL before relying on it |
-| Administration | 2 (`user_role`/`admin_scope`; the 3 RBAC definition tables live in Bootstrap) | ⏳ Tier 5, released in v0.11.0 | Not merged/released |
+| Membership | 16 | ✅ IMPLEMENTED (`darshak_attendance_registration`, `credential_sequence_counter` Tier 5; `sakha_local_number_counter`, `membership_change_request` Tier 6; + Sakha-only trigger) | — |
+| Authentication | 5 | ✅ Tier 5, released in v0.11.0 | — |
+| Administration | 2 (`user_role`/`admin_scope`; the 3 RBAC definition tables live in Bootstrap) | ✅ Tier 5, released in v0.11.0 | — |
+| Governance | 10 | 🚧 Tier 6, in progress (uncommitted on `feature/tier6-governance`) | Verify, commit, merge to `develop` |
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their
-DDL files (total 47). Family (6) and Membership (14) exceed the frozen SOL-ARCH-010 inventory
+DDL files (total 60). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
 figures used in earlier planning (3 and 9 respectively) — the implemented slice grew during
 design; this is a known SOL-ARCH-010 inventory drift to reconcile in a future governance pass,
 not a build error. Modules not listed above have frozen table counts but are further down the
@@ -331,12 +351,14 @@ Validates the build. **Does NOT execute any DDL or seed scripts** — run `02_bu
 | Authentication (5 tables) | Existence, `user_account`/`password_history` key columns, unique `person_pk`, FK integrity |
 | Administration (2 tables) | Existence, key columns, FK integrity |
 
-| Family (6), Membership (14, incl. `credential_sequence_counter`), `system_event_log` | Existence only (no seed data, no key-column or FK checks) |
+| Family (6), Membership (16, incl. `credential_sequence_counter`, `sakha_local_number_counter`, `membership_change_request`), `system_event_log` | Existence only (no seed data, no key-column or FK checks) |
+| Governance (10 tables, Module 8) | Existence for all 10, plus 3 key columns and 3 FK-orphan checks in the `.sh` only (the `.ps1` has the table checks but not the key-column/FK checks); no seed minimums |
+| Correspondence (4 tables: `correspondence`, `correspondence_document`, `correspondence_finance_reference`, `correspondence_sequence_counter`) | Existence, 9 key columns, 5 FK-orphan checks, unique `correspondence.reference_number` (no seed). The `correspondence_finance_reference` -> `financial_transaction` FK is deliberately not checked (Finance not built) |
 
 Row-count checks assert `count >= expected` and only WARN when lower; the minimums track the
-current seed (9 roles, 89 master_data, 14 sequences, 5 settings, 178 organizations; `person` 0).
+current seed (`role_master` 10, 89 master_data, 14 sequences, 5 settings, 178 organizations; `person` 0).
 Geography minimums: `state` 112, `district` 780, `postal_code` 17800, `city_village` 673000. The
-`.sh` and `.ps1` versions each have 107 check calls, including `city_village.district_pk` existence and minimum coverage (Simplified Geography Model).
+`.sh` and `.ps1` versions run ~156 check calls in `.sh` vs ~144 in `.ps1` (the gap is the 3 Governance key-column and 3 FK checks missing from the `.ps1`, plus minor differences), including `city_village.district_pk` existence and minimum coverage (Simplified Geography Model).
 
 **Extend this script when new modules are added to `02_build.sh`.**
 

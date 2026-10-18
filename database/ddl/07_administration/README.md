@@ -25,7 +25,7 @@ SQL files' own `-- Depth:` headers say 3 (`user_role`) and 4 (`admin_scope`) —
 
 ## What These Tables Are For
 
-- **`user_role`** — junction table assigning one of the 9 frozen `role_master` roles to a
+- **`user_role`** — junction table assigning one of the 10 frozen `role_master` roles to a
   `user_account`. Multi-role per user is supported (a user can hold several rows), and a user
   can even hold the **same** role twice with different scopes (e.g. `NSS_ERP_SAKHA_ADMIN` for
   two different Sakhas) — duplicate-scope prevention (same role + same scope_level + same org)
@@ -34,8 +34,8 @@ SQL files' own `-- Depth:` headers say 3 (`user_role`) and 4 (`admin_scope`) —
   separate `role_history` table (frozen decision).
 - **`admin_scope`** — the organizational scope attached to *one specific* `user_role` assignment
   (`UNIQUE (user_role_pk)` — exactly one scope row per role assignment, not per user globally).
-  `scope_level` is one of `NSS-WIDE`/`KENDRA`/`ANCHALIKA`/`ZILLA`/`SAKHA`/`PATHA_CHAKRA`/`KENDRA_MAHILA_SANGHA` (same 7 values as `role_master.scope_level`);
-  `organization_pk` must be `NULL` for `NSS-WIDE` and non-`NULL` for every other level (enforced
+  `scope_level` is one of `NSS-WIDE`/`KENDRA`/`ANCHALIKA`/`ZILLA`/`SAKHA`/`PATHA_CHAKRA`/`KENDRA_MAHILA_SANGHA`/`ADVISORY_BOARD` (same 8 values as `role_master.scope_level`; `ADVISORY_BOARD` added in `02_admin_scope.sql` v1.1);
+  `organization_pk` must be `NULL` for `NSS-WIDE`, `KENDRA`, `KENDRA_MAHILA_SANGHA` and `ADVISORY_BOARD` and non-`NULL` for every other level (enforced
   by a CHECK constraint, not just convention). This is what `UserContext.has_scope_for_org()`/
   `is_nss_wide()` (`api/services/rbac_service.py`) reads to decide whether a given admin action
   is allowed against a given organization.
@@ -54,8 +54,8 @@ Pass 2.
 - **No `UNIQUE (user_account_pk, role_master_pk)` on `user_role`** — deliberate: a user can have
   the same role with different scopes (see above). Don't add one without also revisiting the
   API-layer duplicate check.
-- **`chk_admin_scope_org_consistency`** — `CHECK ((scope_level = 'NSS-WIDE' AND organization_pk
-  IS NULL) OR (scope_level != 'NSS-WIDE' AND organization_pk IS NOT NULL))` — the DB-level
+- **`chk_admin_scope_org_consistency`** — `CHECK ((scope_level IN ('NSS-WIDE','KENDRA','KENDRA_MAHILA_SANGHA','ADVISORY_BOARD') AND
+  organization_pk IS NULL) OR (scope_level NOT IN (...same four...) AND organization_pk IS NOT NULL))` — the DB-level
   guarantee behind `UserContext.is_nss_wide()`.
 - **`chk_user_role_revocation`** — ties `revoked_at` to `is_active`: an active assignment must
   have `revoked_at IS NULL`; a revoked one must have `is_active = FALSE` (but `revoked_at` isn't

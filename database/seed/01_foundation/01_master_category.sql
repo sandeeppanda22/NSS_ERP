@@ -2,6 +2,13 @@
 -- NSS ERP
 -- Module: Foundation
 -- Seed File: 01_master_category.sql
+-- Version: 1.3 — add CORRESPONDENCE_MEDIUM / CORRESPONDENCE_STATUS (Tier 6,
+--          2026-10-17): correspondence.medium_master_data_pk / status_master_data_pk
+--          reference these categories (01_correspondence.sql); their value
+--          lists were already ERP-FROZEN in
+--          docs/03_Solution/modules/administration/08_correspondence_register_business_rules.md
+--          §6.1 and §10.1 but had not yet been seeded — filling a seed gap,
+--          not a new business-rule decision. 16 categories total.
 -- Version: 1.2 — ON CONFLICT DO NOTHING, not DO UPDATE (2026-10-05): a
 --          re-run must never overwrite a category row an admin has edited.
 --          Insert-if-missing only.
@@ -94,5 +101,23 @@ VALUES
     'Blood Group',
     'Blood group classification for persons',
     13
+),
+(
+    'CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE',
+    'Correspondence-Finance Relationship Type',
+    'How a correspondence record relates to a referenced financial transaction (SOL-ADMIN-009 §6.5, owner-confirmed 2026-10-17)',
+    14
+),
+(
+    'CORRESPONDENCE_MEDIUM',
+    'Correspondence Medium',
+    'Channel through which a correspondence was transmitted (SOL-ADMIN-009 §4, business rules §10.1)',
+    15
+),
+(
+    'CORRESPONDENCE_STATUS',
+    'Correspondence Status',
+    'Lifecycle state of a correspondence register entry (SOL-ADMIN-009 §4, business rules §6.1)',
+    16
 )
 ON CONFLICT (category_code) DO NOTHING;

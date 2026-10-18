@@ -48,6 +48,39 @@
 # creates the genuinely new ones (e.g. user_session) — with zero
 # risk to existing rows.
 #
+# CAVEAT — existence-gating is per-TABLE, not per-ROW or per-CONSTRAINT.
+# A routine redeploy only ever adds genuinely NEW tables. If a table
+# already exists, its DDL AND its seed are skipped wholesale — this
+# build has no "content changed, re-apply it" detection. Concretely,
+# for the 2026-10-09 §63 composite auto-grant rule changes:
+#   - database/seed/00_bootstrap/02_role_master.sql (v1.3, +1 row:
+#     NSS_ERP_ADVISORY_BOARD_ADMIN) will NOT be inserted on any
+#     environment where role_master already exists.
+#   - database/seed/08_governance/01_body_type_master.sql (v1.1, +3
+#     rows: ANCHALIKA_GOVERNING_BODY, ZILLA_GOVERNING_BODY,
+#     PATHA_CHAKRA_GOVERNING_BODY) will NOT be inserted on any
+#     environment where body_type_master already exists.
+#   - database/ddl/07_administration/02_admin_scope.sql (v1.1, widened
+#     chk_admin_scope_org_consistency CHECK to also exempt KENDRA /
+#     KENDRA_MAHILA_SANGHA) will NOT be applied on any environment
+#     where admin_scope already exists — the table keeps its OLD
+#     constraint indefinitely.
+# and for the 2026-10-09 nomination-vs-election mode change:
+#   - database/ddl/08_governance/06_election.sql (added the
+#     election_type column plus chk_election_type and
+#     chk_election_nomination_mode_no_voting) will NOT be applied on
+#     any environment where election already exists. Because the API
+#     now SELECTs and INSERTs election_type, an environment that skips
+#     this DDL will fail on every election read/write with
+#     'column "election_type" does not exist' — this one is not a
+#     silent no-op, it breaks the governance module outright.
+# This is "expected" per this project's no-migrations, hard-rebuild
+# methodology, but it means a routine Render redeploy will silently
+# NOT pick up any of the changes above. Only a full hard rebuild
+# (DROP SCHEMA nss CASCADE, then rebuild from scratch) does. See
+# docs/03_Solution/architecture/GETTING_STARTED.md §7a-2 "Incremental
+# Rebuild is NOT enough".
+#
 # Non-table objects (schema, extensions, triggers, functions,
 # deferred FK wiring, GRANTs, role creation) stay on run_sql():
 # they are independently idempotent (CREATE OR REPLACE, DROP
@@ -270,7 +303,7 @@ run_ddl "family_admin"              "family_admin"              "${DDL_BASE}/04_
 run_sql "family_move_transition_guard" "${DDL_BASE}/04_family/07_family_move_transition_guard.sql"
 
 echo ""
-echo "--- Phase 7: Membership — DDL (14 tables + Sakha-only trigger) ---"
+echo "--- Phase 7: Membership — DDL (16 tables + Sakha-only trigger) ---"
 run_ddl "sangha_sevi"                    "sangha_sevi"                    "${DDL_BASE}/05_membership/01_sangha_sevi.sql"
 run_ddl "membership_status_history"      "membership_status_history"      "${DDL_BASE}/05_membership/02_membership_status_history.sql"
 run_ddl "membership_renewal_request"     "membership_renewal_request"     "${DDL_BASE}/05_membership/03_membership_renewal_request.sql"
@@ -286,6 +319,8 @@ run_ddl "anumati_patra_history"          "anumati_patra_history"          "${DDL
 run_ddl "darshak_attendance_registration" "darshak_attendance_registration" "${DDL_BASE}/05_membership/13_darshak_attendance_registration.sql"
 run_sql "sakha_only_membership_trigger"  "${DDL_BASE}/05_membership/14_sakha_only_membership_trigger.sql"
 run_ddl "credential_sequence_counter"    "credential_sequence_counter"    "${DDL_BASE}/05_membership/15_credential_sequence_counter.sql"
+run_ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "${DDL_BASE}/05_membership/17_sakha_local_number_counter.sql"
+run_ddl "membership_change_request"      "membership_change_request"      "${DDL_BASE}/05_membership/18_membership_change_request.sql"
 
 echo ""
 echo "--- Phase 7b: Deferred Foundation Audit FKs ---"
@@ -339,6 +374,40 @@ echo ""
 echo "--- Phase 11: Administration — DDL (2 tables) ---"
 run_ddl "user_role"    "user_role"   "${DDL_BASE}/07_administration/01_user_role.sql"
 run_ddl "admin_scope"  "admin_scope" "${DDL_BASE}/07_administration/02_admin_scope.sql"
+
+echo ""
+# NOTE: body_type_master/role_master seed content and admin_scope's CHECK
+# constraint changed on 2026-10-09 (§63 composite auto-grant rule), and the
+# election table gained election_type the same day (nomination-vs-election
+# mode, GOV-BR-042). Per the existence-gating caveat above, those changes
+# only take effect on a fresh table — a redeploy against an existing
+# database will skip them, and skipping election_type will break every
+# governance election endpoint.
+echo "--- Phase 11b: Governance — DDL (10 tables + ballot immutability) ---"
+run_ddl "body_type_master"           "body_type_master"           "${DDL_BASE}/08_governance/01_body_type_master.sql"
+run_ddl "position_master"            "position_master"            "${DDL_BASE}/08_governance/02_position_master.sql"
+run_ddl "body_master"                "body_master"                "${DDL_BASE}/08_governance/03_body_master.sql"
+run_ddl "body_member_assignment"     "body_member_assignment"     "${DDL_BASE}/08_governance/04_body_member_assignment.sql"
+run_ddl "acting_position_assignment" "acting_position_assignment" "${DDL_BASE}/08_governance/05_acting_position_assignment.sql"
+run_ddl "election"                   "election"                   "${DDL_BASE}/08_governance/06_election.sql"
+run_ddl "election_nomination"        "election_nomination"        "${DDL_BASE}/08_governance/07_election_nomination.sql"
+run_ddl "election_vote"              "election_vote"              "${DDL_BASE}/08_governance/08_election_vote.sql"
+run_ddl "election_result"            "election_result"            "${DDL_BASE}/08_governance/09_election_result.sql"
+run_ddl "election_vote_participation" "election_vote_participation" "${DDL_BASE}/08_governance/10_election_vote_participation.sql"
+run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_immutability.sql"
+
+echo ""
+echo "--- Phase 11c: Governance — Seed Data ---"
+run_seed "body_type_master (seed)" "body_type_master" "${SEED_BASE}/08_governance/01_body_type_master.sql"
+run_seed "position_master (seed)"  "position_master"  "${SEED_BASE}/08_governance/02_position_master.sql"
+run_seed "body_master (seed)"      "body_master"       "${SEED_BASE}/08_governance/03_body_master.sql"
+
+echo ""
+echo "--- Phase 11d: Correspondence — DDL (4 tables, Tier 6: correspondence, correspondence_document, correspondence_finance_reference, correspondence_sequence_counter) ---"
+run_ddl "correspondence"                   "correspondence"                   "${DDL_BASE}/09_correspondence/01_correspondence.sql"
+run_ddl "correspondence_document"          "correspondence_document"          "${DDL_BASE}/09_correspondence/02_correspondence_document.sql"
+run_ddl "correspondence_finance_reference" "correspondence_finance_reference" "${DDL_BASE}/09_correspondence/03_correspondence_finance_reference.sql"
+run_ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "${DDL_BASE}/09_correspondence/04_correspondence_sequence_counter.sql"
 
 echo ""
 echo "--- Phase 12: Grant nss_db_writer write access ---"

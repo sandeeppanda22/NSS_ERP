@@ -33,16 +33,17 @@ frozen in `docs/03_Solution/modules/administration/06_bootstrap_rbac_table_desig
 ## Design Notes
 
 - **`role_master.scope_level`** CHECK constraint allows `NSS-WIDE`/`KENDRA`/`ANCHALIKA`/
-  `ZILLA`/`SAKHA`/`PATHA_CHAKRA`/`KENDRA_MAHILA_SANGHA` (or NULL) — 7 values, matching the
-  9-role frozen catalogue in SOL-ADMIN-004 §8.7 (6 organizational roles, one per scope level,
-  plus 3 system roles, all three explicitly scoped `NSS-WIDE` rather than left NULL).
-  `admin_scope.scope_level` (Administration) uses the same 7-value list.
+  `ZILLA`/`SAKHA`/`PATHA_CHAKRA`/`KENDRA_MAHILA_SANGHA`/`ADVISORY_BOARD` (or NULL) — 8 values
+  (`ADVISORY_BOARD` added in Tier 6), matching the 10-role catalogue in SOL-ADMIN-004 §8.7
+  (7 organizational roles, one per non-`NSS-WIDE` scope level, plus 3 system roles, all three
+  explicitly scoped `NSS-WIDE` rather than left NULL).
+  `admin_scope.scope_level` (Administration) uses the same 8-value list.
 - **`role_permission`** has a reduced audit-column set (no `updated_at`/
   `updated_by_sangha_sevi_pk`) since mappings are never updated in place, only
   soft-deleted and recreated.
 
 ## Status
 
-DDL is complete for all 3 tables, and all three are seeded (9 roles, 21 permissions, 113
+DDL is complete for all 3 tables, and all three are seeded (10 roles, 25 permissions, 140
 role-permission mappings) — see `database/seed/00_bootstrap/README.md`. Build phase: Phase 0 of
 `database/scripts/02_build.sh`/`.ps1`.

@@ -31,3 +31,7 @@ Thumbs.db
 
 # Node / Tailwind CSS build tooling
 node_modules/
+
+# Demo / test seed — throwaway test data, never committed, never on Render.
+# Run locally only via RUN_DEMO_SEED=true ./database/scripts/02_build.sh
+database/seed/demo/

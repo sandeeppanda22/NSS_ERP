@@ -108,7 +108,7 @@ Check-TableExists "permission_master"
 Check-TableExists "role_permission"
 
 Write-Host "  Row counts:"
-Check-RowCount "role_master" 9
+Check-RowCount "role_master" 10
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "role_master" "role_code"
@@ -289,7 +289,57 @@ Check-TableExists "anumati_patra"
 Check-TableExists "anumati_patra_history"
 Check-TableExists "darshak_attendance_registration"
 Check-TableExists "credential_sequence_counter"
+Check-TableExists "sakha_local_number_counter"
+Check-TableExists "membership_change_request"
 Check-TableExists "system_event_log"
+Write-Host ""
+
+# Governance (10 tables - existence only, no seed)
+Write-Host "--- Governance ---" -ForegroundColor Cyan
+Check-TableExists "body_type_master"
+Check-TableExists "position_master"
+Check-TableExists "body_master"
+Check-TableExists "body_member_assignment"
+Check-TableExists "acting_position_assignment"
+Check-TableExists "election"
+Check-TableExists "election_nomination"
+Check-TableExists "election_vote"
+Check-TableExists "election_vote_participation"
+Check-TableExists "election_result"
+Write-Host ""
+
+# Correspondence (4 tables, Tier 6 - existence only, no seed)
+# Administration-owned capability; moved from Tier 5 to Tier 6
+# (owner-confirmed 2026-10-16). financial_transaction FK on
+# correspondence_finance_reference is deferred to Pass 2 (Finance/
+# Tier 12 not yet built) - not checked here.
+Write-Host "--- Correspondence ---" -ForegroundColor Cyan
+Write-Host "  Tables (existence only - no seed data):"
+Check-TableExists "correspondence"
+Check-TableExists "correspondence_document"
+Check-TableExists "correspondence_finance_reference"
+Check-TableExists "correspondence_sequence_counter"
+
+Write-Host "  Key columns:"
+Check-ColumnExists "correspondence" "reference_number"
+Check-ColumnExists "correspondence" "register_organization_pk"
+Check-ColumnExists "correspondence" "sender_person_capacity"
+Check-ColumnExists "correspondence_document" "correspondence_pk"
+Check-ColumnExists "correspondence_finance_reference" "relationship_type_master_data_pk"
+Check-ColumnExists "correspondence_sequence_counter" "register_organization_pk"
+Check-ColumnExists "correspondence_sequence_counter" "direction"
+Check-ColumnExists "correspondence_sequence_counter" "financial_year_start"
+Check-ColumnExists "correspondence_sequence_counter" "current_value"
+
+Write-Host "  FK integrity (no orphans - vacuously true until seeded):"
+Check-FkIntegrity "correspondence -> organization (register owner)" "SELECT COUNT(*) FROM nss.correspondence c LEFT JOIN nss.organization o ON c.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+Check-FkIntegrity "correspondence_document -> correspondence" "SELECT COUNT(*) FROM nss.correspondence_document cd LEFT JOIN nss.correspondence c ON cd.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
+Check-FkIntegrity "correspondence_finance_reference -> correspondence" "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.correspondence c ON cfr.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
+Check-FkIntegrity "correspondence_finance_reference -> master_data (relationship_type)" "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.master_data md ON cfr.relationship_type_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
+Check-FkIntegrity "correspondence_sequence_counter -> organization" "SELECT COUNT(*) FROM nss.correspondence_sequence_counter csc LEFT JOIN nss.organization o ON csc.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+
+Write-Host "  Unique constraints:"
+Check-NoDuplicates "correspondence" "reference_number"
 Write-Host ""
 
 # Summary
