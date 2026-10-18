@@ -126,6 +126,188 @@ def _rate_limit_warning(base_url):
         time.sleep(61)
 
 
+# ── Test-data cleanup ───────────────────────────────────────────────────
+#
+# UI tests drive a real running uvicorn server over HTTP (see module
+# docstring) — unlike tests/api|db|security, their writes are NOT wrapped
+# in a SAVEPOINT (tests/conftest.py's rollback mechanism only applies
+# inside the pytest process's own TestClient calls). Every person/
+# user_account/sangha_sevi/claim a UI test creates by clicking through
+# the real form is a real, permanent commit.
+#
+# Only two files create that kind of data: test_ui_06_register_submit.py
+# (person + user_account + registration_claim via a real /register
+# submission) and test_ui_07_admin_write.py (approves that claim, which
+# additionally creates sangha_sevi + membership_sakha_affiliation +
+# anumati_patra/parichaya_patra). Both tag every person they create with
+# a `@example.com` email (see _unique_suffix() in those files) — that is
+# the one marker this fixture relies on to find rows safely, without
+# touching anything a real member created.
+#
+# Cleanup runs once, at the end of the whole UI session (not per-test),
+# so test_ui_07's dependency on claims from test_ui_06 still sees that
+# data for the full run. It is a hard DELETE, not a soft-delete/archive —
+# deliberately, since this is throwaway test fixture data, not real
+# membership history (the "History Never Deleted" principle governs
+# production domain data, not test scaffolding).
+
+UI_TEST_EMAIL_PATTERN = "%@example.com"
+
+# Tables with a sangha_sevi_pk FK that the register→approve flow can
+# populate (per api/routers/claim_approval.py::approve_claim()). Deleted
+# before sangha_sevi itself, since every FK in this schema is plain
+# NO ACTION (no ON DELETE CASCADE anywhere — see database/ddl/).
+_SANGHA_SEVI_DEPENDENT_TABLES = (
+    "anumati_patra",
+    "parichaya_patra",
+    "membership_sakha_affiliation",
+)
+
+# Tables with a user_account_pk FK, deleted before user_account itself.
+_USER_ACCOUNT_DEPENDENT_TABLES = (
+    "user_role",
+    "user_session",
+    "password_history",
+    "password_reset_token",
+)
+
+
+@pytest.fixture(scope="session")
+def _ui_cleanup_conn():
+    """
+    Direct psycopg2 connection (nss_db_writer) used only to delete
+    throwaway UI-test rows after the session — separate from whatever
+    connection the live uvicorn server under test is using.
+    """
+    import psycopg2
+    from api.config import settings
+
+    settings.validate()
+    settings.validate_auth()
+    conn = psycopg2.connect(
+        dbname=settings.DB_NAME,
+        user=settings.DB_WRITE_USER,
+        password=settings.DB_WRITE_PASSWORD,
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+    )
+    conn.autocommit = True
+    yield conn
+    conn.close()
+
+
+def _purge_ui_test_rows(conn) -> int:
+    """
+    Hard-delete every person (and its dependent rows) tagged with the
+    `@example.com` marker, in FK order (no ON DELETE CASCADE anywhere).
+
+    Returns the number of marked person rows found (0 if the DB was
+    already clean). Raises on SQL failure — the caller decides whether a
+    failure is fatal (pre-session) or a warning (post-session).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT person_pk FROM nss.person WHERE email ILIKE %s",
+            (UI_TEST_EMAIL_PATTERN,),
+        )
+        person_pks = [row[0] for row in cur.fetchall()]
+        if not person_pks:
+            return 0
+
+        cur.execute(
+            "SELECT sangha_sevi_pk FROM nss.sangha_sevi "
+            "WHERE person_pk = ANY(%s)",
+            (person_pks,),
+        )
+        sevi_pks = [row[0] for row in cur.fetchall()]
+
+        cur.execute(
+            "SELECT user_account_pk FROM nss.user_account "
+            "WHERE person_pk = ANY(%s)",
+            (person_pks,),
+        )
+        account_pks = [row[0] for row in cur.fetchall()]
+
+        if sevi_pks:
+            for table in _SANGHA_SEVI_DEPENDENT_TABLES:
+                cur.execute(
+                    f"DELETE FROM nss.{table} WHERE sangha_sevi_pk = ANY(%s)",
+                    (sevi_pks,),
+                )
+            cur.execute(
+                "DELETE FROM nss.sangha_sevi WHERE sangha_sevi_pk = ANY(%s)",
+                (sevi_pks,),
+            )
+
+        cur.execute(
+            "DELETE FROM nss.registration_claim "
+            "WHERE person_pk = ANY(%s) OR user_account_pk = ANY(%s)",
+            (person_pks, account_pks),
+        )
+
+        if account_pks:
+            for table in _USER_ACCOUNT_DEPENDENT_TABLES:
+                cur.execute(
+                    f"DELETE FROM nss.{table} WHERE user_account_pk = ANY(%s)",
+                    (account_pks,),
+                )
+            cur.execute(
+                "DELETE FROM nss.user_account WHERE user_account_pk = ANY(%s)",
+                (account_pks,),
+            )
+
+        cur.execute(
+            "DELETE FROM nss.person_address WHERE person_pk = ANY(%s)",
+            (person_pks,),
+        )
+        cur.execute(
+            "DELETE FROM nss.person WHERE person_pk = ANY(%s)",
+            (person_pks,),
+        )
+    return len(person_pks)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_ui_test_data(_ui_cleanup_conn):
+    """
+    Guarantee the UI suite neither inherits nor leaves `@example.com`
+    throwaway rows — even when the previous run died abnormally.
+
+    Runs the purge TWICE:
+      * Before the session (pre-yield): clears anything a prior run left
+        behind after a crash / Ctrl-C / `kill` — the case the post-yield
+        delete alone can never cover, because an interrupted process never
+        reaches its teardown. A pre-session failure is fatal (raised): a
+        dirty DB would make the register/claim tests collide on unique
+        contacts and fail for a misleading reason.
+      * After the session (post-yield): the normal happy-path cleanup. A
+        post-session failure only warns — the tests already passed, and the
+        next run's pre-yield pass will clear whatever remains.
+    """
+    leftover = _purge_ui_test_rows(_ui_cleanup_conn)
+    if leftover:
+        warnings.warn(
+            UserWarning(
+                f"Pre-session cleanup removed {leftover} leftover "
+                f"'{UI_TEST_EMAIL_PATTERN}' person row(s) from a previous "
+                "UI run that did not exit cleanly."
+            )
+        )
+
+    yield
+
+    try:
+        _purge_ui_test_rows(_ui_cleanup_conn)
+    except Exception as exc:
+        warnings.warn(
+            UserWarning(
+                f"UI test-data cleanup failed ({exc}) — rows tagged "
+                f"'{UI_TEST_EMAIL_PATTERN}' may remain in the DB; the next "
+                "run's pre-session pass will clear them."
+            )
+        )
+
+
 @pytest.fixture
 def page(context: BrowserContext, base_url: str) -> Page:
     """

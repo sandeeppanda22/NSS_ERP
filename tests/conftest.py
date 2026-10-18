@@ -29,7 +29,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app, limiter
-from api.database import get_connection, get_write_connection, get_write_pool
+from api.database import get_connection, get_write_pool
+from api.dependencies.auth import get_write_connection
 
 
 # ── Session-scoped connection ──────────────────────────────────────────

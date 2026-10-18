@@ -12,10 +12,12 @@ tests/
 │
 ├── api/                 # API integration tests (FastAPI TestClient, no browser)
 │   ├── test_admin.py         # Tier 5 — admin CRUD, roles, orgs (78 tests)
+│   ├── test_admin_credentials.py # Tier 6 — member credential list/timeline/issue/promote (16 tests)
 │   ├── test_audit.py         # Tier 5 — field-change-log viewer (4 tests)
 │   ├── test_auth.py          # Tier 5 — login, refresh, logout, change-password, sessions (23 tests)
 │   ├── test_bootstrap.py     # Tier 0 — health, roles, permissions (9 tests)
 │   ├── test_claim_approval.py # Tier 5 — claim detail/edit/scope enforcement (13 tests)
+│   ├── test_correspondence.py # Tier 6 — Correspondence Register API: register/list/detail/documents/finance refs, org scope (26 tests)
 │   ├── test_error_messages.py # Human-readable validation/integrity-error messages (15 tests)
 │   ├── test_family.py        # Tier 4 — family list, detail, members (52 tests)
 │   ├── test_family_ownership.py # Tier 5 — role-less-JWT ownership path: graph, add/remove
@@ -23,6 +25,8 @@ tests/
 │   ├── test_forgot_password.py  # Tier 5 — forgot/reset password (6 tests)
 │   ├── test_foundation.py    # Tier 1 — master data, config, geographic, propose endpoints (52 tests)
 │   ├── test_geo_approval.py  # Tier 5 — member-proposed geography review queue: list/detail/approve/correct, scope (15 tests)
+│   ├── test_governance.py    # Tier 6 — bodies, assignments, elections, votes, results, Sakha scoping (65 tests)
+│   ├── test_membership_change_request.py # Tier 6 — Sakha Transfer / Apply for Darshak workflow (28 tests)
 │   ├── test_membership.py    # Tier 4 — membership list, search, affiliations (94 tests)
 │   ├── test_organization.py  # Tier 2 — org types, hierarchy, children, children-stats, stats (67 tests)
 │   ├── test_person.py        # Tier 3 — person list, detail, search (55 tests)
@@ -31,6 +35,7 @@ tests/
 │   └── test_sorting.py       # Shared column-sort-whitelist helper (14 tests)
 │
 ├── db/                  # Database integrity tests (direct SQL via write_conn)
+│   ├── test_correspondence_schema.py # Tier 6 — Correspondence Register table invariants (14 tests)
 │   ├── test_credential_schema.py # Credential-table schema invariants — document_number
 │   │                          #   uniqueness, one-active-per-member, validity CHECK,
 │   │                          #   credential_sequence_counter uniqueness (6 tests)
@@ -42,7 +47,10 @@ tests/
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17 tests)
 │   ├── test_audit_security.py         # Audit endpoint auth/RBAC gating (4 tests)
 │   ├── test_auth_security.py          # Auth endpoint auth gating (4 tests)
+│   ├── test_correspondence_security.py # Correspondence endpoint auth/RBAC/org-scope gating (24 tests)
 │   ├── test_forgot_password_security.py # Forgot-password rate-limit/anti-enumeration (6 tests)
+│   ├── test_governance_security.py    # Governance endpoint auth/RBAC/org-scope gating (13 tests)
+│   ├── test_membership_change_request_security.py # Membership-change-request gating (11 tests)
 │   ├── test_organization_stats_security.py # /organizations/{pk}/stats scope enforcement, ADMIN-BR-076 (4 tests)
 │   ├── test_registration_security.py  # Registration endpoint gating (3 tests)
 │   └── test_security_headers.py       # Headers, CSP, rate limiting, CORS, DEBUG_MODE (24 tests)
@@ -83,9 +91,10 @@ tests/
     └── test_ui_org_dashboard.py     # Org Dashboard tab (org-dashboard.js), six layouts (21 tests)
 ```
 
-**Current grand total: 921 tests** (AST-counted `test_*` functions, re-verified) — `tests/api/`
-(567, across 17 files), `tests/db/` (43, across 3 files), `tests/security/` (62, across 7 files),
-`tests/ui/` (249, across 23 test files — `conftest.py` and `_csp_probe.py` hold no tests).
+**Current grand total: 1118 tests** (AST-counted `test_*` functions, re-verified) — `tests/api/`
+(702, across 21 files), `tests/db/` (57, across 4 files), `tests/security/` (110, across 10 files),
+`tests/ui/` (249, across 23 test files — `conftest.py` and `_csp_probe.py` hold no tests). There is
+no Playwright test for the governance or correspondence UI (neither page exists yet).
 
 **AST count vs. what pytest actually collects** (`pytest --collect-only -q`, verified): the
 per-file "(N tests)" figures in this README are counts of `def test_*` functions, which differs
@@ -94,8 +103,7 @@ from pytest's collected-item count in two ways. (1) Fixtures named `test_*` (e.g
 `tests/api/test_registration.py`) are over-counted by an AST scan. (2) `@pytest.mark.parametrize`
 expands one function into many items — used in `test_admin.py`, `test_membership.py`,
 `test_person.py`, `test_sorting.py`, `test_error_messages.py`, `test_credential_schema.py`,
-`test_festival_schema.py` and several UI files. Collected-item totals: `tests/api/` 675,
-`tests/db/` 56, `tests/security/` 61, `tests/ui/` 300 — **1092 items** for a bare `pytest`.
+`test_festival_schema.py` and several UI files. Collected-item totals (`pytest --collect-only -q`, re-run 2026-10-18; collection only, tests themselves not executed): `tests/api/` 810, `tests/db/` 98, `tests/security/` 109, `tests/ui/` 300 — **1317 items** for a bare `pytest`.
 `pytest.ini` declares `integration`/`ui`/`db` markers only — `tests/security/` files use
 `pytest.mark.integration`, same as `tests/api/`, so there's no separate `security` marker.
 
@@ -103,8 +111,8 @@ expands one function into many items — used in `test_admin.py`, `test_membersh
 
 The root `conftest.py` holds a **single session-scoped write-pool connection** (`_db_conn`,
 via `api/database.py::get_write_pool()`) for the entire pytest run, wraps each test *module*
-in a PostgreSQL `SAVEPOINT` (`_module_savepoint`, autouse), and overrides both `get_connection`
-and `get_write_connection` FastAPI dependencies to yield that same connection. At the end of
+in a PostgreSQL `SAVEPOINT` (`_module_savepoint`, autouse), and overrides both `get_connection` (from `api.database`)
+and `get_write_connection` (from `api.dependencies.auth`, the auditing one every router uses) FastAPI dependencies to yield that same connection. At the end of
 each module, `ROLLBACK TO SAVEPOINT` undoes every INSERT/UPDATE/DELETE the module's tests
 made. `_reset_rate_limiter` (autouse, function-scoped) resets `api.main.limiter`'s in-memory
 storage before every test.
@@ -203,8 +211,18 @@ pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok
   EXISTS` guards), so if the account's local password ever drifts, rebuild the DB
   (the seed is designed for from-scratch rebuilds, not in-place resets).
 - **Note:** UI tests run against the live database — they are NOT wrapped in
-  SAVEPOINT rollback. Tests that create data should clean up after themselves
-  or use test-specific identifiers.
+  SAVEPOINT rollback; every write a test drives through the real UI is a real,
+  permanent commit. `tests/ui/conftest.py::_cleanup_ui_test_data` (session-scoped,
+  autouse) hard-deletes the rows this leaves behind once the whole UI session
+  finishes, by finding every `nss.person` row with an `@example.com` email (the
+  marker `test_ui_06_register_submit.py`/`test_ui_07_admin_write.py` tag every
+  test person with) and walking its dependents down to `person` itself, in FK
+  order (no table in this schema has `ON DELETE CASCADE`). Any **new** UI test
+  that writes through a different table chain (e.g. a future Darshak-attendance
+  or governance UI test) must extend `_SANGHA_SEVI_DEPENDENT_TABLES` /
+  `_USER_ACCOUNT_DEPENDENT_TABLES` there, or use the same `@example.com` marker
+  on data it alone is responsible for cleaning up — the fixture only knows about
+  the tables the current register→approve flow populates.
 
 ## Related docs
 
