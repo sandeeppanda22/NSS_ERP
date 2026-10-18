@@ -24,8 +24,17 @@ from fastapi import HTTPException, status
 
 @dataclass
 class ScopeInfo:
-    """A single scope assignment (from admin_scope)."""
-    user_role_pk: UUID
+    """
+    A single scope assignment.
+
+    Normally sourced from admin_scope (user_role_pk set). §63 composite
+    auto-grant scopes (see _load_composite_grants) are synthetic — derived
+    live from a governance position, not from any user_role row — and carry
+    user_role_pk = None. Every scope consumer in this module only reads
+    role_code / scope_level / organization_pk, so synthetic entries behave
+    identically to real ones.
+    """
+    user_role_pk: UUID | None
     role_code: str
     scope_level: str           # NSS-WIDE, KENDRA, ANCHALIKA, ZILLA, SAKHA,
                                # PATHA_CHAKRA, KENDRA_MAHILA_SANGHA
@@ -187,6 +196,20 @@ def load_user_context(conn, user_account_pk: UUID) -> UserContext | None:
                     organization_pk=org_pk,
                 ))
 
+        # 4. §63 composite auto-grant — governance positions that carry
+        #    automatic RBAC authority (Tier 6 governance, owner-confirmed
+        #    2026-10-09). Deliberately overrides GOV-BR-014's general rule
+        #    ("a position is not an RBAC role") for exactly these bodies.
+        composite_scopes, composite_permissions = load_composite_grants(cur, person_pk)
+        existing_tuples = {(s.role_code, str(s.organization_pk) if s.organization_pk else None)
+                            for s in scopes}
+        for cs in composite_scopes:
+            key = (cs.role_code, str(cs.organization_pk) if cs.organization_pk else None)
+            if key not in existing_tuples:
+                scopes.append(cs)
+                existing_tuples.add(key)
+        permissions |= composite_permissions
+
     return UserContext(
         user_account_pk=ua_pk,
         person_pk=person_pk,
@@ -196,6 +219,167 @@ def load_user_context(conn, user_account_pk: UUID) -> UserContext | None:
         scopes=scopes,
         force_password_change=force_pw,
     )
+
+
+# ── §63 composite auto-grant (Tier 6 governance) ─────────────────────────
+# Certain governance body positions carry automatic RBAC authority — this is
+# the deferred §63 composite rule: "every admin role will get auto assigned
+# to its concerned body's President, Secretary — except Kendra GB, where all
+# members get the access." Owner-confirmed 2026-10-09. This deliberately
+# narrows/overrides GOV-BR-014 ("a position is NOT an RBAC role") for exactly
+# the nine body/role pairs below; it is a live, computed view (Option A) —
+# no stored rows, nothing to keep in sync, re-derived on every login/request.
+#
+# requires_org_null:
+#   TRUE  -> rule applies only when body_master.organization_pk IS NULL
+#   FALSE -> rule applies only when body_master.organization_pk IS NOT NULL
+#   NULL  -> rule applies regardless (the body type only ever appears one way)
+#
+# position_codes: NULL means "any/all current holders" (Kendra GB's "all
+# members" branch); otherwise an array of position_master.position_code
+# values that trigger the grant.
+#
+# org_source: 'NULL' -> synthetic scope's organization_pk is NULL (NSS-wide
+# footprint, e.g. Advisory Board, Kendra GB, central Mahila Parichalana
+# Mandali); 'BODY_ORG' -> synthetic scope's organization_pk is the body's
+# own organization_pk (Sakha/Anchalika/Zilla/Patha Chakra and per-Sakha
+# Mahila Parichalana Mandali / Sevak Sangha Executive).
+_COMPOSITE_GRANT_RULES_SQL = """
+    (body_type_code, requires_org_null, position_codes, role_code, org_source) AS (
+        VALUES
+            ('KENDRA_GOVERNING_BODY',      NULL,  NULL::text[],
+                'NSS_ERP_KENDRA_ADMIN',               'NULL'),
+            ('ADVISORY_BOARD',              NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_ADVISORY_BOARD_ADMIN',       'NULL'),
+            ('MAHILA_PARICHALANA_MANDALI',  TRUE,  ARRAY['PRESIDENT','JOINT_SECRETARY'],
+                'NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'NULL'),
+            ('MAHILA_PARICHALANA_MANDALI',  FALSE, ARRAY['PRESIDENT','JOINT_SECRETARY'],
+                'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
+            ('SAKHA_GOVERNING_BODY',        NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
+            ('SEVAK_SANGHA_EXECUTIVE',      NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
+            ('ANCHALIKA_GOVERNING_BODY',    NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_ANCHALIKA_ADMIN',            'BODY_ORG'),
+            ('ZILLA_GOVERNING_BODY',        NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_ZILLA_ADMIN',                'BODY_ORG'),
+            ('PATHA_CHAKRA_GOVERNING_BODY', NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_PATHA_CHAKRA_ADMIN',          'BODY_ORG')
+    )
+"""
+
+
+def load_composite_grants(cur, person_pk) -> tuple[list["ScopeInfo"], set[str]]:
+    """
+    Compute §63 auto-granted scopes + permissions for a person, live.
+
+    Public (no leading underscore): also called directly by admin.py's
+    user-detail endpoint to surface these as read-only "Auto-Admin (§63)"
+    rows, separate from real user_role assignments.
+
+    Two sources, merged with the acting-officeholder rule:
+      1. Substantive holders (body_member_assignment) — the baseline grant.
+      2. Acting holders (acting_position_assignment) — added ONLY when the
+         resulting (role_code, organization_pk) isn't already covered by a
+         substantive grant. This single dedupe rule is sufficient to encode
+         "an acting officeholder who is already a GB member in their own
+         right needs nothing extra" without a Kendra-specific special case:
+         Kendra's substantive query already yields NSS_ERP_KENDRA_ADMIN /
+         NULL for every current member, so an acting President/Secretary
+         who is also a plain member is naturally deduped against that row.
+
+    Returns (scopes, permission_codes) — permission_codes still needs to be
+    resolved against role_permission by the caller's role_code lookup, so we
+    resolve it here directly to keep load_user_context's merge simple.
+    """
+    substantive_sql = f"""
+        WITH grant_rules {_COMPOSITE_GRANT_RULES_SQL}
+        SELECT DISTINCT rm.role_master_pk, rm.role_code, rm.scope_level,
+               CASE gr.org_source WHEN 'NULL' THEN NULL ELSE bm.organization_pk END
+        FROM nss.body_member_assignment bma
+        JOIN nss.body_master bm ON bm.body_master_pk = bma.body_master_pk
+        JOIN nss.body_type_master btm ON btm.body_type_master_pk = bm.body_type_master_pk
+        JOIN nss.position_master pom ON pom.position_master_pk = bma.position_master_pk
+        JOIN grant_rules gr
+          ON gr.body_type_code = btm.body_type_code
+         AND (gr.requires_org_null IS NULL
+              OR (gr.requires_org_null = TRUE AND bm.organization_pk IS NULL)
+              OR (gr.requires_org_null = FALSE AND bm.organization_pk IS NOT NULL))
+         AND (gr.position_codes IS NULL OR pom.position_code = ANY(gr.position_codes))
+        JOIN nss.role_master rm ON rm.role_code = gr.role_code
+        WHERE bma.person_pk = %s
+          AND bma.assignment_status = 'ACTIVE'
+          AND bma.is_active = TRUE
+          AND bma.effective_from <= CURRENT_DATE
+          AND (bma.effective_to IS NULL OR bma.effective_to >= CURRENT_DATE)
+    """
+    cur.execute(substantive_sql, (str(person_pk),))
+    substantive = [
+        ScopeInfo(user_role_pk=None, role_code=role_code, scope_level=scope_level,
+                  organization_pk=org_pk)
+        for (_rm_pk, role_code, scope_level, org_pk) in cur.fetchall()
+    ]
+    substantive_keys = {
+        (s.role_code, str(s.organization_pk) if s.organization_pk else None)
+        for s in substantive
+    }
+
+    acting_sql = f"""
+        WITH grant_rules {_COMPOSITE_GRANT_RULES_SQL}
+        SELECT DISTINCT rm.role_master_pk, rm.role_code, rm.scope_level,
+               CASE gr.org_source WHEN 'NULL' THEN NULL ELSE bm.organization_pk END
+        FROM nss.acting_position_assignment apa
+        JOIN nss.body_master bm ON bm.body_master_pk = apa.body_master_pk
+        JOIN nss.body_type_master btm ON btm.body_type_master_pk = bm.body_type_master_pk
+        JOIN nss.position_master pom ON pom.position_master_pk = apa.position_master_pk
+        JOIN grant_rules gr
+          ON gr.body_type_code = btm.body_type_code
+         AND (gr.requires_org_null IS NULL
+              OR (gr.requires_org_null = TRUE AND bm.organization_pk IS NULL)
+              OR (gr.requires_org_null = FALSE AND bm.organization_pk IS NOT NULL))
+         AND (gr.position_codes IS NULL OR pom.position_code = ANY(gr.position_codes))
+        JOIN nss.role_master rm ON rm.role_code = gr.role_code
+        WHERE apa.person_pk = %s
+          AND apa.acting_status = 'ACTIVE'
+          AND apa.is_active = TRUE
+          AND apa.effective_from <= CURRENT_DATE
+          AND (apa.effective_to IS NULL OR apa.effective_to >= CURRENT_DATE)
+    """
+    cur.execute(acting_sql, (str(person_pk),))
+    acting = [
+        ScopeInfo(user_role_pk=None, role_code=role_code, scope_level=scope_level,
+                  organization_pk=org_pk)
+        for (_rm_pk, role_code, scope_level, org_pk) in cur.fetchall()
+    ]
+
+    composite_scopes = list(substantive)
+    for a in acting:
+        key = (a.role_code, str(a.organization_pk) if a.organization_pk else None)
+        if key not in substantive_keys:
+            composite_scopes.append(a)
+            substantive_keys.add(key)
+
+    if not composite_scopes:
+        return [], set()
+
+    role_codes = sorted({s.role_code for s in composite_scopes})
+    cur.execute(
+        """
+        SELECT DISTINCT pm.permission_code
+        FROM nss.role_master rm
+        JOIN nss.role_permission rp
+          ON rp.role_master_pk = rm.role_master_pk
+         AND rp.is_active = TRUE
+        JOIN nss.permission_master pm
+          ON pm.permission_master_pk = rp.permission_master_pk
+         AND pm.is_active = TRUE
+        WHERE rm.role_code = ANY(%s)
+        """,
+        (role_codes,),
+    )
+    composite_permissions = {r[0] for r in cur.fetchall()}
+
+    return composite_scopes, composite_permissions
 
 
 # ── Scope-authority enforcement (ADMIN-BR-076/077/078) ──────────────────

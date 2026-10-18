@@ -145,6 +145,13 @@ class MeResponse(BaseModel):
     last_login_at: datetime | None = None
     permissions: list[str]
     scopes: list[ScopeResponse]
+    admin_scope_org_pks: list[UUID] | None = None
+    # ^ actor_scope_org_pks() result (ADMIN-BR-076/077): the actor's full
+    #   recursive subtree of organization_pks they may act within. None
+    #   means global reach (NSS_ERP_ADMIN / an NSS-WIDE scope) — not an
+    #   empty list, which instead means "scoped but reaches nothing".
+    #   Frontend-only consumer today: admin.js's govAssignableBodies
+    #   filter for the Governance Assignments tab's body picker.
 
 
 class MessageResponse(BaseModel):

@@ -31,9 +31,12 @@ Business rules (AUTH-BR-081 through AUTH-BR-098):
     password is discarded, not persisted anywhere.
   - No sangha_sevi or membership_sakha_affiliation created at registration
   - Membership intent stored in nss.registration_claim table
-  - Local Sakha Number: required for every membership type, incl. Darshaka —
-    Darshak members are enrolled in a separate short_code+marker namespace
-    (MBR-030C) at approval, not exempted from having a number at all.
+  - Local Sakha Number: required for every membership type except Darshaka
+    (PROBATIONARY) — a legacy member migrating a known paper-register
+    number may still enter it (optional for Darshaka), but a brand-new
+    Darshaka applicant has none to self-report; Darshak members are
+    enrolled in a separate short_code+marker namespace (MBR-030C) with
+    the number system-generated at admin approval.
   - Local Sakha Number is NOT validated at registration (admin verifies)
   - PENDING_APPROVAL accounts cannot login
   - Sakha admin approves claim → creates membership records → activates account
@@ -143,10 +146,10 @@ class RegisterRequest(BaseModel):
     joining_date: Optional["date"] = None
 
     # Local Sakha Number (shown after sakha selection) — required for every
-    # membership type, including Darshaka (see module docstring).
+    # membership type except Darshaka (see module docstring).
     claimed_local_sakha_number: str | None = Field(
         None, max_length=20,
-        description="Local Sakha Number — required for all membership types, including Darshaka",
+        description="Local Sakha Number — required for all membership types except Darshaka",
     )
 
     # Existing Parichaya Patra / Anumati Patra document number, for a
@@ -389,12 +392,6 @@ def claim_existing(
             detail=violations,
         )
 
-    if not body.claimed_local_sakha_number:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Local Sakha Number is required.",
-        )
-
     if body.is_attending_as_darshak:
         if not body.darshak_organization_pk:
             raise HTTPException(
@@ -412,7 +409,18 @@ def claim_existing(
             cur, body.person_id, body.date_of_birth
         )
 
+        # AUTH-BR-086: Local Sakha Number and Parichaya/Anumati Patra Number
+        # are required for every membership type EXCEPT Darshaka — a legacy
+        # member migrating a known paper-register number may still enter it
+        # here (optional), but a brand-new Darshaka applicant has none to
+        # self-report; both numbers are system-generated at admin approval
+        # instead.
         if not is_probationary_membership_type(cur, body.membership_type_master_data_pk):
+            if not body.claimed_local_sakha_number:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Local Sakha Number is required.",
+                )
             if not body.claimed_credential_document_number or not body.claimed_credential_document_number.strip():
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -763,9 +771,16 @@ def register(
             require_sakha_organization(cur, body.organization_pk)
 
         # ── 5b. Validate Local Sakha Number requirement (AUTH-BR-086) ────
-        #   Required for every membership type, including Darshaka — see
-        #   module docstring.
-        if body.has_membership and not body.claimed_local_sakha_number:
+        #   Required for every membership type except Darshaka (PROBATIONARY)
+        #   — a legacy member migrating a known paper-register number may
+        #   still enter it here (optional), but a brand-new Darshaka
+        #   applicant has none to self-report; the number is
+        #   system-generated at admin approval instead.
+        if (
+            body.has_membership
+            and not is_probationary_membership_type(cur, body.membership_type_master_data_pk)
+            and not body.claimed_local_sakha_number
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Local Sakha Number is required.",

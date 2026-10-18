@@ -314,6 +314,22 @@ class RoleAssignmentResponse(BaseModel):
     is_active: bool
 
 
+class AutoGrantedScopeResponse(BaseModel):
+    """
+    A §63 composite auto-grant — a scope derived live from a governance
+    position (body_member_assignment / acting_position_assignment), not
+    from any real user_role row. Carries no user_role_pk because none
+    exists: nothing is stored, nothing can be revoked here — it disappears
+    the moment the person leaves the position. Shown read-only alongside
+    RoleAssignmentResponse in the admin UI, badged "Auto-Admin (§63)".
+    """
+    role_code: str
+    role_name: str
+    scope_level: str | None = None
+    organization_pk: UUID | None = None
+    organization_name: str | None = None
+
+
 class UserDetailResponse(BaseModel):
     """GET /api/v1/admin/users/{user_account_pk} — full detail."""
     user_account_pk: UUID
@@ -335,6 +351,7 @@ class UserDetailResponse(BaseModel):
     created_at: datetime
     is_active: bool
     roles: list[RoleAssignmentResponse]
+    auto_granted_scopes: list[AutoGrantedScopeResponse] = []
 
 
 class CreateSanghaSeviResponse(BaseModel):

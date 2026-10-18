@@ -263,6 +263,22 @@ def search_members(
         "mobile number (prefix), email (prefix), "
         "or Kendra Number (prefix)",
     ),
+    organization_pk: UUID | None = Query(
+        None,
+        description="Restrict results to members whose home organization "
+                    "(sangha_sevi.organization_pk) is this org OR any branch "
+                    "beneath it in the hierarchy (subtree-aware). Because "
+                    "membership is held at the Sakha leaf and a member belongs "
+                    "to the parent Anchalika / Zilla / Kendra THROUGH that "
+                    "Sakha, passing a higher body's org returns every member in "
+                    "its subtree; passing a single Sakha returns just that "
+                    "Sakha's members. Used by governance nomination / vote / "
+                    "reset candidate / voter search so an org-scoped body (Sakha "
+                    "Governing Body, Sevak Sangha Executive, per-Sakha Mahila "
+                    "Parichalana Mandali, ...) only offers members from its own "
+                    "subtree. Omit for an NSS-wide body (organization_pk IS "
+                    "NULL), where any active member is eligible.",
+    ),
     limit: int = Query(50, ge=1, le=MAX_LIMIT, description="Max rows to return (default 50)"),
     offset: int = Query(0, ge=0, description="Number of rows to skip"),
     conn=Depends(get_connection),
@@ -293,6 +309,17 @@ def search_members(
 
     where = """
         WHERE ss.is_active = TRUE
+          AND (%s::uuid IS NULL OR EXISTS (
+              WITH RECURSIVE subtree(organization_pk) AS (
+                  SELECT %s::uuid
+                  UNION ALL
+                  SELECT o.organization_pk
+                  FROM nss.organization o
+                  JOIN subtree s ON o.parent_organization_pk = s.organization_pk
+              )
+              SELECT 1 FROM subtree st
+              WHERE st.organization_pk = ss.organization_pk
+          ))
           AND (
               ss.sangha_sevi_id ILIKE %s
               OR p.person_id ILIKE %s
@@ -319,7 +346,9 @@ def search_members(
     )
 
     prefix_pattern = f"{q}%"
+    org_val = str(organization_pk) if organization_pk else None
     match_params = (
+        org_val, org_val,
         prefix_pattern, prefix_pattern, prefix_pattern,
         name_q, name_q,
         prefix_pattern, prefix_pattern, prefix_pattern,

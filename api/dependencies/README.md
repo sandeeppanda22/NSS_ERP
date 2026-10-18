@@ -14,6 +14,8 @@ a read-pool connection and do not reach writes; the trigger-visible actor comes 
 `api.dependencies.auth`, not `api.database` (the latter is the non-auditing primitive, NULL actor).
 `rbac.py` wraps `get_current_user()`.
 
+Tier 6 uses the same factories unchanged: `governance.py` gates with `require_any_permission("GOVERNANCE_VIEW", "GOVERNANCE_MANAGE")` for reads and `require_permission("GOVERNANCE_MANAGE")` for writes, and `get_current_user` for its member self-service endpoints.
+
 Usage: `user: UserContext = Depends(require_permission("ADMIN_USER_MANAGE"))`. Scope-based checks
 (`require_org_in_scope()` and friends) are not dependencies — they live in
 `api/services/rbac_service.py` and are called inside handlers.

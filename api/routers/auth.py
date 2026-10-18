@@ -55,7 +55,7 @@ from api.services.auth_service import (
     verify_password,
 )
 from api.helpers import apply_person_profile_update, check_duplicate_contact, derive_device_label, log_audit, record_password_history, validate_and_hash_password, validate_mobile, validate_email
-from api.services.rbac_service import UserContext
+from api.services.rbac_service import UserContext, actor_scope_org_pks
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -1001,6 +1001,12 @@ def me(
             local_sakha_erp_id = aff_row[0]
             sakha_name = aff_row[1]
 
+    # ADMIN-BR-076/077: full recursive scope subtree, for frontend
+    # scope-aware filtering (e.g. admin.js's govAssignableBodies). None
+    # means global reach — see schemas.auth.MeResponse.admin_scope_org_pks.
+    with conn.cursor() as cur:
+        admin_scope_org_pks = actor_scope_org_pks(cur, user)
+
     return MeResponse(
         user_account_pk=user.user_account_pk,
         person_pk=user.person_pk,
@@ -1031,6 +1037,10 @@ def me(
             )
             for s in user.scopes
         ],
+        admin_scope_org_pks=(
+            [UUID(pk) for pk in sorted(admin_scope_org_pks)]
+            if admin_scope_org_pks is not None else None
+        ),
     )
 
 
