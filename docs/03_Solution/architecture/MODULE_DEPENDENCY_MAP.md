@@ -1087,14 +1087,17 @@ with each module retaining ownership of its own business data.
 The current tier concept should therefore be understood as:
 
 ```text
+TIER 0
+Bootstrap / RBAC
+
 TIER 1
 Foundation
 
 TIER 2
-Person, Organization
+Organization
 
 TIER 3
-Heritage
+Person
 
 TIER 4
 Family, Membership
@@ -1103,24 +1106,27 @@ TIER 5
 Authentication, Administration, Audit
 
 TIER 6
-Attendance, Governance
+Governance, Attendance, Assets & Property
 
 TIER 7
-Programme & Events
+Heritage
 
 TIER 8
-Kumari, Kishor, Sevak
+Programme & Events
 
 TIER 9
-Mahila
+Kumari, Kishor, Sevak
 
 TIER 10
-Publications, UPBS
+Mahila
 
 TIER 11
-Finance
+Publications, UPBS
 
 TIER 12
+Finance
+
+TIER 13
 Reports, Backup & Technical
 ```
 

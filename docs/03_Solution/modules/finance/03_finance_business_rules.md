@@ -946,21 +946,25 @@ Each financial transaction shall have a unique system identity.
 
 ---
 
-## FIN-BR-066 — Financial Scope Required
+## FIN-BR-066 — Financial Scope Required (duplicate of FIN-BR-006)
 
-**Classification:** ERP-FROZEN
+**Classification:** SUPERSEDED — duplicate, resolved 2026-10-15 (owner-confirmed)
 
-A financial transaction shall not exist without an applicable Financial
-Scope.
+This rule restated FIN-BR-006 verbatim. Retained here only so the rule ID is
+never silently removed; the canonical rule is **FIN-BR-006 §3** — all citations
+(including the NOT NULL constraint on `financial_scope_pk` in SOL-FIN-004
+§10.7) now point there instead.
 
 ---
 
-## FIN-BR-067 — Financial Year Required
+## FIN-BR-067 — Financial Year Required (duplicate of FIN-BR-003)
 
-**Classification:** ERP-FROZEN
+**Classification:** SUPERSEDED — duplicate, resolved 2026-10-15 (owner-confirmed)
 
-A financial transaction shall not exist without an applicable Financial
-Year.
+This rule restated FIN-BR-003 verbatim. Retained here only so the rule ID is
+never silently removed; the canonical rule is **FIN-BR-003 §2** — all citations
+(including the NOT NULL constraint on `financial_year_pk` in SOL-FIN-004
+§10.6) now point there instead.
 
 ---
 
@@ -1060,7 +1064,7 @@ BUSINESS RULES:
 INITIAL RULE SET ESTABLISHED (FIN-BR-001 through FIN-BR-068)
 
 PHYSICAL TABLE DESIGN:
-NOT YET FROZEN
+FROZEN — see SOL-FIN-004
 
 DDL:
 NOT YET CREATED

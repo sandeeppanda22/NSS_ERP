@@ -569,7 +569,8 @@ Only Tier 2 (Local Sakha ERP Number) changes on transfer.
 
 ## MBR-030C — Local Sakha Numbering Is Namespace-Separated by Membership State
 
-**Status:** FROZEN (format and no-reuse rule) — AUTO-SEQUENCING PENDING
+**Status:** FROZEN (format and no-reuse rule) — AUTO-SEQUENCING RESOLVED (see "Numeric portion"
+below and MBR-048)
 
 Tier 2 Local Sakha numbering is separated into two namespaces within the same
 Sakha, distinguished by a state marker placed after the Sakha short code:
@@ -608,11 +609,17 @@ The numeric portion is Sakha-local and independently sequenced per namespace.
 `ESS` and `ESSD` advance on separate counters, so `ESS000004` and `ESSD000004`
 may both exist in the same Sakha and refer to different members.
 
-**PENDING:** per-Sakha, per-namespace counter infrastructure does not yet
-exist — `nss.id_sequence_master` holds global counters, not Sakha-scoped ones.
-Until that is designed, the local number is supplied by the enrolling
-administrator and only the namespace marker is applied automatically. MBR-030's
-"auto-generated" wording describes the target state, not current behaviour.
+**RESOLVED (MBR-048):** per-Sakha, per-namespace counter infrastructure now exists —
+`nss.sakha_local_number_counter` (`database/ddl/05_membership/17_sakha_local_number_counter.sql`),
+one row per (`organization_pk`, `namespace`), incremented atomically by
+`api/helpers.py::next_sakha_local_number()`. Unlike `nss.id_sequence_master` (global counters)
+or `nss.credential_sequence_counter` (resets every financial year), this counter is permanent
+and per-Sakha-per-namespace, matching the "never reassigned" rule above. Auto-generation is the
+default path: `api/helpers.py::insert_sakha_affiliation()` calls it whenever a caller omits an
+explicit `local_number`. A caller MAY still supply an explicit number — this is retained
+deliberately for legacy-register-import cases (a paper-register number predates the ERP and must
+be preserved verbatim), exposed at the API layer as an explicit admin choice
+(`is_legacy_import`), never as a silent fallback.
 
 ### Progression and archival
 
@@ -673,6 +680,69 @@ the target state; the gap is explicit rather than implied.
 ## MBR-031 — Transfer History Preservation
 
 Previous Sakha association shall remain historically traceable.
+
+---
+
+## MBR-048 — Membership Change Request Workflow (Sakha Transfer)
+
+**Status:** FROZEN (2026-10-10 design decision)
+
+A member-initiated or admin-filed Sakha Transfer is a two-step request/release/accept workflow,
+recorded in `nss.membership_change_request` (`request_type = 'TRANSFER'`), not an immediate
+write to `membership_sakha_affiliation`:
+
+```text
+PENDING_SOURCE_RELEASE
+   -> source Sakha releases   -> PENDING_DESTINATION_ACCEPT
+   -> source Sakha rejects    -> REJECTED_BY_SOURCE          [terminal]
+PENDING_DESTINATION_ACCEPT
+   -> destination Sakha accepts  -> COMPLETED                [terminal]
+   -> destination Sakha rejects  -> REJECTED_BY_DESTINATION   [terminal]
+```
+
+Both decision stages are gated by `MEMBERSHIP_APPROVE` plus admin scope over the deciding Sakha
+— no new governance-position-checking logic is required, because `MEMBERSHIP_APPROVE` is already
+auto-granted to a Sakha's sitting President/Secretary (and acting officeholders) scoped to that
+Sakha's own `organization_pk` (§63 composite-grant mechanism).
+
+On `COMPLETED`:
+
+- The old (`old_organization_pk`) `membership_sakha_affiliation` row is closed
+  (`effective_to` set, `affiliation_status = 'ARCHIVED'`) — MBR-031's "never deleted" rule
+  governs this exactly as it already does for any other transfer.
+- A new affiliation row is opened at `new_organization_pk` with a new Local Sakha ERP Number
+  (MBR-030, MBR-030C/MBR-048 auto-sequencing by default).
+- A `membership_transfer_history` row is written (MBR-028), and a `TRANSFER`
+  `membership_journey_event` is recorded (MBR-021/043), referencing the change-request PK.
+- `effective_date` (MBR-029) is resolved to the next confirmed Dola Purnima on or after the
+  destination-accept date, via the same festival-calendar lookup
+  `issue_membership_credential()` already uses — never computed independently.
+
+A member may have at most one open (non-terminal) change request at a time (DB-enforced, partial
+unique index on `membership_change_request`).
+
+---
+
+## MBR-049 — Apply for Darshak Is a Change Request, Not a Transfer
+
+**Status:** FROZEN (2026-10-10 design decision)
+
+"Apply for Darshak" (attending Sangha Puja as a Darshak at a Sakha other than one's own) shares
+MBR-048's two-step request/release/accept workflow shape (`membership_change_request`,
+`request_type = 'DARSHAK'`), but is explicitly **not** a transfer:
+
+- On `COMPLETED`, the member's home-Sakha `membership_sakha_affiliation` row is **not** closed. A
+  second, concurrently-active affiliation row is opened at the destination Sakha instead — legal
+  because `uq_mem_sakha_aff_active` is scoped per `(sangha_sevi_pk, organization_pk)`, not per
+  member alone, so a home affiliation and a Darshak affiliation at a different Sakha coexist.
+- No `membership_transfer_history` row is written — nothing was transferred, the member's home
+  Sakha and home Local Sakha ERP Number are unaffected.
+- A `membership_journey_event` is still recorded, documenting the start of Darshak attendance at
+  the new Sakha.
+
+`old_organization_pk` on a `DARSHAK`-type change request names the member's home Sakha for
+display/audit purposes only — it carries no release-of-affiliation meaning the way it does for a
+`TRANSFER` request.
 
 ---
 

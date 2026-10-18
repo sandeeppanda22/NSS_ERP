@@ -32,7 +32,7 @@ pass on top of Tier 4 was released as **v0.10.4**, merged from branch `performan
 (see Gotchas and "Current position" below).
 
 The codebase today spans Tier 0 through the in-progress Tier 5: the read-only Tier 0-4
-FastAPI application (`api/`) — 12 routers, one per tier/module (endpoint counts per router:
+FastAPI application (`api/`) — 15 routers (12 at v0.11.0 + Tier 6 `governance`, `membership_change_request`, `correspondence`), one per tier/module (endpoint counts per router:
 `api/README.md`, `docs/03_Solution/api/API_CONTRACT.md`; no ORM, raw `psycopg2` against `nss.*`) behind a
 cross-tier security middleware stack (security headers, opt-in CORS, rate limiting, and now a
 Content-Security-Policy — see Architecture below), a growing raw-SQL PostgreSQL schema
@@ -140,7 +140,7 @@ security headers
   (not yet updated for CSP/permission-gating — treat as partially stale).
 - **Web/API layer:** FastAPI (`api/`), the only web/API layer in the codebase — the earlier
   Django prototype (`backend/`) has been fully removed. `api/main.py` builds the `FastAPI` app
-  and includes **12 routers** via a single `app.include_router(...)` call each:
+  and includes **15 routers** (12 at v0.11.0, plus Tier 6 `governance`, `membership_change_request`, `correspondence`) via a single `app.include_router(...)` call each:
   `api/routers/bootstrap.py` (prefix `/api/v1/bootstrap`), `api/routers/foundation.py` (prefix
   `/api/v1/foundation`), `api/routers/organization.py` (prefix `/api/v1/organization`),
   `api/routers/person.py` (prefix `/api/v1/person`), `api/routers/family.py` (prefix
@@ -274,21 +274,20 @@ other.
 
 **Pre-DDL architecture gates (all FROZEN):**
 `docs/03_Solution/architecture/IMPLEMENTATION_DEPENDENCY_ORDER.md` (`IMPLEMENTATION-TIER-001`,
-12-tier build order across 22 modules) → `FK_DEPENDENCY_GRAPH.md` ("Gate 8" — physical FK
+unified 0–13 build order across 22 modules) → `FK_DEPENDENCY_GRAPH.md` ("Gate 8" — physical FK
 dependency graph across 86 frozen tables, topologically sorted into 8 depths with zero cycles,
 resolves the audit-actor circular-dependency problem via a two-pass DDL strategy) →
 `DDL_CREATION_ORDER.md` ("Gate 9" — the exact numbered `CREATE TABLE` sequence for all 86
-tables plus the Pass-2 deferred-constraint list). Tiers 1-2 (Foundation, Person + Organization)
-of the 12-tier order are executed — 16 tables live under `database/ddl/01_foundation/`/
-`database/ddl/02_organization/`/`database/ddl/03_person/` and their matching seed folders;
-Tiers 3-12 remain unimplemented. Note: `IMPLEMENTATION_DEPENDENCY_ORDER.md`'s own closing
-status section (§79) reflects Tier 1 completion but hasn't been updated for Tier 2. **Tier-
-numbering divergence:** the frozen 12-tier plan's Tier 2 bundles Person + Organization together,
-but the actual implementation sequence (and every other doc — `CLAUDE.md`, the code-explanation
-docs, `docs/03_Solution/api/`) splits them into separate vertical slices numbered "Tier 2
-(Organization)" and "Tier 3 (Person)" — see Gotchas for the full note; don't assume "Tier 3"
-means the same thing in `IMPLEMENTATION_DEPENDENCY_ORDER.md` (where it means Heritage) as it
-does everywhere else in this codebase's own vocabulary (where it means Person).
+tables plus the Pass-2 deferred-constraint list). Tiers 0-6 of the unified build order are
+executed or in progress (see "Current position" above). **Tier numbering is now unified:**
+`IMPLEMENTATION_DEPENDENCY_ORDER.md` has been restructured to the single agreed build-order
+sequence — Bootstrap/RBAC (Tier 0), Foundation (1), Organization (2), Person (3), Family +
+Membership (4), Authentication + Administration + Audit (5), Governance + Attendance + Assets &
+Property (6), Heritage (7), Programmes & Events (8), Kumari/Kishor/Sevak (9), Mahila (10),
+Publications + UPBS (11), Finance (12), Reports + Backup & Technical (13). This resolves the
+former divergence in which the dependency doc bundled Person + Organization at "Tier 2" and
+reserved "Tier 3" for Heritage: "Tier 2" now means Organization and "Tier 3" means Person
+consistently across every doc (`CLAUDE.md`, the code-explanation docs, `docs/03_Solution/api/`).
 
 **`BOOTSTRAP_ARCHITECTURE.md`** (`SOL-ARCH-011`, FROZEN) defines a "Phase 0" that sits *before*
 Tier 1: `role_master`/`permission_master`/`role_permission` have zero FK dependencies, so they
@@ -297,7 +296,7 @@ via the same two-pass strategy. It establishes `nss_db_owner` (PostgreSQL DDL ow
 distinct from `NSS_ERP_ADMIN` (an ERP RBAC role, a `role_master` row) — the two are explicitly not
 equivalent, and `NSS_ERP_ADMIN` never bypasses RBAC checks. DDL for all 3 tables exists under
 `database/ddl/00_bootstrap/` and is **implemented and committed** (`feat(bootstrap): Phase 0
-Bootstrap RBAC DDL and seed data`); seed data is now complete (`role_master`: 9 roles;
+Bootstrap RBAC DDL and seed data`); seed data is now complete (`role_master`: 10 roles;
 `permission_master`/`role_permission`: **now populated in Tier 5, in progress** —
 `FOUNDATION_VIEW`/`ORGANIZATION_VIEW`/`PERSON_VIEW`/`PERSON_VIEW_SENSITIVE`/`FAMILY_VIEW`/
 `MEMBERSHIP_VIEW`/`AUDIT_VIEW` plus the admin/user-management permission set are mapped to
@@ -320,17 +319,18 @@ concern within each tier's DB phase).
 |-----:|---------|-------|
 | 0 | Bootstrap | PostgreSQL bootstrap (database, roles, extensions, `nss` schema) + initial RBAC tables |
 | 1 | Foundation | Common master/reference infrastructure (master_data, geography, sequences, settings) |
-| 2 | Person + Organization | People identity (Sangha Sevi ID) and organizational hierarchy (Kendra → Anchalika/Zilla → Sakha) |
-| 3 | Heritage | Founder biography, teachings, objectives, historical milestones, office bearers |
+| 2 | Organization | Organizational hierarchy (Kendra → Anchalika/Zilla → Sakha) |
+| 3 | Person | People identity (Sangha Sevi ID) |
 | 4 | Family + Membership | Family groups, membership types (Probationary/Regular/Associate), Sakha affiliation, local IDs, transfer |
 | 5 | Authentication + Administration + Audit | User accounts, RBAC enforcement, organizational scopes, audit trail |
-| 6 | Attendance + Governance + Assets & Property | Sangha Puja attendance, governance positions, immovable/movable property |
-| 7 | Programme & Events | Event types, instances, sessions, registration (Janmotsaba, Rasoutsaba, etc.) |
-| 8 | Kumari + Kishor + Sevak | Youth participation domains (Kumari/Kishor IDs, Seva architecture, Dina-Lipi, Niyam Panchak) |
-| 9 | Mahila | Mahila-specific operations (not a separate membership category — Mahila Puja is Sangha Puja with majority women) |
-| 10 | Publications + UPBS | Publication catalogue/operations, UPBS operational integration |
-| 11 | Finance | Financial transactions (Pranami, event fees, publication sales, property income) — deliberately late, references upstream domains |
-| 12 | Reports + Backup & Technical | Reporting, analytics, backup/restore, technical administration |
+| 6 | Governance + Attendance + Assets & Property | Governance positions, Sangha Puja attendance, immovable/movable property |
+| 7 | Heritage | Founder biography, teachings, objectives, historical milestones, office bearers |
+| 8 | Programmes & Events | Event types, instances, sessions, registration (Janmotsaba, Rasoutsaba, etc.) |
+| 9 | Kumari + Kishor + Sevak | Youth/seva participation domains (Kumari/Kishor IDs, Seva architecture, Dina-Lipi, Niyam Panchak) |
+| 10 | Mahila | Mahila-specific operations (not a separate membership category — Mahila Puja is Sangha Puja with majority women) |
+| 11 | Publications + UPBS | Publication catalogue/operations, UPBS operational integration |
+| 12 | Finance | Financial transactions (Pranami, event fees, publication sales, property income) — deliberately late, references upstream domains |
+| 13 | Reports + Backup & Technical | Reporting, analytics, backup/restore, technical administration |
 
 ### Vertical slice per tier
 
@@ -394,7 +394,7 @@ FastAPI application, and UI are **identical across platforms**. `.sh` (macOS/Lin
 business logic, database statements, or schema definitions. Platform-specific behaviour is
 limited to shell mechanics (variable substitution, exit codes, colour output).
 
-**Tier 2 (Person + Organization):** Person is the central human identity. The global Sangha
+**Tier 2-3 (Organization + Person):** Person is the central human identity. The global Sangha
 Sevi ID (e.g. `SS1`) is permanent, unique across NSS, never changes, never reused.
 Organization hierarchy: Kendra → Anchalika/Zilla → Sakha → Sakha Asana → Patha Chakra.
 Nilachala Kutira and Smruti Mandira are separate roots, not children of Kendra. Organization
@@ -425,16 +425,16 @@ Attendance types: REGULAR, DARSHAK, VISITOR.
 concepts. Covers acquisition, disposal, custody, maintenance, valuation, depreciation,
 insurance, statutory obligations, restricted property.
 
-**Tier 7 (Programme & Events):** Common structure: Programme Type → Event → Event Instance
+**Tier 8 (Programme & Events):** Common structure: Programme Type → Event → Event Instance
 → Event Day → Event Session, plus Registration. Finance owns actual event financial
 transactions. Attendance remains Attendance-owned.
 
-**Tier 8 (Kumari/Kishor/Sevak):** These are not adult Membership categories. Kumari and
+**Tier 9 (Kumari/Kishor/Sevak):** These are not adult Membership categories. Kumari and
 Kishor have separate identity/participation domains. Sevak architecture: Seva → Seva Head →
 Application → Recommendation → Approval. Guardian model for minors includes
 `guardian_sangha_sevi_pk`.
 
-**Tier 11 (Finance):** Financial year 1 April – 31 March. Finance owns all actual
+**Tier 12 (Finance):** Financial year 1 April – 31 March. Finance owns all actual
 transactions. Other modules reference Finance — they do not create competing transaction
 ledgers.
 
@@ -517,7 +517,7 @@ names, FK references, and index targets.
 
 ```
 NSS_ERP/
-├── api/                          FastAPI application — 12 routers (Tier 0-4 read routers plus Tier 5
+├── api/                          FastAPI application — 15 routers (Tier 0-4 read routers plus Tier 5
 │                                   auth/admin/registration/claim_approval/audit/geo_approval),
 │                                   `services/`, `dependencies/`, `schemas/` layers, see below
 ├── frontend/                      Four Tier 5 pages (`login`/`register`/`dashboard`/`admin` .html)
@@ -988,6 +988,22 @@ makes the zero-seed-data change above tolerable: `test_admin.py`/`test_auth.py`/
 `test_registration.py`/etc. create their own throwaway users/persons via `write_conn` and rely on
 rollback for cleanup, rather than depending on any pre-seeded Tier 4 data. Per-file test counts and suite totals: `tests/README.md`.
 
+### Tier 6 (Governance) — in progress, uncommitted on `feature/tier6-governance`
+
+Not yet released; verified from the working tree (`git status`), not from a release note. Counts below were taken from code: 15 routers / 201 endpoints in `api/main.py` (137 at v0.11.0).
+
+**Database (`database/ddl/08_governance/`, 10 tables + 1 trigger function).** `body_type_master`, `position_master`, `body_master` (nullable `organization_pk`: NSS-wide bodies have NULL), `body_member_assignment` (partial unique index on active holder; deliberately no DB seat-count limit), `acting_position_assignment`, `election` (`election_type` ELECTION|NOMINATION; a NOMINATION cycle cannot have voting dates or reach VOTING), `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` (records *who* voted, not *what*, enabling secret ballots). `11_governance_immutability.sql` defines `nss.fn_block_update()` and BEFORE UPDATE triggers on `election_vote` and `election_vote_participation`; DELETE stays allowed for the ballot "reset" flow. Seeds (`database/seed/08_governance/`): 8 body types, 10 positions, 3 singleton bodies (KENDRA_GB, ADVISORY_BOARD, KENDRA_MAHILA_PM).
+
+**Build scripts.** `02_build.sh/.ps1` and `render_build.sh` gain Phase 11b (governance DDL), 11c (governance seed) and 11d (correspondence DDL, 4 tables in `database/ddl/09_correspondence/`, incl. `correspondence_sequence_counter`; API in `correspondence.py`, schema-only tests in `tests/db/test_correspondence_schema.py`; `03_validate.*` checks existence of 3 of them); Phase 7 grows to 16 tables (`17_sakha_local_number_counter.sql`, `18_membership_change_request.sql`). `03_validate.*` adds a Governance module block. Optional Phase 15 (`RUN_DEMO_SEED`, gitignored `seed/demo/nss_demo_seed.sql`) exists only in `02_build.sh`. Because the build is existence-gated per table, a redeploy over an existing DB will **not** pick up: the `NSS_ERP_ADVISORY_BOARD_ADMIN` role row, the 3 added body types, the widened `admin_scope`/`role_master` CHECKs, or `election.election_type` (all election endpoints then fail with `column "election_type" does not exist`) — a full rebuild is required.
+
+**RBAC.** New permissions `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE` (23 total; 25 with `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`, 140 role mappings) granted to NSS/Kendra/Sakha admins (both) and Anchalika/Zilla/Patha Chakra/Kendra Mahila admins + Auditor (view). New role `NSS_ERP_ADVISORY_BOARD_ADMIN` (scope level `ADVISORY_BOARD`, 10 roles total) is not assigned through `user_role`: `rbac_service.load_composite_grants()` auto-grants it (§63) to holders of PRESIDENT/SECRETARY in the Advisory Board body; `GET /admin/users/{pk}` exposes this as `auto_granted_scopes`.
+
+**API.** `api/routers/governance.py` (46 endpoints, `/api/v1/governance`): catalogue CRUD, bodies, assignments (end / `resign` self-service / request-/approve-/reject-removal), `/advisory-board/missing-nominations`, `/me/parichalak-status`, `/bodies/sakha-scope-options`, acting assignments, elections with status transitions, nominations, votes (officer-recorded and `/votes/self`), tally, results and `apply`. Reads use the read pool; writes use `api.dependencies.auth.get_write_connection`. Org scoping goes through `actor_scope_org_pks`/`require_org_in_scope`. `membership_change_request.py` (5 endpoints) implements the Sakha Transfer / Apply-for-Darshak release→accept workflow. `correspondence.py` (9 endpoints, `/api/v1/correspondence`, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk`) covers register/list/detail, status transitions (§6.2; reopen needs remarks), responsible-party assignment and document / finance-reference sub-resources; reference numbers come from `helpers.next_correspondence_reference_number()` backed by `correspondence_sequence_counter` and need the register org's `short_code` (else 422). `admin.py` gains 4 `/credentials/members*` endpoints. `membership.py::search_members` takes an optional subtree-aware `organization_pk`. New helpers in `api/helpers.py`: `next_sakha_local_number`, `close_sakha_affiliation`, `log_patra_history`, `set_membership_credential_status`. For Darshaka (PROBATIONARY) the Local Sakha Number is optional in `registration.py` (`register`, `claim_existing`, via `is_probationary_membership_type`) and is system-generated at admin approval; the register page hides the field only in its standalone "Apply for Darshak" flow (`darshakFlow`).
+
+**Frontend.** `admin.html`/`admin.js`: Governance nav group (Catalog, Bodies, Assignments, Elections tabs; gated on `canViewGovernance`/`canManageGovernance`). `dashboard.html`/`dashboard.js`: "Open Elections — Cast Your Vote", Governance Bodies view, and "My Change Requests".
+
+**Tests.** `tests/api/test_governance.py` (65), `tests/api/test_admin_credentials.py` (16), `tests/api/test_membership_change_request.py` (28), `tests/api/test_correspondence.py` (26), `tests/db/test_correspondence_schema.py` (14) and security suites for governance (13), membership change requests (11) and correspondence (24). `tests/conftest.py` now imports `get_write_connection` from `api.dependencies.auth`.
+
 ### `frontend/` — Login + Registration + Member Dashboard + Administration Dashboard detail
 
 **Current contents (verified on disk):** `login.html`, `register.html`, `dashboard.html`,
@@ -1335,7 +1351,7 @@ database/
 │   │                     password_reset_token, user_session
 │   └── 07_administration/ 2 tables (Tier 5): user_role, admin_scope
 └── seed/
-    ├── 00_bootstrap/     `role_master`: 9 roles seeded (3 SYSTEM + 6 ORGANIZATIONAL,
+    ├── 00_bootstrap/     `role_master`: 10 roles seeded (3 SYSTEM + 7 ORGANIZATIONAL,
     │                     matching SOL-ADMIN-004 §8.7 frozen catalogue);
     │                     `permission_master`: 21 permissions; `role_permission`: 113 mappings
     ├── 01_foundation/    13 seed files (01-11b): 13 master categories, 89 master data values
@@ -1420,7 +1436,7 @@ database/
 │   ├── PROGRAMME_EVENT_DOMAIN_MODEL.md         (`SOL-EVT-001`) — domain model for Programmes & Events, feeding the `programmes_events` module
 │   ├── EVENT_ENTITY_RECONCILIATION.md          (`SOL-EVT-002`) — reconciles that domain model against UPBS/Kishor/Sevak/Mahila/Finance/Attendance's own event-shaped entities
 │   ├── MODULE_DEPENDENCY_MAP.md                (`SOL-ARCH-007`) — dependency map (hard FK/runtime/domain integrations), PROPOSED not frozen (v0.1.0); its §3 inventory table now lists all 22 modules (incl. Assets & Property), matching its own status footer — the prior 21-vs-22 inconsistency was fixed by commit `1d96fb1`
-│   ├── IMPLEMENTATION_DEPENDENCY_ORDER.md      (`SOL-ARCH-008`), `IMPLEMENTATION-TIER-001` — 12-tier build order across all 22 modules, FROZEN (Assets & Property in Tier 6). §79's DRAFT/v0.1.0/21-modules status text was fixed by commit `1d96fb1` (now reads FROZEN/v1.0.0/22-modules) — but §79 still says `PHYSICAL DDL: FOUNDATION TIER 1 COMPLETE` / `NEXT: TIER 2`, not reflecting that Tier 2 Organization DDL is now also implemented (see "Current position" above)
+│   ├── IMPLEMENTATION_DEPENDENCY_ORDER.md      (`SOL-ARCH-008`), `IMPLEMENTATION-TIER-001` — unified 0–13 build order across all 22 modules, FROZEN (Organization Tier 2, Person Tier 3, Heritage Tier 7, Programmes & Events Tier 8, Finance Tier 12; Assets & Property in Tier 6). §79's status footer carries the unified tier model (FROZEN/v1.0.0/22-modules); its non-normative implementation-status note tracks that Tiers 0-6 are implemented/in progress (see "Current position" above)
 │   ├── PROGRAMMES_EVENTS_CROSS_MODULE_REVIEW.md (`SOL-EVT-006`), v1.1.0, FROZEN — final compatibility review for Module #21 against every other module; no hard conflicts; open ownership/migration-strategy risks it originally flagged were resolved by the file below
 │   ├── CROSS_MODULE_PRINCIPLES.md              (`ARCH-CROSS-001`), v1.1.0, FROZEN — project-wide principles: one-owner-per-table, cross-module reference not duplication, Finance sole-owner of financial transactions, `DOC-ARCH-001` (document_master + field_change_log → Foundation), Correspondence Register decision. Carries 3 explicitly PENDING (not frozen) DDL-phase design notes: org short code, local Sakha number format, Visitor vs. Approved Darshak threshold
 │   ├── FK_DEPENDENCY_GRAPH.md                  (`SOL-ARCH-009`), FROZEN — physical FK dependency graph ("Gate 8") across 86 frozen tables, topologically sorted into 8 depths, zero cycles; resolves the audit-actor circular-dependency problem via a two-pass DDL strategy
@@ -1565,7 +1581,7 @@ summarize the full sequence from a clean machine to a running API.
    `dashboard.html`. Only `bootstrap.py` (4 endpoints) and the public `/api/v1/register` and
    `POST /api/v1/auth/login|refresh|forgot-password|reset-password` endpoints are reachable
    without a JWT; everything else is gated per router (see `CLAUDE.md` → Architecture and
-   `docs/03_Solution/api/API_CONTRACT.md`, which lists all 137 endpoints across 12 routers with
+   `docs/03_Solution/api/API_CONTRACT.md`, which lists the 137 v0.11.0 endpoints across 12 routers (Tier 6 raises the total to 201 across 15; not yet in that file) with
    their gates).
 
 5. **Run the tests** (from the repository root, once the database is built per step 2 and
@@ -1698,7 +1714,7 @@ pattern the other three use.
 `GET /api/v1/bootstrap/roles` (`api/routers/bootstrap.py:42-68`) runs
 `SELECT role_master_pk, role_code, role_name, role_class, scope_level, description,
 display_order, is_active FROM nss.role_master WHERE is_active = TRUE ORDER BY display_order`
-via `Depends(get_connection)`, returning the 9 frozen roles as `RoleResponse` models.
+via `Depends(get_connection)`, returning the 10 frozen roles as `RoleResponse` models.
 `GET /api/v1/bootstrap/permissions` mirrors this against `nss.permission_master` — was empty
 through Tier 4; **now returns real rows in Tier 5 (v0.11.0)**, since
 `permission_master`/`role_permission` are now seeded (see Bootstrap RBAC above).
@@ -2379,18 +2395,16 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   (`organization_short_code`, `VARCHAR(5)`, `NOT NULL` vs. the actual `VARCHAR(10)`, nullable
   `organization_code`), and the seeded organization-type codes don't match the design docs' short
   forms — see Key Workflow #4.
-- **Tier-numbering divergence: "Tier 3" means different things in different docs.** The frozen
-  12-tier build order (`IMPLEMENTATION_DEPENDENCY_ORDER.md`, `IMPLEMENTATION-TIER-001`) bundles
-  Person + Organization together as a single "Tier 2," and reserves "Tier 3" for Heritage (see
-  the Tier sequence table above). The actual implementation sequence — and every doc written
-  since, including `CLAUDE.md`, this document's own "Current position"/Key Workflow numbering,
-  the `docs/03_Solution/code_explanations/` per-layer docs, and `docs/03_Solution/api/` contract
-  docs — treats Organization and Person as two separate vertical slices, calling them "Tier 2
-  (Organization)" and "Tier 3 (Person)" respectively. This is a naming collision, not a contract
-  violation: the frozen 12-tier *dependency order* (Foundation → Person/Organization → Heritage →
-  ...) is still being honored, only the *implementation-sequence labels* diverge from it. Needs a
-  human governance decision to reconcile (rename the frozen plan's tiers, or rename the
-  implementation-sequence labels) — not a doc edit here.
+- **Tier numbering is now unified (former "Tier 3" collision resolved).**
+  `IMPLEMENTATION_DEPENDENCY_ORDER.md` (`IMPLEMENTATION-TIER-001`) has been restructured to the
+  single agreed build-order sequence (Tiers 0–13), so "Tier 2" means Organization and "Tier 3"
+  means Person in every doc — `CLAUDE.md`, this document's own "Current position"/Key Workflow
+  numbering, the `docs/03_Solution/code_explanations/` per-layer docs, and `docs/03_Solution/api/`
+  contract docs. Previously the frozen dependency doc bundled Person + Organization at a single
+  "Tier 2" and reserved "Tier 3" for Heritage, which collided with the implementation-sequence
+  labels used everywhere else. Heritage is now Tier 7 by build order — its only hard dependency
+  is Foundation + Person (not Membership; see HER-059), so its position reflects build order, not
+  dependency depth. No open governance item remains here.
 - **`organization_type_master`/`organization_status_master` retirement contradicts multiple
   frozen/governance-aligned documents — needs a human governance decision, not a doc edit here.**
   A migration removed the dedicated `organization_type_master`/`organization_status_master`
@@ -2474,7 +2488,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   column planned, the threshold is meant to be derivable from existing attendance records).
 - **Administration owns a Correspondence Register** (`CORR-DECISION-003`, `CORR-ARCH-001`/
   `002`, all FROZEN) — a generic inward/outward official-communication register
-  (`correspondence`, `correspondence_document`, `correspondence_finance_reference`). Explicitly
+  (`correspondence`, `correspondence_document`, `correspondence_finance_reference`, plus the implemented `correspondence_sequence_counter`). Explicitly
   not a generic application/workflow engine and not an owner of the underlying business matter
   (membership renewals, property matters, governance decisions stay with their respective
   modules) or of financial transactions (Finance remains sole owner per `FIN-ARCH-001`; the
@@ -2570,7 +2584,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   historical/cultural significance (Heritage) — those modules may reference the same physical
   entity without duplicating records. One rule (`AP-066`, whether "sacred articles" fall under
   this module or Heritage's model) is explicitly PENDING.
-- **Two pre-DDL architecture "gates" sit on top of the 12-tier build order**
+- **Two pre-DDL architecture "gates" sit on top of the unified 0–13 build order**
   (`SOL-ARCH-009`/`010`). `FK_DEPENDENCY_GRAPH.md` topologically sorts all 86 frozen tables into
   8 dependency depths (zero cycles) and resolves the audit-actor circular-dependency problem
   (`sangha_sevi` needed for audit columns everywhere, but itself depends on Foundation) via a
@@ -2592,6 +2606,12 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   rules now freeze as the Kendra/Central Mahila Sangha
   (`docs/03_Solution/modules/organization/04_organization_business_rules.md` §28,
   ORG-BR-087–095).
+- **Role catalogue extended again (2026-10-09), implementing the §63 composite auto-grant
+  rule.** `05_administration_table_design.md` §8.7 and `SOL-BOOT-001` §4.2 now describe
+  **10 roles / 7 scope levels** — `NSS_ERP_ADVISORY_BOARD_ADMIN` / `ADVISORY_BOARD` added,
+  held by the Advisory Board President/Secretary (auto-granted from their governance position
+  via `api/services/rbac_service.py`'s `load_composite_grants()`) or a third person manually
+  appointed by `NSS_ERP_ADMIN`.
 - **`nss_db_backend` PostgreSQL role privileges.** ~~RESOLVED~~ — `database/scripts/04_grant_backend.sql`
   now grants `nss_db_backend` `USAGE` on schema `nss`, `SELECT` on all existing tables, and
   (via `ALTER DEFAULT PRIVILEGES`) `SELECT` on future tables — read-only, matching the FastAPI
@@ -2661,9 +2681,9 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
 - **`tests/api/test_bootstrap.py`'s exact-8-role assertions were loosened to "at least 8"/subset
   checks** — verified this is purely defensive test-robustness hardening, not a reflection of
   any actual seed-data change at the time it was written. `database/seed/00_bootstrap/
-  02_role_master.sql` now seeds **9 roles** (3 SYSTEM-class + 6 ORGANIZATIONAL, after adding
-  `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` on 2026-09-25) — the "at least N" phrasing means this
-  didn't require touching the tests.
+  02_role_master.sql` now seeds **10 roles** (3 SYSTEM-class + 7 ORGANIZATIONAL, after adding
+  `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` on 2026-09-25 and `NSS_ERP_ADVISORY_BOARD_ADMIN` on
+  2026-10-09) — the "at least N" phrasing means this didn't require touching the tests.
 - **Tier 5 is a large change set, released as v0.11.0.** (See the Tier
   5 subsection under Architecture and Key Workflow #9 for the functional detail; these gotchas
   cover doc/code drift Tier 5 introduced.)
@@ -2686,7 +2706,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   but the feature it would have backed did ship**, as a "Registration Approvals" tab merged
   into `admin.html`/`admin.js`, and `admin.html`'s row in the File Reference doesn't mention
   that tab; the two new stylesheets `nss-layout.css`/`nss-datepicker.css` also have no entries.
-- **`tests/README.md` counts were re-verified** against the working tree (921 `def test_*` functions: api 567, db 43, security 62, ui 249; `pytest --collect-only` = 1092 items). Re-run both counts after adding tests; the session-scoped/`SAVEPOINT` `conftest.py` architecture description is still accurate.
+- **`tests/README.md` counts were re-verified 2026-10-18** against the working tree (1118 `def test_*` functions: api 702, db 57, security 110, ui 249; `pytest --collect-only -q` = 1317 items: api 810, db 98, security 109, ui 300; collection only, tests not executed). Re-run both counts after adding tests; the session-scoped/`SAVEPOINT` `conftest.py` architecture description is still accurate.
 - **Two independent "approve a pending user" code paths exist and can diverge.**
   `api/routers/claim_approval.py::approve_claim()` and
   `api/routers/admin.py::update_status()` (when activating a `PENDING_APPROVAL` account with no
@@ -2721,6 +2741,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
 
 ## Open questions / TODOs
 
+- Correspondence Register: `tests/api/test_correspondence.py` (26), `tests/security/test_correspondence_security.py` (24) and `tests/db/test_correspondence_schema.py` (14) exist; no frontend page/UI test yet. `03_validate.sh`/`.ps1` check all 4 tables (existence, key columns, FK orphans, unique `reference_number`); the `correspondence_finance_reference.financial_transaction_pk` FK is deferred until Finance.
 - **Push the `v0.11.0` tag** — created locally on `main` (`c8f2c9c`); `git push <remote> v0.11.0`, then
   publish the GitHub Release. Also run `pytest` against a rebuilt local DB (not run when cutting the release).
 - ~~Reconcile `database/scripts/README.md`'s Phase 13 narrative with the actual
@@ -2753,8 +2774,8 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   isolates modules from each other** — `tests/conftest.py`'s new design is a significant
   behavioural change (shared connection + rollback vs. independent per-module clients) with no
   meta-test verifying two modules that both mutate the same row don't leak state between runs.
-- **`03_validate.sh`/`.ps1` still don't cover Family/Membership, and now also don't cover any of
-  the 9 new Tier 5 tables** — the pre-existing staleness item below compounds with this branch.
+- **`03_validate.sh`/`.ps1` give Family/Membership only existence checks** (Governance and Correspondence
+  tables are covered; the `.ps1` lacks the Governance key-column/FK checks the `.sh` has).
 
 - **CORS tests only exercise the unconfigured (default-empty `CORS_ORIGINS`) path** —
   `TestCORS`'s two tests assert `Access-Control-Allow-Origin` is *absent* when no origins are
@@ -2950,6 +2971,14 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   gained a 9th role, `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` (9 roles / 6 scope levels), scoped to
   the newly-frozen Kendra/Central Mahila Sangha; `api/routers/admin.py`'s
   `_ALLOWED_PARENT_TYPES` and its `frontend/assets/js/admin.js` mirror were corrected to match.
+- **§63 composite auto-grant rule implemented (2026-10-09).** `role_master` gained a 10th
+  role, `NSS_ERP_ADVISORY_BOARD_ADMIN` (10 roles / 7 scope levels), scoped to the new
+  `ADVISORY_BOARD` scope level; `body_type_master` gained 3 new body types
+  (`ANCHALIKA_GOVERNING_BODY`, `ZILLA_GOVERNING_BODY`, `PATHA_CHAKRA_GOVERNING_BODY`); and
+  `admin_scope`'s `chk_admin_scope_org_consistency` CHECK constraint was updated to also
+  exempt `KENDRA` / `KENDRA_MAHILA_SANGHA` scope levels from requiring a non-NULL
+  `organization_pk`. See `api/services/rbac_service.py`'s `load_user_context()` /
+  `load_composite_grants()` for the auto-grant logic.
 - ~~**Define the `nss_db_backend` PostgreSQL role**~~ — RESOLVED by
   `database/scripts/04_grant_backend.sql` (read-only `SELECT` grants). See Gotchas.
 - **Resolve the `06_bootstrap_rbac_table_design.md`/`06_correspondence_register_erd.md`

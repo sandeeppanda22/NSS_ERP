@@ -603,9 +603,9 @@ This document explicitly does not establish:
 
 | Rule ID | Rule | Classification |
 |---------|------|---------------|
-| CORR-BR-001 | Reference number format: NSS/{IN\|OUT}/YYYY-YY/NNN | ERP-FROZEN |
+| CORR-BR-001 | Reference number format: `<ORG_SHORT_CODE>/{IN\|OUT}/YYYY-YY/NNN` (CORR-EXT-001; supersedes earlier `NSS/{IN\|OUT}/YYYY-YY/NNN`) | ERP-FROZEN |
 | CORR-BR-002 | Numbering period: 01 April – 31 March | ERP-FROZEN |
-| CORR-BR-003 | Separate sequences per direction per period | ERP-FROZEN |
+| CORR-BR-003 | Separate sequences per direction, per period, per organization (CORR-EXT-001) | ERP-FROZEN |
 | CORR-BR-004 | Reference number immutable once assigned | ERP-FROZEN |
 | CORR-BR-005 | Sender/recipient: exactly one of person/org/external per type | ERP-FROZEN |
 | CORR-BR-006 | Responsible party required for PENDING_ACTION (person OR org) | ERP-FROZEN |

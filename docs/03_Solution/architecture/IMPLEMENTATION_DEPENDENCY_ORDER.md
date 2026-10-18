@@ -176,6 +176,24 @@ module must be completely implemented first.
 
 ---
 
+# 5A. Tier 0 — Bootstrap / RBAC
+
+```text
+TIER 0
+Bootstrap / RBAC
+```
+
+Tier 0 creates the PostgreSQL database, roles, extensions and the `nss`
+schema, then seeds the Bootstrap RBAC tables (`role_master`,
+`permission_master`, `role_permission`), which carry zero FK dependencies.
+
+This is a DDL-sequencing / build-order label (see `BOOTSTRAP_ARCHITECTURE.md`,
+`SOL-ARCH-011`), not a new module — ownership of the RBAC tables stays with
+Administration. It precedes Foundation so that audit-actor identity has
+somewhere to resolve.
+
+---
+
 # 6. Tier 1 — Foundation
 
 ```text
@@ -216,25 +234,27 @@ Before proceeding to Tier 2:
 
 ---
 
-# 8. Tier 2 — Person and Organization
+# 8. Tier 2 — Organization; Tier 3 — Person
 
 ```text
 TIER 2
-Person
 Organization
+
+TIER 3
+Person
 ```
 
-These are the two major identity/structural domains.
-
-They may be developed as two closely coordinated vertical slices.
+These are the two major identity/structural domains, now implemented as two
+separate vertical slices in the unified build order: Organization at Tier 2,
+Person at Tier 3.
 
 Recommended sequence:
 
 ```text
-Person
+Organization
    DB → API → UI
         ↓
-Organization
+Person
    DB → API → UI
 ```
 
@@ -290,9 +310,9 @@ Kendra, Sakha and Patha Chakra remain Organization Types.
 
 ---
 
-# 11. Tier 2 Exit Criteria
+# 11. Tier 2–3 Exit Criteria (Organization + Person)
 
-Before Tier 3:
+Before Tier 4:
 
 * Person identity operational;
 * Organization hierarchy operational;
@@ -304,14 +324,18 @@ Before Tier 3:
 
 ---
 
-# 12. Tier 3 — Heritage
+# 12. Tier 7 — Heritage
 
 ```text
-TIER 3
+TIER 7
 Heritage
 ```
 
 Heritage consumes Foundation and Person-related capabilities.
+
+Heritage's only hard dependency is Foundation + Person (it does NOT depend on
+Membership — see HER-059); it is scheduled at Tier 7 by build order, not by
+dependency depth, and could physically be created much earlier.
 
 Recommended vertical slice:
 
@@ -469,12 +493,13 @@ Before operational modules proceed:
 
 ---
 
-# 20. Tier 6 — Attendance and Governance
+# 20. Tier 6 — Governance, Attendance and Assets & Property
 
 ```text
 TIER 6
-Attendance
 Governance
+Attendance
+Assets & Property
 ```
 
 These modules depend on the core identity and organizational structure.
@@ -526,10 +551,10 @@ Governance remains responsible for governance-specific business rules.
 
 ---
 
-# 24. Tier 7 — Programme & Events
+# 24. Tier 8 — Programme & Events
 
 ```text
-TIER 7
+TIER 8
 Programme & Events
 ```
 
@@ -626,10 +651,10 @@ Before starting its database phase:
 
 ---
 
-# 29. Tier 8 — Kumari, Kishor and Sevak
+# 29. Tier 9 — Kumari, Kishor and Sevak
 
 ```text
-TIER 8
+TIER 9
 Kumari
 Kishor
 Sevak
@@ -703,10 +728,10 @@ Deferral does not invalidate their dependency position.
 
 ---
 
-# 34. Tier 9 — Mahila
+# 34. Tier 10 — Mahila
 
 ```text
-TIER 9
+TIER 10
 Mahila
 ```
 
@@ -727,10 +752,10 @@ Its implementation may consist primarily of:
 
 ---
 
-# 35. Tier 10 — Publications and UPBS
+# 35. Tier 11 — Publications and UPBS
 
 ```text
-TIER 10
+TIER 11
 Publications
 UPBS
 ```
@@ -757,10 +782,10 @@ Before UPBS physical implementation:
 
 ---
 
-# 37. Tier 11 — Finance
+# 37. Tier 12 — Finance
 
 ```text
-TIER 11
+TIER 12
 Finance
 ```
 
@@ -832,10 +857,10 @@ Programme & Events does not own financial transactions.
 
 ---
 
-# 41. Tier 12 — Reports and Backup & Technical
+# 41. Tier 13 — Reports and Backup & Technical
 
 ```text
-TIER 12
+TIER 13
 Reports
 Backup & Technical
 ```
@@ -876,29 +901,33 @@ It is not a normal business FK dependency.
 The frozen implementation tier order is:
 
 ```text
+TIER 0   Bootstrap / RBAC
+
 TIER 1   Foundation
 
-TIER 2   Person, Organization
+TIER 2   Organization
 
-TIER 3   Heritage
+TIER 3   Person
 
 TIER 4   Family, Membership
 
 TIER 5   Authentication, Administration, Audit
 
-TIER 6   Attendance, Governance, Assets & Property
+TIER 6   Governance, Attendance, Assets & Property
 
-TIER 7   Programme & Events
+TIER 7   Heritage
 
-TIER 8   Kumari, Kishor, Sevak
+TIER 8   Programme & Events
 
-TIER 9   Mahila
+TIER 9   Kumari, Kishor, Sevak
 
-TIER 10  Publications, UPBS
+TIER 10  Mahila
 
-TIER 11  Finance
+TIER 11  Publications, UPBS
 
-TIER 12  Reports, Backup & Technical
+TIER 12  Finance
+
+TIER 13  Reports, Backup & Technical
 ```
 
 **Status: FROZEN (IMPLEMENTATION-TIER-001)**
@@ -906,18 +935,25 @@ TIER 12  Reports, Backup & Technical
 ### Freeze conditions
 
 - Module count: 22
-- Tier placement reflects physical/schema dependency, not business
-  importance or workflow sequence
+- This is the single unified build-order sequence (Tiers 0–13); it reconciles
+  the former dependency-model numbering (which bundled Person + Organization at
+  Tier 2 and placed Heritage at Tier 3) with the release/build sequence used
+  everywhere else
 - Assets & Property at Tier 6: depends on Foundation + Person +
-  Organization (all available by Tier 2); no hard FK to Finance
-- Finance at Tier 11: owns financial transactions; upstream modules
+  Organization (all available by Tier 3); no hard FK to Finance
+- Heritage at Tier 7: its only hard dependency is Foundation + Person (not
+  Membership — HER-059); scheduled at Tier 7 by build order, not dependency depth
+- Finance at Tier 12: owns financial transactions; upstream modules
   associate with Finance via optional cross-reference, not hard FK
   prerequisite
-- P&E at Tier 7: common event capability after core identity/member
+- P&E at Tier 8: common event capability after core identity/member
   foundations are established
-- Correspondence remains an Administration capability (Tier 5), not a
-  separate module
-- Seva remains within the Sevak module (Tier 8), not a separate module
+- Correspondence remains an Administration capability, not a separate
+  module; moved from Tier 5 to **Tier 6** (owner-confirmed 2026-10-16) —
+  Tier 5 (Authentication + Administration, v0.11.0) is already released
+  without it, so it ships alongside the in-progress Governance/Attendance/
+  Assets & Property work instead of reopening a released tier
+- Seva remains within the Sevak module (Tier 9), not a separate module
 - Weekly Sangha Puja remains Attendance-owned (Tier 6), no P&E
   dependency
 - Pending module-level DDL decisions (ORG-PENDING-001, MEM-PENDING-001,
@@ -1168,7 +1204,7 @@ This is particularly important for:
 # 55. Programme & Events Special Gate
 
 Programme & Events should not be started simply because it appears in
-Tier 7.
+Tier 8.
 
 Before implementation, its architecture must be promoted from:
 
@@ -1454,19 +1490,21 @@ sufficiently stable.
 The recommended high-level spine is:
 
 ```text
-Foundation
+Bootstrap / RBAC
     ↓
-Person
+Foundation
     ↓
 Organization
     ↓
-Heritage
+Person
     ↓
 Family / Membership
     ↓
 Authentication / Administration / Audit
     ↓
-Attendance / Governance
+Governance / Attendance / Assets & Property
+    ↓
+Heritage
     ↓
 Programme & Events
     ↓
@@ -1489,51 +1527,59 @@ every arrow is a physical FK dependency.
 # 71. Current Tier Status
 
 ```text
+TIER 0
+Bootstrap / RBAC
+STATUS: IMPLEMENTED (v0.6.0)
+
 TIER 1
 Foundation
-STATUS: RECOMMENDED FIRST
+STATUS: IMPLEMENTED (v0.7.0)
 
 TIER 2
-Person, Organization
-STATUS: RECOMMENDED
+Organization
+STATUS: IMPLEMENTED (v0.8.0)
 
 TIER 3
-Heritage
-STATUS: RECOMMENDED
+Person
+STATUS: IMPLEMENTED (v0.9.0)
 
 TIER 4
 Family, Membership
-STATUS: RECOMMENDED
+STATUS: IMPLEMENTED (v0.10.0)
 
 TIER 5
 Authentication, Administration, Audit
-STATUS: RECOMMENDED
+STATUS: IMPLEMENTED (v0.11.0)
 
 TIER 6
-Attendance, Governance
-STATUS: RECOMMENDED
+Governance, Attendance, Assets & Property
+STATUS: IN PROGRESS (Governance on feature/tier6-governance; Attendance + Assets & Property not started)
 
 TIER 7
+Heritage
+STATUS: RECOMMENDED
+
+TIER 8
 Programme & Events
 STATUS: PROPOSED / MODULE #21 PENDING FREEZE
 
-TIER 8
+TIER 9
 Kumari, Kishor, Sevak
 STATUS: DEFERRED / DOMAIN IMPLEMENTATION
 
-TIER 9
+TIER 10
 Mahila
 STATUS: CONFIGURATION / INTEGRATION
 
-TIER 10
+TIER 11
 Publications, UPBS
 STATUS: RECOMMENDED
 
-TIER 11
+TIER 12
 Finance
 STATUS: DOCUMENTATION COMPLETE / IMPLEMENTATION PENDING
 
-TIER 12
+TIER 13
 Reports, Backup & Technical
 STATUS: DOWNSTREAM / INFRASTRUCTURE
 ```
@@ -1676,31 +1722,29 @@ FROZEN — IMPLEMENTATION TIER ORDER
 VERTICAL SLICE
 
 **TIER MODEL:**  
-12 FROZEN TIERS (IMPLEMENTATION-TIER-001)
+14 FROZEN TIERS (0–13), UNIFIED BUILD ORDER (IMPLEMENTATION-TIER-001)
 
 **FIRST IMPLEMENTATION:**  
 FOUNDATION
 
 **PROGRAMME & EVENTS:**  
-MODULE #21 — RECONCILIATION COMPLETE (SOL-EVT-007) / IMPLEMENTATION DEFERRED TO TIER 11
+MODULE #21 — RECONCILIATION COMPLETE (SOL-EVT-007) / IMPLEMENTATION DEFERRED TO TIER 8
 
 **ASSETS & PROPERTY:**  
 MODULE #22 — DOCUMENTATION COMPLETE (SOL-AP-001 to SOL-AP-005) / IMPLEMENTATION AT TIER 6
 
 **FINANCE:**  
-DOCUMENTATION COMPLETE / IMPLEMENTATION DEFERRED TO TIER 10
+DOCUMENTATION COMPLETE / IMPLEMENTATION DEFERRED TO TIER 12
 
 **IMPLEMENTATION TIERS:**  
 FROZEN (IMPLEMENTATION-TIER-001)
 
-**PHYSICAL DDL:**  
-FOUNDATION TIER 1 COMPLETE (SOL-ARCH-010)
-
-**API:**  
-NOT STARTED
-
-**UI:**  
-NOT STARTED
+**IMPLEMENTATION STATUS (non-normative; tier order above is unchanged):**  
+TIERS 0-5 IMPLEMENTED AND RELEASED (v0.6.0-v0.11.0) — DDL, API and web UI.  
+TIER 6 IN PROGRESS (uncommitted on `feature/tier6-governance`): Governance DDL (10 tables), API
+(`governance.py`, 46 endpoints) and the Membership change-request workflow are implemented;
+Attendance and Assets & Property (also Tier 6) are NOT started. 64 tables, 15 routers, 201
+endpoints in total. See the root `README.md` Tier-Wise Implementation Status table.
 
 **NEXT:**  
-FOUNDATION API LAYER → FOUNDATION UI → TIER 2 (PERSON + ORGANIZATION)
+VERIFY AND MERGE TIER 6 GOVERNANCE → ATTENDANCE / ASSETS & PROPERTY → TIER 7

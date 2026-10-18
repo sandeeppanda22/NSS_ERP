@@ -142,7 +142,7 @@ releasing every pooled database connection.
 **Requirement**
 
 The 4 Tier 0 Bootstrap endpoints need automated, repeatable verification that they return the
-correct shape, the correct data (8 frozen roles, specific role codes, correct `SYSTEM`-role
+correct shape, the correct data (10 frozen roles, specific role codes, correct `SYSTEM`-role
 scoping), and the correct error codes (404 for a nonexistent role, 422 for a malformed UUID) —
 otherwise a regression in `api/routers/bootstrap.py` or a change to the seed data would only be
 caught by someone manually hitting the endpoints. This file is the executable specification of

@@ -96,6 +96,11 @@ audit-actor FKs deferred to Pass 2).
   organization Organization's business rules now freeze as the Kendra/Central Mahila Sangha
   (`docs/03_Solution/modules/organization/04_organization_business_rules.md` §28,
   ORG-BR-087–095) — the type-to-type parent hierarchy that role's scope depends on.
+- **Role catalogue — extended again (2026-10-09).** §8.7 now lists 10 roles / 7 scope levels:
+  `NSS_ERP_ADVISORY_BOARD_ADMIN` / `ADVISORY_BOARD` added as part of the §63 composite
+  auto-grant rule — held by the Advisory Board President/Secretary (auto-granted from their
+  governance position, see `api/services/rbac_service.py`'s `load_composite_grants()`) or a
+  third person manually appointed by `NSS_ERP_ADMIN`.
 - **Correspondence Register (`CORR-DECISION-003`, `CORR-ARCH-001`/`002`, frozen)** —
   Administration owns a generic inward/outward official-communication register (registration,
   reference numbering, sender/recipient, subject, medium, status/follow-up), explicitly *not* a

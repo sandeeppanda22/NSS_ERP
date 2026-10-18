@@ -66,6 +66,15 @@ home, and the same pattern extends cleanly as new layers are added in the future
   `tests/api/`/`tests/ui/`/`tests/db/`/`tests/security/`** — see `tests/README.md` for the
   current breakdown.
 
+**Tier 6 (Governance) coverage:** none of these five documents narrates Tier 6 yet — the
+Governance router/schemas (`/api/v1/governance`), `admin/credentials` and `membership/change-requests`
+endpoints, the Governance DDL/seed, the `admin.html` Governance nav group and `dashboard.html`
+governance/"My Change Requests" panels, and `tests/api/test_governance.py` /
+`tests/api/test_admin_credentials.py` are documented in `frontend/README.md`, `tests/README.md`,
+`api/README.md`, `database/README.md` and `docs/03_Solution/modules/governance/` instead. In the test
+suite, `tests/conftest.py` now overrides the auditing `get_write_connection` from
+`api.dependencies.auth` (not `api.database`).
+
 Security audit reports for Tiers 0–4 (`TIER0_SECURITY_AUDIT.md` … `TIER4_SECURITY_AUDIT.md`, plus
 the cross-tier `SECURITY_AUDIT_TIER0_4.md`) live at `docs/03_Solution/security/`, not in this
 folder — see that folder's own README for the current index.

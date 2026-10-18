@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > `api/README.md`, `database/README.md`, `frontend/README.md`, `tests/README.md`. Don't append
 > session-by-session narrative here; permanent decisions belong in `docs/00_Project_Governance/GDR/`
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
-> Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`
+> Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
+> Tier 6 (Governance) is in progress, uncommitted on `feature/tier6-governance`
 > (tag is local only until pushed; `git push <remote> v0.11.0`).
 
 ## Commands
@@ -59,6 +60,8 @@ migration tool, no ORM. All tables live in schema `nss` (`search_path` = `nss, p
 4. `03_validate.sh`/`.ps1` — row-count/FK checks (minimums only WARN, never fail);
    Family/Membership/`system_event_log`/`credential_sequence_counter` get existence checks only.
 
+Governance DDL (10 tables, `ddl/08_governance/`) runs as build Phases 11b/11c and Correspondence DDL (4 tables, `ddl/09_correspondence/`; API in `correspondence.py`) as Phase 11d; changing existing-table DDL (e.g. `election.election_type`, widened `admin_scope` CHECK) needs a full rebuild. Optional Phase 15 loads gitignored `seed/demo/nss_demo_seed.sql` when `RUN_DEMO_SEED` is truthy (not mirrored in `render_build.sh`).
+
 A fresh build seeds **no demo Person/Family/Membership data** — only reference data, 175 real
 Sakha branches and the one admin. Real data arrives via `POST /api/v1/register` → admin
 `POST /api/v1/admin/claims/{pk}/approve`.
@@ -79,7 +82,7 @@ Sakha branches and the one admin. Real data arrives via `POST /api/v1/register` 
 FastAPI + raw psycopg2 (`api/`), static Tailwind/DaisyUI/Alpine frontend served by the same app
 (`frontend/`). Routers → `api/schemas/` (Pydantic) with shared logic in `api/helpers.py` and
 `api/services/` (`family_graph.py` BFS, `auth_service.py` Argon2/JWT, `rbac_service.py`
-permission + admin-scope loading). 12 routers, 137 endpoints; inventory: `docs/03_Solution/api/API_CONTRACT.md`.
+permission + admin-scope loading). 15 routers, 201 endpoints (Tier 6 working tree; 137 at v0.11.0); inventory: `docs/03_Solution/api/API_CONTRACT.md`.
 
 **Two DB pools** (`api/database.py`): `get_connection` = `nss_db_backend` (SELECT-only) for reads;
 `get_write_connection` = `nss_db_writer` for every write endpoint. `tests/conftest.py` overrides
@@ -99,6 +102,9 @@ rolled back at teardown — that is what lets the suite pass on a seed-less DB.
   ADMIN-BR-076/077): scoped admins only touch organizations/persons/accounts inside their own
   subtree; `NSS_ERP_ADMIN`/NSS-WIDE is global. Permission alone never confers global reach.
 - `geo_approval.py` (`/admin/geo-entries`) — `FOUNDATION_MANAGE` + admin scope; members propose geography via `POST /foundation/*/propose` (`get_current_user`, active Sangha Sevi required).
+- `governance.py` (Tier 6, 46 endpoints) — `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE` + org scope (`actor_scope_org_pks`/`require_org_in_scope`); `/public/*`, `/elections/open-for-voting` and `/elections/{pk}/votes/self` need login only. `NSS_ERP_ADVISORY_BOARD_ADMIN` is auto-granted by `rbac_service.load_composite_grants()` (§63), not via `user_role`.
+- `membership_change_request.py` (5 endpoints) — member-initiated Sakha Transfer / Apply for Darshak; source-release then destination-accept.
+- `correspondence.py` (Tier 6, 9 endpoints) — `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk` (`require_org_in_scope`/`actor_scope_org_pks`, same model as Foundation/Person/Membership). Status transitions follow the frozen §6.2 seven-row precondition table (business rules doc); reopening (ACTIONED/CLOSED → PENDING_ACTION) requires remarks (§6.3); responsible-party reassignment (§5.4) never itself transitions status.
 - `audit.py` — `AUDIT_VIEW`, read pool only. `field_change_log` is deliberately **not** under
   `/foundation` (enforced by a test).
 
@@ -170,6 +176,9 @@ trailer to commits. Current state: `main` = `develop` = `v0.11.0` (Tier 5 releas
 
 ## Open items
 
+- `correspondence.py` has no frontend page/tab yet (nothing in `frontend/` references it), so there is
+  no `tests/ui/` coverage for it — add one once the Correspondence UI is built, verifying real
+  selectors first per the UI-test convention the other `tests/ui/test_ui_admin_*.py` files follow.
 - There is deliberately no `/forgot-password` page (the flow is inline on `/login`); forgot-password
   OTPs are never delivered (`api/routers/auth.py` TODO) — only visible via `otp_debug`.
 - `/children-stats` and `/stats` recursive CTEs have no depth cap (`/hierarchy` caps at 10).
@@ -179,5 +188,5 @@ trailer to commits. Current state: `main` = `develop` = `v0.11.0` (Tier 5 releas
   no longer provisions one; it 422s on activation when the person has no active `sangha_sevi`.)
 - Pass 2 audit-actor FKs (`*_by_sangha_sevi_pk`) are still unconstrained on all tables.
 - Deferred to later tiers: mobile/email verification, Organization contact-format CHECKs,
-  inactive-person search, i18n, Governance (Tier 6), Kumari (Tier 8), Sevak/Mahila (Tier 9).
+  inactive-person search, i18n, Governance (Tier 6), Kumari/Kishor/Sevak (Tier 9), Mahila (Tier 10).
 - `PERSON_VIEW_SENSITIVE` is seeded but unwired; Aadhaar masking is unconditional.

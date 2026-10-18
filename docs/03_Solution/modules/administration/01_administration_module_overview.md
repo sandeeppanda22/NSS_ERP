@@ -866,6 +866,14 @@ Correspondence Register
 
 Administration owns the official correspondence register for inward and outward communications.
 
+**Tier placement:** moved from Tier 5 to **Tier 6** (owner-confirmed 2026-10-16) —
+see `IMPLEMENTATION_DEPENDENCY_ORDER.md` §44 Freeze conditions. Tier 5
+(Authentication + Administration, v0.11.0) is already released without this
+capability, so it is implemented alongside the in-progress Tier 6
+(Governance, Attendance, Assets & Property) work instead of reopening a
+released tier. Ownership stays with Administration — only the build tier
+moved, not which module owns the capability.
+
 ## 56.1 Scope
 
 ```text
@@ -921,6 +929,49 @@ Domain-specific business requests remain with their owning modules:
 - Capability: **ACCEPTED** (CORR-DECISION-003)
 - Detailed ERD/lifecycle/business rules/table design: **TO BE DOCUMENTED**
 - Physical tables: **NOT YET FROZEN**
+
+## 56.6 Planned Follow-On — Office-Bearer Application (Tier 6, Part 2)
+
+**CORR-DECISION-004 — Office-Bearer Application sequenced after Correspondence Register**
+
+**Status:** DECISION recorded (owner-confirmed 2026-10-15; tier updated
+2026-10-16 to track Correspondence Register's move to Tier 6); business
+rules **PENDING — not yet designed.**
+
+A capability for a member to submit a formal *application addressed to an
+office-bearer position* (e.g. "to the President, Sakha X" / "to the Secretary,
+Advisory Board") is placed in **Tier 6**, the same tier as the Correspondence
+Register, and scheduled as the **second part** of the Correspondence work — to
+begin **only after the Correspondence Register itself is complete** (DDL → API →
+UI). This is a sequencing decision only; it does not authorise design or build.
+
+**Early groundwork laid in Track 1 (owner-confirmed 2026-10-17):** three
+columns were added to `correspondence` while it was still schema-open —
+`sender_person_capacity` (PERSONAL/ORGANIZATIONAL), `sender_person_organization_pk`,
+and `sender_sakha_erp_id_snapshot` — specifically because they will help
+identify who a Track 2 application is from (a member, in what capacity, from
+which Sakha) once that work starts. This is NOT a start on Track 2 design;
+the three open questions below remain unanswered and still gate it.
+
+What is deliberately **not yet decided** (to be confirmed with the owner before
+any DDL/API/UI, per the Documentation-First principle and GOV-BR-093 "Do Not
+Invent Missing Rules"):
+
+- **Ownership** — whether this is an Administration feature or belongs to the
+  domain whose authority is being petitioned (Governance, since the recipient
+  is resolved from `body_member_assignment` office-bearer seats).
+- **Record shape** — whether it reuses a Correspondence Register record (with
+  the office bearer as `responsible_person_pk`) or needs its **own
+  decision-bearing table**, because §12.3 of the Correspondence business rules
+  forbids Correspondence from carrying a domain decision/outcome, and this
+  feature's purpose is to record a decision.
+- **Resolution flow** — submission → review → resolved/rejected statuses,
+  vacancy fallback when the addressed seat is empty, and whether approval ties
+  into governance-body authority (as the GOV-BR-096 forced-removal rule does).
+
+This decision does **not** reopen CORR-DECISION-003's rejection of a *generic*
+Application module (§56.4). It records one specific, named follow-on feature and
+its tier placement — nothing more.
 
 ---
 

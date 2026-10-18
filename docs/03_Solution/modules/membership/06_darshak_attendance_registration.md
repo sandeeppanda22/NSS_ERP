@@ -10,9 +10,9 @@
 | Document ID | SOL-MEM-006 |
 | Domain | Membership |
 | Repository Path | docs/03_Solution/modules/membership/06_darshak_attendance_registration.md |
-| Version | 1.0.0 |
-| Status | Draft |
-| Authority | Project Owner clarification (2026-09-20) |
+| Version | 1.1.0 |
+| Status | Approved |
+| Authority | Project Owner clarification (2026-09-20; request-initiation source added 2026-10-12) |
 | Parent Document | 01_membership_module_overview.md |
 | Related Documents | 04_membership_business_rules.md (MBR-007), 05_membership_table_design.md (§27.1), CROSS_MODULE_PRINCIPLES.md (§20.2, §20.3), DARSHAK_BUSINESS_RULE.md |
 
@@ -156,6 +156,22 @@ normal transfer workflow.
 
 ---
 
+## DAR-009 — Request Initiation Source
+
+A Darshak attendance request may be raised by:
+
+- **the member himself** — `request_source = MEMBER_SELF`, or
+- **an admin, on the member's behalf** — `request_source = ADMIN_AUTOMATIC_ENTRY`
+
+The request form records who raised it (`initiated_by_sangha_sevi_pk`)
+and the `request_source` value. This is a record-keeping distinction
+only — **it does not change, skip, or auto-approve any step of the
+three-step approval in DAR-001**. An admin-initiated ("Automatic
+Entry") request still requires Home Sakha, Parichalak, and Target
+Sakha approval in sequence, exactly like a member-initiated request.
+
+---
+
 # 5. Approval Workflow Status Transitions
 
 ```text
@@ -190,6 +206,12 @@ darshak_attendance_registration_pk   UUID PK  DEFAULT gen_random_uuid()
 sangha_sevi_pk                       FK → sangha_sevi  NOT NULL
 home_organization_pk                 FK → organization  NOT NULL
 attending_organization_pk            FK → organization  NOT NULL
+initiated_by_sangha_sevi_pk          FK → sangha_sevi  NOT NULL
+                                       (who raised the request — the member himself,
+                                       or the admin acting on his behalf)
+request_source                       VARCHAR(20)  NOT NULL
+                                       MEMBER_SELF / ADMIN_AUTOMATIC_ENTRY (DAR-009;
+                                       record-keeping only — does not affect approval)
 darshak_local_number                 VARCHAR(30)  NULL
                                        (assigned on APPROVED — NULL while pending)
 approval_status                      VARCHAR(30)  NOT NULL
@@ -228,6 +250,9 @@ UNIQUE(sangha_sevi_pk) WHERE registration_status = 'ACTIVE'
 
 -- Cannot be Darshak at own home Sakha (DAR-006)
 CHECK(home_organization_pk != attending_organization_pk)
+
+-- Request source controlled (DAR-009)
+CHECK(request_source IN ('MEMBER_SELF', 'ADMIN_AUTOMATIC_ENTRY'))
 
 -- Approval status controlled
 CHECK(approval_status IN (
@@ -338,6 +363,9 @@ Darshak local number is a simple number (not <short_code><sequence> format)
 Darshak does not grant governance rights at attending Sakha
 
 Darshak registration is archived on transfer to attending Sakha
+
+Request initiation source (member self vs. admin automatic entry) is
+record-keeping only — it never changes or skips the three-step approval
 ```
 
 ---

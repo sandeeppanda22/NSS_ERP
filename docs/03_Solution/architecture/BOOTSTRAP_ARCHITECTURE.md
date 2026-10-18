@@ -113,8 +113,8 @@ DDL:
   role_permission          (Depth 1)
 
 Seed:
-  permission catalogue
-  8 frozen roles
+  permission catalogue (25 permissions, incl. GOVERNANCE_* and CORRESPONDENCE_VIEW / CORRESPONDENCE_MANAGE)
+  10 frozen roles (incl. NSS_ERP_ADVISORY_BOARD_ADMIN)
   role-permission mappings
 ```
 
@@ -541,7 +541,7 @@ application layer is operational.
 | PostgreSQL nss_db_owner ≠ ERP NSS_ERP_ADMIN | FROZEN | SOL-ARCH-011 §7.2 |
 | Seed data ≠ ERP transactions (distinct audit contexts) | FROZEN | SOL-ARCH-011 §7.6 |
 | Post-bootstrap operations via authenticated NSS_ERP_ADMIN | FROZEN | SOL-ARCH-011 §7.7 |
-| 8 frozen roles (SOL-ADMIN-004 §8.7) | FROZEN | SOL-ADMIN-004 |
+| 10 frozen roles (SOL-ADMIN-004 §8.7) | FROZEN | SOL-ADMIN-004 |
 | SELF_SERVICE_MEMBER excluded | FROZEN | SOL-ADMIN-004 §8.10 |
 | Permission catalogue | PENDING | Not yet frozen |
 | Person schema | PENDING | Not yet frozen |

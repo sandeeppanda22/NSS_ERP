@@ -614,7 +614,7 @@ Forward-looking: registers a default-privilege rule so that any table `nss_db_ow
 Defines `nss.role_master` — the catalogue of application RBAC roles (e.g.
 `NSS_ERP_ADMIN`). Depth 0 (no FK dependencies) — it's the first table in the entire build
 because `role_permission` (Depth 1) needs it to exist. Without this table there is no RBAC role
-catalogue at all; the 8 frozen roles seeded later would have nowhere to live, and
+catalogue at all; the 10 frozen roles seeded later would have nowhere to live, and
 `role_permission` couldn't be created (its FK targets this table).
 
 **Line-by-line explanation**

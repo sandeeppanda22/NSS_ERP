@@ -62,10 +62,10 @@ Overall solution architecture documentation (cross-module, above the per-module 
   operational refinement, not source-derived; no dedicated counter column planned, threshold is
   derivable from existing attendance records).
 - **`IMPLEMENTATION_DEPENDENCY_ORDER.md`** (`SOL-ARCH-008` / `IMPLEMENTATION-TIER-001`) —
-  12-tier build order across all 22 modules (Programme & Events sits at Tier 7; Assets &
-  Property sits at Tier 6). Status: FROZEN per the document's own header and
-  §44 — **note:** its closing §79 status summary was not updated by that freeze and
-  still reads DRAFT/v0.1.0/21-modules, contradicting the header; needs its own follow-up fix.
+  unified 0–13 build order across all 22 modules (Organization at Tier 2, Person at Tier 3,
+  Heritage at Tier 7, Programme & Events at Tier 8, Finance at Tier 12; Assets & Property sits
+  at Tier 6). Status: FROZEN per the document's own header and §44; its closing §79 status
+  summary now carries the unified tier model (FROZEN/v1.0.0/22-modules, 14 tiers 0–13).
 - **`FK_DEPENDENCY_GRAPH.md`** (`SOL-ARCH-009`) — Physical FK dependency
   graph ("Gate 8") across all 86 frozen/executable tables (+7 Programme & Events candidate
   tables, not yet executable). Resolves the audit-actor circular-dependency problem
@@ -128,7 +128,7 @@ Tailwind CLI, Alpine.js from CDN) that replaced the six standalone Tier 0-4 veri
 Implemented SQL covers 47 tables across Bootstrap RBAC (3), Foundation (15), Organization (1),
 Person (2), Family (6), Membership (14), Authentication (4) and Administration (2); a fresh
 build seeds no demo Person/Family/Membership data (only 175 real Sakha branches and one admin
-superuser). The pytest suite (921 test functions; counts in `tests/README.md`) spans `tests/api/`, `tests/db/`, `tests/security/`
+superuser). The pytest suite (1118 test functions; 1317 collected; counts in `tests/README.md`) spans `tests/api/`, `tests/db/`, `tests/security/`
 and a Playwright `tests/ui/` layer. Deployment infrastructure (`render.yaml`,
 `render_build.sh`) exists but has not yet run in production.
 

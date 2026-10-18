@@ -455,7 +455,7 @@ financial_transaction_pk
 | transaction_date | Date of financial activity | Frozen |
 | description | Transaction description (nullable) | Frozen |
 | person_pk | FK to Person (nullable — donor, member, etc.) | Frozen |
-| membership_pk | FK to Membership (nullable — subscription-related) | Frozen |
+| sangha_sevi_pk | FK to Sangha Sevi (nullable — subscription-related) | Frozen |
 | status | Transaction lifecycle | Frozen concept |
 | is_active | Soft-delete flag | Frozen |
 | Audit metadata | Standard audit fields | Frozen |
@@ -507,7 +507,7 @@ financial_transaction.financial_year_pk
 financial_year.financial_year_pk
 ```
 
-NOT NULL. Every transaction must belong to a Financial Year (FIN-BR-067).
+NOT NULL. Every transaction must belong to a Financial Year (FIN-BR-003).
 
 ---
 
@@ -519,7 +519,7 @@ financial_transaction.financial_scope_pk
 financial_scope.financial_scope_pk
 ```
 
-NOT NULL. Every transaction must belong to a Financial Scope (FIN-BR-066).
+NOT NULL. Every transaction must belong to a Financial Scope (FIN-BR-006).
 
 ---
 
@@ -551,14 +551,17 @@ contributor).
 ## 10.10 Membership Relationship
 
 ```
-financial_transaction.membership_pk
+financial_transaction.sangha_sevi_pk
         ->
 sangha_sevi.sangha_sevi_pk
 ```
 
 Nullable. Used for membership-subscription-related transactions.
 
-The exact Membership FK target depends on the finalized Membership schema.
+Column renamed from `membership_pk` to `sangha_sevi_pk` (2026-10-15, owner-confirmed)
+to match the three-tier Sangha Sevi identity model and the naming convention every
+other FK in this table follows (FK columns name the referenced PK). The target was
+already `sangha_sevi.sangha_sevi_pk`; only the column name was stale.
 
 ---
 
@@ -814,7 +817,7 @@ A transfer to the same scope is not a transfer.
 | financial_scope | organization_pk | Organization |
 | fund_master | organization_pk (Sakha for Sinking Fund) | Organization |
 | financial_transaction | person_pk | Person |
-| financial_transaction | membership_pk | Membership |
+| financial_transaction | sangha_sevi_pk | Membership |
 | financial_receipt | person_pk | Person |
 | financial_payment | person_pk | Person |
 | All tables | created_by_sangha_sevi_pk, updated_by_sangha_sevi_pk | Authentication/Person |

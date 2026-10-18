@@ -138,21 +138,22 @@ These are referenced by both `render_build.sh` (for `psql` bootstrap and `script
        "already exists"/duplicate-key errors as `[SKIP]`. A redeploy against an already-bootstrapped
        database is therefore safe and picks up any newly added table automatically:
        - Phase 0: Bootstrap RBAC (3 tables + seed: roles, permissions, role-permission mappings)
-       - Phase 1-2: Foundation (12 tables + seed)
+       - Phase 1-2: Foundation (14 tables + seed; `system_event_log` is the 15th, created in Phase 14)
        - Phase 3-4: Organization (1 table + address-restriction and Kumari/Sevak uniqueness
          triggers; seed incl. 175 Sakha branches and the ID-sequence sync)
        - Phase 5: Person (2 tables)
        - Phase 6: Family (6 tables + move-transition guard)
-       - Phase 7: Membership (14 tables + Sakha-only trigger)
+       - Phase 7: Membership (16 tables + Sakha-only trigger)
        - *(inline)* ensures `nss_db_owner`/`nss_db_backend`/`nss_db_writer` roles exist
        - Phase 9: Grant `nss_db_backend` read-only access
        - Phase 10: Authentication (5 tables)
        - Phase 11: Administration (2 tables)
-       - Phase 12: Grant `nss_db_writer` write access (auth + admin tables only)
+       - Phase 11b/11c: Governance (10 tables + ballot-immutability triggers; seed: body types, positions, 3 NSS-wide bodies)
+       - Phase 12: Grant `nss_db_writer` write access (`SELECT`/`INSERT`/`UPDATE` on every `nss` table)
        - Phase 13: Admin bootstrap (`python3 scripts/bootstrap_admin.py` — seeds the `SS1`/`P1`
          superuser, default password `Admin@123`; change it immediately after first login)
        - Phase 14: Audit (`system_event_log` + `fn_audit_trigger()` on every `nss.*` table)
-     - There is no demo data: Phase 8 (Tier 4 verification seeds) was removed.
+     - There is no demo data: Phase 8 (Tier 4 verification seeds) was removed, and the optional local-only Phase 15 demo seed (`RUN_DEMO_SEED`) is deliberately **not** in `render_build.sh`.
 3. Uvicorn starts serving FastAPI.
 
 ---
@@ -164,7 +165,7 @@ These are referenced by both `render_build.sh` (for `psql` bootstrap and `script
 | Health endpoint | `https://nss-erp.onrender.com/api/v1/bootstrap/health` | `{"status": "ok", ...}` |
 | Swagger UI | `https://nss-erp.onrender.com/docs` | Interactive API docs |
 | Login page | `https://nss-erp.onrender.com/` | Redirects to `/login` (the standalone Bootstrap Verification UI was retired) |
-| Roles API | `https://nss-erp.onrender.com/api/v1/bootstrap/roles` | 9 frozen roles JSON |
+| Roles API | `https://nss-erp.onrender.com/api/v1/bootstrap/roles` | 10 frozen roles JSON |
 | Admin login | `https://nss-erp.onrender.com/login` | `SS1` / `Admin@123` (seeded by Phase 13), then `/admin` |
 
 ---

@@ -680,3 +680,13 @@ DDL CREATION DEPTHS:
 NEXT:
 DDL CREATION ORDER SCRIPT → FOUNDATION VERTICAL SLICE
 ```
+
+---
+
+# Implementation Note (non-normative)
+
+The graph above is unchanged. The implemented Governance DDL (Tier 6) adds one table the graph
+does not map: `election_vote_participation` (Depth 6; FKs to `election`, `position_master`,
+`person`), and `election_vote.voter_person_pk` is nullable (secret ballots). Implemented
+`body_member_assignment` also carries a NOT NULL FK to `sangha_sevi`. See
+`database/ddl/08_governance/README.md`.

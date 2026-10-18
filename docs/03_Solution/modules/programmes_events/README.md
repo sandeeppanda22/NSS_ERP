@@ -67,7 +67,7 @@ gates that SOL-EVT-006 had left open, resolving what used to be called "Ownershi
 Property is Module #22), "ARCHITECTURALLY JUSTIFIED / RECONCILIATION
 COMPLETE (SOL-EVT-007)" per its own §61 status footer — but "Module #21 ownership formally
 accepted" is still listed as an open precondition to the DB phase. Programme & Events sits at
-Tier 7 of the 12-tier build order in `IMPLEMENTATION_DEPENDENCY_ORDER.md` (`SOL-ARCH-008`,
+Tier 8 of the unified 0–13 build order in `IMPLEMENTATION_DEPENDENCY_ORDER.md` (`SOL-ARCH-008`,
 **FROZEN** as `IMPLEMENTATION-TIER-001`).
 
 ## Current Status

@@ -198,6 +198,37 @@ the applicable body composition rules.
 
 ---
 
+## GOV-BR-011A — Body Composition by Body Type
+
+**Status:** FROZEN (owner-confirmed 2026-10-07)
+
+Each body type may only hold the positions listed below. The seat limit
+counts distinct people currently holding a seat.
+
+| Body type | Allowed positions | Seat limit |
+|---|---|---|
+| Kendra Governing Body | President, Vice-President, Parichalak, Secretary, Assistant Secretary, Treasurer, Mukhya Pujaka (optional), Member | 9 |
+| Advisory Board | Member, President, Secretary | = number of active Sakha Sanghas |
+| Mahila Parichalana Mandali — Kendra | President, Vice-President, Parichalak (common with Kendra), Secretary, Joint Secretary, Treasurer, Member | 9 |
+| Mahila Parichalana Mandali — Sakha | President, Secretary, Cashier (optional) | 3 |
+| Sakha Governing Body | President, Secretary, Cashier, Member | 9 |
+| Sevak Sangha Executive (appointed by the Sakha) | President, Secretary, Cashier | 3 |
+
+Further rules:
+
+- Every position except Member is held by one person per body at a time.
+- Mukhya Pujaka and Parichalak are single NSS-wide posts — one person
+  across all of NSS. The Mukhya Pujaka of NSS exists regardless of a
+  Kendra Governing Body seat; sitting on the GB is optional.
+- The Advisory Board President and Secretary are chosen from among its
+  members — the person must already hold a Member seat on the Board.
+- Body types created later without a rule here are not restricted.
+
+Enforced at the API layer on every new assignment (manual and
+election-result hand-off).
+
+---
+
 # 6. Position Management
 
 ## GOV-BR-012 — Position Master
@@ -457,16 +488,26 @@ for the Mahila Parichalana Mandali.
 
 ## GOV-BR-032 — Mahila Positions
 
-**Status:** FROZEN
+**Status:** FROZEN (corrected 2026-10-07 — see note below)
 
 The nine-member structure consists of:
 
     President
-    Vice President
+    Vice-President
+    Parichalak
     Secretary
-    Assistant Secretary
+    Joint Secretary
     Treasurer
-    Members
+    Members (3)
+
+**Correction note:** this rule previously listed "Assistant Secretary" as the
+sixth office-bearer. The owner has confirmed the Mahila Parichalana Mandali
+and the "Mahila Sangha Governing Body" are the same entity, and that the
+Mahila Sangha Bye-Law (p.9, Section 5) is the authoritative source for this
+body's composition — the Bye-Law names the position **Joint Secretary**, not
+Assistant Secretary, and also includes Parichalak (omitted in the prior
+wording of this rule). Bye-Law text takes precedence over the earlier
+ERP-internal wording per owner decision (2026-10-07).
 
 ---
 
@@ -597,16 +638,167 @@ Election occurs when required.
 This principle is explicitly used for Mahila Parichalana Mandali and aligned
 with the broader governance framework.
 
+**Implementation (2026-10-09).** `election.election_type` carries the mode of
+each cycle and fixes it at creation:
+
+    ELECTION   — contested cycle. Nominations, then a ballot, then results
+                 declared from the tally.
+                 Status path: SCHEDULED -> NOMINATION -> VOTING -> COMPLETED.
+    NOMINATION — selection/consensus cycle. No ballot is held at all; posts
+                 are filled directly from the ACCEPTED nominations and each
+                 result is declared UNCONTESTED with a NULL vote_count.
+                 Status path: SCHEDULED -> NOMINATION -> COMPLETED.
+
+A NOMINATION cycle may not carry a voting window and may not enter the
+VOTING status (`chk_election_nomination_mode_no_voting`), may only produce
+UNCONTESTED or VACANT outcomes, and never carries a vote count. The lifecycle
+transition table is enforced server-side in
+`api/routers/governance.py::_ELECTION_STATUS_TRANSITIONS`; the frontend's
+`govNextStatuses()` mirrors it only to decide which buttons to draw.
+
+---
+
+## GOV-BR-094 — Candidate and Electorate Must Belong to the Body's Own Organization (Subtree-Aware)
+
+**Status:** OWNER-CONFIRMED (2026-10-09); made subtree-aware the same day.
+
+A candidate for an organization-scoped body's post — and a voter in its
+election — may only be a member of THAT organization **or any branch beneath
+it in the hierarchy**. A member of a sibling Sakha may **never** stand for, or
+vote in, another Sakha's election.
+
+The election's `organization_pk` mirrors its body's own org (GOV-BR-059):
+
+    organization_pk IS NOT NULL — org-scoped body (Sakha Governing Body,
+        Sevak Sangha Executive, per-Sakha Mahila Parichalana Mandali, ...).
+        The member's home org (`sangha_sevi.organization_pk`) must be the
+        election's `organization_pk` OR a descendant of it (the subtree
+        rooted at the election org).
+    organization_pk IS NULL — NSS-wide body (Kendra Governing Body, Advisory
+        Board, central Mahila Parichalana Mandali). No home-organization
+        restriction; eligibility for those seats is governed by the body's
+        own composition rules. (Note the separate Advisory Board constraint:
+        no two members may come from the same Sakha.)
+
+**Why subtree, not flat equality.** Membership is held at the Sakha (leaf)
+level: `sangha_sevi.organization_pk` always points to a Sakha, and a member
+belongs to the parent Anchalika / Zilla / Kendra *through* that Sakha. Flat
+equality (home org == election org) is correct **only** for a Sakha-level
+election; for any higher body it would reject every member, because no
+member's home org equals a higher body directly. The check therefore walks
+the subtree rooted at the election's org (a `WITH RECURSIVE` descent over
+`organization.parent_organization_pk`) and accepts any member whose home
+Sakha lies within it. With only Kendra→Sakha seeded today the two behaviours
+coincide; the subtree form keeps the rule correct once Anchalika / Zilla
+tiers exist.
+
+Enforced server-side in `api/routers/governance.py`:
+`_member_org_in_election_subtree` (the shared subtree test), called from
+`_require_candidate_in_own_organization` (candidates, via
+`_require_candidate_eligible`) and `_require_voter_eligible` (voters, via both
+voting channels — officer-recorded `POST /elections/{pk}/votes` and member
+self-service `POST /elections/{pk}/votes/self`). The admin UI additionally
+filters the candidate/proposer and voter typeaheads to the election's org
+subtree via `GET /api/v1/membership/search?organization_pk=…` (also
+subtree-aware), but that is a convenience only — the server checks are the
+authority, so a hand-crafted request cannot slip a sibling-Sakha candidate or
+voter past them.
+
+**Not a Bye-Law citation.** The Kendra Bye-Law does not spell this out for
+Sakha posts (the Sakha-level bye-law is not in the repo); this is an
+owner-confirmed business decision.
+
+---
+
+## GOV-BR-095 — Self-Nomination Is Permitted
+
+**Status:** OWNER-CONFIRMED (2026-10-09)
+
+A candidate may nominate themselves. `proposer_person_pk` is nullable and may
+also equal `candidate_person_pk`; neither is rejected.
+
+The Bye-Law contains no proposer/seconder requirement — the words "nominate",
+"nomination" and "proposer" do not appear in it at all. The proposer field is
+therefore an ERP convenience for recording who put a name forward when that
+is known, not a Bye-Law-mandated prerequisite, and nominations must remain
+valid without it.
+
 ---
 
 # 15. Voting
 
 ## GOV-BR-043 — Voting Eligibility
 
-**Status:** SOURCE-ALIGNED
+**Status:** FROZEN
 
-Only persons satisfying the applicable governance/election eligibility rules
-may vote.
+Per the Bye-Law (Section B, "Memberships"), the three membership types do
+not carry the same electoral standing:
+
+    REGULAR member      — may vote and may stand for any elected post.
+    PROBATIONARY member — may vote (Sakha Sangha matters and the Kendra
+                           General Body), but may NOT stand as President
+                           or Secretary of a Sakha Sangha. (The Bye-Law
+                           allows a Parichalak-approved special exception,
+                           "not to be cited as precedent" — this exception
+                           is a manual/organizational act, not implemented
+                           as a system override.)
+    ASSOCIATE member    — may NOT vote and may NOT stand for any elected
+                           post, at either Sakha or Kendra level. May still
+                           attend functions.
+    HONORARY member      — ERP-operational category, not in the Bye-Law;
+                           treated as non-electoral (same as ASSOCIATE)
+                           until a source rule says otherwise.
+
+A person with no active Sangha Sevi record at all is not an NSS member and
+is categorically ineligible to vote or stand (GOV-BR-056/074).
+
+### GOV-BR-043-A — Parichalak Exception (Amendment, owner-decided 2026-10-14)
+
+**Status:** FROZEN (amendment; the base rule text above is unchanged — this
+section implements the exception the base rule already names but had left
+as "not implemented as a system override.")
+
+The Parichalak-approved exception that lets a PROBATIONARY member stand as
+President or Secretary of a Sakha Sangha is now a recorded system
+exception, not a purely manual act, under these conditions — all required,
+none inferred:
+
+1. **Credential, not category.** The candidate must hold a valid Anumati
+   Patra (`nss.anumati_patra`, `status = 'ACTIVE'` and `valid_to >=
+   CURRENT_DATE`) — matching the project's standing rule that eligibility
+   guards verify the actual credential document, never approximate it as
+   `membership_type = 'PROBATIONARY'`.
+2. **Approver identity.** The exception must name the Parichalak who
+   approved it — resolved as the current active holder of the seeded
+   `PARICHALAK` position (`position_master.position_code = 'PARICHALAK'`,
+   a single NSS-wide seat per `database/seed/08_governance/02_position_master.sql`),
+   via their `sangha_sevi_pk`.
+3. **Reason recorded.** A free-text reason must accompany the approval,
+   so the "not to be cited as precedent" character of each exception is
+   auditable per-nomination, not inferred from the exception's mere
+   existence.
+4. **Not a blanket lift.** The underlying restriction (PROBATIONARY may
+   not stand for Sakha President/Secretary) is unchanged. The exception
+   is per-nomination and additive — it does not change the general rule
+   for any other PROBATIONARY candidate who lacks it.
+
+Modeled on `nss.election_nomination` as `probationary_exception_approver_sangha_sevi_pk`
+(FK → `sangha_sevi`) + `probationary_exception_reason` (TEXT), both-or-neither
+(CHECK). Enforced in `_require_candidate_eligible` (`api/routers/governance.py`).
+
+Membership type is only one half of voter eligibility. The electorate is
+**also** scoped to the body's own organization subtree (GOV-BR-094): a member
+may vote only in elections for their own Sakha or a body above it in the
+hierarchy, never in a sibling Sakha's election. Both are enforced together in
+`_require_voter_eligible` for both voting channels.
+
+Open item (deferred): the Bye-Law's General Body composition clause
+(p.26, "all regular and associate members... will constitute the General
+Body") does not mention Probationary members, which sits awkwardly next to
+the p.14 clause granting Probationary members a vote in the Kendra General
+Body. Not resolved here — flagged for later clarification, not enforced
+either way in code beyond the Sakha/Kendra voting right already stated
+above.
 
 ---
 
@@ -1217,6 +1409,39 @@ The issue must instead be:
 
 ---
 
+## GOV-BR-096 — Forced Removal Requires the Body's Own GB Resolution and President Approval
+
+**Status:** FROZEN (owner-confirmed 2026-10-15)
+
+Removing a member from any position in any governance body is not a unilateral
+administrative act. It requires, in order:
+
+    1. A resolution of that body's own General Body meeting approving the
+       removal (the concerned Sakha's General Body, for a Sevak Sangha
+       Executive seat — Sevak Sangha has no independent GB of its own for
+       this purpose).
+    2. Sign-off from that body's own sitting President, recording the GB
+       meeting's outcome — the President does not decide this on personal
+       judgment, and does not approve a removal they themselves filed purely
+       on their own say-so.
+    3. While the Presidency is vacant, sign-off instead from any other of
+       that body's own currently active office bearers — no fixed Vice-
+       President/Secretary priority order is prescribed; the body's own
+       office bearers decide among themselves who stands in.
+
+The removal may be initiated (requested) by that body's own scoped
+administrator or by one of that body's own currently active office bearers.
+This supersedes the narrower, Advisory-Board-only/super-admin-break-glass-only
+version of this rule first implemented 2026-10-08 (GOV-BR item #18) — the
+underlying PENDING_REMOVAL → ENDED/ACTIVE mechanism is unchanged, only its
+scope and initiator/approver rules are generalized. A nominating body's own
+instant withdrawal of its own appointed nominee (e.g. a Sakha withdrawing its
+Advisory Board MEMBER representative) is not a "removal" under this rule — it
+is the appointing authority un-appointing its own nominee, and remains a
+direct, immediate action.
+
+---
+
 # 42. Governance Rule Summary
 
 | Area | Status |
@@ -1240,6 +1465,7 @@ The issue must instead be:
 | Central RBAC | FROZEN |
 | Central Audit | FROZEN |
 | Governance Position ≠ Application Role | FROZEN |
+| Forced Removal — Body's Own GB + President Approval | FROZEN (owner-confirmed 2026-10-15) |
 | Exact Physical Organization FK | PENDING |
 | Detailed Election Implementation | TABLE/API DESIGN |
 | Vote Secrecy Implementation | PENDING |

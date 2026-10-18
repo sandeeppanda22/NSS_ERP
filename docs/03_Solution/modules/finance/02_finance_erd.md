@@ -843,6 +843,25 @@ The following remain open until Finance Business Rules and Table Design:
 
 These decisions shall not be inferred from this ERD.
 
+### Resolution Status (post-SOL-FIN-004)
+
+Items 1, 3–7 above are resolved by the frozen physical schema in
+SOL-FIN-004 (`financial_scope`, `fund_master`, `financial_transaction`,
+`financial_receipt`, `financial_payment`, `financial_transfer` — no
+separate Income/Expense tables; classification handled via
+`transaction_type`/`transaction_category`). Item 2 (Event) is resolved as:
+Event is not a Finance-owned entity — Finance only exposes `scope_type =
+EVENT` on `financial_scope`. Items 8–12 (double-entry, ledger,
+balances, bank accounts, budgeting) remain deferred — see SOL-FIN-004 §19
+"Not Yet Frozen" and §20 "Tables Explicitly Not Added". Items 13–16
+(donor/member, inter-org transfer, event-finance, authorization) are
+partially addressed via `person_pk`/`sangha_sevi_pk` FKs on
+`financial_transaction` (SOL-FIN-004 §10) and the authorization rules in
+SOL-FIN-003 §11; the exact matrix for non-Kendra organizational levels
+remains PENDING (FIN-BR-044). See also SOL-FIN-003 §21 "Resolved Design
+Decisions" for the equivalent business-rules-level resolution of items
+1–7.
+
 ---
 
 # 29. ERD Status
@@ -858,7 +877,7 @@ DOCUMENT ID:
 SOL-FIN-002
 
 PHYSICAL TABLE DESIGN:
-NOT YET FROZEN
+FROZEN — see SOL-FIN-004 (§28 open questions below resolved there and in SOL-FIN-003 §21)
 
 DDL:
 NOT YET CREATED

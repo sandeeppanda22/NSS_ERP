@@ -165,9 +165,9 @@ python3 -m pytest tests/ -v
 py -m pytest tests/ -v
 ```
 
-**921 test functions (1092 collected items)**, split across four directories: 567 in `tests/api/` (17 files — routers +
-integration coverage), 43 in `tests/db/` (cross-module data integrity, credential-schema and festival-schema
-invariants), 62 in `tests/security/` (auth-gating/401/403/RBAC + CSP/rate-limit/CORS
+**1118 test functions (1317 collected items, `pytest --collect-only`, 2026-10-18)**, split across four directories: 702 in `tests/api/` (21 files — routers +
+integration coverage), 57 in `tests/db/` (cross-module data integrity, credential-schema and festival-schema
+invariants), 110 in `tests/security/` (auth-gating/401/403/RBAC + CSP/rate-limit/CORS
 assertions), and 249 in `tests/ui/` (23 Playwright browser-test files — needs Playwright
 browsers installed and a running app).
 `test_kumari_transition_has_event` and `TestChildrenStats` gracefully `pytest.skip()` against
@@ -339,6 +339,13 @@ actually runs DDL/seed.
 - An **existing** table's seed data was edited (new/changed/removed rows) — seed is skipped
   wholesale for any pre-existing table, so edited seed rows never apply via incremental rebuild.
 - A table was renamed or removed — the old table stays around; nothing in this model drops a table.
+- **Concrete example (2026-10-09, §63 composite auto-grant rule):** `role_master`'s seed gained a
+  10th row (`NSS_ERP_ADVISORY_BOARD_ADMIN`), `body_type_master`'s seed gained 3 rows
+  (`ANCHALIKA_GOVERNING_BODY`, `ZILLA_GOVERNING_BODY`, `PATHA_CHAKRA_GOVERNING_BODY`), and
+  `admin_scope`'s `chk_admin_scope_org_consistency` CHECK constraint was widened to also exempt
+  `KENDRA`/`KENDRA_MAHILA_SANGHA`. On any environment where `role_master`/`body_type_master`/
+  `admin_scope` already exist, a routine rebuild or Render redeploy will skip all three changes
+  — only a full hard rebuild picks them up.
 
 ---
 
@@ -350,20 +357,23 @@ single `02_build.sh` / `02_build.ps1` invocation:
 | Phase | Module | What |
 |------:|--------|------|
 | 0 | Bootstrap RBAC | 3 tables + seed (roles, permissions) |
-| 1 | Foundation DDL | 13 tables, incl. the 5-level geography chain (`country` → `state` → `district` → `city_village` → `postal_code`) and `festival_master`/`festival_calendar_date`; `system_event_log` (14th) is created separately in Phase 14 |
+| 1 | Foundation DDL | 14 tables, incl. the 5-level geography chain (`country` → `state` → `district` → `city_village` → `postal_code`) and `festival_master`/`festival_calendar_date`; `system_event_log` (15th) is created separately in Phase 14 |
 | 2 | Foundation Seed | Master categories, master data, geography, sequences, settings |
 | 3 | Organization DDL | 1 table (includes short_code column, performance indexes) |
 | 4 | Organization Seed | Base organizations, Sakha postal codes, 175 Sakha branches |
 | 5 | Person DDL | 2 tables |
 | 6 | Family DDL | 6 tables (includes performance indexes) |
-| 7 | Membership DDL | 14 tables (includes performance indexes) |
+| 7 | Membership DDL | 16 tables (includes performance indexes) |
 | 8 | *(reserved — no demo data)* | |
 | 9 | Grant Backend | Read-only access for `nss_db_backend` |
 | 10 | Authentication DDL | 5 tables (`user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`) |
 | 11 | Administration DDL | 2 tables (`user_role`, `admin_scope`) |
-| 12 | Grant Writer | Write access for `nss_db_writer` (auth + admin tables only) |
+| 11b | Governance DDL | 10 tables (`body_type_master`, `position_master`, `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`, `election_nomination`, `election_vote`, `election_result`, `election_vote_participation`) + ballot-immutability function/triggers (`11_governance_immutability.sql`) |
+| 11c | Governance Seed | `body_type_master` (8 types), `position_master` (10 positions), `body_master` (3 NSS-wide bodies: Kendra Governing Body, Advisory Board, central Mahila Parichalana Mandali — plus one empty Sakha Governing Body shell per active Sakha organization, 175 rows, no office-holders; members are assigned later via election/appointment) |
+| 12 | Grant Writer | `SELECT`/`INSERT`/`UPDATE` for `nss_db_writer` on every `nss` table |
 | 13 | Admin Bootstrap | Seed NSSAdmin user account (runtime bootstrap via `bootstrap_admin.py`) |
 | 14 | Audit DDL | `system_event_log` table + `fn_audit_trigger()` attached to every `nss.*` table |
+| 15 | Demo Seed *(optional, local dev only)* | `database/seed/demo/nss_demo_seed.sql` (gitignored), run only when `RUN_DEMO_SEED` is truthy; not in `render_build.sh`. Includes demo office-holder assignments (`body_member_assignment`) onto the Phase 11c Sakha Governing Body shells, so local dev has populated governing bodies to test against |
 
 ## Troubleshooting
 

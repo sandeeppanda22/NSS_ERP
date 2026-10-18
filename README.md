@@ -45,7 +45,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 > **Note:** `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md` is the Approved
 > forward-looking decision record — it replaces Bootstrap 5 with Tailwind CSS +
 > DaisyUI + Alpine.js, and adds a hosting/offline plan. FastAPI is now the sole, implemented
-> API layer (Tiers 0-5); the stack below reflects the current codebase.
+> API layer (Tiers 0-6); the stack below reflects the current codebase.
 
 ## Frontend
 
@@ -83,7 +83,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Backend
 
 * FastAPI — the only web/API layer in the codebase (`api/`, raw `psycopg2`, no ORM):
-  12 routers, one per tier/module (per-router endpoint counts: `api/README.md` and
+  15 routers (201 endpoints; `governance.py`, `membership_change_request.py` and `correspondence.py` are Tier 6 and still uncommitted on `feature/tier6-governance`), one per tier/module (per-router endpoint counts: `api/README.md` and
   `docs/03_Solution/api/API_CONTRACT.md`); `bootstrap.py` is the only unauthenticated router
   besides public registration.
   Tiers 1-4 GET endpoints are gated by `require_permission(...)` (Foundation/Organization/
@@ -122,9 +122,12 @@ design philosophy, ensuring that business rules are frozen before implementation
   `DB_PASSWORD`/`DB_HOST`/`DB_PORT` (plus the Tier 5 `DB_WRITE_USER`/`DB_WRITE_PASSWORD`/
   `JWT_SECRET_KEY`) are set manually in the Render dashboard, pointing at an external Neon.dev
   PostgreSQL instance. `render_build.sh` builds the Tailwind CSS, installs Python deps and then
-  runs the DB bootstrap (phases 0-14, DDL + seed) on every deploy, existence-gated per table
+  runs the DB bootstrap (phases 0-14, incl. 11b/11c governance DDL + seed; the optional Phase 15 demo seed via `RUN_DEMO_SEED` exists only in `02_build.sh`/`.ps1`, not here) on every deploy, existence-gated per table
   (`to_regclass`: an existing table's DDL and seed are skipped, only new tables are created and
-  seeded), so a re-run is idempotent; `RUN_DB_BOOTSTRAP` (`true`/`1`/`yes`/`on`,
+  seeded), so a re-run is idempotent — note this means an already-existing table's seed content
+  (or a changed constraint) is never re-applied by a routine redeploy, only by a full hard
+  rebuild, see `docs/03_Solution/architecture/GETTING_STARTED.md` §7a-2; `RUN_DB_BOOTSTRAP`
+  (`true`/`1`/`yes`/`on`,
   case/whitespace-insensitive; default: off) gates **only** the Phase 13 admin seed. Not yet run in production; see
   `docs/03_Solution/architecture/DEPLOYMENT_PROCEDURE.md`.
 
@@ -148,8 +151,9 @@ Browser / HTTP client
 Security Middleware (CORS, rate limiting, security headers, CSP, Cache-Control)
    │
    ▼
-FastAPI (api/main.py — 12 routers: bootstrap, foundation, organization, person, family,
-   │       membership, auth, registration, claim_approval, admin, audit, geo_approval)
+FastAPI (api/main.py — 15 routers: bootstrap, foundation, organization, person, family,
+   │       membership, auth, registration, claim_approval, admin, audit, geo_approval,
+   │       governance, membership_change_request, correspondence — the last three are Tier 6)
    │       JWT + RBAC guards (api/dependencies/), services (api/services/)
    ▼
 psycopg2 connection pools (api/database.py) — read pool (nss_db_backend) + write pool
@@ -685,8 +689,8 @@ See `docs/05_Releases/` for each.
 # Current Development Status
 
 > Bullets under "Completed" record each slice **as it was when delivered/released** (e.g. "no
-> auth", "7 read-only endpoints"). The in-progress Tier 5 has since gated most of those
-> endpoints and added more; the Tier 5 bullet at the end of the list and
+> auth", "7 read-only endpoints"). Tier 5 (released) has since gated most of those
+> endpoints and added more, and Tier 6 (in progress) added more again; the Tier 5/6 bullets at the end of the list and
 > `docs/03_Solution/api/API_CONTRACT.md` carry the current counts.
 
 Completed:
@@ -712,11 +716,12 @@ Completed:
   Foundation's generic `master_data` (categories `ORGANIZATION_TYPE`, 13 values; `STATUS`, 13+
   values, shared across modules) — now consumed by the Tier 2 Organization API (see below). This
   diverges from the frozen 3-table module design — see `docs/PROJECT_DOCUMENTATION.md` →
-  Gotchas. Combined with Foundation, Bootstrap RBAC, Person, Family, Membership, and (Tier 5
-  branch) Authentication + Administration: **48 tables implemented** — see `database/README.md`)
+  Gotchas. Combined with Foundation, Bootstrap RBAC, Person, Family, Membership, Authentication +
+  Administration (Tier 5) and Governance (Tier 6, uncommitted): **64 tables implemented** — see `database/README.md`)
 * Bootstrap RBAC DDL (`role_master`/`permission_master`/`role_permission`, `SOL-BOOT-001`/
-  `SOL-ARCH-011` — DDL implemented and committed; `role_master` seeded with 9 roles;
-  `permission_master`/`role_permission` are now seeded too (Tier 5); ownership stays with Administration,
+  `SOL-ARCH-011` — DDL implemented and committed; `role_master` seeded with 10 roles
+  (incl. `NSS_ERP_ADVISORY_BOARD_ADMIN`, Tier 6); `permission_master` (25 permissions, incl.
+  `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`)/`role_permission` are now seeded too (Tier 5/6); ownership stays with Administration,
   see `docs/PROJECT_DOCUMENTATION.md` → Gotchas for a role-catalogue discrepancy this surfaced)
 * FastAPI Tier 0 Bootstrap API (`api/` — 4 read-only endpoints: health check, roles,
   permissions, role→permissions; no auth, no ORM, raw `psycopg2` against `nss.*`, connects as
@@ -839,7 +844,7 @@ Completed:
   `user_account`+`password_history`; references but doesn't own Administration's 5 RBAC tables;
   no corresponding API/backend implementation exists yet)
 * Governance Module Design (v1.0.0, SOURCE ALIGNED — Unified Body Governance Model + Elections,
-  9 tables; freezes the Mahila Parichalana Mandali term at 3 years, conflicting with the Mahila
+  9 tables designed; the Tier 6 SQL implements 10 — adds `election_vote_participation`; freezes the Mahila Parichalana Mandali term at 3 years, conflicting with the Mahila
   module's own frozen 2-year term — unreconciled, see `docs/PROJECT_DOCUMENTATION.md`)
 * Publications Module Design (v1.0.0, SOURCE ALIGNED + USER REQUIREMENTS — zero new tables,
   reuses Founder & Heritage's publication tables)
@@ -875,10 +880,10 @@ Completed:
   (`15_audit_trigger.sql`, `SOL-AUDIT-004`) that fires on every INSERT/UPDATE/DELETE across
   `nss.*` tables — actor identity comes from per-request session variables, so writes can't
   bypass the audit trail; `api/helpers.py::log_audit()` also records explicitly from write
-  endpoints. **48 tables total** (incl. `post_office`/festival tables added later on the branch). New routers at that point: `auth.py` (8 endpoints then; 10 now), `registration.py` (6 then; 12 now,
-  public), `claim_approval.py` (5), `admin.py` (25 then; 28 now), `audit.py` (1), plus 9 endpoints added to
+  endpoints. **48 tables at release** (incl. `post_office`/festival tables added later on the branch). New routers at that point: `auth.py` (8 endpoints then; 10 now), `registration.py` (6 then; 12 now,
+  public), `claim_approval.py` (5), `admin.py` (25 then; 32 now), `audit.py` (1), plus 9 endpoints added to
   `family.py` and 6 write endpoints added to `foundation.py` (`FOUNDATION_MANAGE`; 8 writes plus 4 member `propose` POSTs now) — **108
-  endpoints at that point (137 now, incl. `geo_approval.py`)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
+  endpoints at that point (137 at the v0.11.0 release, 201 now incl. Tier 6)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
   auth/admin tables). `permission_master`/`role_permission` are seeded. Every Tier 4
   "verification"/demo seed file has been deleted — a fresh build produces **zero demo
   Person/Family/Membership data**; real data comes from the registration/approval flow or the
@@ -887,15 +892,29 @@ Completed:
   session-scoped `SAVEPOINT`-per-module `conftest.py`. See `CLAUDE.md` and
   `docs/PROJECT_DOCUMENTATION.md` for the full, current detail — this bullet is a summary, not
   the source of truth.
+* **Tier 6 — Governance (in progress, uncommitted on `feature/tier6-governance`):**
+  10 new tables under `database/ddl/08_governance/` — `body_type_master`, `position_master`,
+  `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`,
+  `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` — plus
+  `11_governance_immutability.sql` (ballot immutability trigger); seeds (8 body types, 10
+  positions, 3 bodies) under `database/seed/08_governance/`. Membership gains
+  `sakha_local_number_counter` and `membership_change_request` (Phase 7 is now 16 tables);
+  `darshak_attendance_registration` v1.1 and `admin_scope` v1.1 (`ADVISORY_BOARD` scope) changed.
+  Two new routers: `governance.py` (46 endpoints, `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) and
+  `membership_change_request.py` (5 endpoints, Sakha Transfer / Apply for Darshak workflow) and
+  `correspondence.py` (9 endpoints, Correspondence Register, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`) —
+  **201 endpoints, 15 routers, 64 tables total**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
+  (auto-granted by `rbac_service.load_composite_grants`); 25 permissions (adds `CORRESPONDENCE_*`), 10 roles.
 
 Current Focus:
 
-* Verifying Tier 5 (Authentication + Administration, released as v0.11.0) against a bootstrapped database,
-  and pushing the local `v0.11.0` tag.
+* Tier 6 (Governance) implementation and verification on `feature/tier6-governance`, then merge
+  to `develop`. Tier 5 (released as v0.11.0): still pending push of the local `v0.11.0` tag.
 * Reconciling Solution-layer design docs with actual SQL/API implementation across all 22
   documented modules — every module has a complete (or largely complete) design, and seven
   groups have real SQL: Bootstrap RBAC (3 tables), Foundation (15), Organization (1), Person
-  (2), Family (6), Membership (14), Authentication (5) and Administration (2) — 48 tables.
+  (2), Family (6), Membership (16), Authentication (5), Administration (2) and Governance (10) and Correspondence (4)
+  — 64 tables.
   Released API/UI slices: Tier 0 (v0.6.0), Foundation (v0.7.0), Organization (v0.8.0), Person
   (v0.9.0), Family + Membership (v0.10.0, hotfixes through v0.10.4). The pytest suite has grown
   well beyond its v0.10.4 size (410 tests) — see `tests/README.md` for current counts and the
@@ -914,21 +933,22 @@ Each tier follows the vertical slice pattern: **DB -> API -> Web UI -> Flutter M
 | **2** | Organization | Org types, statuses, self-referencing hierarchy (1 table; types/statuses sourced from Foundation `master_data`) | Done | Done (7 endpoints at release; 11 now) | Done (folded into `admin.html`) | -- |
 | **3** | Person | Person identity, contact, address (2 tables: `person`, `person_address`) | Done | Done (4 endpoints at release; 5 now) | Done (folded into `admin.html` Person Directory) | -- |
 | **4** | Family, Membership | Family groups/relationships + dynamic relationship graph (5 tables) + membership registration/approval/transfer/lifecycle (12 tables) | Done | Done (14 endpoints at release; 24 now incl. 9 Tier 5 Family endpoints) | Done (folded into `dashboard.html`/`admin.html`) | -- |
-| **5** | Authentication, Administration | `user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`, `user_role`, `admin_scope` (5 auth + 2 admin tables, plus supporting tables added to Family/Membership/Foundation) — RBAC management, JWT, audit | In progress (Tier 5) | Committed, unmerged ( — auth, registration, claim-approval, admin, audit, geo-approval routers: 56 endpoints) | Committed, unmerged ( — login/register/dashboard/admin pages) | -- |
-| **6** | Attendance, Governance, Assets & Property | Weekly sangha puja attendance + review, unified body governance + elections, property/asset custodianship | Not started | Not started | Not started | -- |
+| **5** | Authentication, Administration | `user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`, `user_role`, `admin_scope` (5 auth + 2 admin tables, plus supporting tables added to Family/Membership/Foundation) — RBAC management, JWT, audit | Done (v0.11.0) | Done (auth, registration, claim-approval, admin, audit, geo-approval routers; 108 endpoints at release incl. Tier 1-4 additions) | Done (login/register/dashboard/admin pages) | -- |
+| **6** | Governance (+ Membership change requests); Attendance, Assets & Property still planned | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly puja attendance and property/asset custodianship not started | In progress (uncommitted; 10 governance tables + 2 membership tables) | In progress (`governance.py` 46 + `membership_change_request.py` 5 + `correspondence.py` 9 endpoints; 201 total) | In progress | -- |
 | **7** | Heritage (Founder & Heritage) | Founder record, teachings, objectives, milestones, publications framework (8 tables) | Not started | Not started | Not started | -- |
-| **8** | Kumari Sangha, Kishor Puja | Youth modules — KM/KH identity, annual events, guardian assignment, SS transition | Not started | Not started | Not started | -- |
-| **9** | Mahila Sangha, Sevak Sangha | Mahila governance (unified body model), Sevak volunteer/training/seva | Not started | Not started | Not started | -- |
-| **10** | UPBS, Finance | UPBS event operations (registration, delegate cards, prasad patra) + financial transactions | Not started | Not started | Not started | -- |
-| **11** | Publications, Reports, Audit, Backup | Cross-cutting — publication catalogue, reporting metadata, audit trail, backup records | Not started | Not started | Not started | -- |
-| **12** | Programmes & Events | Common event framework (DRAFT, not frozen) — programme types, event instances, sessions | Not started | Not started | Not started | -- |
+| **8** | Programmes & Events | Common event framework (DRAFT, not frozen) — programme types, event instances, sessions | Not started | Not started | Not started | -- |
+| **9** | Kumari Sangha, Kishor Puja, Sevak Sangha | Youth/seva modules — KM/KH identity, annual events, guardian assignment, SS transition, Sevak volunteer/training/seva | Not started | Not started | Not started | -- |
+| **10** | Mahila Sangha | Mahila governance (unified body model) | Not started | Not started | Not started | -- |
+| **11** | Publications, UPBS | Publication catalogue + UPBS event operations (registration, delegate cards, prasad patra) | Not started | Not started | Not started | -- |
+| **12** | Finance | Financial transactions — Pranami, event fees, publication sales, property income (deliberately late, references upstream domains) | Not started | Not started | Not started | -- |
+| **13** | Reports, Backup & Technical | Cross-cutting — reporting metadata/analytics, backup/restore records, technical administration | Not started | Not started | Not started | -- |
 
 **Legend:**
 - **Done** — implemented and merged to `develop`
 - **Not started** — design docs complete, no implementation yet
 - **--** — Mobile (Flutter) starts after Web UI stabilizes per tier; no mobile work planned until core tiers (0-5) have working web UIs
 
-Tier ordering is driven by FK dependencies — each tier only depends on tables from earlier tiers. Tier 12 (Programmes & Events) is last because it remains DRAFT and cross-cuts nearly everything.
+Tier ordering follows the unified build-order sequence (0–13). Tier 13 (Reports, Backup & Technical) is last because it is downstream of nearly every other module. Programmes & Events (Tier 8) remains DRAFT (not frozen) but provides common event infrastructure for the later programme modules, so it precedes them rather than coming last.
 
 **Release convention:** one git tag per completed tier. Each tag is merged to `main` with a
 release document under `docs/05_Releases/` before the next tier begins.
@@ -942,15 +962,15 @@ release document under `docs/05_Releases/` before the next tier begins.
 | v0.10.0 | Tier 4 | Family + Membership — full vertical slice, family graph, Organization children-stats (**released**) |
 | v0.10.1-v0.10.4 | Tier 4 (hotfixes) | Idempotent DDL/seed, Neon role bootstrap, performance indexes, a11y/perf polish (**released**) |
 | v0.11.0 | Tier 5 | Authentication + Administration — full vertical slice (**released as v0.11.0**) |
-| ... | Tier 6-12 | One tag per tier through Tier 12 |
+| ... | Tier 6-13 | One tag per tier through Tier 13 (Tier 6 Governance is in progress) |
 
 Next Release Target:
 
 ```text
-v0.11.0 — Tier 5 Authentication + Administration: user_account, password_history, RBAC
-management, JWT auth, registration + claim approval, DB-level audit trigger; exposes
-field_change_log via GET /api/v1/audit/change-log; adds the nss_db_writer role and the first
-write endpoints. (Implemented on the feature branch, awaiting verification/merge/tag.)
+Tier 6 Governance — unified body governance (bodies, positions, assignments, acting
+assignments) + elections (nominations, ballots, results, vote participation), the
+Sakha Transfer / Apply for Darshak change-request workflow, ADVISORY_BOARD admin scope.
+(In progress on feature/tier6-governance; no version tag assigned yet.)
 ```
 
 ---
@@ -961,8 +981,8 @@ write endpoints. (Implemented on the feature branch, awaiting verification/merge
 NSS_ERP
 │
 ├── api
-│   ├── routers              (12 routers: bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5 (v0.11.0): auth.py, admin.py, registration.py, claim_approval.py, audit.py, geo_approval.py)
-│   ├── schemas               (bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5: auth.py, admin.py, audit.py, geo_approval.py)
+│   ├── routers              (15 routers: bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5 (v0.11.0): auth.py, admin.py, registration.py, claim_approval.py, audit.py, geo_approval.py; plus, Tier 6: governance.py, membership_change_request.py, correspondence.py)
+│   ├── schemas               (bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5: auth.py, admin.py, audit.py, geo_approval.py; plus, Tier 6: governance.py, membership_change_request.py)
 │   ├── services              (family_graph.py — BFS relationship computation; plus, Tier 5: auth_service.py, rbac_service.py)
 │   ├── dependencies          (Tier 5 — auth.py, rbac.py: FastAPI dependency-injected JWT/RBAC guards)
 │   └── config.py, database.py, helpers.py, middleware.py, error_handlers.py, main.py
@@ -971,8 +991,8 @@ NSS_ERP
 │   └── assets               (js/ — shared nss-*.js helpers, auth.js, org-dashboard.js + per-page files; css/ — badges.css, nss-layout.css, nss-datepicker.css, tailwind.min.css)
 │
 ├── database
-│   ├── ddl                  (00_bootstrap .. 05_membership; plus, Tier 5: 06_authentication, 07_administration)
-│   ├── seed                 (00_bootstrap .. 02_organization hold the SQL seeds, 03_person/04_family/05_membership hold only READMEs; 04_admin — the single admin superuser; no demo data)
+│   ├── ddl                  (00_bootstrap .. 05_membership; plus, Tier 5: 06_authentication, 07_administration; plus, Tier 6: 08_governance)
+│   ├── seed                 (00_bootstrap .. 02_organization and 08_governance hold the SQL seeds, 03_person/04_family/05_membership hold only READMEs; 04_admin — the single admin superuser; demo/ — optional local-only demo seed run via RUN_DEMO_SEED)
 │   └── scripts              (00_create_database.sql .. 06_setup_env.sh, 02_build.sh/.ps1, 03_validate.sh/.ps1, grant scripts)
 │
 ├── scripts                (repo-root Python ops scripts, e.g. `bootstrap_admin.py`; distinct from `database/scripts/`)
