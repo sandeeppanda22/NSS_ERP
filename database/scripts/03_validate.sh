@@ -168,7 +168,9 @@ check_table_exists "permission_master"
 check_table_exists "role_permission"
 
 echo "  Row counts:"
-check_row_count "role_master" 10
+check_row_count "role_master" 11
+check_row_count "permission_master" 28
+check_row_count "role_permission" 155
 
 echo "  Unique constraints:"
 check_no_duplicates "role_master" "role_code"

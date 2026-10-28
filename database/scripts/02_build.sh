@@ -44,7 +44,7 @@
 #   Phase 4  — Organization seed data
 #   Phase 5  — Person DDL (2 tables)
 #   Phase 6  — Family DDL (6 tables)
-#   Phase 7  — Membership DDL (14 tables)
+#   Phase 7  — Membership DDL (16 tables)
 #   Phase 8  — Tier 4 Verification Seed Data (removed — no demo data)
 #   Phase 9  — Grant nss_db_backend read-only access
 #   Phase 10 — Authentication DDL (5 tables: user_account,
@@ -390,7 +390,7 @@ run_sql "family_move_transition_guard" "${DDL_BASE}/04_family/07_family_move_tra
 echo ""
 
 # -------------------------------------------------
-# Phase 7: Membership DDL (14 tables, Depths 2–4)
+# Phase 7: Membership DDL (16 tables, Depths 2–4)
 # Note: sangha_sevi must be created first — all
 #       other membership tables depend on it.
 # -------------------------------------------------

@@ -109,7 +109,9 @@ Check-TableExists "permission_master"
 Check-TableExists "role_permission"
 
 Write-Host "  Row counts:"
-Check-RowCount "role_master" 10
+Check-RowCount "role_master" 11
+Check-RowCount "permission_master" 28
+Check-RowCount "role_permission" 155
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "role_master" "role_code"

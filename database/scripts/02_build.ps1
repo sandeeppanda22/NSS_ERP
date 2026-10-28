@@ -35,7 +35,7 @@
 #   Phase 4  - Organization seed data
 #   Phase 5  - Person DDL (2 tables)
 #   Phase 6  - Family DDL (6 tables)
-#   Phase 7  - Membership DDL (14 tables)
+#   Phase 7  - Membership DDL (16 tables)
 #   Phase 7b - Deferred Foundation audit FKs (16_foundation_audit_fk.sql)
 #   Phase 8  - Tier 4 Verification Seed Data (removed - no demo data)
 #   Phase 9  - Grant nss_db_backend read-only access
@@ -294,7 +294,7 @@ Invoke-Ddl "family_admin"              "family_admin"              "$DdlBase\04_
 Invoke-Sql "family_move_transition_guard" "$DdlBase\04_family\07_family_move_transition_guard.sql"
 Write-Host ""
 
-# Phase 7: Membership DDL (14 tables)
+# Phase 7: Membership DDL (16 tables)
 # Note: sangha_sevi must be created first - all
 #       other membership tables depend on it.
 Write-Host "[Phase 7] Membership - DDL (16 tables + Sakha-only trigger)" -ForegroundColor Cyan
@@ -427,11 +427,12 @@ Write-Host ""
 # (owner-confirmed 2026-10-16). Placed after Governance so Phase 12's
 # writer grant and Phase 14's audit trigger both cover these tables too.
 # -------------------------------------------------
-Write-Host "[Phase 11d] Correspondence - DDL (4 tables)" -ForegroundColor Cyan
+Write-Host "[Phase 11d] Correspondence - DDL (5 tables)" -ForegroundColor Cyan
 Invoke-Ddl "correspondence"                   "correspondence"                   "$DdlBase\09_correspondence\01_correspondence.sql"
 Invoke-Ddl "correspondence_document"          "correspondence_document"          "$DdlBase\09_correspondence\02_correspondence_document.sql"
 Invoke-Ddl "correspondence_finance_reference" "correspondence_finance_reference" "$DdlBase\09_correspondence\03_correspondence_finance_reference.sql"
 Invoke-Ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "$DdlBase\09_correspondence\04_correspondence_sequence_counter.sql"
+Invoke-Ddl "correspondence_approval_step"     "correspondence_approval_step"     "$DdlBase\09_correspondence\05_correspondence_approval_step.sql"
 Write-Host ""
 
 # -------------------------------------------------
