@@ -3,7 +3,7 @@
 Status: DRAFT — SOURCE ALIGNED, v1.0.0/v0.1.0 (lifecycle doc). Full Solution design now 5 files.
 **Tier 6 implementation is in progress (uncommitted on `feature/tier6-governance`)**:
 `database/ddl/08_governance/` (10 tables), `database/seed/08_governance/`, `api/routers/governance.py`
-(46 endpoints), `api/schemas/governance.py`, `tests/api/test_governance.py`. The design docs below
+(55 endpoints), `api/schemas/governance.py`, `tests/api/test_governance.py`. The design docs below
 have not all been reconciled to it (see "Implementation drift"). (The Django prototype, which never had more than an empty
 `governance` app stub, was removed from the repository entirely — see
 `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md`).

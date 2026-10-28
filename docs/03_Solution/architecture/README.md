@@ -120,15 +120,15 @@ Overall solution architecture documentation (cross-module, above the per-module 
 
 The Django-to-FastAPI migration (`TECH_STACK_DECISIONS.md` v1.3) has landed: the Django
 prototype was fully removed and FastAPI is the sole API layer (`api/`: 137 endpoints across 12
-routers, raw psycopg2, no ORM). Released through `v0.11.0` on
+routers at v0.11.0; 241 across 16 routers in the working tree incl. uncommitted Tier 6/9; raw psycopg2, no ORM). Released through `v0.11.0` on
 `main`; **Tier 5 (Authentication + Administration, v0.11.0)** — JWT/RBAC, a second write-capable
 `nss_db_writer` pool, registration + claim approval, admin/audit routers, a DB-level audit
 trigger, a CSP, and a login/register/dashboard/admin frontend (Tailwind/DaisyUI pre-built via
 Tailwind CLI, Alpine.js from CDN) that replaced the six standalone Tier 0-4 verification pages.
-Implemented SQL covers 47 tables across Bootstrap RBAC (3), Foundation (15), Organization (1),
+Implemented SQL covers 47 tables at v0.11.0 (69 in the working tree after Tier 6 Governance/Correspondence/Attendance) across Bootstrap RBAC (3), Foundation (15), Organization (1),
 Person (2), Family (6), Membership (14), Authentication (4) and Administration (2); a fresh
 build seeds no demo Person/Family/Membership data (only 175 real Sakha branches and one admin
-superuser). The pytest suite (1118 test functions; 1317 collected; counts in `tests/README.md`) spans `tests/api/`, `tests/db/`, `tests/security/`
+superuser). The pytest suite (1335 test functions; 1638 collected as of 2026-10-28; counts in `tests/README.md`) spans `tests/api/`, `tests/db/`, `tests/security/`
 and a Playwright `tests/ui/` layer. Deployment infrastructure (`render.yaml`,
 `render_build.sh`) exists but has not yet run in production.
 

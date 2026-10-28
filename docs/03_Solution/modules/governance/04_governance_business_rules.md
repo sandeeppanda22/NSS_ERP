@@ -210,9 +210,28 @@ counts distinct people currently holding a seat.
 | Kendra Governing Body | President, Vice-President, Parichalak, Secretary, Assistant Secretary, Treasurer, Mukhya Pujaka (optional), Member | 9 |
 | Advisory Board | Member, President, Secretary | = number of active Sakha Sanghas |
 | Mahila Parichalana Mandali — Kendra | President, Vice-President, Parichalak (common with Kendra), Secretary, Joint Secretary, Treasurer, Member | 9 |
-| Mahila Parichalana Mandali — Sakha | President, Secretary, Cashier (optional) | 3 |
-| Sakha Governing Body | President, Secretary, Cashier, Member | 9 |
-| Sevak Sangha Executive (appointed by the Sakha) | President, Secretary, Cashier | 3 |
+| Mahila Parichalana Mandali — Sakha | President, Secretary, Treasurer (optional) | 3 |
+| Sakha Governing Body | President, Secretary, Treasurer, Member | 9 |
+| Sevak Sangha Executive (appointed by the Sakha) | President, Secretary, Treasurer | 3 |
+
+> **Superseding note (owner decision, 2026-10-23):** the three rows above marked
+> "Treasurer" previously read "Cashier" in this table. The owner confirmed, after
+> being shown the Mahila Sangha MOA source document's own literal "Cashier" term
+> for this Sakha-level office
+> (`docs/01_Authoritative_References/MAHILA_SANGHA/SECTION-A_MEMORANDUM_AND_
+> REGISTRATION/REF-MS-MOA_Memorandum_and_Registration.md:293`), that TREASURER
+> is to be used uniformly as the governing-body composition position at every
+> tier — Kendra (already Treasurer, unchanged), Sakha Governing Body, Sakha
+> Mahila Parichalana Mandali (optional seat), Anchalika/Zilla/Patha Chakra
+> Governing Bodies, and Sevak Sangha Executive. This knowingly differs from
+> the MOA source document's literal wording for the Sakha-level office — it is
+> a conscious override, not a correction of an error. `CASHIER` is not deleted
+> from `position_master`; it is retained with a redefined scope as an
+> optional, person-to-event assignment (conceptual only — Programmes &
+> Events is an unbuilt/deferred module), distinct from body membership, and
+> is no longer assignable on any governing body. See
+> `api/routers/governance.py::_COMPOSITION_RULES` and
+> `database/seed/08_governance/02_position_master.sql`.
 
 Further rules:
 

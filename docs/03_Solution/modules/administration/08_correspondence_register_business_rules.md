@@ -208,6 +208,22 @@ Note: external_organization fields (sender_external_organization, recipient_exte
 
 **Classification:** ERP-FROZEN
 
+> **Amendment (2026-10-26, owner-confirmed, option 3 of a 3-option proposal — event-driven
+> lifecycle):** "Reassignment does not automatically trigger a state transition" above now holds
+> only for every state EXCEPT the one case where it was itself the blocker: assigning a responsible
+> person or organization to a REGISTERED record — populating either field is §6.2's entire
+> precondition for REGISTERED → PENDING_ACTION, so doing so now auto-advances the record rather
+> than requiring a second, separate `/transition` call. Scope of the amendment, deliberately narrow:
+> - Fires ONLY on REGISTERED → PENDING_ACTION, and only when a party is actually being SET (not
+>   cleared) — clearing responsibility never advances status.
+> - Reassignment at any OTHER state (PENDING_ACTION/ACTIONED/CLOSED) still has no status side
+>   effect — the original bullet stays true there.
+> - The manual `/transition` endpoint is unchanged and still reachable (e.g. to move straight to
+>   ACTIONED/CLOSED, or to reopen with remarks per §6.3).
+> Implementation: `assign_responsible_party()` (`api/routers/correspondence.py`), reusing the same
+> `_set_correspondence_status()` helper `/transition` calls. Test:
+> `tests/api/test_correspondence.py::TestEventDrivenLifecycle`.
+
 ---
 
 # 6. Status and State Transition Rules
@@ -236,6 +252,30 @@ Controlled via Foundation master_data. No additional states shall be introduced 
 | CLOSED → PENDING_ACTION | Remarks required explaining why reopened |
 
 **Classification:** ERP-FROZEN
+
+> **Amendment (2026-10-26, owner-confirmed, option 3 — event-driven lifecycle):** two transitions
+> in this table are now ALSO reachable automatically, as a side effect of a different action,
+> alongside the existing manual `/transition` path (both remain valid; this is additive):
+> - **REGISTERED → PENDING_ACTION** — auto-fires the moment a responsible person/organization is
+>   assigned (see the §5.4 amendment above); "user asserts" becomes "assigning responsibility IS
+>   the assertion" for this one transition.
+> - **PENDING_ACTION → ACTIONED** (and **REGISTERED → ACTIONED**) — auto-fires on the ORIGINAL
+>   letter the moment a reply naming it (`in_reply_to_correspondence_pk`) is created under the
+>   SAME register the original belongs to — sending a reply IS the action. Guarded narrowly: only
+>   fires from REGISTERED or PENDING_ACTION (an already-ACTIONED original is left alone, no-op);
+>   an original that is CLOSED is deliberately NOT reopened by a reply landing on it (CLOSED →
+>   ACTIONED was never a valid transition at all, manual or automatic — an admin who wants that
+>   reopens explicitly via `/transition` with remarks, §6.3); and the register-match guard exists
+>   specifically so a reply cannot be used to mutate an out-of-scope record's status by naming an
+>   arbitrary foreign `correspondence_pk` — `require_org_in_scope()` only ever checks the REPLY's
+>   own register, same as the pre-existing auto-dispatch precedent (§ open items), so same-register
+>   is what keeps this from being a privilege-escalation path.
+> No other row in this table gained an automatic trigger — ACTIONED → CLOSED and the two reopen
+> transitions (§6.3) remain exclusively manual, deliberately: "matter complete" and "why reopened"
+> both require an explicit human assertion no event in this system can stand in for.
+> Implementation: `assign_responsible_party()` and `create_correspondence()`
+> (`api/routers/correspondence.py`), both reusing `_set_correspondence_status()`. Test:
+> `tests/api/test_correspondence.py::TestEventDrivenLifecycle`.
 
 ## 6.3 Remarks on Reopen
 

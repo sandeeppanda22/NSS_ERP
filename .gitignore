@@ -35,3 +35,6 @@ node_modules/
 # Demo / test seed — throwaway test data, never committed, never on Render.
 # Run locally only via RUN_DEMO_SEED=true ./database/scripts/02_build.sh
 database/seed/demo/
+
+clipboard_image_*
+NSS_ERP_PROJECT_CONTEXT.md

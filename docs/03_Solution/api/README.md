@@ -1,7 +1,7 @@
 # docs/03_Solution/api/
 
 API design documentation: request/response contracts for the FastAPI service implemented at
-the root-level `api/` folder (raw psycopg2, no ORM; 15 routers, 201 endpoints — see
+the root-level `api/` folder (raw psycopg2, no ORM; 16 routers, 241 endpoints — see
 `api/README.md` for the running code). Each contract is written per-tier, as its vertical slice
 lands, and stays DRAFT until the tier's implementation is frozen. The four per-tier contracts
 were written when Tiers 0-3 were read-only and unauthenticated; in Tier 5

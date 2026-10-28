@@ -1,8 +1,9 @@
 # NSS ERP Attendance Module
 
-Status: DRAFT design complete (Review Workflow FROZEN) — no Attendance code exists yet (the
-Django prototype, which once had an empty `backend/attendance/` app stub, was removed entirely
-in the Django-to-FastAPI migration); this is greenfield design with zero corresponding code.
+Status: DRAFT design complete (Review Workflow FROZEN). **Implemented (Tier 6, uncommitted, 2026-10-27/28):**
+DDL `database/ddl/10_attendance/` (4 tables, build Phase 11e), API `api/routers/attendance.py`
+(20 endpoints under `/api/v1/attendance`) and the shared UI mixin `frontend/assets/js/attendance-register.js`
+(admin Attendance group + Sakha dashboard register). API/security tests exist (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`, `tests/attendance_support.py`; 156 collected, not yet run against the DB); no UI test.
 
 ---
 

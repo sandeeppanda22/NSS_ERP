@@ -165,14 +165,14 @@ python3 -m pytest tests/ -v
 py -m pytest tests/ -v
 ```
 
-**1118 test functions (1317 collected items, `pytest --collect-only`, 2026-10-18)**, split across four directories: 702 in `tests/api/` (21 files — routers +
-integration coverage), 57 in `tests/db/` (cross-module data integrity, credential-schema and festival-schema
-invariants), 110 in `tests/security/` (auth-gating/401/403/RBAC + CSP/rate-limit/CORS
-assertions), and 249 in `tests/ui/` (23 Playwright browser-test files — needs Playwright
+**1335 test functions (1638 collected items, `pytest --collect-only -qq`, 2026-10-28)**, split across four directories: 842 in `tests/api/` (22 files — routers +
+integration coverage), 57 in `tests/db/` (4 files; cross-module data integrity, credential-schema and festival-schema
+invariants), 136 in `tests/security/` (11 files; auth-gating/401/403/RBAC + CSP/rate-limit/CORS
+assertions), and 300 in `tests/ui/` (25 Playwright browser-test files — needs Playwright
 browsers installed and a running app).
 `test_kumari_transition_has_event` and `TestChildrenStats` gracefully `pytest.skip()` against
 the seed-less database rather than fail. See `tests/README.md` for the full per-file test
-inventory.
+inventory. The Attendance tests (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`) are written but not yet run against the DB.
 
 ---
 
@@ -313,11 +313,10 @@ python3 -m uvicorn api.main:app --reload --port 8001
 py -m uvicorn api.main:app --reload --port 8001
 ```
 
-> **Windows parity note:** `02_build.ps1` has **not yet** been ported to the catalog-check model —
-> it still uses the older "skip on `already exists` error text" approach. The practical result for
-> a new-table-only rebuild is the same (existing tables/rows are left alone, the new table gets
-> created), but it is not the same deterministic mechanism as `02_build.sh`. Ask to have
-> `02_build.ps1` ported if you need the two to match exactly.
+> **Windows parity note:** `02_build.ps1` now uses the same deterministic catalog-check model as
+> `02_build.sh` — `Test-TableExists` calls `to_regclass('nss.<table>')` directly, and
+> `Invoke-Ddl`/`Invoke-Seed` skip DDL+seed for any table already present. Both scripts behave
+> identically for incremental rebuilds.
 
 Read the build output for confirmation:
 
@@ -346,6 +345,35 @@ actually runs DDL/seed.
   `KENDRA`/`KENDRA_MAHILA_SANGHA`. On any environment where `role_master`/`body_type_master`/
   `admin_scope` already exist, a routine rebuild or Render redeploy will skip all three changes
   — only a full hard rebuild picks them up.
+- **Concrete example (2026-10-21, DB-level governance seat-count backstop):** `body_type_master`
+  gained a `max_members` column (`01_body_type_master.sql`, DDL in place + idempotent
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` safety net, same pattern as
+  `master_data.applicable_modules` / `organization.has_own_premises`) and its seed
+  (`seed/08_governance/01_body_type_master.sql`) gained an `UPDATE` setting it to 9 for
+  `KENDRA_GOVERNING_BODY`/`SAKHA_GOVERNING_BODY` and 3 for `SEVAK_SANGHA_EXECUTIVE`/
+  `ANCHALIKA_GOVERNING_BODY`/`ZILLA_GOVERNING_BODY`/`PATHA_CHAKRA_GOVERNING_BODY`. On any
+  environment where `body_type_master` already exists, a routine rebuild or Render redeploy
+  skips the column add and the `UPDATE` — only a full hard rebuild picks them up. The new
+  trigger functions themselves (`12_governance_seat_limits.sql`) are not table-gated (`run_sql`,
+  like `11_governance_immutability.sql`) and so are (re)applied on every build/redeploy
+  regardless; they simply enforce nothing extra on an un-rebuilt environment because
+  `max_members` reads `NULL`.
+- **Concrete example (2026-10-21, Registration-Time Geography Creation):** `city_village`,
+  `postal_code`, and `post_office` each gained a `submitted_by_person_pk` column (DDL in place +
+  idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` safety net, same pattern as
+  `master_data.applicable_modules` / `organization.has_own_premises`) plus a deferred FK to
+  `nss.person` wired in `05_membership/16_foundation_audit_fk.sql` (Phase 7b). `district` is
+  deliberately **not** touched — it is never auto-created at registration. On any environment
+  where these three tables already exist, a routine rebuild or Render redeploy skips the column
+  add entirely — **and this one is not a silent no-op**: `api/routers/registration.py::register()`
+  always calls `resolve_or_create_city_village`/`resolve_or_create_postal_code`/
+  `resolve_or_create_post_office` with `pending_submitter_person_pk` set, and the `INSERT` built
+  when that argument is non-`None` names the column explicitly — so every self-registration that
+  creates a genuinely new geo row 500s with `column "submitted_by_person_pk" does not exist`
+  (mirrors the `election_type` case) until a full hard rebuild. The post-Phase-13 backfill step
+  (see Build Phases below) tolerates the same missing-column condition itself (`[SKIP]`, not
+  `[FAIL]`), so it never breaks the build/redeploy on its own — but the registration 500s above
+  still require the hard rebuild to actually fix.
 
 ---
 
@@ -368,10 +396,11 @@ single `02_build.sh` / `02_build.ps1` invocation:
 | 9 | Grant Backend | Read-only access for `nss_db_backend` |
 | 10 | Authentication DDL | 5 tables (`user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`) |
 | 11 | Administration DDL | 2 tables (`user_role`, `admin_scope`) |
-| 11b | Governance DDL | 10 tables (`body_type_master`, `position_master`, `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`, `election_nomination`, `election_vote`, `election_result`, `election_vote_participation`) + ballot-immutability function/triggers (`11_governance_immutability.sql`) |
+| 11b | Governance DDL | 10 tables (`body_type_master`, `position_master`, `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`, `election_nomination`, `election_vote`, `election_result`, `election_vote_participation`) + ballot-immutability function/triggers (`11_governance_immutability.sql`) + seat-count-limit functions/triggers (`12_governance_seat_limits.sql`, 2026-10-21): a DB-level backstop behind the API's `_COMPOSITION_RULES` — `fn_enforce_body_seat_limit()` caps total active seats per body (from `body_type_master.max_members`, or 8/3 for `MAHILA_PARICHALANA_MANDALI` by `body_master.organization_pk`-nullness), and `fn_enforce_advisory_one_seat_per_sakha()` rejects a second Advisory Board nominee from an already-represented Sakha. Also adds `body_type_master.max_members` (`01_body_type_master.sql`, v1.1) — **existence-gated like the `election_type` case above: a routine rebuild/redeploy against an already-bootstrapped `body_type_master` will NOT add this column or its seeded values; only a full hard rebuild does.** Until then the seat-count triggers see `max_members IS NULL` for every type and the flat-cap check is a no-op (the Mahila/Advisory special cases are unaffected, since they don't depend on this column) |
 | 11c | Governance Seed | `body_type_master` (8 types), `position_master` (10 positions), `body_master` (3 NSS-wide bodies: Kendra Governing Body, Advisory Board, central Mahila Parichalana Mandali — plus one empty Sakha Governing Body shell per active Sakha organization, 175 rows, no office-holders; members are assigned later via election/appointment) |
 | 12 | Grant Writer | `SELECT`/`INSERT`/`UPDATE` for `nss_db_writer` on every `nss` table |
 | 13 | Admin Bootstrap | Seed NSSAdmin user account (runtime bootstrap via `bootstrap_admin.py`) |
+| 13b | Geo Attribution Backfill | `UPDATE`s `city_village`/`postal_code`/`post_office.submitted_by_person_pk` to NSS Admin's person_pk (`P1`) for every row where it's still `NULL` and `submitted_by_sangha_sevi_pk` is also `NULL` (i.e. the bulk-reference-seeded rows from Phase 2, which had no app-level submitter) — attribution consistency, 2026-10-21. Must run after Phase 13 since `P1`'s `person_pk` doesn't exist before it (Phase 2's bulk geo seed runs 11 phases earlier). Idempotent (only touches `NULL` rows); tolerates a missing `submitted_by_person_pk` column (un-rebuilt environment) as `[SKIP]`, not `[FAIL]` |
 | 14 | Audit DDL | `system_event_log` table + `fn_audit_trigger()` attached to every `nss.*` table |
 | 15 | Demo Seed *(optional, local dev only)* | `database/seed/demo/nss_demo_seed.sql` (gitignored), run only when `RUN_DEMO_SEED` is truthy; not in `render_build.sh`. Includes demo office-holder assignments (`body_member_assignment`) onto the Phase 11c Sakha Governing Body shells, so local dev has populated governing bodies to test against |
 

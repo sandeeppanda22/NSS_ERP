@@ -32,7 +32,7 @@ pass on top of Tier 4 was released as **v0.10.4**, merged from branch `performan
 (see Gotchas and "Current position" below).
 
 The codebase today spans Tier 0 through the in-progress Tier 5: the read-only Tier 0-4
-FastAPI application (`api/`) — 15 routers (12 at v0.11.0 + Tier 6 `governance`, `membership_change_request`, `correspondence`), one per tier/module (endpoint counts per router:
+FastAPI application (`api/`) — 16 routers (12 at v0.11.0 + Tier 6 `governance`, `membership_change_request`, `correspondence`, `attendance`; 241 endpoints, decorator-counted), one per tier/module (endpoint counts per router:
 `api/README.md`, `docs/03_Solution/api/API_CONTRACT.md`; no ORM, raw `psycopg2` against `nss.*`) behind a
 cross-tier security middleware stack (security headers, opt-in CORS, rate limiting, and now a
 Content-Security-Policy — see Architecture below), a growing raw-SQL PostgreSQL schema
@@ -120,7 +120,7 @@ security headers
 - **Security middleware:** registered in `api/main.py`, in order (comments there call out that
   order matters — outermost registered last runs first): (1) `SlowAPIMiddleware` — global rate
   limiting via a module-level `Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])`
-  (default `60/minute`, no per-route `@limiter.limit(...)` decorators, so every route shares one
+  (default `300/minute`, raised from 60 on 2026-10-27, no per-route `@limiter.limit(...)` decorators, so every route shares one
   limit); (2) `CORSMiddleware` — only added `if settings.CORS_ORIGINS:` (comma-separated env var,
   default empty ⇒ middleware never registered at all, `allow_methods=["GET", "POST", "PATCH", "DELETE"]`,
   `allow_credentials=True`, never `allow_origins=["*"]`); (3) `api/middleware.py`'s
@@ -140,7 +140,7 @@ security headers
   (not yet updated for CSP/permission-gating — treat as partially stale).
 - **Web/API layer:** FastAPI (`api/`), the only web/API layer in the codebase — the earlier
   Django prototype (`backend/`) has been fully removed. `api/main.py` builds the `FastAPI` app
-  and includes **15 routers** (12 at v0.11.0, plus Tier 6 `governance`, `membership_change_request`, `correspondence`) via a single `app.include_router(...)` call each:
+  and includes **16 routers** (12 at v0.11.0, plus Tier 6 `governance`, `membership_change_request`, `correspondence` and `attendance`) via a single `app.include_router(...)` call each:
   `api/routers/bootstrap.py` (prefix `/api/v1/bootstrap`), `api/routers/foundation.py` (prefix
   `/api/v1/foundation`), `api/routers/organization.py` (prefix `/api/v1/organization`),
   `api/routers/person.py` (prefix `/api/v1/person`), `api/routers/family.py` (prefix
@@ -517,7 +517,7 @@ names, FK references, and index targets.
 
 ```
 NSS_ERP/
-├── api/                          FastAPI application — 15 routers (Tier 0-4 read routers plus Tier 5
+├── api/                          FastAPI application — 16 routers (Tier 0-4 read routers plus Tier 5
 │                                   auth/admin/registration/claim_approval/audit/geo_approval),
 │                                   `services/`, `dependencies/`, `schemas/` layers, see below
 ├── frontend/                      Four Tier 5 pages (`login`/`register`/`dashboard`/`admin` .html)
@@ -541,11 +541,13 @@ NSS_ERP/
 │                                   run by `02_build.sh`/`render_build.sh` Phase 13 to seed the
 │                                   admin superuser with a runtime-generated Argon2 hash
 ├── tests/                        pytest suite, reorganized (Tier 5) into
-│                                   tests/api/ (17 files, one per router/concern incl.
-│                                   test_geo_approval.py), tests/db/ (test_data_integrity.py,
-│                                   test_credential_schema.py, test_festival_schema.py),
-│                                   tests/security/ (7 files), tests/ui/ (23 Playwright
-│                                   browser-test files), and conftest.py at the package root —
+│                                   tests/api/ (22 files, one per router/concern incl.
+│                                   test_geo_approval.py, test_attendance.py), tests/db/ (4 files:
+│                                   test_data_integrity.py, test_credential_schema.py,
+│                                   test_festival_schema.py, test_correspondence_schema.py),
+│                                   tests/security/ (11 files), tests/ui/ (25 Playwright
+│                                   browser-test files), conftest.py at the package root and
+│                                   attendance_support.py (shared Attendance fixtures) —
 │                                   see Setup & running and `tests/README.md` for the current
 │                                   per-file breakdown
 ├── docs/
@@ -614,7 +616,7 @@ api/
 │                       localhost), DB_PORT (default 5432), API_PORT (default 8001),
 │                       DISABLE_DOCS (default false), CORS_ORIGINS (comma-separated, default
 │                       empty ⇒ CORS middleware not registered), RATE_LIMIT (default
-│                       `60/minute`) — read from `api/.env` via python-dotenv;
+│                       `300/minute`) — read from `api/.env` via python-dotenv;
 │                       `Settings.validate()` raises if any required var is missing
 ├── database.py         psycopg2 `ThreadedConnectionPool` — read pool 2-15 conns as `nss_db_backend` plus a write pool 1-5 conns as `nss_db_writer` (`get_write_connection`)
 │                       (read-only); `get_connection()` is a FastAPI generator dependency;
@@ -988,21 +990,23 @@ makes the zero-seed-data change above tolerable: `test_admin.py`/`test_auth.py`/
 `test_registration.py`/etc. create their own throwaway users/persons via `write_conn` and rely on
 rollback for cleanup, rather than depending on any pre-seeded Tier 4 data. Per-file test counts and suite totals: `tests/README.md`.
 
-### Tier 6 (Governance) — in progress, uncommitted on `feature/tier6-governance`
+### Tier 6 (Governance, Correspondence, Membership change requests, Attendance) — on `feature/tier6-governance`, not merged
 
-Not yet released; verified from the working tree (`git status`), not from a release note. Counts below were taken from code: 15 routers / 201 endpoints in `api/main.py` (137 at v0.11.0).
+Not yet released; the Tier 6 core (Governance, Correspondence, Membership change requests) is committed on `feature/tier6-governance` (5 commits ahead of `develop`), while the Tier 6 follow-ups and all of Attendance are uncommitted in the working tree. Counts below were taken from code (decorator count `^@router.(get|post|patch|put|delete)(`): 16 routers / 241 endpoints in `api/main.py` (137 at v0.11.0), 69 `CREATE TABLE`s under `database/ddl/`, 28 permissions, 11 roles.
 
-**Database (`database/ddl/08_governance/`, 10 tables + 1 trigger function).** `body_type_master`, `position_master`, `body_master` (nullable `organization_pk`: NSS-wide bodies have NULL), `body_member_assignment` (partial unique index on active holder; deliberately no DB seat-count limit), `acting_position_assignment`, `election` (`election_type` ELECTION|NOMINATION; a NOMINATION cycle cannot have voting dates or reach VOTING), `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` (records *who* voted, not *what*, enabling secret ballots). `11_governance_immutability.sql` defines `nss.fn_block_update()` and BEFORE UPDATE triggers on `election_vote` and `election_vote_participation`; DELETE stays allowed for the ballot "reset" flow. Seeds (`database/seed/08_governance/`): 8 body types, 10 positions, 3 singleton bodies (KENDRA_GB, ADVISORY_BOARD, KENDRA_MAHILA_PM).
+**Database (`database/ddl/08_governance/`, 10 tables + 1 trigger function).** `body_type_master`, `position_master`, `body_master` (nullable `organization_pk`: NSS-wide bodies have NULL), `body_member_assignment` (partial unique index on active holder; seat-count caps enforced in the API and, since `12_governance_seat_limits.sql`, again by a DB trigger), `acting_position_assignment`, `election` (`election_type` ELECTION|NOMINATION; a NOMINATION cycle cannot have voting dates or reach VOTING), `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` (records *who* voted, not *what*, enabling secret ballots). `11_governance_immutability.sql` defines `nss.fn_block_update()` and BEFORE UPDATE triggers on `election_vote` and `election_vote_participation`; DELETE stays allowed for the ballot "reset" flow. Seeds (`database/seed/08_governance/`): 8 body types, 10 positions, 3 singleton bodies (KENDRA_GB, ADVISORY_BOARD, KENDRA_MAHILA_PM).
 
-**Build scripts.** `02_build.sh/.ps1` and `render_build.sh` gain Phase 11b (governance DDL), 11c (governance seed) and 11d (correspondence DDL, 4 tables in `database/ddl/09_correspondence/`, incl. `correspondence_sequence_counter`; API in `correspondence.py`, schema-only tests in `tests/db/test_correspondence_schema.py`; `03_validate.*` checks existence of 3 of them); Phase 7 grows to 16 tables (`17_sakha_local_number_counter.sql`, `18_membership_change_request.sql`). `03_validate.*` adds a Governance module block. Optional Phase 15 (`RUN_DEMO_SEED`, gitignored `seed/demo/nss_demo_seed.sql`) exists only in `02_build.sh`. Because the build is existence-gated per table, a redeploy over an existing DB will **not** pick up: the `NSS_ERP_ADVISORY_BOARD_ADMIN` role row, the 3 added body types, the widened `admin_scope`/`role_master` CHECKs, or `election.election_type` (all election endpoints then fail with `column "election_type" does not exist`) — a full rebuild is required.
+**Build scripts.** `02_build.sh/.ps1` and `render_build.sh` gain Phase 11b (governance DDL), 11c (governance seed) and 11d (correspondence DDL, 5 tables in `database/ddl/09_correspondence/`, incl. `correspondence_sequence_counter` and `correspondence_approval_step`; Phase 11e = Attendance, 4 tables in `database/ddl/10_attendance/`; `12_governance_seat_limits.sql` adds a DB-level seat-count backstop trigger behind the API's `_COMPOSITION_RULES`; API in `correspondence.py`, schema-only tests in `tests/db/test_correspondence_schema.py`; `03_validate.*` checks existence of 3 of them); Phase 7 grows to 16 tables (`17_sakha_local_number_counter.sql`, `18_membership_change_request.sql`). `03_validate.*` adds a Governance module block. Optional Phase 15 (`RUN_DEMO_SEED`, gitignored `seed/demo/nss_demo_seed.sql`) exists only in `02_build.sh`. Because the build is existence-gated per table, a redeploy over an existing DB will **not** pick up: the `NSS_ERP_ADVISORY_BOARD_ADMIN` role row, the 3 added body types, the widened `admin_scope`/`role_master` CHECKs, or `election.election_type` (all election endpoints then fail with `column "election_type" does not exist`) — a full rebuild is required.
 
-**RBAC.** New permissions `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE` (23 total; 25 with `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`, 140 role mappings) granted to NSS/Kendra/Sakha admins (both) and Anchalika/Zilla/Patha Chakra/Kendra Mahila admins + Auditor (view). New role `NSS_ERP_ADVISORY_BOARD_ADMIN` (scope level `ADVISORY_BOARD`, 10 roles total) is not assigned through `user_role`: `rbac_service.load_composite_grants()` auto-grants it (§63) to holders of PRESIDENT/SECRETARY in the Advisory Board body; `GET /admin/users/{pk}` exposes this as `auto_granted_scopes`.
+**RBAC.** New permissions `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE` (23 total; 25 with `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`; 28 now with `GEO_ENTRY_APPROVE` and `ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE`; 155 role mappings and 11 roles incl. `NSS_ERP_ATTENDANCE_MARKER` in the current seed) granted to NSS/Kendra/Sakha admins (both) and Anchalika/Zilla/Patha Chakra/Kendra Mahila admins + Auditor (view). New role `NSS_ERP_ADVISORY_BOARD_ADMIN` (scope level `ADVISORY_BOARD`, 10 roles total) is not assigned through `user_role`: `rbac_service.load_composite_grants()` auto-grants it (§63) to holders of PRESIDENT/SECRETARY in the Advisory Board body; `GET /admin/users/{pk}` exposes this as `auto_granted_scopes`.
 
-**API.** `api/routers/governance.py` (46 endpoints, `/api/v1/governance`): catalogue CRUD, bodies, assignments (end / `resign` self-service / request-/approve-/reject-removal), `/advisory-board/missing-nominations`, `/me/parichalak-status`, `/bodies/sakha-scope-options`, acting assignments, elections with status transitions, nominations, votes (officer-recorded and `/votes/self`), tally, results and `apply`. Reads use the read pool; writes use `api.dependencies.auth.get_write_connection`. Org scoping goes through `actor_scope_org_pks`/`require_org_in_scope`. `membership_change_request.py` (5 endpoints) implements the Sakha Transfer / Apply-for-Darshak release→accept workflow. `correspondence.py` (9 endpoints, `/api/v1/correspondence`, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk`) covers register/list/detail, status transitions (§6.2; reopen needs remarks), responsible-party assignment and document / finance-reference sub-resources; reference numbers come from `helpers.next_correspondence_reference_number()` backed by `correspondence_sequence_counter` and need the register org's `short_code` (else 422). `admin.py` gains 4 `/credentials/members*` endpoints. `membership.py::search_members` takes an optional subtree-aware `organization_pk`. New helpers in `api/helpers.py`: `next_sakha_local_number`, `close_sakha_affiliation`, `log_patra_history`, `set_membership_credential_status`. For Darshaka (PROBATIONARY) the Local Sakha Number is optional in `registration.py` (`register`, `claim_existing`, via `is_probationary_membership_type`) and is system-generated at admin approval; the register page hides the field only in its standalone "Apply for Darshak" flow (`darshakFlow`).
+**API.** `api/routers/governance.py` (55 endpoints, `/api/v1/governance`; also `/public/my-sakha-bodies`, `/mukhya-pujaka`, `/bodies/{pk}/inherited-positions`, `/me/positions`, `/me/acting-delegations*`, acting-assignment approve/reject): catalogue CRUD, bodies, assignments (end / `resign` self-service / request-/approve-/reject-removal), `/advisory-board/missing-nominations`, `/me/parichalak-status`, `/bodies/sakha-scope-options`, acting assignments, elections with status transitions, nominations, votes (officer-recorded and `/votes/self`), tally, results and `apply`. Reads use the read pool; writes use `api.dependencies.auth.get_write_connection`. Org scoping goes through `actor_scope_org_pks`/`require_org_in_scope`. `membership_change_request.py` (5 endpoints) implements the Sakha Transfer / Apply-for-Darshak release→accept workflow. `correspondence.py` (19 endpoints, `/api/v1/correspondence`, adds `/dispatch`, `/broadcast`, member-facing `/my-applications`, `/addressed-to-me`, `/my-involvements` and the `/approval-steps/*` Sakha-President-then-Kendra chain over `correspondence_approval_step` (`decide_approval_step()`); `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk`) covers register/list/detail, status transitions (§6.2; reopen needs remarks), responsible-party assignment and document / finance-reference sub-resources; reference numbers come from `helpers.next_correspondence_reference_number()` backed by `correspondence_sequence_counter` and need the register org's `short_code` (else 422). `admin.py` gains 4 `/credentials/members*` endpoints. `membership.py::search_members` takes an optional subtree-aware `organization_pk`. New helpers in `api/helpers.py`: `next_sakha_local_number`, `close_sakha_affiliation`, `log_patra_history`, `set_membership_credential_status`. For Darshaka (PROBATIONARY) the Local Sakha Number is optional in `registration.py` (`register`, `claim_existing`, via `is_probationary_membership_type`) and is system-generated at admin approval; the register page hides the field only in its standalone "Apply for Darshak" flow (`darshakFlow`).
 
 **Frontend.** `admin.html`/`admin.js`: Governance nav group (Catalog, Bodies, Assignments, Elections tabs; gated on `canViewGovernance`/`canManageGovernance`). `dashboard.html`/`dashboard.js`: "Open Elections — Cast Your Vote", Governance Bodies view, and "My Change Requests".
 
-**Tests.** `tests/api/test_governance.py` (65), `tests/api/test_admin_credentials.py` (16), `tests/api/test_membership_change_request.py` (28), `tests/api/test_correspondence.py` (26), `tests/db/test_correspondence_schema.py` (14) and security suites for governance (13), membership change requests (11) and correspondence (24). `tests/conftest.py` now imports `get_write_connection` from `api.dependencies.auth`.
+**Attendance (Tier 6, uncommitted).** DDL `database/ddl/10_attendance/`: `weekly_sangha_puja` (one per Sakha per date; SCHEDULED/CONDUCTED is derived, not stored), `weekly_sangha_puja_attendance` (keyed on `sangha_sevi_pk`; `attendance_sakha_pk` is separate from the home Sakha for cross-Sakha/Darshak attendance), `attendance_exception`, `attendance_review` (opened after 3 consecutive ABSENT, `_CONSECUTIVE_ABSENCE_THRESHOLD`). Master data `ATTENDANCE_STATUS`/`ATTENDANCE_EXCEPTION_TYPE` seeded in `01_foundation/02_master_data.sql`. API `api/routers/attendance.py` (20 endpoints, `/api/v1/attendance`): `/pujas`, `/pujas/{pk}/attendance`, `/records`, `/exceptions`, `/reviews*` (close/defer/revisit/escalate-to-president/escalate-to-parichalak/reopen/override), `/watch-list`, `/stats/organizations/{pk}[/members]`, `/stats/members/{pk}`. Marking needs `ATTENDANCE_MANAGE` + admin scope (new `NSS_ERP_ATTENDANCE_MARKER` role or Sakha admin); review actions and exception creation are not permission checks but `_require_review_authority()` — the live Secretary/President seat on the member's home Sakha `SAKHA_GOVERNING_BODY` (`NSS_ERP_ADMIN` overrides). Frontend: `frontend/assets/js/attendance-register.js` is one shared marking mixin installed into both `adminPanel()` (admin.html Attendance group) and the Sakha `org-dashboard.js` tab; the member dashboard has an Attendance tab. Tests: `tests/api/test_attendance.py`, `tests/security/test_attendance_security.py` and `tests/attendance_support.py` (156 collected items, written but not yet run against the DB; no Attendance UI test). Frozen design docs: `docs/03_Solution/modules/attendance/`).
+
+**Tests** (AST `def test_*` counts, 2026-10-28). `tests/api/test_governance.py` (94), `tests/api/test_admin_credentials.py` (16), `tests/api/test_membership_change_request.py` (28), `tests/api/test_correspondence.py` (77), `tests/api/test_attendance.py` (60), `tests/db/test_correspondence_schema.py` (14) and security suites for governance (13), membership change requests (11), correspondence (24) and attendance (17). The Attendance pair plus `tests/attendance_support.py` are written but NOT yet run against the DB; no Attendance UI test exists. `tests/conftest.py` now imports `get_write_connection` from `api.dependencies.auth`.
 
 ### `frontend/` — Login + Registration + Member Dashboard + Administration Dashboard detail
 
@@ -1012,7 +1016,7 @@ Not yet released; verified from the working tree (`git status`), not from a rele
 `nss-logo-original.png`, `ssm-mandir.webp`; `js/`: `login.js`, `register.js`, `dashboard.js`,
 `admin.js`, `auth.js`, `nss-config.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-dialog.js`,
 `nss-location.js`, `nss-combobox.js` (select-or-propose dropdown for geography; loaded by register/dashboard/admin but not yet instantiated by any page), `org-dashboard.js` (new in Tier 5 — shared "Org Dashboard" tab component,
-see below)). See "Tier 5 frontend" below the tree for the per-page detail.
+see below), `attendance-register.js` (Tier 6 shared attendance-marking mixin), `dev-reload.js` (dev-only, injected when `DEV_LIVE_RELOAD`)). See "Tier 5 frontend" below the tree for the per-page detail.
 
 > **⚠ Historical.** The tree immediately below documents the six Tier 0-4 standalone
 > verification pages (`index.html`, `foundation.html`, `organization.html`, `person.html`,
@@ -1485,7 +1489,7 @@ Probationary Member or a Regular Member visiting from another Sakha; it may appe
 display label (dashboards, attendance screens) but must never be a `membership_type_master`
 value in the database.
 
-**Doc/code gap.** Membership, family, attendance, heritage, kumari, kishor, mahila, sevak,
+**Doc/code gap.** Membership, family, attendance (now partly implemented: Tier 6 `attendance.py`, see the Tier 6 section), heritage, kumari, kishor, mahila, sevak,
 administration, audit, authentication (Solution-layer), backup_technical, governance
 (Solution-layer), publications, reports, upbs, finance, programmes_events, person, and
 assets_property all have Solution-layer design docs describing schemas richer than what exists
@@ -1581,7 +1585,7 @@ summarize the full sequence from a clean machine to a running API.
    `dashboard.html`. Only `bootstrap.py` (4 endpoints) and the public `/api/v1/register` and
    `POST /api/v1/auth/login|refresh|forgot-password|reset-password` endpoints are reachable
    without a JWT; everything else is gated per router (see `CLAUDE.md` → Architecture and
-   `docs/03_Solution/api/API_CONTRACT.md`, which lists the 137 v0.11.0 endpoints across 12 routers (Tier 6 raises the total to 201 across 15; not yet in that file) with
+   `docs/03_Solution/api/API_CONTRACT.md`, which lists the 137 v0.11.0 endpoints across 12 routers plus Tier 6/9 sections (the working tree now has 241 across 16) with
    their gates).
 
 5. **Run the tests** (from the repository root, once the database is built per step 2 and
@@ -1600,6 +1604,7 @@ summarize the full sequence from a clean machine to a running API.
    pytest tests/db/test_data_integrity.py # cross-module smoke tests
    pytest tests/api/test_auth.py tests/api/test_admin.py tests/api/test_registration.py \
        tests/api/test_forgot_password.py  # Tier 5
+   pytest tests/api/test_attendance.py tests/security/test_attendance_security.py  # Tier 6 Attendance (not yet run against the DB)
    pytest tests/ui/                       # Playwright browser tests 
    pytest tests/api/test_family.py::TestOrgAdminFamilyFilter::test_filter_by_sakha_code  # one test
    ```
@@ -1680,7 +1685,7 @@ only new tables are created and seeded; non-table objects (`run_sql`) still repo
 | `API_PORT` | `api/.env` | Defaults to `8001` — defined but currently unread; the actual port is hardcoded in the `uvicorn` run command instead, so the two can silently drift if one changes without the other |
 | `DISABLE_DOCS` | `api/.env` | Defaults to `false`; when truthy (`1`/`true`/`yes`), disables `/docs`, `/redoc`, and `/openapi.json` on the FastAPI app (`api/main.py`) |
 | `CORS_ORIGINS` | `api/.env` | Comma-separated allowed origins; defaults to empty, in which case `CORSMiddleware` is never registered at all (no CORS headers on any response) |
-| `RATE_LIMIT` | `api/.env` | Defaults to `"60/minute"` (a `slowapi`/`limits`-style rate spec); applied globally via `SlowAPIMiddleware`, not per-route |
+| `RATE_LIMIT` | `api/.env` | Defaults to `"300/minute"` (a `slowapi`/`limits`-style rate spec); applied globally via `SlowAPIMiddleware`, not per-route |
 
 **Tier 5 additions (v0.11.0):**
 
@@ -1696,6 +1701,7 @@ only new tables are created and seeded; non-table objects (`run_sql`) still repo
 | `CSP_ENABLED` / `CSP_REPORT_ONLY` | `api/.env` | Default `true` / `false` — emit the Content-Security-Policy (as `-Report-Only` when the second is truthy); `script-src` has no `'unsafe-inline'`, so pages may not use inline event handlers |
 | `CSP_SCRIPT_SRC_EXTRA` / `CSP_STYLE_SRC_EXTRA` | `api/.env` | Comma-separated extra CSP origins (e.g. a new CDN) without a code change |
 | `DEBUG_MODE` | `api/.env` | Defaults to `false`; when truthy, `POST /api/v1/auth/forgot-password` echoes the generated OTP back in the response body (`otp_debug`) instead of only logging/emailing it — a deliberate development-only escape hatch, remove once email/SMS delivery exists |
+| `DEV_LIVE_RELOAD` | environment / `api/.env` | Defaults to `false`, development-only. When truthy, `api/main.py` registers `GET /__dev/frontend-version` (unauthenticated; returns a sha256 fingerprint of the sorted `(relative path, mtime_ns)` list of every non-dot file under `frontend/`, so edits, additions and deletions all change it) and `_serve_page()` injects `<script src="/assets/js/dev-reload.js">` before `</body>` on all four pages — the script polls that endpoint every 1s and reloads the tab when the fingerprint changes, so a frontend edit needs no hand refresh. Both the route and the injection are gated on the flag, so with it unset the route does not exist (404) and no page references the script; it must never be set in a deployed environment (the endpoint returns only a digest, so it leaks no paths or timestamps, but it is an unauthenticated change-detection oracle for `frontend/`, and the injected script polls it once a second per open tab). Works under the existing CSP unchanged (external same-origin script + same-origin `fetch`). Usage: `DEV_LIVE_RELOAD=true python3 -m uvicorn api.main:app --reload --port 8001` |
 
 No other configuration surface (feature flags, external service credentials, `ALLOWED_HOSTS`,
 etc.) exists in the code.
@@ -2187,7 +2193,7 @@ diagram above for exact registration order (`SlowAPIMiddleware` → `CORSMiddlew
   `/organization`, `/person`, and `/assets/*` remain normally cacheable).
 - **CORS** — off by default (`CORS_ORIGINS` empty); when set, `CORSMiddleware` allows only the
   listed origins, `GET` only, credentials allowed, never a wildcard origin.
-- **Rate limiting** — on by default (`RATE_LIMIT="60/minute"`), keyed per client IP
+- **Rate limiting** — on by default (`RATE_LIMIT="300/minute"`), keyed per client IP
   (`get_remote_address`), enforced globally (no route currently opts in to a different limit).
 `tests/security/test_security_headers.py` verifies all three — including a real bug it
 caught during development: an earlier version of the middleware configured the `Limiter` but
@@ -2706,7 +2712,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
   but the feature it would have backed did ship**, as a "Registration Approvals" tab merged
   into `admin.html`/`admin.js`, and `admin.html`'s row in the File Reference doesn't mention
   that tab; the two new stylesheets `nss-layout.css`/`nss-datepicker.css` also have no entries.
-- **`tests/README.md` counts were re-verified 2026-10-18** against the working tree (1118 `def test_*` functions: api 702, db 57, security 110, ui 249; `pytest --collect-only -q` = 1317 items: api 810, db 98, security 109, ui 300; collection only, tests not executed). Re-run both counts after adding tests; the session-scoped/`SAVEPOINT` `conftest.py` architecture description is still accurate.
+- **`tests/README.md` counts were re-verified 2026-10-28** against the working tree (1335 `def test_*` functions: api 842, db 57, security 136, ui 300; `pytest --collect-only -qq` = 1638 items: api 965, db 98, security 199, ui 376; collection only, tests not executed). The new Attendance modules (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`, fixtures in `tests/attendance_support.py`; 156 collected) are written but have NOT yet been run against the DB; there is still no Attendance UI test. Re-run both counts after adding tests; the session-scoped/`SAVEPOINT` `conftest.py` architecture description is still accurate.
 - **Two independent "approve a pending user" code paths exist and can diverge.**
   `api/routers/claim_approval.py::approve_claim()` and
   `api/routers/admin.py::update_status()` (when activating a `PENDING_APPROVAL` account with no
@@ -2741,7 +2747,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
 
 ## Open questions / TODOs
 
-- Correspondence Register: `tests/api/test_correspondence.py` (26), `tests/security/test_correspondence_security.py` (24) and `tests/db/test_correspondence_schema.py` (14) exist; no frontend page/UI test yet. `03_validate.sh`/`.ps1` check all 4 tables (existence, key columns, FK orphans, unique `reference_number`); the `correspondence_finance_reference.financial_transaction_pk` FK is deferred until Finance.
+- Correspondence Register: `tests/api/test_correspondence.py` (26), `tests/security/test_correspondence_security.py` (24) and `tests/db/test_correspondence_schema.py` (14) exist (counts drift as tests are added — see `tests/README.md`); the admin Correspondence tab is covered by `tests/ui/test_ui_admin_correspondence.py`. `03_validate.sh`/`.ps1` check existence for the correspondence tables (existence, key columns, FK orphans, unique `reference_number`); the `correspondence_finance_reference.financial_transaction_pk` FK is deferred until Finance.
 - **Push the `v0.11.0` tag** — created locally on `main` (`c8f2c9c`); `git push <remote> v0.11.0`, then
   publish the GitHub Release. Also run `pytest` against a rebuilt local DB (not run when cutting the release).
 - ~~Reconcile `database/scripts/README.md`'s Phase 13 narrative with the actual
@@ -2871,8 +2877,7 @@ entry points converge on the same `sangha_sevi`/`membership_sakha_affiliation` s
 - **Build API endpoints for `heritage`** — SQL DDL exists for none of it yet either; nothing is
   reachable over HTTP (Family and Membership, once also in this category, now have both DDL and
   a released read-only API as of v0.10.0 — see Key Workflow #6).
-- **Decide the scope of `governance` and `attendance`** — Solution-layer designs exist for both,
-  but no DDL or API implementation exists yet for either.
+- **Governance and Attendance are implemented but unreleased** (`governance.py`, `attendance.py`; DDL phases 11b/11e) — decide when `feature/tier6-governance` merges to `develop`/`main`; `attendance.py` has no API/security tests yet.
 - **Build out the FastAPI application beyond Tier 0/1/2/3/4** — per `TECH_STACK_DECISIONS.md`,
   FastAPI is the approved API layer; Tier 0's 4 read-only bootstrap-RBAC endpoints, Tier 1's
   17 read-only Foundation endpoints, and Tier 2's 7 read-only Organization endpoints are all

@@ -493,7 +493,7 @@ Foundation Vertical Slice → actual CREATE TABLE DDL
 
 # Implementation Note (non-normative)
 
-The frozen sequence above is unchanged. The implemented DDL (`database/ddl/`, 64 tables) has
+The frozen sequence above is unchanged. The implemented DDL (`database/ddl/`, 69 tables) has
 tables that are not in the 89-table sequence: Foundation `post_office`, `festival_master`,
 `festival_calendar_date`, `system_event_log`; Family `family_admin`; Authentication
 `registration_claim`, `password_reset_token`, `user_session`; Membership

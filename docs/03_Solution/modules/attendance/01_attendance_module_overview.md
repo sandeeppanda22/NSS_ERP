@@ -1,8 +1,36 @@
 # NSS ERP Attendance Module Overview
 
-Version: 1.0
+Version: 1.1
 
-Status: DRAFT
+Status: FROZEN
+
+> **Amendment (2026-10-27, owner-confirmed) — implementation decisions
+> recorded at build time, resolving this document's §25-equivalent open
+> items:**
+> 1. **Consecutive-absence detection** happens at attendance write-time
+>    (mark/correct), not a scheduled job: the write handler checks the
+>    member's last 3 Weekly Sangha Puja records and opens a review the
+>    moment 3-in-a-row ABSENT is reached (if none is already OPEN).
+> 2. **Operational authority split**, since "Secretary"/"President" are
+>    governance offices, not RBAC roles: *marking* attendance is done by
+>    the Sakha admin OR any of multiple members a Sakha designates as an
+>    Attendance Marker (new role `NSS_ERP_ATTENDANCE_MARKER`, assignable
+>    per-Sakha, multiple holders allowed). *Acting on an Attendance
+>    Review* (close/defer/escalate/approve excused absence/reopen/
+>    override) requires the real Secretary/President seat on that
+>    Sakha's Governing Body (checked against `body_member_assignment`,
+>    not an admin permission) — true to §11-§14's named offices.
+> 3. **Darshak / cross-Sakha** stays decoupled from the pre-existing
+>    `darshak_attendance_registration` table: a puja attendance row only
+>    records *where* attendance happened (`attendance_sakha_pk`) versus
+>    the member's home Sakha; it does not require or check a formal
+>    Darshak registration. Both a casual visit and a registered Darshak
+>    visit show identically as "not home Sakha."
+> 4. **UI scope**: admin-side marking + review workflow, the member's own
+>    attendance history on their dashboard, AND Sakha/Kendra dashboard
+>    cards (per §22/§23) — plus two percentage metrics not previously
+>    named here: attendance percentage per Sakha, and attendance
+>    percentage per member.
 
 ---
 

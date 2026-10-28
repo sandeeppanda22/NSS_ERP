@@ -10,9 +10,18 @@
 | Document ID | SOL-ATT-002 |
 | Domain | Attendance |
 | Repository Path | docs/03_Solution/modules/attendance/02_attendance_erd.md |
-| Version | 1.0.0 |
-| Status | DRAFT |
+| Version | 1.1.0 |
+| Status | FROZEN |
 | Parent Document | 01_attendance_module_overview.md |
+
+---
+
+> **Amendment (2026-10-27, owner-confirmed):** `attendance_review` carries
+> `organization_pk` (the member's home Sakha at trigger time), realizing
+> §3's `ORGANIZATION ||--o{ ATTENDANCE_REVIEW : relates_to` edge as a
+> literal FK (not just a derived relationship). See
+> 01_attendance_module_overview.md's amendment block for the full set of
+> implementation decisions this ERD now reflects.
 
 ---
 

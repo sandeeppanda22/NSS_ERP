@@ -10,9 +10,33 @@
 | Document ID | SOL-ATT-004 |
 | Domain | Attendance |
 | Repository Path | docs/03_Solution/modules/attendance/04_attendance_table_design.md |
-| Version | 1.0.0 |
-| Status | DRAFT |
+| Version | 1.1.0 |
+| Status | FROZEN |
 | Parent Document | 01_attendance_module_overview.md |
+
+---
+
+> **Amendment (2026-10-27, owner-confirmed) — as built in
+> `database/ddl/10_attendance/`:**
+> - All 4 tables use the project's full soft-delete/audit column set
+>   (`created_at`/`created_by_sangha_sevi_pk`/`updated_at`/
+>   `updated_by_sangha_sevi_pk`/`deleted_at`/`deleted_by_sangha_sevi_pk`/
+>   `is_active`), not the abbreviated set this document's §21 named.
+> - `attendance_review` additionally carries `organization_pk` (the
+>   member's home Sakha at trigger time) per the ERD's §3
+>   `ORGANIZATION relates_to ATTENDANCE_REVIEW` edge.
+> - `attendance_review.assigned_to_role` is a plain CHECK-constrained
+>   VARCHAR (`SECRETARY`/`PRESIDENT`/`PARICHALAK`), not a master-data FK
+>   — it names an operational office, resolved against the live
+>   `body_member_assignment` at action time (ATT-042), not a
+>   separately-catalogued value list.
+> - "One OPEN review per member" is enforced in the API layer, not a DB
+>   constraint — `review_status` is master-data driven (FK), so a
+>   partial unique index keyed to a specific status value can't be
+>   expressed in pure DDL without hardcoding a seed-time PK.
+> - `ATTENDANCE_EXCEPTION_TYPE`'s seeded defaults (§11): MEDICAL, TRAVEL,
+>   FAMILY_EMERGENCY, OTHER — extensible via Reference Data, per this
+>   document's own "catalogue may be extended" language.
 
 ---
 

@@ -1,10 +1,29 @@
 # NSS ERP — Attendance Lifecycle
 
 **Document ID:** SOL-ATT-006  
-**Version:** 0.1.0  
-**Status:** DRAFT  
+**Version:** 1.0.0  
+**Status:** FROZEN  
 **Module:** Attendance  
 **Parent System:** Nilachala Saraswata Sangha ERP
+
+---
+
+> **Amendment (2026-10-27, owner-confirmed) — resolves §25's four
+> previously-open items:**
+> - **Detection mechanism**: attendance write-time check (§7), not a
+>   scheduled job — the member's last 3 puja records are checked on
+>   every mark/correct.
+> - **Review reassignment**: not built in this pass — `assigned_to_role`
+>   stays a fixed office name (SECRETARY/PRESIDENT/PARICHALAK); if the
+>   Secretary changes, the NEW Secretary (resolved live from
+>   `body_member_assignment` at action time, never cached) simply gains
+>   authority — no reassignment record needed.
+> - **Membership workflow integration**: out of scope for this pass — a
+>   review's "Membership concern" (§19) is recorded in `remarks` only;
+>   no automated handoff to the Membership module is built.
+> - **Parichalak escalation handling**: out of scope for this pass —
+>   `ESCALATED_TO_PARICHALAK` is a terminal status with no further
+>   in-app action; Parichalak involvement happens outside the ERP.
 
 ---
 
@@ -470,9 +489,10 @@ The following are explicitly prohibited:
 
 ---
 
-# 25. Explicitly Not Frozen Here
+# 25. Explicitly Not Frozen Here (as of 1.0.0 — see 2026-10-27 amendment)
 
-The following lifecycle details are left to implementation:
+The following lifecycle details were left to implementation and are now
+resolved by the amendment block at the top of this document:
 
 ```text
 Exact consecutive-absence detection mechanism (trigger vs scheduled job vs query)
@@ -485,14 +505,19 @@ Exact Parichalak escalation handling workflow
 Exact watch-list threshold (2 vs configurable)
 ```
 
+Notification mechanisms, exact exception-approval UI, and cross-Sakha
+recording UI remain implementation detail (built, not re-frozen here —
+see api/routers/attendance.py and the admin/dashboard UI). The watch-list
+threshold stays 2 (consecutive ABSENT), configurable only by code change.
+
 ---
 
 # 26. Status
 
 ```text
 DOCUMENT STATUS:
-DRAFT
+FROZEN
 
 VERSION:
-0.1.0
+1.0.0
 ```
