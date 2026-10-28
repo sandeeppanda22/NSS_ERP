@@ -74,6 +74,46 @@
 #     this DDL will fail on every election read/write with
 #     'column "election_type" does not exist' — this one is not a
 #     silent no-op, it breaks the governance module outright.
+# and for the 2026-10-21 DB-level governance seat-count backstop:
+#   - database/ddl/08_governance/01_body_type_master.sql (added the
+#     max_members column plus chk_body_type_master_max_members) will
+#     NOT be applied on any environment where body_type_master already
+#     exists.
+#   - database/seed/08_governance/01_body_type_master.sql (added an
+#     UPDATE setting max_members for the 6 fixed-count body types) will
+#     NOT run either, since run_seed skips a pre-existing table's seed
+#     wholesale.
+#   - Net effect on a routine redeploy: nss.fn_enforce_body_seat_limit()
+#     (database/ddl/08_governance/12_governance_seat_limits.sql, wired
+#     below via run_sql so the trigger functions themselves DO get
+#     (re)attached every run) will see max_members IS NULL for every
+#     body type and silently enforce NOTHING beyond the
+#     MAHILA_PARICHALANA_MANDALI/ADVISORY_BOARD special cases, which are
+#     derived independently of this column. This is a silent
+#     under-enforcement, not a crash — the existing API-layer
+#     _COMPOSITION_RULES checks in api/routers/governance.py remain the
+#     primary, unaffected guard either way. Only a full hard rebuild
+#     makes the DB-level flat-count backstop active for
+#     KENDRA_GOVERNING_BODY / SAKHA_GOVERNING_BODY / SEVAK_SANGHA_EXECUTIVE
+#     / ANCHALIKA_GOVERNING_BODY / ZILLA_GOVERNING_BODY /
+#     PATHA_CHAKRA_GOVERNING_BODY.
+# and for the 2026-10-21 Registration-Time Geography Creation feature:
+#   - database/ddl/01_foundation/11_city_village.sql, 12_postal_code.sql,
+#     13_post_office.sql (added submitted_by_person_pk + its Phase 7b FK
+#     to nss.person) will NOT be applied on any environment where those
+#     tables already exist. Unlike the max_members case, this is NOT a
+#     silent no-op: api/routers/registration.py always calls
+#     resolve_or_create_city_village/postal_code/post_office with
+#     pending_submitter_person_pk set, and the INSERT built when that's
+#     non-None names the column explicitly — so on an un-rebuilt
+#     environment, every self-registration that creates a genuinely new
+#     geo row 500s with "column submitted_by_person_pk does not exist"
+#     (mirrors the election_type case). The new Phase 13b backfill step
+#     below tolerates this specific condition itself (SKIP, not FAIL, on
+#     a "column ... does not exist" error) so a routine redeploy against
+#     an un-rebuilt environment is not additionally broken by this step —
+#     but the registration 500s above still require a full hard rebuild
+#     to fix.
 # This is "expected" per this project's no-migrations, hard-rebuild
 # methodology, but it means a routine Render redeploy will silently
 # NOT pick up any of the changes above. Only a full hard rebuild
@@ -270,9 +310,9 @@ run_seed "system_setting (seed)"     "system_setting"     "${SEED_BASE}/01_found
 run_seed "postal_code (seed)"        "postal_code"        "${SEED_BASE}/01_foundation/08_postal_code.sql"
 run_seed "postal_code bulk (seed)"   "postal_code"        "${SEED_BASE}/01_foundation/08b_postal_code_bulk.sql"
 run_seed "post_office bulk (seed)"   "post_office"        "${SEED_BASE}/01_foundation/08c_post_office_bulk.sql"
+run_seed "festival_calendar (seed)"  "festival_calendar_date" "${SEED_BASE}/01_foundation/10_festival_calendar.sql"
 run_seed "city_village (seed)"       "city_village"       "${SEED_BASE}/01_foundation/11_city_village.sql"
 run_seed "city_village urban recovery (seed)" "city_village" "${SEED_BASE}/01_foundation/11b_city_village_urban_recovery.sql"
-run_seed "festival_calendar (seed)"  "festival_calendar_date" "${SEED_BASE}/01_foundation/10_festival_calendar.sql"
 
 echo ""
 echo "--- Phase 3: Organization — DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger; type via ORGANIZATION_TYPE, status via unified STATUS in Foundation master_data) ---"
@@ -383,7 +423,7 @@ echo ""
 # only take effect on a fresh table — a redeploy against an existing
 # database will skip them, and skipping election_type will break every
 # governance election endpoint.
-echo "--- Phase 11b: Governance — DDL (10 tables + ballot immutability) ---"
+echo "--- Phase 11b: Governance — DDL (10 tables + ballot immutability + seat-count limits) ---"
 run_ddl "body_type_master"           "body_type_master"           "${DDL_BASE}/08_governance/01_body_type_master.sql"
 run_ddl "position_master"            "position_master"            "${DDL_BASE}/08_governance/02_position_master.sql"
 run_ddl "body_master"                "body_master"                "${DDL_BASE}/08_governance/03_body_master.sql"
@@ -395,6 +435,13 @@ run_ddl "election_vote"              "election_vote"              "${DDL_BASE}/0
 run_ddl "election_result"            "election_result"            "${DDL_BASE}/08_governance/09_election_result.sql"
 run_ddl "election_vote_participation" "election_vote_participation" "${DDL_BASE}/08_governance/10_election_vote_participation.sql"
 run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_immutability.sql"
+# Seat-count backstop: two functions + BEFORE INSERT OR UPDATE triggers
+# on body_member_assignment. Not a table — run_sql, so the functions/
+# triggers themselves are (re)applied on every redeploy regardless of
+# the existence-gating caveat above (which affects only the
+# body_type_master.max_members column and its seed, not these
+# triggers).
+run_sql "governance_seat_limits"     "${DDL_BASE}/08_governance/12_governance_seat_limits.sql"
 
 echo ""
 echo "--- Phase 11c: Governance — Seed Data ---"
@@ -403,11 +450,19 @@ run_seed "position_master (seed)"  "position_master"  "${SEED_BASE}/08_governanc
 run_seed "body_master (seed)"      "body_master"       "${SEED_BASE}/08_governance/03_body_master.sql"
 
 echo ""
-echo "--- Phase 11d: Correspondence — DDL (4 tables, Tier 6: correspondence, correspondence_document, correspondence_finance_reference, correspondence_sequence_counter) ---"
+echo "--- Phase 11d: Correspondence — DDL (5 tables, Tier 6: correspondence, correspondence_document, correspondence_finance_reference, correspondence_sequence_counter, correspondence_approval_step) ---"
 run_ddl "correspondence"                   "correspondence"                   "${DDL_BASE}/09_correspondence/01_correspondence.sql"
 run_ddl "correspondence_document"          "correspondence_document"          "${DDL_BASE}/09_correspondence/02_correspondence_document.sql"
 run_ddl "correspondence_finance_reference" "correspondence_finance_reference" "${DDL_BASE}/09_correspondence/03_correspondence_finance_reference.sql"
 run_ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "${DDL_BASE}/09_correspondence/04_correspondence_sequence_counter.sql"
+run_ddl "correspondence_approval_step"     "correspondence_approval_step"     "${DDL_BASE}/09_correspondence/05_correspondence_approval_step.sql"
+
+echo ""
+echo "--- Phase 11e: Attendance — DDL (4 tables, Tier 6: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review) ---"
+run_ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "${DDL_BASE}/10_attendance/01_weekly_sangha_puja.sql"
+run_ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "${DDL_BASE}/10_attendance/02_weekly_sangha_puja_attendance.sql"
+run_ddl "attendance_exception"          "attendance_exception"          "${DDL_BASE}/10_attendance/03_attendance_exception.sql"
+run_ddl "attendance_review"             "attendance_review"             "${DDL_BASE}/10_attendance/04_attendance_review.sql"
 
 echo ""
 echo "--- Phase 12: Grant nss_db_writer write access ---"
@@ -427,6 +482,39 @@ if [ "${RUN_BOOTSTRAP}" = "1" ]; then
     python3 "${REPO_ROOT}/scripts/bootstrap_admin.py" || echo "  [WARN] admin_bootstrap (may already exist)"
 else
     echo "  [SKIP] admin bootstrap (RUN_DB_BOOTSTRAP not truthy — live admin account untouched)"
+fi
+
+echo ""
+echo "--- Phase 13b: Geo Attribution Backfill (bulk-seeded rows -> P1) ---"
+# Registration-Time Geography Creation (2026-10-21) added
+# submitted_by_person_pk to city_village/postal_code/post_office
+# (district is out of scope). The bulk-reference-seeded rows from
+# Phase 2 have no submitter — backfill them to the NSS Admin's
+# person_pk (P1) for attribution consistency. Runs unconditionally
+# (not gated by RUN_DB_BOOTSTRAP): it only touches rows where
+# submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS
+# NULL, so it never overwrites a real submitter, and if P1 doesn't
+# exist yet (RUN_DB_BOOTSTRAP left at its default false on this
+# environment) the subquery returns NULL and the UPDATE is a
+# harmless no-op — safe and idempotent either way.
+if output=$(${PSQL} -c "
+    UPDATE nss.city_village SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+    UPDATE nss.postal_code SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+    UPDATE nss.post_office SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+" 2>&1); then
+    echo "  [OK]   geo_attribution_backfill"
+    echo "${output}" | sed 's/^/  /'
+elif echo "${output}" | grep -qiE 'column .* does not exist'; then
+    # Existing-table DDL change (submitted_by_person_pk) was skipped on an
+    # already-bootstrapped city_village/postal_code/post_office — same
+    # existence-gating caveat as every other existing-table column add.
+    # Not fatal: SKIP, not FAIL, so this step never breaks a routine
+    # Render redeploy.
+    echo "  [SKIP] geo_attribution_backfill  (submitted_by_person_pk column absent — needs a full hard rebuild)"
+else
+    echo "  [FAIL] geo_attribution_backfill"
+    echo "${output}" | sed 's/^/         /'
+    exit 1
 fi
 
 echo ""

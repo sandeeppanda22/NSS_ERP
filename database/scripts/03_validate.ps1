@@ -7,8 +7,9 @@
 # run 02_build.ps1 first.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
-# Version: 1.1 — add Auth (5 tables), Admin (2 tables),
-#                 person address FK columns
+# Version: 1.2 — add Auth (5 tables), Admin (2 tables),
+#                 person address FK columns; Governance key-column
+#                 + FK-integrity checks (parity with 03_validate.sh)
 #
 # Usage:
 #   .\database\scripts\03_validate.ps1 [-DbName nss_erp] [-DbUser nss_db_owner] [-DbHost localhost] [-DbPort 5432]
@@ -133,7 +134,7 @@ Check-RowCount "state" 112
 Check-RowCount "district" 780
 Check-RowCount "system_setting" 5
 Check-RowCount "postal_code" 17800
-Check-RowCount "city_village" 673000
+Check-RowCount "city_village" 659000
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "master_category" "category_code"
@@ -156,6 +157,12 @@ Check-MinPercentage "city_village district_pk coverage" "SELECT ROUND(COUNT(*) F
 Write-Host "  Deferred columns:"
 Check-ColumnExists "document_master" "person_pk"
 Check-ColumnExists "document_master" "uploaded_by_sangha_sevi_pk"
+Write-Host ""
+
+Write-Host "  Registration-Time Geography Creation (2026-10-21 - submitted_by_person_pk):"
+Check-ColumnExists "city_village" "submitted_by_person_pk"
+Check-ColumnExists "postal_code" "submitted_by_person_pk"
+Check-ColumnExists "post_office" "submitted_by_person_pk"
 Write-Host ""
 
 # Organization (1 table - type/status via master_data)
@@ -306,19 +313,31 @@ Check-TableExists "election_nomination"
 Check-TableExists "election_vote"
 Check-TableExists "election_vote_participation"
 Check-TableExists "election_result"
+Write-Host "  Key columns:"
+Check-ColumnExists "body_master" "body_type_master_pk"
+Check-ColumnExists "body_member_assignment" "person_pk"
+Check-ColumnExists "election_vote" "voter_person_pk"
+Write-Host "  FK integrity (no orphans - vacuously true until seeded):"
+Check-FkIntegrity "body_master -> body_type_master" "SELECT COUNT(*) FROM nss.body_master bm LEFT JOIN nss.body_type_master bt ON bm.body_type_master_pk = bt.body_type_master_pk WHERE bt.body_type_master_pk IS NULL;"
+Check-FkIntegrity "body_member_assignment -> body_master" "SELECT COUNT(*) FROM nss.body_member_assignment bma LEFT JOIN nss.body_master bm ON bma.body_master_pk = bm.body_master_pk WHERE bm.body_master_pk IS NULL;"
+Check-FkIntegrity "election_result -> election" "SELECT COUNT(*) FROM nss.election_result er LEFT JOIN nss.election e ON er.election_pk = e.election_pk WHERE e.election_pk IS NULL;"
 Write-Host ""
 
-# Correspondence (4 tables, Tier 6 - existence only, no seed)
+# Correspondence (5 tables, Tier 6 - existence only, no seed)
 # Administration-owned capability; moved from Tier 5 to Tier 6
 # (owner-confirmed 2026-10-16). financial_transaction FK on
 # correspondence_finance_reference is deferred to Pass 2 (Finance/
 # Tier 12 not yet built) - not checked here.
+# correspondence_approval_step is the additive Sakha-President ->
+# Kendra-office-bearer approval-chain overlay (owner request, 2026-10-21)
+# - existence/FK checks only, same as its siblings (no seed either).
 Write-Host "--- Correspondence ---" -ForegroundColor Cyan
 Write-Host "  Tables (existence only - no seed data):"
 Check-TableExists "correspondence"
 Check-TableExists "correspondence_document"
 Check-TableExists "correspondence_finance_reference"
 Check-TableExists "correspondence_sequence_counter"
+Check-TableExists "correspondence_approval_step"
 
 Write-Host "  Key columns:"
 Check-ColumnExists "correspondence" "reference_number"
@@ -330,6 +349,10 @@ Check-ColumnExists "correspondence_sequence_counter" "register_organization_pk"
 Check-ColumnExists "correspondence_sequence_counter" "direction"
 Check-ColumnExists "correspondence_sequence_counter" "financial_year_start"
 Check-ColumnExists "correspondence_sequence_counter" "current_value"
+Check-ColumnExists "correspondence_approval_step" "correspondence_pk"
+Check-ColumnExists "correspondence_approval_step" "step_number"
+Check-ColumnExists "correspondence_approval_step" "approver_person_pk"
+Check-ColumnExists "correspondence_approval_step" "step_status"
 
 Write-Host "  FK integrity (no orphans - vacuously true until seeded):"
 Check-FkIntegrity "correspondence -> organization (register owner)" "SELECT COUNT(*) FROM nss.correspondence c LEFT JOIN nss.organization o ON c.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
@@ -337,9 +360,47 @@ Check-FkIntegrity "correspondence_document -> correspondence" "SELECT COUNT(*) F
 Check-FkIntegrity "correspondence_finance_reference -> correspondence" "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.correspondence c ON cfr.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
 Check-FkIntegrity "correspondence_finance_reference -> master_data (relationship_type)" "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.master_data md ON cfr.relationship_type_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
 Check-FkIntegrity "correspondence_sequence_counter -> organization" "SELECT COUNT(*) FROM nss.correspondence_sequence_counter csc LEFT JOIN nss.organization o ON csc.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+Check-FkIntegrity "correspondence_approval_step -> correspondence" "SELECT COUNT(*) FROM nss.correspondence_approval_step cas LEFT JOIN nss.correspondence c ON cas.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
+Check-FkIntegrity "correspondence_approval_step -> person (approver)" "SELECT COUNT(*) FROM nss.correspondence_approval_step cas LEFT JOIN nss.person p ON cas.approver_person_pk = p.person_pk WHERE p.person_pk IS NULL;"
+Check-FkIntegrity "correspondence_approval_step -> position_master" "SELECT COUNT(*) FROM nss.correspondence_approval_step cas LEFT JOIN nss.position_master pm ON cas.approver_position_master_pk = pm.position_master_pk WHERE pm.position_master_pk IS NULL;"
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "correspondence" "reference_number"
+Write-Host ""
+
+# Attendance (4 tables, Tier 6 - existence only, no seed, owner-confirmed
+# 2026-10-27)
+Write-Host "--- Attendance ---" -ForegroundColor Cyan
+Write-Host "  Tables (existence only - no seed data):"
+Check-TableExists "weekly_sangha_puja"
+Check-TableExists "weekly_sangha_puja_attendance"
+Check-TableExists "attendance_exception"
+Check-TableExists "attendance_review"
+
+Write-Host "  Key columns:"
+Check-ColumnExists "weekly_sangha_puja" "sakha_pk"
+Check-ColumnExists "weekly_sangha_puja" "puja_date"
+Check-ColumnExists "weekly_sangha_puja_attendance" "weekly_sangha_puja_pk"
+Check-ColumnExists "weekly_sangha_puja_attendance" "sangha_sevi_pk"
+Check-ColumnExists "weekly_sangha_puja_attendance" "attendance_status_master_data_pk"
+Check-ColumnExists "weekly_sangha_puja_attendance" "attendance_sakha_pk"
+Check-ColumnExists "attendance_exception" "sangha_sevi_pk"
+Check-ColumnExists "attendance_exception" "exception_type_master_data_pk"
+Check-ColumnExists "attendance_review" "sangha_sevi_pk"
+Check-ColumnExists "attendance_review" "review_status_master_data_pk"
+Check-ColumnExists "attendance_review" "assigned_to_role"
+
+Write-Host "  FK integrity (no orphans - vacuously true until seeded):"
+Check-FkIntegrity "weekly_sangha_puja -> organization (sakha)" "SELECT COUNT(*) FROM nss.weekly_sangha_puja w LEFT JOIN nss.organization o ON w.sakha_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+Check-FkIntegrity "weekly_sangha_puja_attendance -> weekly_sangha_puja" "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.weekly_sangha_puja w ON a.weekly_sangha_puja_pk = w.weekly_sangha_puja_pk WHERE w.weekly_sangha_puja_pk IS NULL;"
+Check-FkIntegrity "weekly_sangha_puja_attendance -> sangha_sevi" "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.sangha_sevi s ON a.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
+Check-FkIntegrity "weekly_sangha_puja_attendance -> master_data (status)" "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.master_data md ON a.attendance_status_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
+Check-FkIntegrity "attendance_exception -> sangha_sevi" "SELECT COUNT(*) FROM nss.attendance_exception e LEFT JOIN nss.sangha_sevi s ON e.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
+Check-FkIntegrity "attendance_review -> sangha_sevi" "SELECT COUNT(*) FROM nss.attendance_review r LEFT JOIN nss.sangha_sevi s ON r.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
+Check-FkIntegrity "attendance_review -> organization" "SELECT COUNT(*) FROM nss.attendance_review r LEFT JOIN nss.organization o ON r.organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+
+Write-Host "  Unique constraints:"
+Check-NoDuplicates "weekly_sangha_puja" "sakha_pk, puja_date"
 Write-Host ""
 
 # Summary

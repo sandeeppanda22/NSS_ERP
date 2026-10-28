@@ -3,6 +3,18 @@
 -- Module: Bootstrap RBAC
 -- File: 03_role_permission.sql (seed)
 -- Seed: Role-to-permission mappings (~111 rows)
+-- Version: 1.7 — added ATTENDANCE_VIEW / ATTENDANCE_MANAGE (Tier 6,
+--          2026-10-27) and the new NSS_ERP_ATTENDANCE_MARKER role. See the
+--          inline block near the end of the mappings list for the exact
+--          footprint and rationale.
+-- Version: 1.6 — added GEO_ENTRY_APPROVE to NSS_ERP_SAKHA_ADMIN only
+--          (2026-10-21, owner-confirmed): lets a Sakha admin approve/
+--          correct geography proposals scoped to their own Sakha without
+--          the broad FOUNDATION_MANAGE (also gates global NSS/Kendra-only
+--          master-data editing). NOT granted to NSS_ERP_ADMIN /
+--          NSS_ERP_KENDRA_ADMIN (they already satisfy geo_approval.py's
+--          require_any_permission via FOUNDATION_MANAGE) nor to any other
+--          org-scoped admin role (Anchalika/Zilla/Patha Chakra/etc.).
 -- Version: 1.5 — added CORRESPONDENCE_VIEW / CORRESPONDENCE_MANAGE
 --          (Tier 6, 2026-10-17): granted on the same footprint as
 --          PERSON_MANAGE / MEMBERSHIP_MANAGE (every org-scoped admin role
@@ -35,10 +47,11 @@
 -- DEPENDS ON: 01_permission_master.sql (seed),
 --             02_role_master.sql (seed)
 --
--- Matrix: 25 permissions x 9 roles (FOUNDATION_CALENDAR_MANAGE granted to
+-- Matrix: 26 permissions x 9 roles (FOUNDATION_CALENDAR_MANAGE granted to
 -- NSS_ERP_ADMIN only; GOVERNANCE_MANAGE to NSS_ERP_ADMIN /
 -- NSS_ERP_KENDRA_ADMIN / NSS_ERP_SAKHA_ADMIN; CORRESPONDENCE_MANAGE to
--- every org-scoped admin role, same footprint as MEMBERSHIP_MANAGE).
+-- every org-scoped admin role, same footprint as MEMBERSHIP_MANAGE;
+-- GEO_ENTRY_APPROVE to NSS_ERP_SAKHA_ADMIN only).
 -- Idempotent: ON CONFLICT ... DO NOTHING (mapping is
 -- immutable once created; deactivate via is_active).
 -- =====================================================
@@ -147,7 +160,11 @@ mappings (role_code, permission_code) AS (
     ('NSS_ERP_ZILLA_ADMIN', 'CORRESPONDENCE_VIEW'),
     ('NSS_ERP_ZILLA_ADMIN', 'CORRESPONDENCE_MANAGE'),
 
-    -- ── NSS_ERP_SAKHA_ADMIN (13 permissions)
+    -- ── NSS_ERP_SAKHA_ADMIN (16 permissions)
+    -- GEO_ENTRY_APPROVE added 2026-10-21 (owner-confirmed): lets this role
+    -- approve/correct geography proposals scoped to its own Sakha without
+    -- the broad FOUNDATION_MANAGE (also gates global NSS/Kendra-only
+    -- master-data editing).
     -- GOVERNANCE_MANAGE added 2026-10-08 (owner-confirmed): this role is also
     -- held by the Sakha's own President / Secretary / Treasurer-Cashier, who
     -- must be able to run their own Sakha's bodies. It grants NO Kendra reach —
@@ -172,6 +189,7 @@ mappings (role_code, permission_code) AS (
     ('NSS_ERP_SAKHA_ADMIN', 'GOVERNANCE_MANAGE'),
     ('NSS_ERP_SAKHA_ADMIN', 'CORRESPONDENCE_VIEW'),
     ('NSS_ERP_SAKHA_ADMIN', 'CORRESPONDENCE_MANAGE'),
+    ('NSS_ERP_SAKHA_ADMIN', 'GEO_ENTRY_APPROVE'),
 
     -- ── NSS_ERP_PATHA_CHAKRA_ADMIN (12 permissions — same as SAKHA)
     ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'BOOTSTRAP_VIEW'),
@@ -227,7 +245,37 @@ mappings (role_code, permission_code) AS (
     ('NSS_ERP_REPORT_VIEWER', 'FAMILY_VIEW'),
     ('NSS_ERP_REPORT_VIEWER', 'MEMBERSHIP_VIEW'),
     ('NSS_ERP_REPORT_VIEWER', 'CORRESPONDENCE_VIEW'),
-    ('NSS_ERP_REPORT_VIEWER', 'REPORT_VIEW')
+    ('NSS_ERP_REPORT_VIEWER', 'REPORT_VIEW'),
+
+    -- ── Attendance (Tier 6, 2026-10-27, owner-confirmed) ──
+    -- ATTENDANCE_MANAGE (mark PRESENT/ABSENT/EXCUSED_ABSENCE, create puja
+    -- events) goes ONLY to roles that actually run a Sakha's own puja:
+    -- ADMIN/KENDRA (global), SAKHA_ADMIN, and the new per-Sakha
+    -- ATTENDANCE_MARKER (owner: "sakha admin, designated members by
+    -- sakha (multiple members)"). ATTENDANCE_VIEW is broader — every
+    -- org-scoped admin role down the hierarchy plus AUDITOR/REPORT_VIEWER,
+    -- mirroring MEMBERSHIP_VIEW/GOVERNANCE_VIEW's footprint, for roll-up
+    -- reporting (Anchalika/Zilla/Patha Chakra/Kendra Mahila Sangha see
+    -- their subtree's attendance but do not mark it — Weekly Sangha Puja
+    -- is Sakha-level only, ATT-004). Attendance Review authority
+    -- (close/defer/escalate/approve excused absence) is NOT a permission
+    -- at all — it is checked against the real SAKHA_GOVERNING_BODY
+    -- Secretary/President seat in api/routers/attendance.py, per the
+    -- frozen Review Authority Matrix naming actual offices.
+    ('NSS_ERP_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_ADMIN', 'ATTENDANCE_MANAGE'),
+    ('NSS_ERP_KENDRA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_KENDRA_ADMIN', 'ATTENDANCE_MANAGE'),
+    ('NSS_ERP_ANCHALIKA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_ZILLA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_SAKHA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_SAKHA_ADMIN', 'ATTENDANCE_MANAGE'),
+    ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_AUDITOR', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_REPORT_VIEWER', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_ATTENDANCE_MARKER', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_ATTENDANCE_MARKER', 'ATTENDANCE_MANAGE')
 )
 INSERT INTO nss.role_permission (role_master_pk, permission_master_pk)
 SELECT r.role_master_pk, p.permission_master_pk

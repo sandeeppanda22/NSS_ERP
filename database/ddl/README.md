@@ -1,9 +1,7 @@
 # database/ddl/
 
 Hand-written PostgreSQL DDL, run in numeric folder order (driven by `database/scripts/02_build.sh`/`.ps1`).
-47 tables in total (counted from `CREATE TABLE` statements) — this count predates Governance (10
-tables) and Correspondence (4 tables), both uncommitted on `feature/tier6-governance`; see the
-per-folder table below for the full current picture.
+69 tables in total (counted from `CREATE TABLE` statements, per-folder breakdown below).
 
 | Folder | Status |
 |---|---|
@@ -15,10 +13,11 @@ per-folder table below for the full current picture.
 | `05_membership/` | **Implemented** — 16 tables (adds `sakha_local_number_counter`, `membership_change_request`): `sangha_sevi` and its status/renewal/transfer/affiliation/journey/review/credential history tables, `darshak_attendance_registration` and `credential_sequence_counter` (both new, Tier 5), plus `14_sakha_only_membership_trigger.sql` (MBR-038A, no table) |
 | `06_authentication/` | **Implemented (Tier 5, v0.11.0)** — 5 tables: `user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session` |
 | `07_administration/` | **Implemented (Tier 5, v0.11.0)** — 2 tables: `user_role`, `admin_scope` |
-| `08_governance/` | **Implemented (Tier 6, uncommitted)** — 10 tables: `body_type_master`, `position_master`, `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`, `election_nomination`, `election_vote`, `election_result`, `election_vote_participation`; plus `fn_block_update()` immutability triggers on votes/participation |
-| `09_correspondence/` | **Implemented (Tier 6, uncommitted)** — 4 tables: `correspondence`, `correspondence_document`, `correspondence_finance_reference`, `correspondence_sequence_counter`. Administration-owned capability (CORR-DECISION-003); moved from Tier 5 to Tier 6 (owner-confirmed 2026-10-16) since Tier 5 (v0.11.0) already shipped without it. `correspondence_finance_reference.financial_transaction_pk` has no FK yet — deferred to Pass 2 until Finance (Tier 12) exists |
+| `08_governance/` | **Implemented (Tier 6)** — 10 tables: `body_type_master`, `position_master`, `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`, `election_nomination`, `election_vote`, `election_result`, `election_vote_participation`; plus `fn_block_update()` immutability triggers on votes/participation |
+| `09_correspondence/` | **Implemented (Tier 6)** — 5 tables: `correspondence`, `correspondence_document`, `correspondence_finance_reference`, `correspondence_sequence_counter`, `correspondence_approval_step`. Administration-owned capability (CORR-DECISION-003); moved from Tier 5 to Tier 6 (owner-confirmed 2026-10-16) since Tier 5 (v0.11.0) already shipped without it. `correspondence_finance_reference.financial_transaction_pk` has no FK yet — deferred to Pass 2 until Finance (Tier 12) exists |
+| `10_attendance/` | **Implemented (Tier 6, uncommitted)** — 4 tables: `weekly_sangha_puja`, `weekly_sangha_puja_attendance`, `attendance_exception`, `attendance_review`; see its README |
 
-Tables per folder: 3 + 15 + 1 + 2 + 6 + 14 + 4 + 2 = 47.
+Tables per folder: 3 + 15 + 1 + 2 + 6 + 16 + 5 + 2 + 10 + 5 + 4 = 69.
 
 Build phase numbers differ from folder numbers (Foundation's `14`/`15` run as Phase 14, after
 everything else; Authentication is Phase 10, Administration Phase 11) — see

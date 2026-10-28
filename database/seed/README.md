@@ -5,7 +5,7 @@ Reference/lookup data, mirroring `database/ddl/` (run after the corresponding DD
 
 | Folder | Contents |
 |---|---|
-| `00_bootstrap/` | **Implemented** — `role_master`: 10 roles; `permission_master`: 25 permissions (adds `GOVERNANCE_*` and `CORRESPONDENCE_VIEW`/`_MANAGE`); `role_permission`: 140 role-to-permission mappings |
+| `00_bootstrap/` | **Implemented** — `role_master`: 11 roles; `permission_master`: 28 permissions (adds `GOVERNANCE_*`, `CORRESPONDENCE_VIEW`/`_MANAGE`, `GEO_ENTRY_APPROVE`, `ATTENDANCE_VIEW`/`_MANAGE`); `role_permission`: 140 role-to-permission mappings |
 | `01_foundation/` | **Implemented** — 14 files (`01`–`11b`, incl. bulk geography): master categories (13), master data values (89, across GENDER/MARITAL_STATUS/ADDRESS_TYPE/DOCUMENT_TYPE/MEMBERSHIP_TYPE/STATUS/RELATIONSHIP_TYPE/ORGANIZATION_TYPE/BLOOD_GROUP), `id_sequence_master` rows (14; `PERSON` padded to 10 digits, `SAKHA` unpadded), country (5), state (112), districts (785, India only), system settings (5), postal codes (3 in `08_postal_code.sql`, all-India PINs in `08b`, 56 Sakha-branch PINs in `09_sakha_postal_codes.sql` which runs in build Phase 4), post offices (`08c`), Dola Purnima festival calendar (`10`), ~673k `city_village` rows (`11`/`11b`) |
 | `02_organization/` | **Implemented** — 3 unique named organizations (Kendra `KEN`, Nilachala Kutira `NKT`, Smruti Mandira `SMR`) + 175 real Sakha Sangha branches (`SKH1`–`SKH175`) + `06_id_sequence_org_sync.sql` (advances org-code counters). The 13 organization types and the status values live in Foundation `master_data`, not here |
 | `03_person/` | No seed data — `person`/`person_address` start with zero rows (the superseded `01_person_master_tables.sql` stub has been deleted) |

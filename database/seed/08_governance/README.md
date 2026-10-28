@@ -1,6 +1,6 @@
 # database/seed/08_governance/
 
-Governance seed data (Tier 6, uncommitted on `feature/tier6-governance`) — starter catalogues for
+Governance seed data (Tier 6, committed on `feature/tier6-governance`) — starter catalogues for
 the two Depth-0 masters plus the 3 NSS-wide singleton bodies. Mirrors `database/ddl/08_governance/`.
 
 Authority: GOV-BR-010/011/023/024/025/031/032, SOL-GOV-002 §4-5,

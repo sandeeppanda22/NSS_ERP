@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS nss.post_office
     -- Logical refs to nss.sangha_sevi (no FK — see header note).
     submitted_by_sangha_sevi_pk UUID NULL,
 
+    -- Geography Auto-Create at Registration + Bulk-Seed Attribution
+    -- (2026-10-21) — see nss.city_village.submitted_by_person_pk for the
+    -- full explanation; identical rationale and deferred-FK pattern here.
+    submitted_by_person_pk UUID NULL,
+
     reviewed_by_sangha_sevi_pk UUID NULL,
 
     reviewed_at TIMESTAMPTZ NULL,
@@ -118,6 +123,14 @@ CREATE TABLE IF NOT EXISTS nss.post_office
 );
 
 -- ── Indexes ─────────────────────────────────────────────
+
+-- Idempotent safety net: tables created before submitted_by_person_pk was
+-- added to the CREATE TABLE above never get it via CREATE TABLE IF NOT
+-- EXISTS alone (that clause is a no-op when the table already exists).
+-- This ALTER guarantees the column exists either way (same pattern as
+-- master_data.applicable_modules / organization.has_own_premises).
+ALTER TABLE nss.post_office
+    ADD COLUMN IF NOT EXISTS submitted_by_person_pk UUID NULL;
 
 CREATE INDEX IF NOT EXISTS idx_post_office_postal_code
     ON nss.post_office (postal_code_pk);

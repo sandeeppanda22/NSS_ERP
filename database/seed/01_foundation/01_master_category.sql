@@ -2,6 +2,11 @@
 -- NSS ERP
 -- Module: Foundation
 -- Seed File: 01_master_category.sql
+-- Version: 1.4 — add ATTENDANCE_STATUS / ATTENDANCE_REVIEW_STATUS /
+--          ATTENDANCE_EXCEPTION_TYPE (Tier 6, 2026-10-27): weekly_sangha_puja_
+--          attendance.attendance_status_master_data_pk, attendance_review.
+--          review_status_master_data_pk, attendance_exception.
+--          exception_type_master_data_pk reference these. 19 categories total.
 -- Version: 1.3 — add CORRESPONDENCE_MEDIUM / CORRESPONDENCE_STATUS (Tier 6,
 --          2026-10-17): correspondence.medium_master_data_pk / status_master_data_pk
 --          reference these categories (01_correspondence.sql); their value
@@ -119,5 +124,23 @@ VALUES
     'Correspondence Status',
     'Lifecycle state of a correspondence register entry (SOL-ADMIN-009 §4, business rules §6.1)',
     16
+),
+(
+    'ATTENDANCE_STATUS',
+    'Attendance Status',
+    'Weekly Sangha Puja attendance status (SOL-ATT-004 §5, frozen: PRESENT/ABSENT/EXCUSED_ABSENCE)',
+    17
+),
+(
+    'ATTENDANCE_REVIEW_STATUS',
+    'Attendance Review Status',
+    'Lifecycle state of an Attendance Review (SOL-ATT-005 §15, frozen 5-value set)',
+    18
+),
+(
+    'ATTENDANCE_EXCEPTION_TYPE',
+    'Attendance Exception Type',
+    'Reason category for an approved attendance exception (SOL-ATT-004 §11 — catalogue extensible through project governance, not frozen to these defaults)',
+    19
 )
 ON CONFLICT (category_code) DO NOTHING;

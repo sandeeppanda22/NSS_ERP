@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS nss.postal_code
 
     submitted_by_sangha_sevi_pk UUID NULL,
 
+    -- Geography Auto-Create at Registration + Bulk-Seed Attribution
+    -- (2026-10-21) — see nss.city_village.submitted_by_person_pk for the
+    -- full explanation; identical rationale and deferred-FK pattern here.
+    submitted_by_person_pk UUID NULL,
+
     reviewed_by_sangha_sevi_pk UUID NULL,
 
     reviewed_at TIMESTAMPTZ NULL,
@@ -98,6 +103,14 @@ CREATE TABLE IF NOT EXISTS nss.postal_code
             (is_active = FALSE AND deleted_at IS NOT NULL)
         )
 );
+
+-- Idempotent safety net: tables created before submitted_by_person_pk was
+-- added to the CREATE TABLE above never get it via CREATE TABLE IF NOT
+-- EXISTS alone (that clause is a no-op when the table already exists).
+-- This ALTER guarantees the column exists either way (same pattern as
+-- master_data.applicable_modules / organization.has_own_premises).
+ALTER TABLE nss.postal_code
+    ADD COLUMN IF NOT EXISTS submitted_by_person_pk UUID NULL;
 
 CREATE INDEX IF NOT EXISTS idx_postal_code_state
     ON nss.postal_code (state_pk);

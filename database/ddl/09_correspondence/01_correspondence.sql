@@ -4,7 +4,7 @@
 -- File: 01_correspondence.sql
 -- Table: nss.correspondence
 -- Depth: 4 (depends on person, organization, master_data)
--- Version: 1.0
+-- Version: 1.2
 -- Authority: SOL-ADMIN-009 §4, SOL-ADMIN-008 (business rules),
 --            CORR-DECISION-003 (capability acceptance),
 --            Tier placement: Tier 6 (owner-confirmed 2026-10-16,
@@ -28,6 +28,29 @@
 --     master_data rows cannot be removed while correspondence
 --     references them (SOL-ADMIN-009 §10).
 --   - CORR-BR-015: hard-delete is not permitted; soft-delete only.
+--   - v1.1 (owner-confirmed 2026-10-25): added counterpart_correspondence_pk
+--     (nullable self-FK) so an org-to-org letter (§4.7 ERP-FROZEN) can be
+--     dispatched into a real, linked, separately-numbered row in the
+--     RECIPIENT org's own register — not just the sender's single row.
+--     Scoped to recipient_type = 'ORGANIZATION' only; EXTERNAL (a party
+--     genuinely outside NSS, with no organization_pk and no register of
+--     its own) and PERSON are unaffected and stay single-row, as before.
+--   - v1.2 (owner-confirmed 2026-10-26): added in_reply_to_correspondence_pk
+--     (nullable self-FK, many-to-one — unlike counterpart_correspondence_pk
+--     this is NOT one-to-one, so no unique index: a letter may receive
+--     several separate replies over time). Threads a reply to the letter it
+--     answers. Owner: "we should also add reply option to letter too. which
+--     will have its own numbers (conceptually same process)" — deliberately
+--     NOT a distinct numbering scheme; a reply is just an ordinary new
+--     correspondence row (its own reference_number via the normal
+--     per-register/per-direction/per-FY counter) that additionally carries
+--     this link. Unlike counterpart_correspondence_pk (system-minted by
+--     /dispatch, reciprocal), this is admin-supplied at create time via
+--     POST /correspondence (CorrespondenceCreate.in_reply_to_correspondence_pk)
+--     and one-directional — the original row is not updated to point back;
+--     "replies to X" is a query (register_organization_pk might differ from
+--     X's, e.g. replying from the org that received X), not a stored field
+--     on X.
 --
 -- Note: Audit actor FKs (*_by_sangha_sevi_pk) are NULLABLE columns
 --       included in Pass 1. Their FK constraints are deferred to
@@ -120,6 +143,26 @@ CREATE TABLE IF NOT EXISTS nss.correspondence
 
     responsible_organization_pk UUID NULL,
 
+    -- Links this row to its "other half" when a letter crosses two NSS
+    -- registers (§4.7 ERP-FROZEN permits NSS-to-NSS correspondence;
+    -- owner-confirmed 2026-10-25). A letter from org A to org B is TWO
+    -- rows — A's OUTWARD row and B's own INWARD row, each with its own
+    -- per-organization reference number (CORR-EXT-001 §3.2) — minted by
+    -- POST /correspondence/{pk}/dispatch, not by the generic create
+    -- endpoint. Reciprocal: once dispatched, A's row points at B's row
+    -- and B's row points back at A's. NULL for every row that never had
+    -- (or never gets) a counterpart — single-row EXTERNAL/PERSON
+    -- correspondence, and any ORGANIZATION-addressed row not yet
+    -- dispatched. No ON DELETE action: soft-delete only (CORR-BR-015),
+    -- so neither side of a dispatched pair can ever hard-vanish out from
+    -- under the other.
+    counterpart_correspondence_pk UUID NULL,
+
+    -- Threads a reply to the letter it answers (v1.2) — see the header
+    -- comment for the full rationale. Many-to-one (no unique index): a
+    -- letter may be replied to more than once over time.
+    in_reply_to_correspondence_pk UUID NULL,
+
     medium_master_data_pk UUID NOT NULL,
 
     status_master_data_pk UUID NOT NULL,
@@ -175,6 +218,14 @@ CREATE TABLE IF NOT EXISTS nss.correspondence
     CONSTRAINT fk_correspondence_responsible_organization
         FOREIGN KEY (responsible_organization_pk)
         REFERENCES nss.organization (organization_pk),
+
+    CONSTRAINT fk_correspondence_counterpart
+        FOREIGN KEY (counterpart_correspondence_pk)
+        REFERENCES nss.correspondence (correspondence_pk),
+
+    CONSTRAINT fk_correspondence_in_reply_to
+        FOREIGN KEY (in_reply_to_correspondence_pk)
+        REFERENCES nss.correspondence (correspondence_pk),
 
     CONSTRAINT fk_correspondence_medium
         FOREIGN KEY (medium_master_data_pk)
@@ -292,6 +343,18 @@ CREATE TABLE IF NOT EXISTS nss.correspondence
             )
         ),
 
+    -- A row can never be its own counterpart (POST /dispatch always
+    -- creates a second, distinct row — this guards against a future bug
+    -- wiring the UPDATE to the wrong pk, not a reachable user input).
+    CONSTRAINT chk_correspondence_counterpart_not_self
+        CHECK (counterpart_correspondence_pk IS NULL OR counterpart_correspondence_pk <> correspondence_pk),
+
+    -- A row can never be its own reply (same reasoning as the counterpart
+    -- guard above — this is a defence against a future bug, not a reachable
+    -- user input: the referenced row has to already exist to be replied to).
+    CONSTRAINT chk_correspondence_in_reply_to_not_self
+        CHECK (in_reply_to_correspondence_pk IS NULL OR in_reply_to_correspondence_pk <> correspondence_pk),
+
     CONSTRAINT chk_correspondence_soft_delete
         CHECK
         (
@@ -346,3 +409,17 @@ CREATE INDEX IF NOT EXISTS idx_correspondence_recipient_person
 
 CREATE INDEX IF NOT EXISTS idx_correspondence_active
     ON nss.correspondence (is_active);
+
+-- One-to-one link: a row can be the counterpart of at most one other row
+-- (prevents /dispatch, or a future bug, from pointing two different
+-- OUTWARD rows at the same INWARD row or vice versa).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_correspondence_counterpart
+    ON nss.correspondence (counterpart_correspondence_pk)
+    WHERE counterpart_correspondence_pk IS NOT NULL;
+
+-- Reverse lookup ("every reply to letter X") — not unique, unlike the
+-- counterpart index above: a letter may draw more than one reply.
+CREATE INDEX IF NOT EXISTS idx_correspondence_in_reply_to
+    ON nss.correspondence (in_reply_to_correspondence_pk)
+    WHERE in_reply_to_correspondence_pk IS NOT NULL;
+

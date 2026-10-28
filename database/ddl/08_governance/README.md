@@ -1,6 +1,6 @@
 # database/ddl/08_governance/
 
-Governance Module DDL — 10 tables implementing the **Unified Body Governance Model**
+Governance Module DDL — 10 tables (+ `11_governance_immutability.sql` ballot triggers and `12_governance_seat_limits.sql`, a DB-level seat-count backstop trigger behind the API's `_COMPOSITION_RULES`) implementing the **Unified Body Governance Model**
 (Tier 6). **DRAFT / in-progress** (vertical slice: Business Rules → Documentation →
 **DDL (this folder)** → API → UI → Tests).
 

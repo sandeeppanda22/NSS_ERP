@@ -42,6 +42,20 @@
 -- enforced at the API layer — see _COMPOSITION_RULES in
 -- api/routers/governance.py and GOV-BR-011A.
 --
+-- TREASURER vs CASHIER (owner decision, 2026-10-23): TREASURER is now the
+-- governing-body composition position at EVERY tier — Kendra (unchanged),
+-- Sakha Governing Body, Sakha Mahila Parichalana Mandali (optional seat),
+-- Anchalika/Zilla/Patha Chakra Governing Bodies, and Sevak Sangha
+-- Executive. This is a conscious override of the Mahila Sangha MOA source
+-- document's literal "Cashier" wording for the Sakha-level office
+-- (docs/01_Authoritative_References/MAHILA_SANGHA/SECTION-A_MEMORANDUM_AND_
+-- REGISTRATION/REF-MS-MOA_Memorandum_and_Registration.md:293), superseding
+-- the Sakha-tier/lower-tier "Cashier" terminology previously modeled per
+-- §63 and that MOA document. CASHIER is NOT removed from this catalogue —
+-- its row stays (never delete a seeded row other code/history may
+-- reference) — but it is no longer a governing-body seat; see its own
+-- description below for its redefined, event-level scope.
+--
 -- PARICHALAK: also a single NSS-wide seat (one person holds the title at
 -- a time), owner-confirmed (2026-10-07). The same person is also the
 -- Mahila Parichalana Mandali's Parichalak, but owner-confirmed 2026-10-08:
@@ -65,8 +79,8 @@ VALUES
     ('SECRETARY',            'Secretary',             'Principal administrative office-bearer.', 4),
     ('ASSISTANT_SECRETARY',  'Assistant Secretary',   'Assists the Secretary — Kendra Governing Body (GOV-BR-010).', 5),
     ('JOINT_SECRETARY',      'Joint Secretary',       'Assists the Secretary — Mahila Parichalana Mandali, per Mahila Sangha Bye-Law p.9 (GOV-BR-032).', 6),
-    ('TREASURER',            'Treasurer',             'Custodian of funds and accounts — Kendra Governing Body and Kendra Mahila Parichalana Mandali.', 7),
-    ('CASHIER',              'Cashier',               'Custodian of funds — Sakha Governing Body, Sakha Mahila Parichalana Mandali (optional), Sevak Sangha Executive (owner-confirmed 2026-10-07).', 8),
+    ('TREASURER',            'Treasurer',             'Custodian of funds and accounts — the governing-body composition position at every tier (Kendra GB and Kendra Mahila PM; Sakha GB, Sakha Mahila PM (optional), Sevak Sangha Executive, and Anchalika/Zilla/Patha Chakra GBs per owner decision 2026-10-23, superseding prior Cashier terminology at those lower tiers).', 7),
+    ('CASHIER',              'Cashier',               'Optional, event-specific funds custodian (assigned per event/programme, NOT a standing governing-body seat — owner decision 2026-10-23, supersedes prior Sakha-tier body-composition use; see TREASURER for the body-composition role at every tier).', 8),
     ('MUKHYA_PUJAKA',        'Mukhya Pujaka',         'ERP-operational, non-Bye-Law seat; single NSS-wide post. May sit on the Kendra Governing Body (optional).', 9),
     ('MEMBER',               'Member',                'Generic member seat (non office-bearer).', 10)
 ON CONFLICT (position_code) DO NOTHING;

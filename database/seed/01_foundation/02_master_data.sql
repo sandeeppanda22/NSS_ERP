@@ -288,3 +288,59 @@ CROSS JOIN (VALUES
 ) AS v(value_code, value_name, display_order)
 WHERE mc.category_code = 'CORRESPONDENCE_STATUS'
 ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- ATTENDANCE_STATUS values
+-- (weekly_sangha_puja_attendance.attendance_status_master_data_pk —
+--  frozen set, SOL-ATT-004 §5 / §17, business rules ATT-006/007/008)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('PRESENT',          'Present',          1),
+    ('ABSENT',           'Absent',           2),
+    ('EXCUSED_ABSENCE',  'Excused Absence',  3)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'ATTENDANCE_STATUS'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- ATTENDANCE_REVIEW_STATUS values
+-- (attendance_review.review_status_master_data_pk — frozen set,
+--  SOL-ATT-005 §15 / §18, business rules ATT-018)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('OPEN',                     'Open',                      1),
+    ('DEFERRED',                 'Deferred',                  2),
+    ('CLOSED',                   'Closed',                    3),
+    ('ESCALATED_TO_PRESIDENT',   'Escalated to President',    4),
+    ('ESCALATED_TO_PARICHALAK',  'Escalated to Parichalak',   5)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'ATTENDANCE_REVIEW_STATUS'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- ATTENDANCE_EXCEPTION_TYPE values
+-- (attendance_exception.exception_type_master_data_pk — NOT frozen to this
+--  exact list, SOL-ATT-004 §11: "catalogue may be extended through approved
+--  project governance." These four are sensible defaults, editable/
+--  extensible like any other master-data category via Reference Data.)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('MEDICAL',          'Medical',          1),
+    ('TRAVEL',           'Travel',           2),
+    ('FAMILY_EMERGENCY', 'Family Emergency', 3),
+    ('OTHER',            'Other',            4)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'ATTENDANCE_EXCEPTION_TYPE'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;

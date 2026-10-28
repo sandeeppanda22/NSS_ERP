@@ -56,15 +56,23 @@
 #              acting_position_assignment, election,
 #              election_nomination, election_vote, election_result,
 #              election_vote_participation) + ballot-immutability
-#              triggers (11_governance_immutability.sql)
+#              triggers (11_governance_immutability.sql) + seat-count
+#              triggers (12_governance_seat_limits.sql)
 #   Phase 11c— Governance Seed Data (body_type_master, position_master)
-#   Phase 11d— Correspondence DDL (4 tables: correspondence,
+#   Phase 11d— Correspondence DDL (5 tables: correspondence,
 #              correspondence_document, correspondence_finance_reference,
-#              correspondence_sequence_counter —
+#              correspondence_sequence_counter, correspondence_approval_step —
 #              Tier 6, Administration-owned; moved from Tier 5,
 #              owner-confirmed 2026-10-16)
+#   Phase 11e— Attendance DDL (4 tables: weekly_sangha_puja,
+#              weekly_sangha_puja_attendance, attendance_exception,
+#              attendance_review — Tier 6, owner-confirmed 2026-10-27)
 #   Phase 12 — Grant nss_db_writer write access (Tier 5)
 #   Phase 13 — Admin bootstrap seed (NSS Admin superuser)
+#   Phase 13b— Geo attribution backfill (city_village/postal_code/
+#              post_office submitted_by_person_pk -> P1, for rows the
+#              Phase 2 bulk seed left unattributed; must run after
+#              Phase 13 since P1's person_pk doesn't exist before it)
 #   Phase 14 — Audit DDL (system_event_log table + DB trigger)
 #   Phase 15 — (OPTIONAL, local dev only) demo/test seed, run only when
 #              RUN_DEMO_SEED is truthy and database/seed/demo/nss_demo_seed.sql
@@ -196,6 +204,26 @@ table_exists() {
 #     'column "election_type" does not exist'. Hard rebuild required.
 #   - 07_administration/02_admin_scope.sql — widened
 #     chk_admin_scope_org_consistency.
+# Added 2026-10-21:
+#   - 08_governance/01_body_type_master.sql — new max_members column +
+#     chk_body_type_master_max_members. An existing database that
+#     skips this DDL never gets the column, so the seat-count
+#     backstop triggers (12_governance_seat_limits.sql) always treat
+#     every body type as uncapped at the DB level (max_members reads
+#     NULL) until a hard rebuild. The API-layer _COMPOSITION_RULES
+#     checks are unaffected either way. Hard rebuild required.
+#   - 01_foundation/11_city_village.sql, 12_postal_code.sql,
+#     13_post_office.sql — new submitted_by_person_pk column (+ its
+#     Phase 7b FK to nss.person, Registration-Time Geography Creation).
+#     An existing database that skips this DDL never gets the column.
+#     Unlike the max_members case above, this is NOT a silent no-op:
+#     api/routers/registration.py now always calls resolve_or_create_*
+#     with pending_submitter_person_pk set, and the SQL INSERT built
+#     when that's non-None names the column explicitly — so on an
+#     un-rebuilt DB, every self-registration that creates a genuinely
+#     new city_village/postal_code/post_office row 500s with "column
+#     submitted_by_person_pk does not exist" (mirrors the election_type
+#     case). Hard rebuild required.
 run_ddl() {
     local label="$1" table="$2" file="$3"
     echo -e "  ${CYAN}[CHECK]${NC} ${label}  (nss.${table}) ..."
@@ -457,7 +485,7 @@ echo ""
 #   election_nomination, election_vote,
 #   election_result                          (Depth 6)
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 11b] Governance — DDL (10 tables + ballot immutability)${NC}"
+echo -e "${CYAN}[Phase 11b] Governance — DDL (10 tables + ballot immutability + seat-count limits)${NC}"
 run_ddl "body_type_master"           "body_type_master"           "${DDL_BASE}/08_governance/01_body_type_master.sql"
 run_ddl "position_master"            "position_master"            "${DDL_BASE}/08_governance/02_position_master.sql"
 run_ddl "body_master"                "body_master"                "${DDL_BASE}/08_governance/03_body_master.sql"
@@ -472,6 +500,16 @@ run_ddl "election_vote_participation" "election_vote_participation" "${DDL_BASE}
 # election_vote and election_vote_participation. Not a table —
 # run_sql (CREATE OR REPLACE / DROP..CREATE TRIGGER are idempotent).
 run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_immutability.sql"
+# Seat-count backstop: two functions + BEFORE INSERT OR UPDATE
+# triggers on body_member_assignment (flat per-body cap +
+# Advisory Board one-seat-per-Sakha). Not a table — run_sql, same
+# as governance_immutability above. NOTE: the companion
+# body_type_master.max_members column (01_body_type_master.sql)
+# and its seed UPDATE (seed/08_governance/01_body_type_master.sql)
+# are existence-gated by run_ddl/run_seed above and will NOT reach
+# an already-bootstrapped nss.body_type_master without a full hard
+# rebuild — see the CAVEAT above run_ddl().
+run_sql "governance_seat_limits"     "${DDL_BASE}/08_governance/12_governance_seat_limits.sql"
 echo ""
 
 # -------------------------------------------------
@@ -490,7 +528,7 @@ run_seed "body_master (seed)"      "body_master"       "${SEED_BASE}/08_governan
 echo ""
 
 # -------------------------------------------------
-# Phase 11d: Correspondence DDL (4 tables, Tier 6, Depths 1-5)
+# Phase 11d: Correspondence DDL (5 tables, Tier 6, Depths 1-5)
 # correspondence FK -> person, organization, master_data (Depth 4)
 # correspondence_document FK -> correspondence, document_master (Depth 5)
 # correspondence_finance_reference FK -> correspondence only in Pass 1;
@@ -499,16 +537,43 @@ echo ""
 # correspondence_sequence_counter FK -> organization only (Depth 1);
 #   backs api/helpers.py::next_correspondence_reference_number()
 #   (CORR-EXT-001).
+# correspondence_approval_step FK -> correspondence, person,
+#   position_master, organization (Depth 5) — additive Sakha-President
+#   ->Kendra-office-bearer approval-chain overlay for the member
+#   dashboard's "Send Application" feature (owner request, 2026-10-21);
+#   placed last so it can FK to position_master from Phase 11b/11c.
 # Administration-owned capability; moved from Tier 5 to Tier 6
 # (owner-confirmed 2026-10-16) since Tier 5 (v0.11.0) already shipped
 # without it. Placed after Governance so Phase 12's writer grant and
 # Phase 14's audit trigger both cover these tables too.
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 11d] Correspondence — DDL (4 tables)${NC}"
+echo -e "${CYAN}[Phase 11d] Correspondence — DDL (5 tables)${NC}"
 run_ddl "correspondence"                   "correspondence"                   "${DDL_BASE}/09_correspondence/01_correspondence.sql"
 run_ddl "correspondence_document"          "correspondence_document"          "${DDL_BASE}/09_correspondence/02_correspondence_document.sql"
 run_ddl "correspondence_finance_reference" "correspondence_finance_reference" "${DDL_BASE}/09_correspondence/03_correspondence_finance_reference.sql"
 run_ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "${DDL_BASE}/09_correspondence/04_correspondence_sequence_counter.sql"
+run_ddl "correspondence_approval_step"     "correspondence_approval_step"     "${DDL_BASE}/09_correspondence/05_correspondence_approval_step.sql"
+echo ""
+
+# -------------------------------------------------
+# Phase 11e: Attendance DDL (4 tables, Tier 6, owner-confirmed 2026-10-27)
+# weekly_sangha_puja FK -> organization (Depth 1)
+# weekly_sangha_puja_attendance FK -> weekly_sangha_puja, sangha_sevi,
+#   master_data (ATTENDANCE_STATUS, seeded in Foundation/Phase 1),
+#   organization (Depth 2)
+# attendance_exception FK -> sangha_sevi, master_data
+#   (ATTENDANCE_EXCEPTION_TYPE) (Depth 2)
+# attendance_review FK -> sangha_sevi, organization, master_data
+#   (ATTENDANCE_REVIEW_STATUS) (Depth 3)
+# Placed after Governance/Correspondence so Phase 12's writer grant and
+# Phase 14's audit trigger both cover these tables too, same reasoning
+# as Phase 11b/11d.
+# -------------------------------------------------
+echo -e "${CYAN}[Phase 11e] Attendance — DDL (4 tables)${NC}"
+run_ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "${DDL_BASE}/10_attendance/01_weekly_sangha_puja.sql"
+run_ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "${DDL_BASE}/10_attendance/02_weekly_sangha_puja_attendance.sql"
+run_ddl "attendance_exception"          "attendance_exception"          "${DDL_BASE}/10_attendance/03_attendance_exception.sql"
+run_ddl "attendance_review"             "attendance_review"             "${DDL_BASE}/10_attendance/04_attendance_review.sql"
 echo ""
 
 # -------------------------------------------------
@@ -539,6 +604,53 @@ if output=$(python3 "${REPO_ROOT}/scripts/bootstrap_admin.py" 2>&1); then
     echo -e "  ${GREEN}[OK]${NC}   admin_bootstrap"
 else
     echo -e "  ${RED}[FAIL]${NC} admin_bootstrap"
+    echo "  Error: ${output}"
+    failed=$((failed + 1))
+fi
+echo ""
+
+# -------------------------------------------------
+# Phase 13b: Geo Attribution Backfill (Bulk-Reference-Seeded Rows)
+# Registration-Time Geography Creation (2026-10-21) added
+# submitted_by_person_pk to city_village/postal_code/post_office
+# (district is out of scope — never auto-created at registration).
+# The ~614K city_village and ~17.8K postal_code rows the Phase 2
+# Foundation seed bulk-loads have no submitter (nobody "submitted"
+# them via the app) — backfill them to point at the NSS Admin's
+# person_pk (P1) for attribution consistency, instead of leaving
+# them NULL forever.
+#
+# Must run AFTER Phase 13: P1's person row does not exist until the
+# admin bootstrap above creates it (Phase 2's bulk geo seed runs 11
+# phases earlier, before person/sangha_sevi exist at all — a genuine
+# build-order constraint, not an oversight).
+#
+# Idempotent and safe to re-run: only touches rows where
+# submitted_by_person_pk IS NULL, and the submitted_by_sangha_sevi_pk
+# IS NULL guard means a real member-proposed or registration-origin
+# submitter is never overwritten (those paths always set one or the
+# other, never leave both NULL). If P1 does not exist for any reason,
+# the subquery returns NULL and the UPDATE is a harmless no-op.
+# -------------------------------------------------
+echo -e "${CYAN}[Phase 13b] Geo Attribution Backfill (bulk-seeded rows -> P1)${NC}"
+total=$((total + 1))
+if output=$(${PSQL} -c "
+    UPDATE nss.city_village SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+    UPDATE nss.postal_code SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+    UPDATE nss.post_office SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+" 2>&1); then
+    echo -e "  ${GREEN}[OK]${NC}   geo_attribution_backfill"
+    echo "${output}" | sed 's/^/  /'
+elif echo "${output}" | grep -qiE 'column .* does not exist'; then
+    # Existing-table DDL change (submitted_by_person_pk) was skipped by an
+    # incremental build against an already-bootstrapped city_village/
+    # postal_code/post_office — same existence-gating caveat as every
+    # other existing-table column add in this script. Not fatal: SKIP,
+    # not FAIL, so this step alone never aborts the whole build/deploy.
+    echo -e "  ${YELLOW}[SKIP]${NC} geo_attribution_backfill  (submitted_by_person_pk column absent — needs a full hard rebuild)"
+    skipped=$((skipped + 1))
+else
+    echo -e "  ${RED}[FAIL]${NC} geo_attribution_backfill"
     echo "  Error: ${output}"
     failed=$((failed + 1))
 fi

@@ -43,18 +43,27 @@
 #              password_history, registration_claim, password_reset_token,
 #              user_session)
 #   Phase 11 - Administration DDL (2 tables)
-#   Phase 11b- Governance DDL (9 tables: body_type_master,
+#   Phase 11b- Governance DDL (10 tables: body_type_master,
 #              position_master, body_master, body_member_assignment,
 #              acting_position_assignment, election, election_nomination,
-#              election_vote, election_result)
-#   Phase 11c- Governance Seed Data (body_type_master, position_master)
-#   Phase 11d- Correspondence DDL (4 tables: correspondence,
+#              election_vote, election_result, election_vote_participation)
+#              + ballot-immutability triggers (11_governance_immutability.sql)
+#              + seat-count triggers (12_governance_seat_limits.sql)
+#   Phase 11c- Governance Seed Data (body_type_master, position_master, body_master)
+#   Phase 11d- Correspondence DDL (5 tables: correspondence,
 #              correspondence_document, correspondence_finance_reference,
-#              correspondence_sequence_counter -
+#              correspondence_sequence_counter, correspondence_approval_step -
 #              Tier 6, Administration-owned; moved from Tier 5,
 #              owner-confirmed 2026-10-16)
+#   Phase 11e- Attendance DDL (4 tables: weekly_sangha_puja,
+#              weekly_sangha_puja_attendance, attendance_exception,
+#              attendance_review - Tier 6, owner-confirmed 2026-10-27)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
 #   Phase 13 - Admin bootstrap seed (NSS Admin superuser)
+#   Phase 13b- Geo attribution backfill (city_village/postal_code/
+#              post_office submitted_by_person_pk -> P1, for rows the
+#              Phase 2 bulk seed left unattributed; must run after
+#              Phase 13 since P1's person_pk doesn't exist before it)
 #   Phase 14 - Audit DDL (system_event_log table + DB trigger)
 #   Phase 15 - (OPTIONAL, local dev only) demo/test seed, run only when
 #              $env:RUN_DEMO_SEED is truthy and database\seed\demo\nss_demo_seed.sql
@@ -353,7 +362,7 @@ Invoke-Ddl "admin_scope"  "admin_scope" "$DdlBase\07_administration\02_admin_sco
 Write-Host ""
 
 # -------------------------------------------------
-# Phase 11b: Governance DDL (9 tables, Tier 6, Depths 0-6)
+# Phase 11b: Governance DDL (10 tables, Tier 6, Depths 0-6)
 # Unified Body Governance Model (GOV-BR-004). Depends only on
 # body_type_master/position_master (Depth 0), organization,
 # person, sangha_sevi - all created in earlier phases - so it
@@ -361,7 +370,7 @@ Write-Host ""
 # letting Phase 12 GRANT ON ALL TABLES and Phase 14 attach the
 # audit trigger to these tables too.
 # -------------------------------------------------
-Write-Host "[Phase 11b] Governance - DDL (9 tables)" -ForegroundColor Cyan
+Write-Host "[Phase 11b] Governance - DDL (10 tables + ballot immutability + seat-count limits)" -ForegroundColor Cyan
 Invoke-Ddl "body_type_master"           "body_type_master"           "$DdlBase\08_governance\01_body_type_master.sql"
 Invoke-Ddl "position_master"            "position_master"            "$DdlBase\08_governance\02_position_master.sql"
 Invoke-Ddl "body_master"                "body_master"                "$DdlBase\08_governance\03_body_master.sql"
@@ -371,19 +380,37 @@ Invoke-Ddl "election"                   "election"                   "$DdlBase\0
 Invoke-Ddl "election_nomination"        "election_nomination"        "$DdlBase\08_governance\07_election_nomination.sql"
 Invoke-Ddl "election_vote"              "election_vote"              "$DdlBase\08_governance\08_election_vote.sql"
 Invoke-Ddl "election_result"            "election_result"            "$DdlBase\08_governance\09_election_result.sql"
+Invoke-Ddl "election_vote_participation" "election_vote_participation" "$DdlBase\08_governance\10_election_vote_participation.sql"
+# Ballot immutability: function + BEFORE UPDATE triggers on
+# election_vote and election_vote_participation. Not a table —
+# Invoke-Sql (CREATE OR REPLACE / DROP..CREATE TRIGGER are idempotent).
+Invoke-Sql "governance_immutability"    "$DdlBase\08_governance\11_governance_immutability.sql"
+# Seat-count backstop: two functions + BEFORE INSERT OR UPDATE triggers
+# on body_member_assignment (flat per-body cap + Advisory Board
+# one-seat-per-Sakha). Not a table — Invoke-Sql, same as
+# governance_immutability above. NOTE: the companion
+# body_type_master.max_members column (01_body_type_master.sql) and
+# its seed UPDATE (seed/08_governance/01_body_type_master.sql) are
+# existence-gated by Invoke-Ddl/Invoke-Seed above and will NOT reach
+# an already-bootstrapped nss.body_type_master without a full hard
+# rebuild.
+Invoke-Sql "governance_seat_limits"     "$DdlBase\08_governance\12_governance_seat_limits.sql"
 Write-Host ""
 
 # -------------------------------------------------
 # Phase 11c: Governance — Seed Data
-# Starter catalogues for the two Depth-0 masters, existence-gated.
+# Starter catalogues for the two Depth-0 masters (body_type_master,
+# position_master), plus the 3 NSS-wide singleton body_master rows,
+# existence-gated.
 # -------------------------------------------------
 Write-Host "[Phase 11c] Governance - Seed Data" -ForegroundColor Cyan
 Invoke-Seed "body_type_master (seed)" "body_type_master" "$SeedBase\08_governance\01_body_type_master.sql"
 Invoke-Seed "position_master (seed)"  "position_master"  "$SeedBase\08_governance\02_position_master.sql"
+Invoke-Seed "body_master (seed)"      "body_master"       "$SeedBase\08_governance\03_body_master.sql"
 Write-Host ""
 
 # -------------------------------------------------
-# Phase 11d: Correspondence DDL (4 tables, Tier 6, Depths 1-5)
+# Phase 11d: Correspondence DDL (5 tables, Tier 6, Depths 1-5)
 # correspondence FK -> person, organization, master_data (Depth 4)
 # correspondence_document FK -> correspondence, document_master (Depth 5)
 # correspondence_finance_reference FK -> correspondence only in Pass 1;
@@ -391,6 +418,11 @@ Write-Host ""
 # built) per SOL-ADMIN-009 Sec 6.8/7.2.
 # correspondence_sequence_counter FK -> organization only (Depth 1);
 # backs api/helpers.py::next_correspondence_reference_number() (CORR-EXT-001).
+# correspondence_approval_step FK -> correspondence, person,
+# position_master, organization (Depth 5) - additive Sakha-President ->
+# Kendra-office-bearer approval-chain overlay for the member dashboard's
+# "Send Application" feature (owner request, 2026-10-21); placed last so
+# it can FK to position_master from Phase 11b/11c.
 # Administration-owned capability; moved from Tier 5 to Tier 6
 # (owner-confirmed 2026-10-16). Placed after Governance so Phase 12's
 # writer grant and Phase 14's audit trigger both cover these tables too.
@@ -400,6 +432,25 @@ Invoke-Ddl "correspondence"                   "correspondence"                  
 Invoke-Ddl "correspondence_document"          "correspondence_document"          "$DdlBase\09_correspondence\02_correspondence_document.sql"
 Invoke-Ddl "correspondence_finance_reference" "correspondence_finance_reference" "$DdlBase\09_correspondence\03_correspondence_finance_reference.sql"
 Invoke-Ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "$DdlBase\09_correspondence\04_correspondence_sequence_counter.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11e: Attendance DDL (4 tables, Tier 6, owner-confirmed 2026-10-27)
+# weekly_sangha_puja FK -> organization (Depth 1)
+# weekly_sangha_puja_attendance FK -> weekly_sangha_puja, sangha_sevi,
+# master_data (ATTENDANCE_STATUS), organization (Depth 2)
+# attendance_exception FK -> sangha_sevi, master_data
+# (ATTENDANCE_EXCEPTION_TYPE) (Depth 2)
+# attendance_review FK -> sangha_sevi, organization, master_data
+# (ATTENDANCE_REVIEW_STATUS) (Depth 3)
+# Placed after Governance/Correspondence so Phase 12's writer grant and
+# Phase 14's audit trigger both cover these tables too.
+# -------------------------------------------------
+Write-Host "[Phase 11e] Attendance - DDL (4 tables)" -ForegroundColor Cyan
+Invoke-Ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "$DdlBase\10_attendance\01_weekly_sangha_puja.sql"
+Invoke-Ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "$DdlBase\10_attendance\02_weekly_sangha_puja_attendance.sql"
+Invoke-Ddl "attendance_exception"          "attendance_exception"          "$DdlBase\10_attendance\03_attendance_exception.sql"
+Invoke-Ddl "attendance_review"             "attendance_review"             "$DdlBase\10_attendance\04_attendance_review.sql"
 Write-Host ""
 
 # -------------------------------------------------
@@ -439,6 +490,54 @@ try {
     Write-Host "  [FAIL] admin_bootstrap" -ForegroundColor Red
     Write-Host "  Error: $_"
     $script:failed++
+}
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 13b: Geo Attribution Backfill (Bulk-Reference-Seeded Rows)
+# Registration-Time Geography Creation (2026-10-21) added
+# submitted_by_person_pk to city_village/postal_code/post_office
+# (district is out of scope - never auto-created at registration).
+# The ~614K city_village and ~17.8K postal_code rows the Phase 2
+# Foundation seed bulk-loads have no submitter (nobody "submitted"
+# them via the app) - backfill them to point at the NSS Admin's
+# person_pk (P1) for attribution consistency, instead of leaving
+# them NULL forever.
+#
+# Must run AFTER Phase 13: P1's person row does not exist until the
+# admin bootstrap above creates it.
+#
+# Idempotent and safe to re-run: only touches rows where
+# submitted_by_person_pk IS NULL, and the submitted_by_sangha_sevi_pk
+# IS NULL guard means a real member-proposed or registration-origin
+# submitter is never overwritten. If P1 does not exist for any
+# reason, the subquery returns NULL and the UPDATE is a harmless
+# no-op.
+# -------------------------------------------------
+Write-Host "[Phase 13b] Geo Attribution Backfill (bulk-seeded rows -> P1)" -ForegroundColor Cyan
+$script:total++
+$backfillSql = @"
+UPDATE nss.city_village SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+UPDATE nss.postal_code SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+UPDATE nss.post_office SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+"@
+$output = & psql -h $DbHost -p $DbPort -U $DbUser -d $DbName -v ON_ERROR_STOP=1 -c $backfillSql 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  [OK]   geo_attribution_backfill" -ForegroundColor Green
+    $output | ForEach-Object { Write-Host "  $_" }
+} else {
+    $outputText = ($output | Out-String)
+    if ($outputText -match 'column .* does not exist') {
+        # Existing-table DDL change (submitted_by_person_pk) was skipped by
+        # an incremental build against an already-bootstrapped
+        # city_village/postal_code/post_office. Not fatal: SKIP, not FAIL.
+        Write-Host "  [SKIP] geo_attribution_backfill  (submitted_by_person_pk column absent - needs a full hard rebuild)" -ForegroundColor Yellow
+        $script:skipped++
+    } else {
+        Write-Host "  [FAIL] geo_attribution_backfill" -ForegroundColor Red
+        Write-Host "  Error: $output"
+        $script:failed++
+    }
 }
 Write-Host ""
 

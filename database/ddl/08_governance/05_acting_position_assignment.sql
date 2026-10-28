@@ -28,6 +28,21 @@
 --     the assignment lifecycle (GOV-BR-087) via CHECK.
 --   - reason: free-text justification for the acting cover
 --     (vacancy, leave, suspension of holder, ...).
+--   - PENDING_APPROVAL / REJECTED added 2026-10-23 (owner-approved
+--     admin-initiated acting-delegation approval workflow): when an
+--     admin (not the sitting office bearer) names someone to act on a
+--     seat, the row now lands as PENDING_APPROVAL instead of the
+--     previous default ACTIVE, and sits there until the CONCERNED
+--     PERSON (the nominee, person_pk on this row) approves it
+--     (-> ACTIVE) or rejects it (-> REJECTED). Mirrors
+--     body_member_assignment.assignment_status's PENDING_REMOVAL
+--     pattern (04_body_member_assignment.sql, GOV-BR item #18) — a
+--     status value that exists purely to gate a row behind a specific
+--     person's decision before it becomes effective/terminal. Member-
+--     initiated self-delegation (POST /me/acting-delegations, the
+--     office bearer delegating their OWN seat) is unaffected and stays
+--     immediate ACTIVE — it is not admin-initiated, so it never enters
+--     PENDING_APPROVAL.
 --
 -- Note: Audit actor FKs (*_by_sangha_sevi_pk) are
 --       NULLABLE columns included in Pass 1. Their FK
@@ -97,7 +112,8 @@ CREATE TABLE IF NOT EXISTS nss.acting_position_assignment
     -- ── CHECK Constraints ───────────────────────────────
 
     CONSTRAINT chk_acting_position_assignment_status
-        CHECK (acting_status IN ('ASSIGNED', 'ACTIVE', 'ENDED', 'HISTORICAL')),
+        CHECK (acting_status IN ('ASSIGNED', 'ACTIVE', 'ENDED', 'HISTORICAL',
+                                  'PENDING_APPROVAL', 'REJECTED')),
 
     CONSTRAINT chk_acting_position_assignment_effective_period
         CHECK (effective_to IS NULL OR effective_to >= effective_from),
@@ -134,3 +150,24 @@ CREATE INDEX IF NOT EXISTS idx_acting_position_assignment_active
 CREATE UNIQUE INDEX IF NOT EXISTS uq_acting_position_assignment_active_holder
     ON nss.acting_position_assignment (body_master_pk, position_master_pk, person_pk)
     WHERE is_active = TRUE AND effective_to IS NULL;
+
+-- ── Widen chk_acting_position_assignment_status (2026-10-23) ────────────
+-- Adds PENDING_APPROVAL / REJECTED for the owner-approved admin-initiated
+-- acting-delegation approval workflow (mirrors body_member_assignment's
+-- PENDING_REMOVAL pattern — see design decisions above and
+-- 04_body_member_assignment.sql). Idempotent DROP/ADD so this ALTER is
+-- safe to re-run.
+--
+-- NOTE: under this project's existence-gated build (run_ddl / Invoke-Ddl —
+-- see database/scripts/02_build.sh), the ENTIRE file is skipped once
+-- nss.acting_position_assignment already exists, so this ALTER (like the
+-- CREATE TABLE above it) will NOT run on an already-bootstrapped
+-- environment — A FULL HARD REBUILD IS REQUIRED before PENDING_APPROVAL /
+-- REJECTED can actually be inserted. This safety net only protects a
+-- genuinely fresh install.
+ALTER TABLE nss.acting_position_assignment
+    DROP CONSTRAINT IF EXISTS chk_acting_position_assignment_status;
+ALTER TABLE nss.acting_position_assignment
+    ADD CONSTRAINT chk_acting_position_assignment_status
+        CHECK (acting_status IN ('ASSIGNED', 'ACTIVE', 'ENDED', 'HISTORICAL',
+                                  'PENDING_APPROVAL', 'REJECTED'));

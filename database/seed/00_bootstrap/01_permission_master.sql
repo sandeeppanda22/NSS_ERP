@@ -5,6 +5,14 @@
 -- Seed: 21 frozen permissions (Tier 5 decision 2026-09-15;
 --        FOUNDATION_CALENDAR_MANAGE added 2026-10-01 per
 --        SOL-ARCH-013 OPEN-FC-03)
+-- Version: 1.5 — add ATTENDANCE_VIEW / ATTENDANCE_MANAGE (Tier 6,
+--          2026-10-27): Weekly Sangha Puja attendance marking. 28
+--          permissions total.
+-- Version: 1.4 — add GEO_ENTRY_APPROVE (2026-10-21): narrow permission for
+--          Sakha admins to approve/correct geography proposals scoped to
+--          their own Sakha, without the broad FOUNDATION_MANAGE (which also
+--          gates global NSS/Kendra-only master-data editing). 26 permissions
+--          total.
 -- Version: 1.3 — add CORRESPONDENCE_VIEW / CORRESPONDENCE_MANAGE (Tier 6,
 --          2026-10-17), Correspondence Register capability. 25 permissions
 --          total.
@@ -204,6 +212,37 @@ VALUES
      'register(s). Every org-scoped admin role manages its own register '
      '(mirrors PERSON_MANAGE/MEMBERSHIP_MANAGE footprint), bounded by '
      'admin scope — not an ADMIN/KENDRA-only structural permission.',
-     25)
+     25),
+
+    -- ── Foundation — Member-Assisted Geographic Entry (2026-10-21) ────
+    ('GEO_ENTRY_APPROVE',
+     'Approve Geographic Entry Proposals',
+     'FOUNDATION',
+     'Approve/correct member-submitted district, PIN code, post office, and '
+     'city/village entries scoped to the actor''s own admin scope. Narrower '
+     'than FOUNDATION_MANAGE (which also gates global NSS/Kendra-only '
+     'master-data editing) — granted to NSS_ERP_SAKHA_ADMIN only, so a '
+     'Sakha admin can review their own Sakha''s geography proposals '
+     'without the broader structural authority.',
+     26),
+
+    -- ── Attendance (Tier 6, 2026-10-27) ──────────────────
+    ('ATTENDANCE_VIEW',
+     'View Attendance',
+     'ATTENDANCE',
+     'Read-only access to Weekly Sangha Puja events, attendance records, '
+     'exceptions, and reviews within the actor''s admin scope.',
+     27),
+
+    ('ATTENDANCE_MANAGE',
+     'Mark Attendance',
+     'ATTENDANCE',
+     'Create Weekly Sangha Puja events and mark PRESENT/ABSENT/EXCUSED_ABSENCE '
+     'within the actor''s admin scope. Deliberately does NOT confer Attendance '
+     'Review authority (close/defer/escalate/approve excused absence) — the '
+     'frozen Attendance Review Workflow names actual Secretary/President '
+     'governance offices, not an admin permission, as the review authority; '
+     'that is checked separately against body_member_assignment.',
+     28)
 
 ON CONFLICT (permission_code) DO NOTHING;

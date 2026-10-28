@@ -204,7 +204,7 @@ check_row_count "state" 112
 check_row_count "district" 780
 check_row_count "system_setting" 5
 check_row_count "postal_code" 17800
-check_row_count "city_village" 673000
+check_row_count "city_village" 659000
 
 echo "  Unique constraints:"
 check_no_duplicates "master_category" "category_code"
@@ -235,6 +235,12 @@ check_min_percentage "city_village district_pk coverage" \
 echo "  Deferred columns:"
 check_column_exists "document_master" "person_pk"
 check_column_exists "document_master" "uploaded_by_sangha_sevi_pk"
+echo ""
+
+echo "  Registration-Time Geography Creation (2026-10-21 — submitted_by_person_pk):"
+check_column_exists "city_village" "submitted_by_person_pk"
+check_column_exists "postal_code" "submitted_by_person_pk"
+check_column_exists "post_office" "submitted_by_person_pk"
 echo ""
 
 # =====================================================
@@ -430,11 +436,14 @@ check_fk_integrity "election_result -> election" \
 echo ""
 
 # =====================================================
-# Correspondence (4 tables, Tier 6 — existence only, no seed)
+# Correspondence (5 tables, Tier 6 — existence only, no seed)
 # Administration-owned capability; moved from Tier 5 to Tier 6
 # (owner-confirmed 2026-10-16). financial_transaction FK on
 # correspondence_finance_reference is deferred to Pass 2 (Finance/
 # Tier 12 not yet built) — not checked here.
+# correspondence_approval_step is the additive Sakha-President ->
+# Kendra-office-bearer approval-chain overlay (owner request, 2026-10-21)
+# — existence/FK checks only, same as its siblings (no seed either).
 # =====================================================
 echo -e "${CYAN}--- Correspondence ---${NC}"
 echo "  Tables (existence only — no seed data):"
@@ -442,6 +451,7 @@ check_table_exists "correspondence"
 check_table_exists "correspondence_document"
 check_table_exists "correspondence_finance_reference"
 check_table_exists "correspondence_sequence_counter"
+check_table_exists "correspondence_approval_step"
 echo "  Key columns:"
 check_column_exists "correspondence" "reference_number"
 check_column_exists "correspondence" "register_organization_pk"
@@ -452,6 +462,10 @@ check_column_exists "correspondence_sequence_counter" "register_organization_pk"
 check_column_exists "correspondence_sequence_counter" "direction"
 check_column_exists "correspondence_sequence_counter" "financial_year_start"
 check_column_exists "correspondence_sequence_counter" "current_value"
+check_column_exists "correspondence_approval_step" "correspondence_pk"
+check_column_exists "correspondence_approval_step" "step_number"
+check_column_exists "correspondence_approval_step" "approver_person_pk"
+check_column_exists "correspondence_approval_step" "step_status"
 echo "  FK integrity (no orphans — vacuously true until seeded):"
 check_fk_integrity "correspondence -> organization (register owner)" \
     "SELECT COUNT(*) FROM nss.correspondence c LEFT JOIN nss.organization o ON c.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
@@ -463,8 +477,54 @@ check_fk_integrity "correspondence_finance_reference -> master_data (relationshi
     "SELECT COUNT(*) FROM nss.correspondence_finance_reference cfr LEFT JOIN nss.master_data md ON cfr.relationship_type_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
 check_fk_integrity "correspondence_sequence_counter -> organization" \
     "SELECT COUNT(*) FROM nss.correspondence_sequence_counter csc LEFT JOIN nss.organization o ON csc.register_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+check_fk_integrity "correspondence_approval_step -> correspondence" \
+    "SELECT COUNT(*) FROM nss.correspondence_approval_step cas LEFT JOIN nss.correspondence c ON cas.correspondence_pk = c.correspondence_pk WHERE c.correspondence_pk IS NULL;"
+check_fk_integrity "correspondence_approval_step -> person (approver)" \
+    "SELECT COUNT(*) FROM nss.correspondence_approval_step cas LEFT JOIN nss.person p ON cas.approver_person_pk = p.person_pk WHERE p.person_pk IS NULL;"
+check_fk_integrity "correspondence_approval_step -> position_master" \
+    "SELECT COUNT(*) FROM nss.correspondence_approval_step cas LEFT JOIN nss.position_master pm ON cas.approver_position_master_pk = pm.position_master_pk WHERE pm.position_master_pk IS NULL;"
 echo "  Unique constraints:"
 check_no_duplicates "correspondence" "reference_number"
+echo ""
+
+# =====================================================
+# Module 9: Attendance (4 tables, Tier 6 — existence only, no seed)
+# =====================================================
+echo -e "${CYAN}Module 9: Attendance${NC}"
+echo "  Tables (existence only — no seed data):"
+check_table_exists "weekly_sangha_puja"
+check_table_exists "weekly_sangha_puja_attendance"
+check_table_exists "attendance_exception"
+check_table_exists "attendance_review"
+
+check_column_exists "weekly_sangha_puja" "sakha_pk"
+check_column_exists "weekly_sangha_puja" "puja_date"
+check_column_exists "weekly_sangha_puja_attendance" "weekly_sangha_puja_pk"
+check_column_exists "weekly_sangha_puja_attendance" "sangha_sevi_pk"
+check_column_exists "weekly_sangha_puja_attendance" "attendance_status_master_data_pk"
+check_column_exists "weekly_sangha_puja_attendance" "attendance_sakha_pk"
+check_column_exists "attendance_exception" "sangha_sevi_pk"
+check_column_exists "attendance_exception" "exception_type_master_data_pk"
+check_column_exists "attendance_review" "sangha_sevi_pk"
+check_column_exists "attendance_review" "review_status_master_data_pk"
+check_column_exists "attendance_review" "assigned_to_role"
+
+check_fk_integrity "weekly_sangha_puja -> organization (sakha)" \
+    "SELECT COUNT(*) FROM nss.weekly_sangha_puja w LEFT JOIN nss.organization o ON w.sakha_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+check_fk_integrity "weekly_sangha_puja_attendance -> weekly_sangha_puja" \
+    "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.weekly_sangha_puja w ON a.weekly_sangha_puja_pk = w.weekly_sangha_puja_pk WHERE w.weekly_sangha_puja_pk IS NULL;"
+check_fk_integrity "weekly_sangha_puja_attendance -> sangha_sevi" \
+    "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.sangha_sevi s ON a.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
+check_fk_integrity "weekly_sangha_puja_attendance -> master_data (status)" \
+    "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.master_data md ON a.attendance_status_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
+check_fk_integrity "attendance_exception -> sangha_sevi" \
+    "SELECT COUNT(*) FROM nss.attendance_exception e LEFT JOIN nss.sangha_sevi s ON e.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
+check_fk_integrity "attendance_review -> sangha_sevi" \
+    "SELECT COUNT(*) FROM nss.attendance_review r LEFT JOIN nss.sangha_sevi s ON r.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
+check_fk_integrity "attendance_review -> organization" \
+    "SELECT COUNT(*) FROM nss.attendance_review r LEFT JOIN nss.organization o ON r.organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+
+check_no_duplicates "weekly_sangha_puja" "sakha_pk, puja_date"
 echo ""
 
 # =====================================================

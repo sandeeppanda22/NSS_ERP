@@ -64,13 +64,52 @@ VALUES
 
     ('ANCHALIKA_GOVERNING_BODY',
      'Anchalika Governing Body',
-     'The governing body of an Anchalika Sangha branch; President, Secretary, and an optional Cashier (§63). Org-scoped, admin-created via "Add Body" — same pattern as Sakha Governing Body.'),
+     'The governing body of an Anchalika Sangha branch; President, Secretary, and an optional Treasurer (§63; owner decision 2026-10-23 — Treasurer, not Cashier, at every governance tier). Org-scoped, admin-created via "Add Body" — same pattern as Sakha Governing Body.'),
 
     ('ZILLA_GOVERNING_BODY',
      'Zilla Governing Body',
-     'The governing body of a Zilla Sangha branch; President, Secretary, and an optional Cashier (§63). Org-scoped, admin-created via "Add Body" — same pattern as Sakha Governing Body.'),
+     'The governing body of a Zilla Sangha branch; President, Secretary, and an optional Treasurer (§63; owner decision 2026-10-23 — Treasurer, not Cashier, at every governance tier). Org-scoped, admin-created via "Add Body" — same pattern as Sakha Governing Body.'),
 
     ('PATHA_CHAKRA_GOVERNING_BODY',
      'Patha Chakra Governing Body',
-     'The governing body of a Patha Chakra; President, Secretary, and an optional Cashier (§63). Org-scoped, admin-created via "Add Body" — same pattern as Sakha Governing Body.')
+     'The governing body of a Patha Chakra; President, Secretary, and an optional Treasurer (§63; owner decision 2026-10-23 — Treasurer, not Cashier, at every governance tier). Org-scoped, admin-created via "Add Body" — same pattern as Sakha Governing Body.')
 ON CONFLICT (body_type_code) DO NOTHING;
+
+-- Version: 1.2 (2026-10-21) — DB-level seat-count backstop
+-- (nss.fn_enforce_body_seat_limit(), database/ddl/08_governance/
+-- 12_governance_seat_limits.sql). max_members is not part of the
+-- INSERT above (ON CONFLICT DO NOTHING would silently skip it on a
+-- re-run against a pre-existing row), so it is set via a separate,
+-- idempotent UPDATE that is safe to re-run — it always converges to
+-- the same values regardless of what an admin may have edited via
+-- PATCH /body-types/{pk} in the meantime, since max_members is not
+-- currently exposed on that endpoint for editing.
+--
+-- Flat per-type caps only (see 01_body_type_master.sql DDL comment
+-- for the full rationale):
+--   KENDRA_GOVERNING_BODY        = 9  (GOV-BR-010/011)
+--   SAKHA_GOVERNING_BODY         = 9
+--   SEVAK_SANGHA_EXECUTIVE       = 3
+--   ANCHALIKA_GOVERNING_BODY     = 3  (§63)
+--   ZILLA_GOVERNING_BODY         = 3  (§63)
+--   PATHA_CHAKRA_GOVERNING_BODY  = 3  (§63)
+--
+-- Deliberately NOT updated here (left NULL, their default):
+--   MAHILA_PARICHALANA_MANDALI — two-tier cap (8 Kendra-level / 3
+--     Sakha-level) by body_master.organization_pk-nullness; a single
+--     constant on this table cannot express it, so the trigger
+--     derives the right limit at write time instead.
+--   ADVISORY_BOARD — one seat per active Sakha Sangha (scales with
+--     the Sakha count), not a fixed number; the trigger enforces the
+--     real "one seat per Sakha" rule instead of a flat count.
+UPDATE nss.body_type_master
+SET max_members = v.max_members
+FROM (VALUES
+    ('KENDRA_GOVERNING_BODY',       9),
+    ('SAKHA_GOVERNING_BODY',        9),
+    ('SEVAK_SANGHA_EXECUTIVE',      3),
+    ('ANCHALIKA_GOVERNING_BODY',    3),
+    ('ZILLA_GOVERNING_BODY',        3),
+    ('PATHA_CHAKRA_GOVERNING_BODY', 3)
+) AS v(body_type_code, max_members)
+WHERE nss.body_type_master.body_type_code = v.body_type_code;

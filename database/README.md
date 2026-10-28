@@ -74,7 +74,7 @@ Build phases (authoritative detail in `scripts/README.md`):
 
 | Phase | Content |
 |------:|---------|
-| 0 | Bootstrap RBAC — 3 tables + seed (10 roles, 25 permissions, 140 mappings) |
+| 0 | Bootstrap RBAC — 3 tables + seed (11 roles, 28 permissions, 155 mappings) |
 | 1 | Foundation DDL — 14 tables (incl. `post_office`, `festival_master`/`festival_calendar_date`) |
 | 2 | Foundation seed (incl. all-India PINs, post offices, ~673k `city_village` rows, festival calendar) |
 | 3 | Organization DDL — 1 table + 2 triggers |
@@ -132,18 +132,19 @@ Depth/Seq# breakdown lives in their own module READMEs rather than being duplica
 - `ddl/06_authentication/README.md` (5 tables) and `ddl/07_administration/README.md` (2 tables) —
   Tier 5
 - `ddl/08_governance/README.md` (10 tables + immutability triggers) — Tier 6
-- `ddl/09_correspondence/README.md` (4 tables, Correspondence Register) — Tier 6
+- `ddl/09_correspondence/README.md` (5 tables, Correspondence Register) — Tier 6
+- `ddl/10_attendance/` (4 tables, Weekly Sangha Puja attendance) — Tier 6, uncommitted; has no README of its own (documented in `ddl/README.md`)
 - `ddl/01_foundation/README.md` also documents
   `festival_master`/`festival_calendar_date`, and Phase 14's
   `system_event_log` (15th Foundation table) and `fn_audit_trigger()`
 
-**Total implemented: 64 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
-1 Organization + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 4 Correspondence
+**Total implemented: 69 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
+1 Organization + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance
 (verified by counting `CREATE TABLE` across `database/ddl/**`). Of those, 11 are Tier 5 additions
-(see the banner above), 3 more Foundation tables arrived on the same branch, and 16 are Tier 6 (10 Governance + 4 Correspondence + 2 Membership); the v0.10.4
+(see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) and 4 are Tier 6 (Attendance); the v0.10.4
 baseline was 34.
 **Organization type/status moved to Foundation `master_data` — standalone tables retired.**
-**Phase 0 seed complete:** `role_master` (10 roles), `permission_master` (25), `role_permission`
+**Phase 0 seed complete:** `role_master` (11 roles), `permission_master` (28), `role_permission`
 (140) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
 
 See module READMEs for per-file details:
@@ -201,9 +202,11 @@ database/
 │   ├── 06_authentication/ 5 tables: user_account, password_history, registration_claim,
 │   │                     password_reset_token, user_session (Tier 5)
 │   ├── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
-│   └── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql` (Tier 6)
+│   ├── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql`, `12_governance_seat_limits.sql` (Tier 6)
+│   ├── 09_correspondence/ 5 tables (Tier 6)
+│   └── 10_attendance/    4 tables: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review (Tier 6)
 ├── seed/
-│   ├── 00_bootstrap/     10 roles, 25 permissions, 140 role-permission mappings
+│   ├── 00_bootstrap/     11 roles, 28 permissions, 155 role-permission mappings
 │   ├── 01_foundation/    reference + bulk geography data (files 01-11b; `09_sakha_postal_codes.sql` runs in Phase 4)
 │   ├── 02_organization/  3 unique orgs + 175 real Sakha branches + org-code counter sync
 │   ├── 03_person/        no seed data (README only)
@@ -227,7 +230,7 @@ There is no `database/migrations/` or `database/fixes/` folder.
 
 | Module | Tables | DDL Status | Next Action |
 |--------|-------:|-----------|-------------|
-| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (10 roles / 25 permissions / 140 mappings) | — |
+| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (11 roles / 28 permissions / 155 mappings) | — |
 | Foundation | 15 | ✅ IMPLEMENTED (12 original/geography incl. `post_office`, 2 festival tables, + `system_event_log`) | — |
 | Organization | 1 | ✅ IMPLEMENTED (+ 2 triggers) | — |
 | Person | 2 | ✅ IMPLEMENTED | — |
@@ -235,7 +238,9 @@ There is no `database/migrations/` or `database/fixes/` folder.
 | Membership | 16 | ✅ IMPLEMENTED (`darshak_attendance_registration`, `credential_sequence_counter` Tier 5; `sakha_local_number_counter`, `membership_change_request` Tier 6; + Sakha-only trigger) | — |
 | Authentication | 5 | ✅ Tier 5, released in v0.11.0 | — |
 | Administration | 2 (`user_role`/`admin_scope`; the 3 RBAC definition tables live in Bootstrap) | ✅ Tier 5, released in v0.11.0 | — |
-| Governance | 10 | 🚧 Tier 6, in progress (uncommitted on `feature/tier6-governance`) | Verify, commit, merge to `develop` |
+| Governance | 10 | 🚧 Tier 6, committed on `feature/tier6-governance` (not merged) | Merge to `develop` |
+| Correspondence | 5 | 🚧 Tier 6, committed on `feature/tier6-governance` (approval-step table uncommitted) | Merge to `develop` |
+| Attendance | 4 | 🚧 Tier 6, uncommitted | API/security tests written (not yet run against the DB); commit |
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their
