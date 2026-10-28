@@ -587,6 +587,27 @@ class TestAssignments:
         data = r.json()
         assert any(a["person_pk"] == candidate_person_pk for a in data["items"])
 
+    def test_list_includes_home_sakha(self, client, admin_headers, body_pk, candidate_person_pk):
+        """The assignments list carries the holder's home Sakha
+        (sakha_name / sakha_organization_pk), backing the Sakha filter on the
+        admin Assignments tab (owner ask #3, 2026-10-24). Both are additive
+        None-default fields: always present in the response (None-/absent-safe
+        for a holder whose Sangha Sevi has no home org), and populated for a
+        holder anchored to a real Sakha."""
+        r = client.get(f"{BASE}/bodies/{body_pk}/assignments", headers=admin_headers)
+        assert r.status_code == 200
+        items = r.json()["items"]
+        # Every row always exposes both keys — never KeyError on the frontend.
+        for a in items:
+            assert "sakha_name" in a
+            assert "sakha_organization_pk" in a
+        # The candidate's active Sangha Sevi is anchored to a SAKHA_SANGHA org
+        # (_attach_active_membership), so its assignment resolves a real home
+        # Sakha: both fields are populated, not None.
+        cand = next(a for a in items if a["person_pk"] == candidate_person_pk)
+        assert cand["sakha_organization_pk"] is not None
+        assert cand["sakha_name"]
+
     def test_end_assignment(self, client, admin_headers, body_pk, position_pk, candidate_person_pk, candidate_sevi_pk):
         r = client.get(f"{BASE}/bodies/{body_pk}/assignments", headers=admin_headers)
         assignment_pk = next(
@@ -623,6 +644,74 @@ class TestAssignments:
         )
         assert r4.status_code == 200
 
+    def test_promoting_a_member_converts_the_row_in_place(
+        self, client, admin_headers, write_conn, body_pk,
+    ):
+        """
+        Owner-confirmed 2026-10-24: "member and president/secretary all
+        same... instead of promoting can't we just point the president
+        post to a member" — supersedes the 2026-10-23 "insert the officer
+        row, then end the prior MEMBER row" approach. Assigning a MEMBER,
+        then assigning that SAME person a different position on the SAME
+        body, must UPDATE the existing row (same body_member_assignment_pk)
+        rather than create a second row — so GET assignments shows exactly
+        ONE row for this person, now carrying the new position.
+
+        Uses its own fresh position (not the shared `position_pk` fixture)
+        so this test is self-contained regardless of what ran before it in
+        this class/module.
+        """
+        person_pk = _create_person(write_conn, "Promotee")
+        sevi_pk = _active_sevi_pk(write_conn, person_pk)
+
+        positions = client.get(f"{BASE}/positions", headers=admin_headers).json()
+        member_position_pk = next(p["position_master_pk"] for p in positions if p["position_code"] == "MEMBER")
+
+        officer_code = f"TEST_OFFICER_{uuid4().hex[:8].upper()}"
+        r_pos = client.post(
+            f"{BASE}/positions",
+            json={"position_code": officer_code, "position_name": "Test Officer", "display_order": 1},
+            headers=admin_headers,
+        )
+        assert r_pos.status_code == 201, r_pos.text
+        officer_position_pk = r_pos.json()["position_master_pk"]
+
+        r1 = client.post(
+            f"{BASE}/bodies/{body_pk}/assignments",
+            json={
+                "position_master_pk": member_position_pk, "person_pk": person_pk,
+                "sangha_sevi_pk": sevi_pk, "effective_from": "2026-04-01",
+            },
+            headers=admin_headers,
+        )
+        assert r1.status_code == 201, r1.text
+        member_assignment_pk = r1.json()["body_member_assignment_pk"]
+
+        r2 = client.post(
+            f"{BASE}/bodies/{body_pk}/assignments",
+            json={
+                "position_master_pk": officer_position_pk, "person_pk": person_pk,
+                "sangha_sevi_pk": sevi_pk, "effective_from": "2026-04-15",
+            },
+            headers=admin_headers,
+        )
+        assert r2.status_code == 201, r2.text
+        # Same row, converted — not a second, newly-inserted row.
+        assert r2.json()["body_member_assignment_pk"] == member_assignment_pk
+        assert r2.json()["position_master_pk"] == officer_position_pk
+
+        r3 = client.get(f"{BASE}/bodies/{body_pk}/assignments", headers=admin_headers)
+        rows_for_person = [a for a in r3.json()["items"] if a["person_pk"] == person_pk]
+        assert len(rows_for_person) == 1, rows_for_person
+        assert rows_for_person[0]["position_master_pk"] == officer_position_pk
+
+        # Close this demonstration assignment so the slot is free again.
+        client.post(
+            f"{BASE}/assignments/{member_assignment_pk}/end",
+            json={"effective_to": "2026-10-01"},
+            headers=admin_headers,
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # 5. Acting Position Assignment
@@ -639,7 +728,10 @@ class TestActingAssignments:
             headers=admin_headers,
         )
         assert r.status_code == 201, r.text
-        assert r.json()["acting_status"] in ("ASSIGNED", "ACTIVE")
+        # Admin-initiated creation lands PENDING_APPROVAL, not immediately
+        # ACTIVE (owner decision A, 2026-10-23) — it only becomes ACTIVE
+        # once the concerned person approves it; see TestDecideActingAssignment.
+        assert r.json()["acting_status"] == "PENDING_APPROVAL"
 
     def test_list_acting_assignments(self, client, admin_headers, body_pk, voter_person_pk):
         r = client.get(f"{BASE}/bodies/{body_pk}/acting-assignments", headers=admin_headers)
@@ -658,6 +750,117 @@ class TestActingAssignments:
         )
         assert r2.status_code == 200
         assert r2.json()["acting_status"] == "ENDED"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 5b. Acting Position Assignment — concerned-person approve/reject
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Admin-initiated acting assignments land PENDING_APPROVAL (owner decision
+# A, 2026-10-23) and only the person NAMED on the row (person_pk) may
+# approve or reject it — no permission/scope check at all. Dedicated
+# login-capable nominees (not the plain voter_person_pk, which has no
+# user_account) so the test can authenticate as "the concerned person".
+
+class TestDecideActingAssignment:
+    @pytest.fixture(scope="class")
+    def nominee(self, write_conn):
+        return _create_member_login(write_conn, "ActingNominee")
+
+    @pytest.fixture(scope="class")
+    def other_person(self, write_conn):
+        return _create_member_login(write_conn, "ActingOther")
+
+    @pytest.fixture(scope="class")
+    def nominee_headers(self, client, nominee):
+        return _login_headers(client, nominee["sangha_sevi_id"], nominee["password"])
+
+    @pytest.fixture(scope="class")
+    def other_headers(self, client, other_person):
+        return _login_headers(client, other_person["sangha_sevi_id"], other_person["password"])
+
+    def _create_pending(self, client, admin_headers, body_pk, nominee, *, day="01"):
+        # A fresh position per call — uq_acting_position_assignment_active_holder
+        # is unique on (body, position, person) while is_active/effective_to IS
+        # NULL, and REJECTED/ACTIVE rows from earlier sub-tests stay is_active =
+        # TRUE, so reusing one shared position across these sub-tests would
+        # 409 against the PRIOR sub-test's row, not exercise this one's path.
+        position_pk = _new_position(
+            client, admin_headers, f"Decision Test Position {day}", int(day),
+        )
+        r = client.post(
+            f"{BASE}/bodies/{body_pk}/acting-assignments",
+            json={
+                "position_master_pk": position_pk, "person_pk": str(nominee["person_pk"]),
+                "effective_from": f"2026-03-{day}", "reason": "Decision workflow test.",
+            },
+            headers=admin_headers,
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["acting_status"] == "PENDING_APPROVAL"
+        return r.json()["acting_position_assignment_pk"]
+
+    def test_approve_by_other_person_returns_403(
+        self, client, admin_headers, other_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="01")
+        r = client.post(f"{BASE}/acting-assignments/{pk}/approve", json={}, headers=other_headers)
+        assert r.status_code == 403, r.text
+
+    def test_reject_by_other_person_returns_403(
+        self, client, admin_headers, other_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="02")
+        r = client.post(f"{BASE}/acting-assignments/{pk}/reject", json={}, headers=other_headers)
+        assert r.status_code == 403, r.text
+
+    def test_approve_by_concerned_person_succeeds(
+        self, client, admin_headers, nominee_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="03")
+        r = client.post(f"{BASE}/acting-assignments/{pk}/approve", json={}, headers=nominee_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["acting_status"] == "ACTIVE"
+
+    def test_reject_by_concerned_person_succeeds(
+        self, client, admin_headers, nominee_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="04")
+        r = client.post(
+            f"{BASE}/acting-assignments/{pk}/reject",
+            json={"remarks": "Not available."}, headers=nominee_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["acting_status"] == "REJECTED"
+
+    def test_approve_non_pending_returns_409(
+        self, client, admin_headers, nominee_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="05")
+        r1 = client.post(f"{BASE}/acting-assignments/{pk}/approve", json={}, headers=nominee_headers)
+        assert r1.status_code == 200, r1.text
+        r2 = client.post(f"{BASE}/acting-assignments/{pk}/approve", json={}, headers=nominee_headers)
+        assert r2.status_code == 409, r2.text
+
+    def test_reject_non_pending_returns_409(
+        self, client, admin_headers, nominee_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="06")
+        r1 = client.post(f"{BASE}/acting-assignments/{pk}/reject", json={}, headers=nominee_headers)
+        assert r1.status_code == 200, r1.text
+        r2 = client.post(f"{BASE}/acting-assignments/{pk}/reject", json={}, headers=nominee_headers)
+        assert r2.status_code == 409, r2.text
+
+    def test_pending_approval_listed_on_me_pending_acting_approvals(
+        self, client, admin_headers, nominee_headers, body_pk, nominee,
+    ):
+        pk = self._create_pending(client, admin_headers, body_pk, nominee, day="07")
+        r = client.get(f"{BASE}/me/pending-acting-approvals", headers=nominee_headers)
+        assert r.status_code == 200, r.text
+        assert any(a["acting_position_assignment_pk"] == pk for a in r.json()["items"])
+
+    def test_pending_acting_approvals_requires_auth(self, anon_client):
+        assert anon_client.get(f"{BASE}/me/pending-acting-approvals").status_code == 401
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1538,5 +1741,517 @@ class TestRbac:
     def test_create_body_type_requires_auth(self, anon_client):
         r = anon_client.post(
             f"{BASE}/body-types", json={"body_type_code": "X", "body_type_name": "X"},
+        )
+        assert r.status_code == 401
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 12. Member-facing "act on my behalf" delegation (/me/acting-delegations)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Login-only endpoints whose authority comes from the caller's OWN current
+# office-bearer seat (_active_office_bearer), never from GOVERNANCE_*.
+# Dedicated body/positions so this block cannot collide with the shared
+# body_pk/position_pk fixtures the assignment and election tests mutate.
+
+MEMBER_PASSWORD = "GovMemberPass1"
+
+
+def _create_member_login(write_conn, label: str) -> dict:
+    """
+    A person + active sangha_sevi + ACTIVE user_account and NOTHING else —
+    no user_role, no admin_scope. Exactly the "plain logged-in member" these
+    endpoints must serve, so the tests prove the self-role gate (not a
+    permission) is what authorizes them.
+    """
+    from api.services.auth_service import hash_password
+
+    person_pk = _create_person(write_conn, label)
+    cur = write_conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO nss.user_account (
+            person_pk, password_hash, account_status, force_password_change, password_expires_at
+        ) VALUES (%s, %s, 'ACTIVE', FALSE, NOW() + INTERVAL '365 days')
+        """,
+        (str(person_pk), hash_password(MEMBER_PASSWORD)),
+    )
+    cur.execute(
+        "SELECT sangha_sevi_id, sangha_sevi_pk FROM nss.sangha_sevi "
+        "WHERE person_pk = %s AND is_active = TRUE",
+        (str(person_pk),),
+    )
+    sangha_sevi_id, sangha_sevi_pk = cur.fetchone()
+    return {
+        "person_pk": person_pk,
+        "sangha_sevi_id": sangha_sevi_id,
+        "sangha_sevi_pk": str(sangha_sevi_pk),
+        "password": MEMBER_PASSWORD,
+    }
+
+
+def _new_position(client, admin_headers, name: str, display_order: int) -> str:
+    r = client.post(
+        f"{BASE}/positions",
+        json={
+            "position_code": f"DELEG_{uuid4().hex[:8].upper()}",
+            "position_name": name,
+            "display_order": display_order,
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["position_master_pk"]
+
+
+def _seat(client, admin_headers, body_pk, position_pk, user):
+    r = client.post(
+        f"{BASE}/bodies/{body_pk}/assignments",
+        json={
+            "position_master_pk": position_pk,
+            "person_pk": str(user["person_pk"]),
+            "sangha_sevi_pk": user["sangha_sevi_pk"],
+            "effective_from": "2026-01-01",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201, r.text
+
+
+@pytest.fixture(scope="module")
+def deleg_body_pk(client, admin_headers, body_type_pk):
+    r = client.post(
+        f"{BASE}/bodies",
+        json={
+            "body_type_master_pk": body_type_pk,
+            "body_code": f"DELEG_BODY_{uuid4().hex[:8].upper()}",
+            "body_name": "Delegation Test Body",
+            "effective_from": "2026-01-01",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["body_master_pk"]
+
+
+@pytest.fixture(scope="module")
+def deleg_held_position_pk(client, admin_headers):
+    """The position the bearer holds — the only one they may delegate."""
+    return _new_position(client, admin_headers, "Delegation Chair", 1)
+
+
+@pytest.fixture(scope="module")
+def deleg_other_position_pk(client, admin_headers):
+    """A position the bearer does NOT hold — the 403 case."""
+    return _new_position(client, admin_headers, "Delegation Deputy", 2)
+
+
+@pytest.fixture(scope="module")
+def deleg_third_position_pk(client, admin_headers):
+    return _new_position(client, admin_headers, "Delegation Treasurer", 3)
+
+
+@pytest.fixture(scope="module")
+def deleg_bearer(write_conn, client, admin_headers, deleg_body_pk, deleg_held_position_pk):
+    user = _create_member_login(write_conn, "DelegBearer")
+    _seat(client, admin_headers, deleg_body_pk, deleg_held_position_pk, user)
+    return user
+
+
+@pytest.fixture(scope="module")
+def deleg_nominee(write_conn, client, admin_headers, deleg_body_pk, deleg_other_position_pk):
+    user = _create_member_login(write_conn, "DelegNominee")
+    _seat(client, admin_headers, deleg_body_pk, deleg_other_position_pk, user)
+    return user
+
+
+@pytest.fixture(scope="module")
+def deleg_nominee2(write_conn, client, admin_headers, deleg_body_pk, deleg_third_position_pk):
+    user = _create_member_login(write_conn, "DelegNominee2")
+    _seat(client, admin_headers, deleg_body_pk, deleg_third_position_pk, user)
+    return user
+
+
+@pytest.fixture(scope="module")
+def deleg_plain_member(write_conn):
+    """Login-capable member who sits on no governance body at all."""
+    return _create_member_login(write_conn, "DelegPlain")
+
+
+@pytest.fixture(scope="module")
+def deleg_bearer_headers(client, deleg_bearer):
+    return _login_headers(client, deleg_bearer["sangha_sevi_id"], deleg_bearer["password"])
+
+
+@pytest.fixture(scope="module")
+def deleg_plain_headers(client, deleg_plain_member):
+    return _login_headers(
+        client, deleg_plain_member["sangha_sevi_id"], deleg_plain_member["password"]
+    )
+
+
+# ── Second body, for the batch endpoint (owner ask, 2026-10-24) ──────────
+# The batch POST exists because the dashboard now renders ONE candidate
+# table per (body, position-I-hold) slot and makes every table mandatory,
+# so Confirm creates N delegations at once. Exercising that needs the
+# bearer to hold a seat on a SECOND body (the realistic shape — one
+# position per body), with a nominee sitting there too.
+
+
+@pytest.fixture(scope="module")
+def deleg_body2_pk(client, admin_headers, body_type_pk):
+    r = client.post(
+        f"{BASE}/bodies",
+        json={
+            "body_type_master_pk": body_type_pk,
+            "body_code": f"DELEG_BODY2_{uuid4().hex[:8].upper()}",
+            "body_name": "Delegation Test Body Two",
+            "effective_from": "2026-01-01",
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["body_master_pk"]
+
+
+@pytest.fixture(scope="module")
+def deleg_body2_held_position_pk(client, admin_headers, deleg_body2_pk, deleg_bearer):
+    """A position the bearer holds on body two — the second batch slot."""
+    pk = _new_position(client, admin_headers, "Delegation Body2 Chair", 4)
+    _seat(client, admin_headers, deleg_body2_pk, pk, deleg_bearer)
+    return pk
+
+
+@pytest.fixture(scope="module")
+def deleg_body2_nominee(client, admin_headers, deleg_body2_pk, deleg_nominee):
+    """The body-one nominee, also seated on body two so they are eligible there."""
+    pk = _new_position(client, admin_headers, "Delegation Body2 Deputy", 5)
+    _seat(client, admin_headers, deleg_body2_pk, pk, deleg_nominee)
+    return deleg_nominee
+
+
+class TestMyGovernancePositions:
+    def test_office_bearer_sees_their_body(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk,
+        deleg_nominee, deleg_nominee2,
+    ):
+        r = client.get(f"{BASE}/me/positions", headers=deleg_bearer_headers)
+        assert r.status_code == 200, r.text
+        body = next(
+            (b for b in r.json()["bodies"] if b["body_master_pk"] == deleg_body_pk), None
+        )
+        assert body is not None, "The bearer's own body must be returned."
+        assert any(
+            p["position_master_pk"] == deleg_held_position_pk for p in body["my_positions"]
+        )
+        # Composition comes back too, so the dashboard can build the
+        # candidate radio list without GOVERNANCE_VIEW.
+        member_pks = {str(m["person_pk"]) for m in body["members"]}
+        assert str(deleg_nominee["person_pk"]) in member_pks
+
+    def test_plain_member_sees_nothing(self, client, deleg_plain_headers):
+        r = client.get(f"{BASE}/me/positions", headers=deleg_plain_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["bodies"] == []
+
+    def test_requires_auth(self, anon_client):
+        assert anon_client.get(f"{BASE}/me/positions").status_code == 401
+
+
+class TestMyActingDelegations:
+    def test_position_not_held_returns_403(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_other_position_pk, deleg_nominee,
+    ):
+        """Owner ask #2's security core — you may only delegate your OWN seat."""
+        r = client.post(
+            f"{BASE}/me/acting-delegations",
+            json={
+                "body_master_pk": deleg_body_pk,
+                "position_master_pk": deleg_other_position_pk,
+                "person_pk": str(deleg_nominee["person_pk"]),
+                "effective_from": "2026-02-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 403, r.text
+
+    def test_self_delegation_returns_422(
+        self, client, deleg_bearer_headers, deleg_bearer, deleg_body_pk, deleg_held_position_pk,
+    ):
+        r = client.post(
+            f"{BASE}/me/acting-delegations",
+            json={
+                "body_master_pk": deleg_body_pk,
+                "position_master_pk": deleg_held_position_pk,
+                "person_pk": str(deleg_bearer["person_pk"]),
+                "effective_from": "2026-02-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 422, r.text
+
+    def test_nominee_must_sit_on_the_same_body(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk,
+        deleg_plain_member,
+    ):
+        r = client.post(
+            f"{BASE}/me/acting-delegations",
+            json={
+                "body_master_pk": deleg_body_pk,
+                "position_master_pk": deleg_held_position_pk,
+                "person_pk": str(deleg_plain_member["person_pk"]),
+                "effective_from": "2026-02-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 422, r.text
+
+    def test_delegation_succeeds_for_held_position(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk, deleg_nominee,
+    ):
+        r = client.post(
+            f"{BASE}/me/acting-delegations",
+            json={
+                "body_master_pk": deleg_body_pk,
+                "position_master_pk": deleg_held_position_pk,
+                "person_pk": str(deleg_nominee["person_pk"]),
+                "effective_from": "2026-02-01",
+                "reason": "Travelling.",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert data["acting_status"] in ("ASSIGNED", "ACTIVE")
+        assert data["person_pk"] == str(deleg_nominee["person_pk"])
+
+    def test_second_concurrent_delegation_returns_409(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk, deleg_nominee2,
+    ):
+        """
+        Added rule (2026-10-23): one delegate per (body, position) at a time.
+        The admin endpoint does NOT enforce this — its DDL unique index is
+        per-person, so two different people could otherwise both act for one
+        seat. Deliberate and reversible.
+        """
+        r = client.post(
+            f"{BASE}/me/acting-delegations",
+            json={
+                "body_master_pk": deleg_body_pk,
+                "position_master_pk": deleg_held_position_pk,
+                "person_pk": str(deleg_nominee2["person_pk"]),
+                "effective_from": "2026-03-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 409, r.text
+
+    def test_list_my_delegations(self, client, deleg_bearer_headers, deleg_nominee):
+        r = client.get(f"{BASE}/me/acting-delegations", headers=deleg_bearer_headers)
+        assert r.status_code == 200, r.text
+        assert any(
+            d["person_pk"] == str(deleg_nominee["person_pk"]) for d in r.json()["items"]
+        )
+
+    def test_plain_member_has_no_delegations(self, client, deleg_plain_headers):
+        r = client.get(f"{BASE}/me/acting-delegations", headers=deleg_plain_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["items"] == []
+
+    def test_end_requires_holding_the_position(
+        self, client, deleg_plain_headers, deleg_bearer_headers, deleg_nominee,
+    ):
+        listing = client.get(f"{BASE}/me/acting-delegations", headers=deleg_bearer_headers)
+        pk = next(
+            d["acting_position_assignment_pk"] for d in listing.json()["items"]
+            if d["person_pk"] == str(deleg_nominee["person_pk"])
+        )
+        r = client.post(
+            f"{BASE}/me/acting-delegations/{pk}/end",
+            json={"effective_to": "2026-06-02"},
+            headers=deleg_plain_headers,
+        )
+        assert r.status_code == 403, r.text
+
+    def test_end_delegation_sets_ended(self, client, deleg_bearer_headers, deleg_nominee):
+        listing = client.get(f"{BASE}/me/acting-delegations", headers=deleg_bearer_headers)
+        pk = next(
+            d["acting_position_assignment_pk"] for d in listing.json()["items"]
+            if d["person_pk"] == str(deleg_nominee["person_pk"])
+        )
+        r = client.post(
+            f"{BASE}/me/acting-delegations/{pk}/end",
+            json={"effective_to": "2026-06-01"},
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["acting_status"] == "ENDED"
+
+    def test_requires_auth(self, anon_client, deleg_body_pk, deleg_held_position_pk):
+        r = anon_client.post(
+            f"{BASE}/me/acting-delegations",
+            json={
+                "body_master_pk": deleg_body_pk,
+                "position_master_pk": deleg_held_position_pk,
+                "person_pk": FAKE_UUID,
+                "effective_from": "2026-02-01",
+            },
+        )
+        assert r.status_code == 401
+
+    # ── Batch self-delegation (owner ask, 2026-10-24) ────────────────────
+    # POST /me/acting-delegations/batch — one delegation per governance
+    # body, created all-or-nothing. These run AFTER
+    # test_end_delegation_sets_ended above, so the body-one slot is free
+    # again (its only prior delegation is ENDED).
+
+    def test_batch_rejects_empty_items(self, client, deleg_bearer_headers):
+        r = client.post(
+            f"{BASE}/me/acting-delegations/batch",
+            json={"items": [], "effective_from": "2026-07-01"},
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 422, r.text
+
+    def test_batch_rejects_duplicate_slot_in_one_request(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk,
+        deleg_nominee, deleg_nominee2,
+    ):
+        """The same (body, position) twice in one payload — the second would
+        collide with the first on the one-live-delegate-per-seat rule, so it
+        is rejected up front rather than half-applied."""
+        item = {
+            "body_master_pk": deleg_body_pk,
+            "position_master_pk": deleg_held_position_pk,
+        }
+        r = client.post(
+            f"{BASE}/me/acting-delegations/batch",
+            json={
+                "items": [
+                    {**item, "person_pk": str(deleg_nominee["person_pk"])},
+                    {**item, "person_pk": str(deleg_nominee2["person_pk"])},
+                ],
+                "effective_from": "2026-07-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 422, r.text
+
+    def test_batch_403_when_an_item_is_not_a_held_position(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_other_position_pk,
+        deleg_nominee,
+    ):
+        r = client.post(
+            f"{BASE}/me/acting-delegations/batch",
+            json={
+                "items": [{
+                    "body_master_pk": deleg_body_pk,
+                    "position_master_pk": deleg_other_position_pk,
+                    "person_pk": str(deleg_nominee["person_pk"]),
+                }],
+                "effective_from": "2026-07-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 403, r.text
+
+    def test_batch_is_atomic_when_a_later_item_fails(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk,
+        deleg_other_position_pk, deleg_nominee,
+    ):
+        """
+        A good item followed by a bad one must create NOTHING. With every
+        dashboard table mandatory, a partial success would leave the member
+        half-delegated with no obvious way back — so the handler wraps the
+        whole loop in a SAVEPOINT and rolls it back on the first rejection.
+        """
+        r = client.post(
+            f"{BASE}/me/acting-delegations/batch",
+            json={
+                "items": [
+                    {   # valid — the bearer holds this seat
+                        "body_master_pk": deleg_body_pk,
+                        "position_master_pk": deleg_held_position_pk,
+                        "person_pk": str(deleg_nominee["person_pk"]),
+                    },
+                    {   # invalid — the bearer does NOT hold this seat
+                        "body_master_pk": deleg_body_pk,
+                        "position_master_pk": deleg_other_position_pk,
+                        "person_pk": str(deleg_nominee["person_pk"]),
+                    },
+                ],
+                "effective_from": "2026-07-01",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 403, r.text
+
+        # The first (valid) item must not have persisted. The only row on
+        # this seat should still be the ENDED one from
+        # test_end_delegation_sets_ended.
+        listing = client.get(f"{BASE}/me/acting-delegations", headers=deleg_bearer_headers)
+        assert listing.status_code == 200, listing.text
+        live = [
+            d for d in listing.json()["items"]
+            if d["body_master_pk"] == deleg_body_pk
+            and d["position_master_pk"] == deleg_held_position_pk
+            and d["acting_status"] in ("ASSIGNED", "ACTIVE", "PENDING_APPROVAL")
+        ]
+        assert live == [], (
+            "the valid item in a failed batch persisted — the batch is not atomic"
+        )
+
+    def test_batch_creates_one_delegation_per_held_position(
+        self, client, deleg_bearer_headers, deleg_body_pk, deleg_held_position_pk,
+        deleg_body2_pk, deleg_body2_held_position_pk, deleg_nominee,
+        deleg_body2_nominee,
+    ):
+        r = client.post(
+            f"{BASE}/me/acting-delegations/batch",
+            json={
+                "items": [
+                    {
+                        "body_master_pk": deleg_body_pk,
+                        "position_master_pk": deleg_held_position_pk,
+                        "person_pk": str(deleg_nominee["person_pk"]),
+                    },
+                    {
+                        "body_master_pk": deleg_body2_pk,
+                        "position_master_pk": deleg_body2_held_position_pk,
+                        "person_pk": str(deleg_body2_nominee["person_pk"]),
+                    },
+                ],
+                "effective_from": "2026-08-01",
+                "reason": "Travelling — both bodies.",
+            },
+            headers=deleg_bearer_headers,
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert data["total"] == 2, data
+        assert {i["body_master_pk"] for i in data["items"]} == {deleg_body_pk, deleg_body2_pk}
+        assert all(i["acting_status"] in ("ASSIGNED", "ACTIVE") for i in data["items"])
+
+        # Both are visible on the bearer's own delegation list.
+        listing = client.get(f"{BASE}/me/acting-delegations", headers=deleg_bearer_headers)
+        live_pairs = {
+            (d["body_master_pk"], d["position_master_pk"])
+            for d in listing.json()["items"]
+            if d["acting_status"] in ("ASSIGNED", "ACTIVE")
+        }
+        assert (deleg_body_pk, deleg_held_position_pk) in live_pairs
+        assert (deleg_body2_pk, deleg_body2_held_position_pk) in live_pairs
+
+    def test_batch_requires_auth(self, anon_client, deleg_body_pk, deleg_held_position_pk):
+        r = anon_client.post(
+            f"{BASE}/me/acting-delegations/batch",
+            json={
+                "items": [{
+                    "body_master_pk": deleg_body_pk,
+                    "position_master_pk": deleg_held_position_pk,
+                    "person_pk": FAKE_UUID,
+                }],
+                "effective_from": "2026-07-01",
+            },
         )
         assert r.status_code == 401

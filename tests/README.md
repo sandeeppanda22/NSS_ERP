@@ -8,24 +8,26 @@ four categories under separate subdirectories.
 ```
 tests/
 ├── conftest.py          # Shared fixtures: DB connection, SAVEPOINT rollback, TestClient, authed/anon clients
+├── attendance_support.py # Shared fixtures/builders for the two Attendance modules (not a test file; imports builders from tests/api/test_correspondence.py)
 ├── README.md            # This file
 │
 ├── api/                 # API integration tests (FastAPI TestClient, no browser)
-│   ├── test_admin.py         # Tier 5 — admin CRUD, roles, orgs (78 tests)
+│   ├── test_admin.py         # Tier 5 — admin CRUD, roles, orgs (78 tests; 105 collected)
 │   ├── test_admin_credentials.py # Tier 6 — member credential list/timeline/issue/promote (16 tests)
+│   ├── test_attendance.py    # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, 3-consecutive-ABSENT review trigger, watch list, review workflow, stats/leaderboard (60 tests; 75 collected). Written, NOT yet run against the DB
 │   ├── test_audit.py         # Tier 5 — field-change-log viewer (4 tests)
-│   ├── test_auth.py          # Tier 5 — login, refresh, logout, change-password, sessions (23 tests)
+│   ├── test_auth.py          # Tier 5 — login, refresh, logout, change-password, sessions (23 tests; 21 collected)
 │   ├── test_bootstrap.py     # Tier 0 — health, roles, permissions (9 tests)
 │   ├── test_claim_approval.py # Tier 5 — claim detail/edit/scope enforcement (13 tests)
-│   ├── test_correspondence.py # Tier 6 — Correspondence Register API: register/list/detail/documents/finance refs, org scope (26 tests)
+│   ├── test_correspondence.py # Tier 6 — Correspondence Register API: register/list/detail/documents/finance refs, org scope, dispatch/broadcast/reply/event-driven lifecycle (77 tests)
 │   ├── test_error_messages.py # Human-readable validation/integrity-error messages (15 tests)
 │   ├── test_family.py        # Tier 4 — family list, detail, members (52 tests)
 │   ├── test_family_ownership.py # Tier 5 — role-less-JWT ownership path: graph, add/remove
 │   │                          #   member, admin assign/revoke, transfer-head (20 tests)
 │   ├── test_forgot_password.py  # Tier 5 — forgot/reset password (6 tests)
 │   ├── test_foundation.py    # Tier 1 — master data, config, geographic, propose endpoints (52 tests)
-│   ├── test_geo_approval.py  # Tier 5 — member-proposed geography review queue: list/detail/approve/correct, scope (15 tests)
-│   ├── test_governance.py    # Tier 6 — bodies, assignments, elections, votes, results, Sakha scoping (65 tests)
+│   ├── test_geo_approval.py  # Tier 5 — member-proposed geography review queue: list/detail/approve/correct, scope (15 tests; 39 collected)
+│   ├── test_governance.py    # Tier 6 — bodies, assignments, elections, votes, results, Sakha scoping (94 tests)
 │   ├── test_membership_change_request.py # Tier 6 — Sakha Transfer / Apply for Darshak workflow (28 tests)
 │   ├── test_membership.py    # Tier 4 — membership list, search, affiliations (94 tests)
 │   ├── test_organization.py  # Tier 2 — org types, hierarchy, children, children-stats, stats (67 tests)
@@ -45,6 +47,7 @@ tests/
 ├── security/            # Cross-tier security assertions (added after the api/db/ui split
 │   │                     above; not a rename of anything)
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17 tests)
+│   ├── test_attendance_security.py    # Attendance endpoint auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat, not a permission (17 tests; 81 collected). Written, NOT yet run against the DB
 │   ├── test_audit_security.py         # Audit endpoint auth/RBAC gating (4 tests)
 │   ├── test_auth_security.py          # Auth endpoint auth gating (4 tests)
 │   ├── test_correspondence_security.py # Correspondence endpoint auth/RBAC/org-scope gating (24 tests)
@@ -53,7 +56,7 @@ tests/
 │   ├── test_membership_change_request_security.py # Membership-change-request gating (11 tests)
 │   ├── test_organization_stats_security.py # /organizations/{pk}/stats scope enforcement, ADMIN-BR-076 (4 tests)
 │   ├── test_registration_security.py  # Registration endpoint gating (3 tests)
-│   └── test_security_headers.py       # Headers, CSP, rate limiting, CORS, DEBUG_MODE (24 tests)
+│   └── test_security_headers.py       # Headers, CSP, rate limiting, CORS, DEBUG_MODE (33 tests)
 │
 └── ui/                  # Browser UI tests (Playwright + Chromium, headless)
     ├── conftest.py              # Browser/page fixtures (page, admin_page, member_page), login helpers
@@ -80,6 +83,8 @@ tests/
     ├── test_ui_admin_claims.py      # Registration claims tabs, detail view (6 tests)
     ├── test_ui_admin_status.py      # Status change modal (ACTIVE/LOCKED/INACTIVE) (5 tests)
     ├── test_ui_admin_orgs.py        # Organizations tab, table (3 tests)
+    ├── test_ui_admin_correspondence.py # Admin Correspondence tab: register switcher, send/dispatch/broadcast/reply, detail view (46 tests)
+    ├── test_ui_governance_card.py   # Governance card on the dashboard (5 tests)
     ├── test_ui_admin_member_directory.py # Member Directory tab, search, detail panel (4 tests)
     ├── test_ui_admin_modals.py      # Admin write-path modals and confirm dialogs (4 tests)
     ├── test_ui_admin_tabs.py        # Admin sidebar tab switching / activeTab panels (2 tests)
@@ -91,19 +96,19 @@ tests/
     └── test_ui_org_dashboard.py     # Org Dashboard tab (org-dashboard.js), six layouts (21 tests)
 ```
 
-**Current grand total: 1118 tests** (AST-counted `test_*` functions, re-verified) — `tests/api/`
-(702, across 21 files), `tests/db/` (57, across 4 files), `tests/security/` (110, across 10 files),
-`tests/ui/` (249, across 23 test files — `conftest.py` and `_csp_probe.py` hold no tests). There is
-no Playwright test for the governance or correspondence UI (neither page exists yet).
+**Current grand total: 1335 test functions** (AST-counted `test_*` defs, re-verified) — `tests/api/`
+(842, across 22 files), `tests/db/` (57, across 4 files), `tests/security/` (136, across 11 files),
+`tests/ui/` (300, across 25 test files — `conftest.py` and `_csp_probe.py` hold no tests).
+Playwright coverage exists for the admin Correspondence tab and the dashboard governance card; there is no test file for the Governance admin tabs, and **no UI test for Tier 6 Attendance** (`frontend/assets/js/attendance-register.js`). API and security coverage for `attendance.py` lives in `tests/api/test_attendance.py` and `tests/security/test_attendance_security.py` (156 collected items together; shared identities in `tests/attendance_support.py`). These two modules were written but **have not yet been run against the DB** — do not treat them as passing until a run confirms it.
 
-**AST count vs. what pytest actually collects** (`pytest --collect-only -q`, verified): the
+**AST count vs. what pytest actually collects** (`pytest --collect-only -qq`, verified 2026-10-28): the
 per-file "(N tests)" figures in this README are counts of `def test_*` functions, which differs
 from pytest's collected-item count in two ways. (1) Fixtures named `test_*` (e.g. `test_user` in
 `tests/api/test_auth.py` and `tests/security/test_auth_security.py`, `test_org_pk` in
 `tests/api/test_registration.py`) are over-counted by an AST scan. (2) `@pytest.mark.parametrize`
 expands one function into many items — used in `test_admin.py`, `test_membership.py`,
 `test_person.py`, `test_sorting.py`, `test_error_messages.py`, `test_credential_schema.py`,
-`test_festival_schema.py` and several UI files. Collected-item totals (`pytest --collect-only -q`, re-run 2026-10-18; collection only, tests themselves not executed): `tests/api/` 810, `tests/db/` 98, `tests/security/` 109, `tests/ui/` 300 — **1317 items** for a bare `pytest`.
+`test_festival_schema.py`, `test_attendance_security.py` and several UI files. Collected-item totals (collection only, tests themselves not executed): `tests/api/` 965, `tests/db/` 98, `tests/security/` 199, `tests/ui/` 376 — **1638 items** for a bare `pytest`.
 `pytest.ini` declares `integration`/`ui`/`db` markers only — `tests/security/` files use
 `pytest.mark.integration`, same as `tests/api/`, so there's no separate `security` marker.
 

@@ -448,15 +448,31 @@ class TestNoCorrespondencePermission:
         r = client.get(f"{BASE}/{FAKE_UUID}", headers=member_headers)
         assert r.status_code == 403
 
-    def test_transition_requires_manage_permission(self, client, member_headers):
+    def test_transition_requires_manage_permission(self, client, nss_wide_headers, member_headers, register_org_pk):
+        """
+        PART 2 changed /transition's authority model (owner-confirmed
+        2026-10-22, see _require_directed_authority in
+        api/routers/correspondence.py): it no longer checks
+        CORRESPONDENCE_MANAGE directly, so a FAKE_UUID 404 would short-
+        circuit before any permission is even evaluated. This now uses a
+        REAL EXTERNAL-recipient record — the one row shape with no
+        directed human authority, which still falls back to the
+        pre-existing CORRESPONDENCE_MANAGE + admin-scope gate — so a
+        plain member genuinely lacking that permission still gets 403.
+        """
+        pk = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
         r = client.post(
-            f"{BASE}/{FAKE_UUID}/transition", json={"new_status": "ACTIONED"}, headers=member_headers,
+            f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=member_headers,
         )
         assert r.status_code == 403
 
-    def test_responsible_party_requires_manage_permission(self, client, member_headers):
+    def test_responsible_party_requires_manage_permission(self, client, nss_wide_headers, member_headers, register_org_pk):
+        """See test_transition_requires_manage_permission's note above —
+        same PART 2 authority-model change, same EXTERNAL-recipient
+        fallback-path fixture."""
+        pk = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
         r = client.post(
-            f"{BASE}/{FAKE_UUID}/responsible-party", json={}, headers=member_headers,
+            f"{BASE}/{pk}/responsible-party", json={}, headers=member_headers,
         )
         assert r.status_code == 403
 

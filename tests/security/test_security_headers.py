@@ -11,11 +11,14 @@ Verifies that security controls added across all tiers actually work:
      and the frontend source stays free of the inline handlers/scripts that
      the policy blocks (Tier 5 advisory A2)
   7. DEBUG_MODE warns loudly at startup (Tier 5 advisory A5)
+  8. DEV_LIVE_RELOAD is off by default — /__dev/frontend-version does not
+     exist and no page references the dev-reload client script
 
 These tests run against the FastAPI TestClient (no network).
 """
 
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -330,9 +333,128 @@ class TestDebugModeWarning:
         monkeypatch.setattr(settings, "DEBUG_MODE", False)
         monkeypatch.setattr(settings, "CSP_ENABLED", True)
         monkeypatch.setattr(settings, "CSP_REPORT_ONLY", False)
+        monkeypatch.setattr(settings, "DEV_LIVE_RELOAD", False)
         with caplog.at_level(logging.WARNING):
             _warn_on_insecure_settings()
 
         assert not caplog.records, (
             f"Secure defaults must not warn: {[r.getMessage() for r in caplog.records]}"
         )
+
+
+class TestDevLiveReload:
+    """
+    DEV_LIVE_RELOAD is development-only browser auto-reload. The production
+    guarantee is that with the flag at its default the dev endpoint does not
+    exist at all and no page references the client script.
+
+    Note on coverage: the route is registered inside an
+    `if settings.DEV_LIVE_RELOAD:` block at api.main import time, so the
+    flag-ON *route* cannot be exercised here — api.main (and the module-level
+    `app` that tests/conftest.py attaches its dependency overrides to) is
+    already imported with the flag off, and the only ways to flip it would be
+    importlib.reload(api.main) or building a second app, both of which would
+    detach the shared test connection overrides. The flag-on behaviour is
+    therefore covered through its two pure helpers (fingerprint + injection),
+    which read settings at call time, plus the live curl check documented in
+    the Configuration section of docs/PROJECT_DOCUMENTATION.md.
+    """
+
+    def test_dev_version_endpoint_absent_by_default(self, client):
+        """With DEV_LIVE_RELOAD unset the route is never registered."""
+        from api.config import settings
+
+        assert settings.DEV_LIVE_RELOAD is False, (
+            "DEV_LIVE_RELOAD must default to off."
+        )
+        assert client.get("/__dev/frontend-version").status_code == 404
+
+    def test_pages_do_not_reference_dev_reload_by_default(self, client):
+        """No served page carries the dev-reload script when the flag is off."""
+        for path in ("/login", "/register", "/dashboard", "/admin"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert "dev-reload.js" not in response.text, path
+
+    def test_dev_reload_script_is_not_referenced_in_html_source(self):
+        """The tag is injected at serve time, never committed into a page."""
+        frontend = Path(__file__).resolve().parents[2] / "frontend"
+        for page in frontend.glob("*.html"):
+            assert "dev-reload.js" not in page.read_text(encoding="utf-8"), page.name
+
+    def test_injection_adds_versioned_tag_when_flag_on(self, monkeypatch):
+        """Flag on: the tag lands before </body> and gets a ?v=<hash>."""
+        from api.config import settings
+        from api.main import _render_html_with_asset_versions, _FRONTEND_DIR
+
+        monkeypatch.setattr(settings, "DEV_LIVE_RELOAD", True)
+        html = _render_html_with_asset_versions(_FRONTEND_DIR / "login.html")
+
+        match = re.search(r'<script src="/assets/js/dev-reload\.js\?v=([a-f0-9]+)">', html)
+        assert match, "Injected dev-reload tag missing or not cache-busted."
+        assert html.index(match.group(0)) < html.rindex("</body>")
+
+    def test_injection_absent_when_flag_off(self, monkeypatch):
+        from api.config import settings
+        from api.main import _render_html_with_asset_versions, _FRONTEND_DIR
+
+        monkeypatch.setattr(settings, "DEV_LIVE_RELOAD", False)
+        html = _render_html_with_asset_versions(_FRONTEND_DIR / "login.html")
+        assert "dev-reload.js" not in html
+
+    def test_injection_handles_html_without_body_tag(self, monkeypatch):
+        from api.main import _inject_dev_reload_script
+
+        out = _inject_dev_reload_script("<div>fragment</div>")
+        assert "dev-reload.js" in out
+        assert out.startswith("<div>fragment</div>")
+
+    def test_fingerprint_detects_add_modify_and_delete(self):
+        """A bare max-mtime would miss deletions — the hash must not."""
+        from api.main import _frontend_fingerprint, _FRONTEND_DIR
+
+        probe = _FRONTEND_DIR / "_dev_reload_fingerprint_probe.txt"
+        baseline = _frontend_fingerprint()
+        try:
+            probe.write_text("a", encoding="utf-8")
+            after_add = _frontend_fingerprint()
+            assert after_add != baseline, "Adding a file must change the fingerprint."
+
+            os.utime(probe, (0, 0))
+            after_modify = _frontend_fingerprint()
+            assert after_modify != after_add, "An mtime change must be detected."
+        finally:
+            probe.unlink(missing_ok=True)
+
+        assert _frontend_fingerprint() == baseline, (
+            "Deleting the file must restore the original fingerprint."
+        )
+
+    def test_fingerprint_ignores_dotfiles(self):
+        """.DS_Store churn must not trigger reloads."""
+        from api.main import _frontend_fingerprint, _FRONTEND_DIR
+
+        probe = _FRONTEND_DIR / "._dev_reload_dotfile_probe"
+        baseline = _frontend_fingerprint()
+        try:
+            probe.write_text("a", encoding="utf-8")
+            assert _frontend_fingerprint() == baseline, (
+                "Dotfiles under frontend/ must be excluded from the fingerprint."
+            )
+        finally:
+            probe.unlink(missing_ok=True)
+
+    def test_warns_when_dev_live_reload_enabled(self, monkeypatch, caplog):
+        from api.config import settings
+        from api.main import _warn_on_insecure_settings
+
+        monkeypatch.setattr(settings, "DEBUG_MODE", False)
+        monkeypatch.setattr(settings, "CSP_ENABLED", True)
+        monkeypatch.setattr(settings, "CSP_REPORT_ONLY", False)
+        monkeypatch.setattr(settings, "DEV_LIVE_RELOAD", True)
+        with caplog.at_level(logging.WARNING):
+            _warn_on_insecure_settings()
+
+        assert any(
+            "DEV_LIVE_RELOAD is enabled" in r.getMessage() for r in caplog.records
+        ), "Enabling DEV_LIVE_RELOAD must emit a startup security warning."
