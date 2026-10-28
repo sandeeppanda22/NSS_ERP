@@ -180,10 +180,6 @@
             height: 1.1rem;
         }
 
-        .form-group {
-            margin-bottom: 0.85rem;
-        }
-
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -252,16 +248,6 @@
 
         .btn-outline:hover {
             background: rgba(200, 150, 12, 0.06);
-        }
-
-        .alert-box {
-            background: #fef2f2;
-            border: 1px solid #fca5a5;
-            border-radius: 0.5rem;
-            padding: 0.5rem 0.75rem;
-            font-size: 0.8rem;
-            color: #991b1b;
-            margin-bottom: 0.75rem;
         }
 
         .pw-requirements {
@@ -502,7 +488,7 @@
 
             <!-- Error alert -->
             <template x-if="error">
-                <div class="alert-box"><span x-text="error"></span></div>
+                <div class="alert-msg alert-error"><span x-text="error"></span></div>
             </template>
 
             <!-- On wide screens, Personal Details, Contact Information, and
@@ -722,7 +708,7 @@
                         <option :value="po.post_office_name"></option>
                     </template>
                 </datalist>
-                <p class="reg-hint" x-show="!regMatchedPostalCodePk" style="margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--text-secondary);">
+                <p class="form-hint" x-show="!regMatchedPostalCodePk">
                     Enter a known PIN code above to see post offices.
                 </p>
             </div>
@@ -783,7 +769,7 @@
             <hr class="reg-divider">
 
             <template x-if="error">
-                <div class="alert-box"><span x-text="error"></span></div>
+                <div class="alert-msg alert-error"><span x-text="error"></span></div>
             </template>
 
             <div class="section-heading">
@@ -828,7 +814,7 @@
             <hr class="reg-divider">
 
             <template x-if="error">
-                <div class="alert-box"><span x-text="error"></span></div>
+                <div class="alert-msg alert-error"><span x-text="error"></span></div>
             </template>
 
             <div class="section-heading">
@@ -887,7 +873,7 @@
             </div>
 
             <template x-if="error">
-                <div class="alert-box"><span x-text="error"></span></div>
+                <div class="alert-msg alert-error"><span x-text="error"></span></div>
             </template>
 
             <div class="section-heading">
@@ -1144,7 +1130,7 @@
             </div>
 
             <template x-if="error">
-                <div class="alert-box"><span x-text="error"></span></div>
+                <div class="alert-msg alert-error"><span x-text="error"></span></div>
             </template>
 
             <div class="section-heading">

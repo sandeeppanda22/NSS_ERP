@@ -303,7 +303,58 @@ body {
 .btn-action.success:hover { background: #14532d; }
 .btn-action.danger { color: #D64A6A; border-color: #fecaca; }
 .btn-action.danger:hover { background: #fef2f2; }
+/* Matches the violet governance-body card theme (bg-violet-50/border-violet-200
+   — see NSS.govBodyCardClass() in nss-config.js, the shared definition every
+   governance "Show all" button binds to) — #7c3aed/#6d28d9 are the same
+   violet-600/700 already used by badge-position-secretary etc. in badges.css,
+   not a new color. This is the KENDRA_GOVERNING_BODY / default colour. */
+.btn-action.violet { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+.btn-action.violet:hover { background: #6d28d9; }
+/* Per-body-type colours (owner ask, 2026-10-24 — see NSS.GOV_BODY_COLOR_BY_TYPE
+   in nss-config.js for the body_type_code -> colour mapping). Each pair
+   reuses the same -600/-700 hex already used by that hue family elsewhere
+   in badges.css — never an invented colour. */
+.btn-action.blue { background: #2563eb; color: #fff; border-color: #2563eb; }   /* blue-600/700  — ADVISORY_BOARD */
+.btn-action.blue:hover { background: #1d4ed8; }
+.btn-action.pink { background: #db2777; color: #fff; border-color: #db2777; }  /* pink-600/700  — MAHILA_PARICHALANA_MANDALI (was rose until 2026-10-24: owner asked for "pinkish") */
+.btn-action.pink:hover { background: #be185d; }
+.btn-action.yellow { background: #ca8a04; color: #fff; border-color: #ca8a04; } /* yellow-600/700 — SAKHA_GOVERNING_BODY (was amber until 2026-10-24: owner asked for "slightly less shade of yellow" — amber reads orange-leaning, true yellow is softer) */
+.btn-action.yellow:hover { background: #a16207; }
+.btn-action.teal { background: #0d9488; color: #fff; border-color: #0d9488; }  /* teal-600/700  — SEVAK_SANGHA_EXECUTIVE */
+.btn-action.teal:hover { background: #0f766e; }
+.btn-action.green { background: #16a34a; color: #fff; border-color: #16a34a; } /* green-600/700 — ANCHALIKA/ZILLA/PATHA_CHAKRA */
+.btn-action.green:hover { background: #15803d; }
 .btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Governance-body card table headings (Position/Name/Sangha Sevi ID/...) —
+   DaisyUI's default .table thead is bold but rendered at 60% colour opacity
+   (oklch(var(--bc)/.6)), which reads as faint/washed-out against the
+   tinted table panel. #5B21B6 is the same violet-800 used by
+   NSS.govBodyTitleClass()'s default/KENDRA case (nss-config.js) — reused
+   here, not a new colour — at full opacity plus a little letter-spacing
+   for a crisper, more prominent heading row. Scoped to .gov-body-table so
+   it never touches any other .table in the app.
+
+   This base rule stays the VIOLET DEFAULT: it is what every table that is
+   not about one specific governance body still uses (the member
+   dashboard's delegation-history list, "Awaiting My Approval", the
+   combined delegation confirmation table — all of which span several
+   bodies — plus the KENDRA_GOVERNING_BODY / unmapped-type cards). */
+.gov-body-table thead th { color: #5B21B6; font-weight: 700; letter-spacing: 0.02em; }
+
+/* Per-body-type heading overrides (2026-10-24, owner ask: "evry body table
+   has its own color naow, may the table inside should match the theme").
+   These pair 1:1 with NSS.govBodyTableClass() in nss-config.js, which emits
+   `gov-body-table gov-body-table-<colour>` alongside the matching
+   bg-<colour>-100 panel utility — add a case there and a rule here
+   together, never one without the other. Each colour is the genuine
+   Tailwind <hue>-800 value, matching NSS.govBodyTitleClass()'s text-*-800
+   card title for the same body type. */
+.gov-body-table-blue  thead th { color: #1E40AF; font-weight: 700; letter-spacing: 0.02em; }  /* blue-800  */
+.gov-body-table-pink  thead th { color: #9D174D; font-weight: 700; letter-spacing: 0.02em; }  /* pink-800  */
+.gov-body-table-yellow thead th { color: #854D0E; font-weight: 700; letter-spacing: 0.02em; } /* yellow-800 — SAKHA_GOVERNING_BODY (was amber until 2026-10-24) */
+.gov-body-table-teal  thead th { color: #115E59; font-weight: 700; letter-spacing: 0.02em; }  /* teal-800  */
+.gov-body-table-green thead th { color: #166534; font-weight: 700; letter-spacing: 0.02em; }  /* green-800 */
 
 /* Filter-bar variant — sits in a .search-bar row beside .nss-select controls.
    Plain .btn-action is sized for table-row actions (0.3rem padding,
@@ -329,6 +380,175 @@ body {
 .form-input, .form-select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.85rem; color: #1f2937; background: #fff; transition: border-color 0.15s; }
 .form-input:focus, .form-select:focus { outline: none; border-color: #0D7377; box-shadow: 0 0 0 3px rgba(13,115,119,0.1); }
 .form-hint { font-size: 0.7rem; color: #9ca3af; margin-top: 0.25rem; }
+
+/* ── Shared form layout/typeahead primitives ──────────────────────────
+   Added 2026-10-25 for the Correspondence send/receive form rework
+   ("make the form more professional matching with our nss erp theme").
+   All of these replace per-element inline styles that were repeated many
+   times in admin.html — the typeahead menu alone was 23 identical inline
+   copies. Named generically (not corr-*) because nothing here is
+   correspondence-specific; the other inline copies elsewhere in
+   admin.html should migrate onto these as they are touched. */
+
+/* Responsive field grids — collapse to one column on narrow screens so
+   the form stays usable on a phone/tablet (project-wide responsive
+   requirement), instead of the previous flex-wrap with hard min-widths. */
+.form-grid-2,
+.form-grid-3 { display: grid; gap: 0.75rem; }
+.form-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) {
+    .form-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+    .form-grid-2,
+    .form-grid-3 { grid-template-columns: minmax(0, 1fr); }
+}
+/* Opt-in full-width cell inside either grid. */
+.form-grid-2 > .span-all,
+.form-grid-3 > .span-all { grid-column: 1 / -1; }
+
+/* Section divider + heading inside a form card. */
+.form-section { margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid #f3f4f6; }
+.form-section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #1B2A4A;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.6rem;
+}
+.form-section-title .optional, .optional { font-weight: 500; text-transform: none; letter-spacing: 0; color: #9ca3af; }
+
+/* Inline text button for progressive disclosure ("+ More options",
+   "Change") — a real <button> so it is keyboard-reachable, styled flat. */
+.link-action {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: #0D7377;
+    cursor: pointer;
+    text-decoration: underline;
+}
+.link-action:hover { color: #0a5f62; }
+.link-action:focus-visible { outline: 2px solid #0D7377; outline-offset: 2px; border-radius: 2px; }
+
+/* Correspondence History — reply-thread path tracker + activity timeline
+   (owner 2026-10-26: "can we add history with path tracker for
+   correspondance?", then "make it ore professional. theme apprppriate" —
+   the first pass used raw calc()-indented rows with a plain "↷" glyph;
+   this replaces that with a connected-dot thread line, same teal accent
+   (#0D7377) .form-section-title/.link-action already use elsewhere on
+   this page, so it reads as one system rather than a bolted-on extra). */
+.corr-thread { position: relative; display: flex; flex-direction: column; gap: 0.45rem; padding-left: 1.1rem; margin: 0.5rem 0 1rem; }
+.corr-thread::before { content: ""; position: absolute; left: 0.3rem; top: 0.45rem; bottom: 0.45rem; width: 2px; background: #e2e8f0; }
+.corr-thread-node { position: relative; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; flex-wrap: wrap; }
+.corr-thread-node::before {
+    content: ""; position: absolute; left: -1.1rem; top: 50%; transform: translateY(-50%);
+    width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; border: 2px solid #fff;
+}
+.corr-thread-node.current { font-weight: 700; color: #1B2A4A; }
+.corr-thread-node.current::before { background: #0D7377; width: 10px; height: 10px; left: -1.15rem; }
+.corr-thread-node .subject { color: #9ca3af; font-weight: 400; }
+
+.corr-timeline { position: relative; display: flex; flex-direction: column; gap: 0.7rem; padding-left: 1.1rem; margin-top: 0.5rem; }
+.corr-timeline::before { content: ""; position: absolute; left: 0.3rem; top: 0.3rem; bottom: 0.3rem; width: 2px; background: #e2e8f0; }
+.corr-timeline-item { position: relative; font-size: 0.8rem; color: #374151; }
+.corr-timeline-item::before {
+    content: ""; position: absolute; left: -1.1rem; top: 0.25rem;
+    width: 8px; height: 8px; border-radius: 50%; background: #0D7377; border: 2px solid #fff;
+}
+.corr-timeline-meta { font-size: 0.7rem; color: #9ca3af; margin-top: 0.1rem; }
+
+/* Typeahead result menu — the anchor needs position:relative.
+   Deliberately sets NO top/left: the original 23 inline copies relied on
+   the absolute box's *static* position (immediately after the input in
+   flow), and pinning top:100% would instead anchor it below the whole
+   wrapper (label + input + any hint), shifting every existing site. This
+   is a faithful extraction, not a redesign. */
+.typeahead-wrap { position: relative; min-width: 14rem; }
+/* Inside the responsive grids the track already sizes the cell, and a
+   14rem floor would force horizontal overflow on a phone — the grid uses
+   minmax(0, 1fr) precisely so cells can shrink. The min-width above only
+   exists to preserve the legacy flex-wrap rows elsewhere in admin.html,
+   whose inline min-width:14rem/16rem this class replaced. */
+.form-grid-2 .typeahead-wrap,
+.form-grid-3 .typeahead-wrap { min-width: 0; }
+.typeahead-menu {
+    position: absolute;
+    z-index: 20;
+    width: 100%;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.4rem;
+    max-height: 14rem;
+    overflow-y: auto;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+.typeahead-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: #1f2937;
+}
+.typeahead-item:hover { background: #f0fdfa; }
+.typeahead-item .meta { color: #94a3b8; }
+
+/* Read-only "resolved value" strip — e.g. the auto-detected register
+   organization, shown instead of a redundant search box. */
+.field-resolved {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    color: #1e293b;
+}
+.field-resolved .field-resolved-label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+
+/* Direction flow strip — makes an OUTWARD/INWARD record's fixed
+   direction explicit (From → To) now that direction is no longer an
+   editable field on the create form. */
+.corr-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 1rem;
+}
+.corr-flow-party { flex: 1 1 10rem; min-width: 0; }
+.corr-flow-label { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 0.15rem; }
+.corr-flow-value { font-size: 0.85rem; color: #1e293b; font-weight: 600; overflow-wrap: anywhere; }
+.corr-flow-value.muted { color: #94a3b8; font-weight: 500; font-style: italic; }
+.corr-flow-arrow { display: flex; align-items: center; color: #0D7377; font-size: 1.1rem; font-weight: 700; padding: 0 0.15rem; }
+@media (max-width: 640px) {
+    .corr-flow-arrow { transform: rotate(90deg); padding: 0.1rem 0; }
+}
+
+/* Canonical "checkbox + text" row (e.g. login's "Remember me", admin's
+   inline toggle rows). Replaces page-local .remember-label (login.html)
+   and .form-checkbox-row (admin.html) — same layout, one name. */
+.remember-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #4b5563;
+}
 
 /* ── Shared form controls ─────────────────────────
    Single canonical checkbox + select/dropdown style used across
@@ -395,6 +615,10 @@ body {
 .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
 .alert-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
 .alert-info { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+/* amber-50/amber-800/amber-200 — same pair already used inline for the
+   "Awaiting your decision" banner (dashboard.html's Applications tab);
+   promoted to a shared class instead of a one-off inline style. */
+.alert-warning { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 
 /* Status badges deliberately do NOT live here.
    The former .status-badge / .status-pending / .status-approved /
@@ -419,9 +643,13 @@ tr.row-inactive:hover { opacity: 0.75; }
 .detail-item .label { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.2rem; font-weight: 600; }
 .detail-item .value { font-size: 0.88rem; color: #1e293b; font-weight: 500; }
 .detail-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.detail-grid.cols-1 { grid-template-columns: 1fr; }
 
 /* ── Count badge ─────────────────────────────────── */
 .count-badge { background: #C8960C; color: #fff; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 9999px; margin-left: 0.35rem; }
+
+/* ── Empty state (list/table placeholder) ─────────── */
+.empty-state { padding: 2rem; text-align: center; color: var(--text-secondary); }
 
 /* ── Org switcher (org-dashboard tab) ─────────────────
    Shown only when the signed-in admin's scope covers more than one
@@ -555,3 +783,198 @@ tr.row-inactive:hover { opacity: 0.75; }
     .main-content { margin-left: 0; }
     .mobile-toggle { display: block; }
 }
+
+/* ── Correspondence approval-chain stepper (frontend fix, 2026-10-23) ──
+   Horizontal checkpoint path for Sender → Step 1 → Step 2 (if present) →
+   Delivered, used by the dashboard "Applications" tab's history/pending
+   panels (frontend/dashboard.html). No existing timeline/stepper pattern
+   was found elsewhere in the frontend (checked admin.html/dashboard.html/
+   this file for "timeline"/"stepper"/"journey" first), so this is a new,
+   reusable block — plain CSS (flex + a connecting-line pseudo-element),
+   no charting library, consistent with this project's hand-rolled CSS.
+   Collapses to a vertical list under 640px (project wants responsive
+   design on every view). Node fill color comes from the real badge
+   classes in badges.css (.badge-corr-step-pending/approved/rejected/done
+   — single source of truth per that file's own header), applied alongside
+   this geometry class on the same element; see
+   NSS.correspondenceStepIconClass() in nss-config.js. (2026-10-23: this
+   file previously duplicated those colors as raw hex here too — two files
+   owning the same color is exactly the drift badges.css's header warns
+   against — removed in favor of the real badge classes.) */
+.corr-stepper {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0;
+}
+.corr-stepper-node {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+    padding-right: 1.5rem;
+    flex: 1 1 170px;
+    min-width: 150px;
+}
+.corr-stepper-node:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 14px;
+    right: 0;
+    width: 1.25rem;
+    height: 2px;
+    background: #d1d5db; /* gray-300 */
+}
+.corr-stepper-icon {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+    background-color: #9ca3af; /* gray-400 fallback only — real state always
+                                   comes from a badge-corr-step-* class */
+}
+.corr-stepper-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+.corr-stepper-role {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #1B2A4A;
+    white-space: nowrap;
+}
+.corr-stepper-name {
+    font-size: 0.72rem;
+    color: #6b7280;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+@media (max-width: 640px) {
+    .corr-stepper { flex-direction: column; gap: 0.85rem; }
+    .corr-stepper-node { padding-right: 0; padding-bottom: 0.85rem; flex: 1 1 auto; }
+    .corr-stepper-node:not(:last-child)::after {
+        top: 28px; left: 13px; right: auto;
+        width: 2px; height: 1.25rem;
+    }
+}
+
+/* ── Attendance (Tier 6) — themed progress bar ───────────────────────
+   The committed tailwind build has a bare .progress base but NO
+   .progress-success colour modifier (DaisyUI colour variants weren't
+   compiled in), so a <progress> renders grey. This hand-rolled bar is
+   theme-consistent (teal, the dashboard primary #0D7377) and needs no
+   DaisyUI. Used by the admin Mark-Attendance status bar and the
+   attendance stat cards on the member + org dashboards. */
+.att-bar {
+    width: 100%;
+    height: 0.5rem;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+}
+.att-bar-fill {
+    height: 100%;
+    background: #0D7377;
+    border-radius: 999px;
+    transition: width 0.2s;
+}
+
+/* Attendance P/A/E toggle buttons — filled when active, in the SAME
+   demo colours as the attendance status badges (badges.css:
+   present green-600, absent red-600, excused amber-600). Inactive =
+   neutral outline. btn-action.danger is outline-only (text red, no
+   fill), which is why the Absent toggle looked "colourless"; these
+   dedicated classes fill it. */
+.att-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 2rem; padding: 0.15rem 0.6rem; font-size: 0.78rem; font-weight: 700;
+    border-radius: 0.375rem; cursor: pointer;
+    border: 1px solid #d1d5db; background: #fff; color: #9ca3af; transition: all 0.12s;
+}
+.att-toggle:hover { border-color: #9ca3af; }
+.att-toggle.active-present { background: #16a34a; color: #fff; border-color: #16a34a; }
+.att-toggle.active-absent  { background: #dc2626; color: #fff; border-color: #dc2626; }
+.att-toggle.active-excused { background: #d97706; color: #fff; border-color: #d97706; }
+
+/* Member-search widget shared by every Attendance search box (owner ask
+   2026-10-28 "redo the search box ... make it more professional"): the
+   Attendance Register's search-to-add (both the Administration tab and
+   the Sakha dashboard register) and the Full Attendance page's filter.
+   Named att-search-*, not att-quickmark-*: the one-member-at-a-time
+   "quick mark" widget these were written for has been replaced by the
+   full shared register (assets/js/attendance-register.js). */
+.att-search {
+    position: relative; display: flex; align-items: center;
+}
+.att-search-icon {
+    position: absolute; left: 0.75rem; width: 1.1rem; height: 1.1rem; color: #9ca3af; pointer-events: none;
+}
+.att-search-input {
+    width: 100%; padding: 0.55rem 2.25rem 0.55rem 2.25rem; font-size: 0.85rem;
+    border: 1px solid #d1d5db; border-radius: 0.5rem; background: #fff; color: #1f2937;
+}
+.att-search-input:focus { outline: none; border-color: #0D7377; box-shadow: 0 0 0 2px rgba(13, 115, 119, 0.15); }
+/* Clear (×) and the "searching…" hint both sit inside the field's right
+   padding, so neither reflows the input. */
+.att-search-clear {
+    position: absolute; right: 0.5rem; border: 0; background: none; cursor: pointer;
+    color: #9ca3af; font-size: 1.1rem; line-height: 1; padding: 0.15rem 0.35rem; border-radius: 0.25rem;
+}
+.att-search-clear:hover { color: #4b5563; background: #f3f4f6; }
+.att-search-hint { font-size: 0.7rem; color: #9ca3af; margin-top: 0.35rem; }
+.att-search-results {
+    margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem;
+    max-height: 16rem; overflow-y: auto;
+}
+/* The register's results float over the roster grid below (the admin
+   panel's old raw dropdown did this with inline styles); the Full
+   Attendance filter has no results list, so it is unaffected. */
+.att-search-results.att-search-float {
+    position: absolute; z-index: 20; left: 0; right: 0; margin-top: 0.3rem;
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 0.5rem;
+    padding: 0.4rem; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+.att-search-row {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.6rem;
+    border: 1px solid #e5e7eb; border-radius: 0.5rem; background: #f9fafb;
+}
+.att-search-row.att-search-pick { cursor: pointer; }
+.att-search-row.att-search-pick:hover { background: #ecfeff; border-color: #0D7377; }
+.att-search-avatar {
+    flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: 50%;
+    background: #0D7377; color: #fff; font-size: 0.7rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+}
+.att-search-info { flex: 1 1 auto; min-width: 0; }
+.att-search-name { font-size: 0.82rem; font-weight: 600; color: #1f2937; }
+.att-search-meta { font-size: 0.7rem; color: #6b7280; }
+.att-search-actions { flex: 0 0 auto; display: flex; gap: 0.3rem; }
+
+/* Full Attendance page (owner correction 2026-10-28: "should open in the
+   same page with same left bar, top bar, all same") — an IN-FLOW section
+   of the org-dashboard view (toggled in place of the normal Sakha-tier
+   content), not a fixed/full-screen overlay — that would hide the
+   surrounding sidebar/topbar, which this project's nested Alpine
+   component never actually removes from the DOM, only visually covers. */
+.att-fullpage-head {
+    display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+}
+.att-fullpage-title { flex: 1 1 auto; }
+
+/* P / A / L status cell on the Full/Top Attendance tables: each of the
+   member's last 3 puja attendances renders as a filled badge (badge-att-
+   present/absent/excused_absence in
+   badges.css), the other two as plain muted letters — the owner's mock. */
+.att-pal-group { display: inline-flex; align-items: center; gap: 0.5rem; }
+.att-pal-off { color: #9ca3af; font-weight: 600; font-size: 0.8rem; min-width: 1.1rem; text-align: center; }
+
+
+

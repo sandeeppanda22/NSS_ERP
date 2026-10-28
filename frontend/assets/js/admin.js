@@ -45,6 +45,23 @@ const DASHBOARD_LEVELS = [
     { typeCode: "MAHILA_SANGHA", label: "Mahila Parichalana Mandali" },
 ];
 
+// Correspondence register tabs (owner 2026-10-26: "when tab is anchalika, we
+// should have a dropdown to select the anchalika, not a tab for each
+// anchalika, and it should be Anchalika/Zilla"). One tab per org TYPE GROUP,
+// not per org: the tab picks the tier, a dropdown inside it picks which org
+// of that tier when the admin can file for more than one. Anchalika and Zilla
+// share a single tab — they are the same tier of the frozen hierarchy
+// (Kendra -> Anchalika/Zilla -> Sakha) and an admin thinks of them as one
+// choice. NILACHALA_KUTIRA/SMRUTI_MANDIRA are deliberately absent (apex
+// singletons that keep no correspondence register of their own).
+const CORR_REGISTER_TAB_GROUPS = [
+    { key: "KENDRA", label: "Kendra", typeCodes: ["KENDRA"] },
+    { key: "ANCHALIKA_ZILLA", label: "Anchalika/Zilla", typeCodes: ["ANCHALIKA_SANGHA", "ZILLA_SANGHA"] },
+    { key: "PATHA_CHAKRA", label: "Patha Chakra", typeCodes: ["PATHA_CHAKRA"] },
+    { key: "SAKHA_SANGHA", label: "Sakha", typeCodes: ["SAKHA_SANGHA"] },
+    { key: "MAHILA_SANGHA", label: "Mahila Sangha", typeCodes: ["MAHILA_SANGHA"] },
+];
+
 function adminApp() {
     // Resolve the initial tab synchronously from the URL hash (e.g.
     // /admin#orgHierarchy) so the page renders the right tab immediately
@@ -57,7 +74,13 @@ function adminApp() {
         : _initialHash.startsWith("orgDashboard/") ? "orgDashboard"
         : (_initialHash || "users");
 
-    return {
+    // NSSAttendanceRegister.install() adds the shared attendance-register
+    // members (permission getters, roster rows, tallies, filter,
+    // search-to-add, submit) that this panel and the member dashboard both
+    // run — see assets/js/attendance-register.js. install() never
+    // overwrites a property defined below, which is how the
+    // `_afterAttendanceSaved` hook further down wins.
+    return NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -387,18 +410,49 @@ function adminApp() {
         govAssignmentsLoading: false,
         govAssignmentsError: "",
         govAssignments: [],
+        // Current Assignments list is capped at NSS.GOV_MEMBER_CAP (9) rows
+        // with a "Show all N" toggle, matching the governance-body cards
+        // elsewhere (owner ask #2, 2026-10-24). Reset to collapsed whenever
+        // the body or the Sakha filter changes (see onGovBodyChange /
+        // _applyGovSakhaFilterDefault / the dropdown's @change).
+        govAssignmentsShowAll: false,
+        // Sakha filter (owner ask #3): a sakha_organization_pk, "" = All
+        // Sakhas. Auto-select/lock follows the universal Sakha-scope rule
+        // mirrored from govAssignableBodies (isGovNssWideAdmin +
+        // currentUser.admin_scope_org_pks).
+        govSakhaFilter: "",
+
         govAllowedPositions: [],
         govSeatLimit: null,
         govSeatsFilled: 0,
         govInheritedPositions: [],
         govAssignFromResults: [],
         govAssignFromResultsLoading: false,
+        govAssignOfficersFromMembers: false,
+        govAssignOrgPk: null,
         govMissingNominations: [],
         govMissingNominationsLoading: false,
         govMissingNominationsError: "",
         govAssignForm: {
             show: false, saving: false, error: "",
             position_master_pk: "", effective_from: "",
+            personQuery: "", personResults: [], personSearching: false,
+            selectedPerson: null,
+        },
+
+        // ── Acting / Interim Cover (GOV-BR-018/019/020) — a separate table
+        // from body_member_assignment, no composition/seat-limit check, and
+        // its own position list (allowed-positions?exclude_filled=false:
+        // interim cover is legitimate WHILE a seat is vacant or unavailable,
+        // so an already-filled position must still be offered).
+        govActingLoading: false,
+        govActingError: "",
+        govActing: [],
+        govActingPositions: [],
+        govActingForm: {
+            show: false, saving: false, error: "",
+            position_master_pk: "", effective_from: "", effective_to: "",
+            reason: "", remarks: "",
             personQuery: "", personResults: [], personSearching: false,
             selectedPerson: null,
         },
@@ -489,12 +543,55 @@ function adminApp() {
         corrFinanceRefsLoading: false,
         corrFinanceRefsError: "",
 
+        // History + reply-thread "path tracker" (owner 2026-10-26: "can we
+        // add history with path tracker for correspondance?") — events is
+        // the full nss.system_event_log activity log for this one record
+        // (status transitions, manual or the 2026-10-26 auto ones, dispatch,
+        // responsible-party reassignment); ancestors/descendants are the
+        // reply thread (in_reply_to_correspondence_pk) walked both ways.
+        corrHistory: { events: [], ancestors: [], descendants: [] },
+        corrHistoryLoading: false,
+        corrHistoryError: "",
+
+        // Simplified create form (owner request, 2026-10-25: "make the ui
+        // simpler for send/receive application/letter"). The insight that
+        // drives the simplification: an admin filing correspondence
+        // through THIS form is always filing it FOR their own
+        // organization — so whichever party that implies (sender for a
+        // Send/OUTWARD letter, recipient for a Receive/INWARD letter) is
+        // silently defaulted to ORGANIZATION = the register organization,
+        // instead of asking the admin to pick it every time. The genuinely
+        // open question is always the OTHER party, which stays fully
+        // visible. usPartyOverride reveals the full original Person/
+        // Organization/External picker for "our" side too, for the rare
+        // case it wasn't the organization generally (e.g. a specific
+        // office-bearer signed it personally). Direction itself is no
+        // longer a form field — toggleCorrCreateForm() already fixes it
+        // from which quick-action button was clicked.
         corrCreateForm: {
             show: false, saving: false, error: "",
             org: { query: "", results: [], searching: false, selected: null },
+            orgAutoResolved: false, orgPickerExpanded: false,
+            orgTabGroups: [], orgMultipleChoices: false,
+            activeOrgTab: "", activeOrgPk: "",
             direction: "INWARD",
+            // Single collapsed date (defaults to today in
+            // corrResetCreateForm/toggleCorrCreateForm); splitDates reveals
+            // the original two independent fields for the rare case a
+            // letter's written date and received/sent date differ.
+            date: "", splitDates: false,
             correspondence_date: "", received_or_sent_date: "", follow_up_date: "",
             subject: "", remarks: "", medium: "",
+
+            // Circular (owner request, 2026-10-26: "sometimes, kendra/
+            // anchalika/zilla send letter to all sakhas under it") — OUTWARD
+            // only, posts to POST /correspondence/broadcast instead of the
+            // single-letter endpoint. No sender override: a circular is
+            // always sent BY the organization (see createBroadcastCorrespondence()).
+            isBroadcast: false, broadcastRecipientTypeCode: "",
+
+            moreOptions: false,
+            usPartyOverride: false,
 
             sender_type: "PERSON",
             sender_person_capacity: "",
@@ -513,9 +610,16 @@ function adminApp() {
             // recipient state.
             responsiblePerson: { query: "", results: [], searching: false, selected: null },
             responsibleOrg: { query: "", results: [], searching: false, selected: null },
+
+            // Reply threading (v1.2, owner 2026-10-26: "we should also add
+            // reply option to letter too") — set only via replyToCorrespondence()
+            // prefill, carried through to the create payload as
+            // in_reply_to_correspondence_pk. replyingToReference is display-only
+            // (the banner above the form); the pk is what's actually submitted.
+            inReplyToPk: "", replyingToReference: "",
         },
 
-        corrTransitionForm: { show: false, saving: false, error: "", new_status: "", remarks: "" },
+        corrDispatchForm: { saving: false, error: "" },
 
         corrResponsibleForm: {
             show: false, saving: false, error: "", mode: "person",
@@ -567,6 +671,17 @@ function adminApp() {
                 this.currentUser.permissions.includes("FOUNDATION_MANAGE");
         },
 
+        // GEO_ENTRY_APPROVE (2026-10-21): narrower than FOUNDATION_MANAGE —
+        // lets a Sakha admin reach the Location Approvals tab for their own
+        // Sakha's geography proposals without the broader master-data
+        // authority. geo_approval.py accepts either permission on every
+        // /admin/geo-entries endpoint.
+        get canApproveGeoEntries() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("GEO_ENTRY_APPROVE") ||
+                 this.currentUser.permissions.includes("FOUNDATION_MANAGE"));
+        },
+
         // SOL-ARCH-013: adding/confirming festival calendar dates is a
         // narrower authority than general Foundation settings — only
         // NSS_ERP_ADMIN holds FOUNDATION_CALENDAR_MANAGE.
@@ -611,6 +726,16 @@ function adminApp() {
                 this.currentUser.scopes.some(s => s.role_code === "NSS_ERP_ADMIN");
         },
 
+        // A Sakha-scoped admin (NSS_ERP_SAKHA_ADMIN or any other role holding
+        // a SAKHA-level scope). Single source of truth — was previously
+        // inlined in creatableOrgTypes alone; now also gates the Create
+        // Organization nav item (2026-10-27), so it needs to live here.
+        get hasSakhaScope() {
+            return !!(this.currentUser && (this.currentUser.scopes || []).some(
+                s => s.scope_level === "SAKHA"
+            ));
+        },
+
         // ── Governance (Tier 6) permissions ──────────────────────
         get canViewGovernance() {
             return this.currentUser &&
@@ -622,6 +747,408 @@ function adminApp() {
             return this.currentUser &&
                 this.currentUser.permissions.includes("GOVERNANCE_MANAGE");
         },
+
+        // ── Attendance (Tier 6, 2026-10-27) ───────────────────────
+        // canViewAttendance / canManageAttendance and the whole
+        // mark-attendance grid (rows, tallies, filter, search-to-add,
+        // submit) come from the shared NSSAttendanceRegister mixin
+        // installed on this component — the member dashboard runs the
+        // identical register, so that logic lives exactly once, in
+        // assets/js/attendance-register.js.
+
+        // ── Attendance state (Tier 6) ──────────────────────────────
+        attPujas: [], attPujasTotal: 0, attPujasLoading: false, attPujasError: "",
+        attPujaOrgFilter: "", attPujaSakhaOptions: [],
+        attPujaForm: { show: false, saving: false, error: "", sakha_pk: "", puja_date: "", remarks: "" },
+
+        // Host hook for the shared register — the puja list's
+        // marked/present/absent tallies just changed, so reload it.
+        _afterAttendanceSaved() {
+            return this.loadAttPujas();
+        },
+
+        // When the admin's scope resolves to exactly one Sakha, the puja
+        // form / filters / stats pick it automatically and show it as
+        // plain text instead of a one-option dropdown (owner ask
+        // 2026-10-27). null for a multi-Sakha or NSS-wide admin.
+        get attSingleSakha() {
+            return this.attPujaSakhaOptions.length === 1 ? this.attPujaSakhaOptions[0] : null;
+        },
+
+        attReviews: [], attReviewsTotal: 0, attReviewsLoading: false, attReviewsError: "",
+        attReviewStatusFilter: "", attReviewActionBusy: null, attReviewActionError: {},
+
+        attWatchList: [], attWatchListLoading: false, attWatchListError: "",
+
+        attOrgStatsOrgPk: "", attOrgStats: null, attOrgStatsLoading: false, attOrgStatsError: "",
+        attMemberStatsQuery: "", attMemberStatsResults: [], attMemberStats: null,
+        attMemberStatsLoading: false, attMemberStatsError: "",
+
+        attExceptionForm: {
+            show: false, saving: false, error: "", sangha_sevi_pk: "", person_label: "",
+            exception_type_code: "MEDICAL", from_date: "", to_date: "", remarks: "",
+        },
+        attExceptionMemberResults: [],
+
+        // Bug fix (owner report, 2026-10-27): this previously called the
+        // PUBLIC /organization/organizations/selectable endpoint, which
+        // has no admin_scope filtering by design (it's the unauthenticated
+        // self-registration Sakha picker) — every admin, including the
+        // narrowest Sakha admin, saw all 175 Sakhas nationwide in the
+        // puja/stats Sakha picker. Reuses _fetchAllAdminOrganizations
+        // (already scoped via /admin/organizations -> _actor_scope_org_pks,
+        // the same helper loadAssignSakhaData uses) instead of a second,
+        // unscoped data source.
+        async _loadAttSakhaOptions() {
+            if (this.attPujaSakhaOptions.length) return;
+            try {
+                const orgs = await this._fetchAllAdminOrganizations("SAKHA_SANGHA");
+                this.attPujaSakhaOptions = orgs.slice().sort(
+                    (a, b) => (a.organization_name || "").localeCompare(b.organization_name || "")
+                );
+                // Single-Sakha admin: pre-select it everywhere (form,
+                // list filter, org-stats picker) so the UI can render it
+                // as text instead of a one-option dropdown.
+                if (this.attPujaSakhaOptions.length === 1) {
+                    const only = this.attPujaSakhaOptions[0].organization_pk;
+                    this.attPujaForm.sakha_pk = only;
+                    this.attOrgStatsOrgPk = only;
+                }
+            } catch (e) {
+                console.error("Failed to load Sakha list for Attendance", e);
+            }
+        },
+
+        async loadAttPujas() {
+            await this._loadAttSakhaOptions();
+            this.attPujasLoading = true;
+            this.attPujasError = "";
+            try {
+                const params = new URLSearchParams({ page_size: "50" });
+                if (this.attPujaOrgFilter) params.set("organization_pk", this.attPujaOrgFilter);
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/pujas?${params}`);
+                if (!res.ok) throw new Error("Failed to load Weekly Sangha Puja events.");
+                const data = await res.json();
+                this.attPujas = data.pujas || [];
+                this.attPujasTotal = data.total || 0;
+            } catch (e) {
+                this.attPujasError = e.message || "Failed to load Weekly Sangha Puja events.";
+                this.attPujas = [];
+            } finally {
+                this.attPujasLoading = false;
+            }
+        },
+
+        async submitCreatePuja() {
+            if (!this.attPujaForm.sakha_pk || !this.attPujaForm.puja_date) return;
+            this.attPujaForm.saving = true;
+            this.attPujaForm.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/pujas", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        sakha_pk: this.attPujaForm.sakha_pk,
+                        puja_date: this.attPujaForm.puja_date,
+                        remarks: this.attPujaForm.remarks || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attPujaForm = { show: false, saving: false, error: "", sakha_pk: "", puja_date: "", remarks: "" };
+                await this.loadAttPujas();
+            } catch (e) {
+                this.attPujaForm.error = e.message || "Failed to create puja event.";
+            } finally {
+                this.attPujaForm.saving = false;
+            }
+        },
+
+        async loadAttReviews() {
+            this.attReviewsLoading = true;
+            this.attReviewsError = "";
+            try {
+                const params = new URLSearchParams({ page_size: "50" });
+                if (this.attReviewStatusFilter) params.set("review_status", this.attReviewStatusFilter);
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/reviews?${params}`);
+                if (!res.ok) throw new Error("Failed to load Attendance Reviews.");
+                const data = await res.json();
+                this.attReviews = data.reviews || [];
+                this.attReviewsTotal = data.total || 0;
+            } catch (e) {
+                this.attReviewsError = e.message || "Failed to load Attendance Reviews.";
+                this.attReviews = [];
+            } finally {
+                this.attReviewsLoading = false;
+            }
+        },
+
+        // action in {close, defer, revisit, 'escalate-to-president',
+        // 'escalate-to-parichalak', reopen}. Buttons are shown to anyone
+        // with ATTENDANCE_VIEW (entry gate); the real Secretary/President
+        // seat check happens server-side (ATT-042) and surfaces as a 403
+        // here if the caller isn't the seated office-holder.
+        async actOnReview(review, action) {
+            this.attReviewActionBusy = review.review_pk;
+            this.attReviewActionError = { ...this.attReviewActionError, [review.review_pk]: "" };
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/reviews/${review.review_pk}/${action}`, {
+                    method: "POST",
+                    body: JSON.stringify({ remarks: null }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                await this.loadAttReviews();
+            } catch (e) {
+                this.attReviewActionError = {
+                    ...this.attReviewActionError,
+                    [review.review_pk]: e.message || "Action failed.",
+                };
+            } finally {
+                this.attReviewActionBusy = null;
+            }
+        },
+
+        // Searches Member Directory for the attExceptionForm's target
+        // member — same pattern as searchAttMemberStats, reused rather
+        // than duplicated by a shared results array keyed per-form-use.
+        async searchAttExceptionMember() {
+            const q = (this.attExceptionForm.person_label || "").trim();
+            if (q.length < 2 || this.attExceptionForm.sangha_sevi_pk) { this.attExceptionMemberResults = []; return; }
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/directory?q=${encodeURIComponent(q)}&limit=10`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.attExceptionMemberResults = data.members || [];
+                }
+            } catch (e) {
+                console.error("Exception-form member search failed", e);
+            }
+        },
+
+        pickAttExceptionMember(m) {
+            this.attExceptionForm.sangha_sevi_pk = m.sangha_sevi_pk;
+            this.attExceptionForm.person_label =
+                [m.first_name, m.middle_name, m.last_name].filter(Boolean).join(" ") + " (" + m.sangha_sevi_id + ")";
+            this.attExceptionMemberResults = [];
+        },
+
+        async submitCreateException() {
+            if (!this.attExceptionForm.sangha_sevi_pk || !this.attExceptionForm.from_date) return;
+            this.attExceptionForm.saving = true;
+            this.attExceptionForm.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/exceptions", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        sangha_sevi_pk: this.attExceptionForm.sangha_sevi_pk,
+                        exception_type_code: this.attExceptionForm.exception_type_code,
+                        from_date: this.attExceptionForm.from_date,
+                        to_date: this.attExceptionForm.to_date || null,
+                        remarks: this.attExceptionForm.remarks || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attExceptionForm = {
+                    show: false, saving: false, error: "", sangha_sevi_pk: "", person_label: "",
+                    exception_type_code: "MEDICAL", from_date: "", to_date: "", remarks: "",
+                };
+            } catch (e) {
+                this.attExceptionForm.error = e.message || "Failed to approve exception.";
+            } finally {
+                this.attExceptionForm.saving = false;
+            }
+        },
+
+        async loadAttWatchList() {
+            await this._loadAttSakhaOptions();
+            this.attWatchListLoading = true;
+            this.attWatchListError = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/watch-list");
+                if (!res.ok) throw new Error("Failed to load the Attendance watch list.");
+                const data = await res.json();
+                this.attWatchList = data.items || [];
+            } catch (e) {
+                this.attWatchListError = e.message || "Failed to load the Attendance watch list.";
+                this.attWatchList = [];
+            } finally {
+                this.attWatchListLoading = false;
+            }
+        },
+
+        async loadAttOrgStats() {
+            await this._loadAttSakhaOptions();  // single-Sakha admin auto-selects attOrgStatsOrgPk here
+            if (!this.attOrgStatsOrgPk) { this.attOrgStats = null; return; }
+            this.attOrgStatsLoading = true;
+            this.attOrgStatsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/stats/organizations/${this.attOrgStatsOrgPk}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attOrgStats = data;
+            } catch (e) {
+                this.attOrgStatsError = e.message || "Failed to load attendance statistics.";
+                this.attOrgStats = null;
+            } finally {
+                this.attOrgStatsLoading = false;
+            }
+        },
+
+        async searchAttMemberStats() {
+            const q = (this.attMemberStatsQuery || "").trim();
+            if (q.length < 2) { this.attMemberStatsResults = []; return; }
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/directory?q=${encodeURIComponent(q)}&limit=10`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.attMemberStatsResults = data.members || [];
+                }
+            } catch (e) {
+                console.error("Member stats search failed", e);
+            }
+        },
+
+        async loadAttMemberStats(sangha_sevi_pk) {
+            this.attMemberStatsLoading = true;
+            this.attMemberStatsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/stats/members/${sangha_sevi_pk}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attMemberStats = data;
+            } catch (e) {
+                this.attMemberStatsError = e.message || "Failed to load member attendance statistics.";
+                this.attMemberStats = null;
+            } finally {
+                this.attMemberStatsLoading = false;
+            }
+        },
+
+        // body_type_code of the currently-selected governance body — feeds
+        // NSS.govBodyCardClass/Title/ButtonClass() for the Current
+        // Assignments / Acting-Interim-Cover panels (owner ask, 2026-10-24:
+        // per-body-type colours on the assignment page too, not just the
+        // read-only Governance tab cards).
+        get govSelectedBodyType() {
+            const b = (this.govBodiesAll || [])
+                .find(x => x.body_master_pk === this.govSelectedBodyPk);
+            return b ? b.body_type_code : null;
+        },
+
+        // "Absent — Acting" indicator (owner ask #3, 2026-10-24) for the
+        // Current Assignments table — admin already has GOVERNANCE_VIEW/
+        // MANAGE, so the existing GET /bodies/{pk}/acting-assignments call
+        // (loadGovActing(), this.govActing) is reused as-is, no new fetch.
+        // Matched by position_code, same as the public-panel version in
+        // governance.py::_assemble_bodies_with_members. Only an ACTIVE row
+        // whose effective window actually covers today counts — govActing
+        // (is_active=TRUE) also still contains ENDED rows (ending only
+        // flips acting_status, never is_active) and can contain a
+        // not-yet-started or already-finished bounded-date delegation
+        // (bug found 2026-10-25 server-side; mirrored here too so a
+        // future/past delegation never shows as "currently acting").
+        govActingFor(a) {
+            const today = new Date().toISOString().slice(0, 10);
+            const row = (this.govActing || []).find(x =>
+                x.position_code === a.position_code && x.acting_status === "ACTIVE" &&
+                x.effective_from <= today && (!x.effective_to || x.effective_to >= today)
+            );
+            return row ? row.person_name : null;
+        },
+
+        // ── Assignments: Sakha filter (owner ask #3) + 9-row cap (ask #2),
+        // 2026-10-24. The assignment rows carry the holder's home Sakha
+        // (sakha_name / sakha_organization_pk, added server-side in
+        // _ASSIGNMENT_SELECT_SQL). All client-side over the already-loaded
+        // govAssignments — no new fetch. Inherited rows (govInheritedPositions)
+        // have no home Sakha and are unaffected by either control. ──────────
+
+        // Distinct home Sakhas across ALL loaded rows, ignoring admin scope —
+        // decides whether a body has enough Sakha variety to warrant the
+        // filter at all (0/1 for Kendra GB etc. whose seats aren't
+        // Sakha-nominated → dropdown hidden).
+        get govAssignmentDistinctSakhaCount() {
+            const seen = new Set();
+            for (const a of (this.govAssignments || [])) {
+                if (a.sakha_organization_pk) seen.add(a.sakha_organization_pk);
+            }
+            return seen.size;
+        },
+
+        // Only offer the filter when there are ≥2 distinct Sakhas among the
+        // rows (hide it entirely for non-Sakha-bearing bodies).
+        get govShowSakhaFilter() {
+            return this.govAssignmentDistinctSakhaCount >= 2;
+        },
+
+        // The dropdown's options: distinct Sakhas present in govAssignments,
+        // but narrowed to the admin's own scoped Sakha(s) when they are not
+        // NSS-wide — mirrors the isGovNssWideAdmin + admin_scope_org_pks test
+        // govAssignableBodies already uses in this tab.
+        get govAssignmentSakhaOptions() {
+            const seen = new Map();
+            for (const a of (this.govAssignments || [])) {
+                if (a.sakha_organization_pk && a.sakha_name && !seen.has(a.sakha_organization_pk)) {
+                    seen.set(a.sakha_organization_pk, {
+                        organization_pk: a.sakha_organization_pk,
+                        organization_name: a.sakha_name,
+                    });
+                }
+            }
+            let opts = [...seen.values()];
+            const scopeOrgPks = this.currentUser ? this.currentUser.admin_scope_org_pks : null;
+            if (!this.isGovNssWideAdmin && scopeOrgPks != null) {
+                opts = opts.filter(o => scopeOrgPks.includes(o.organization_pk));
+            }
+            return opts.sort((x, y) =>
+                (x.organization_name || "").localeCompare(y.organization_name || ""));
+        },
+
+        // A single-Sakha-scoped admin has their Sakha auto-selected AND the
+        // dropdown locked (they may only ever see their own Sakha's rows).
+        get govSakhaFilterLocked() {
+            const scopeOrgPks = this.currentUser ? this.currentUser.admin_scope_org_pks : null;
+            return !this.isGovNssWideAdmin && scopeOrgPks != null
+                && this.govAssignmentSakhaOptions.length === 1;
+        },
+
+        // govAssignments narrowed by the Sakha filter (ask #3).
+        get govAssignmentsFiltered() {
+            if (!this.govSakhaFilter) return this.govAssignments || [];
+            return (this.govAssignments || []).filter(
+                a => a.sakha_organization_pk === this.govSakhaFilter);
+        },
+
+        // True when the filtered list exceeds the cap — drives "Show all N".
+        get govAssignmentsHasMore() {
+            return this.govAssignmentsFiltered.length > NSS.GOV_MEMBER_CAP;
+        },
+
+        // Rows actually rendered: filtered (ask #3), then capped at
+        // NSS.GOV_MEMBER_CAP (ask #2) unless expanded via "Show all".
+        govAssignmentsDisplayed() {
+            const list = this.govAssignmentsFiltered;
+            return this.govAssignmentsShowAll ? list : list.slice(0, NSS.GOV_MEMBER_CAP);
+        },
+
+        // Default the Sakha filter after a load: a single-Sakha-scoped admin
+        // gets their Sakha pre-selected (and locked via govSakhaFilterLocked);
+        // NSS-wide and multi-scoped admins default to "All Sakhas". Always
+        // collapses the "Show all" expansion.
+        _applyGovSakhaFilterDefault() {
+            this.govAssignmentsShowAll = false;
+            const opts = this.govAssignmentSakhaOptions;
+            this.govSakhaFilter = (this.govSakhaFilterLocked && opts.length === 1)
+                ? opts[0].organization_pk
+                : "";
+        },
+
+        // Dropdown @change — switching Sakha starts the list collapsed again.
+        onGovSakhaFilterChange() {
+            this.govAssignmentsShowAll = false;
+        },
+
 
         // ── Correspondence Register (Tier 6, SOL-ADMIN-009) permissions ──
         get canViewCorrespondence() {
@@ -665,16 +1192,16 @@ function adminApp() {
         // Advisory Board missing-nominations panel, and excluding the
         // Sakha-nominated MEMBER seat from a direct-assignment dropdown).
         get isGovNssWideAdmin() {
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22:
+            // "NSS = KENDRA = NSS_WIDE") — mirrors
+            // api/services/rbac_service.py::UserContext.is_nss_wide().
             return !!(this.currentUser && (
                 this.isNssAdmin ||
-                (this.currentUser.scopes || []).some(s => s.scope_level === "NSS-WIDE")
+                (this.currentUser.scopes || []).some(s => s.scope_level === "NSS-WIDE" || s.scope_level === "KENDRA")
             ));
         },
         get govAssignableBodies() {
-            const isGlobal = this.currentUser && (
-                this.isNssAdmin ||
-                (this.currentUser.scopes || []).some(s => s.scope_level === "NSS-WIDE")
-            );
+            const isGlobal = this.isGovNssWideAdmin;
             const scopeOrgPks = this.currentUser ? this.currentUser.admin_scope_org_pks : null;
             return (this.govBodiesAll || []).filter(b => {
                 if (isGlobal || scopeOrgPks == null) return true;
@@ -842,10 +1369,13 @@ function adminApp() {
                     geography: () => this.loadGeography(),
                     geoApprovals: () => this.loadGeoEntries(),
                     sysSettings: () => this.loadSystemSettings(),
-                    govCatalog: () => this.loadGovCatalog(),
-                    govBodies: () => this.loadGovBodies(),
-                    govAssignments: () => this.loadGovAssignments(),
-                    govElections: () => this.loadGovElections(),
+                    govCatalog: () => { if (this.isGovNssWideAdmin) this.loadGovCatalog(); },
+                    govBodies: () => { if (this.canViewGovernance) this.loadGovBodies(); },
+                    govAssignments: () => { if (this.canViewGovernance) this.loadGovAssignments(); },
+                    govElections: () => { if (this.canViewGovernance) this.loadGovElections(); },
+                    attPujas: () => { if (this.canViewAttendance) this.loadAttPujas(); },
+                    attReviews: () => { if (this.canViewAttendance) this.loadAttReviews(); },
+                    attWatchList: () => { if (this.canViewAttendance) { this.loadAttWatchList(); this.loadAttOrgStats(); } },
                     credentials: () => this.loadCredentials(),
                     correspondence: () => this.loadCorrespondence(),
                 };
@@ -2286,10 +2816,7 @@ function adminApp() {
             // (ORG-BR-096, ORG-BR-101/102): offered only to NSS admins or
             // Sakha-scoped admins, parented by a Sakha the operator is
             // scoped to (see loadKumariSevakScope + backend gate).
-            const hasSakhaScope = (this.currentUser?.scopes || []).some(
-                s => s.scope_level === "SAKHA"
-            );
-            if (this.isNssAdmin || hasSakhaScope) {
+            if (this.isNssAdmin || this.hasSakhaScope) {
                 allowed.push("KUMARI_SANGHA", "SEVAK_SANGHA");
             }
             return this.orgTypes.filter(t => allowed.includes(t.value_code));
@@ -2343,8 +2870,8 @@ function adminApp() {
         // (organizations/scopes still loading).
         get myOrgDashboardPk() {
             const scopes = this.currentUser?.scopes || [];
-            const isNssWide = this.isNssAdmin || scopes.some(s => s.scope_level === "NSS-WIDE");
-            if (isNssWide) return this.kendraOrg?.organization_pk || null;
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) return this.kendraOrg?.organization_pk || null;
             const scoped = scopes.find(s => s.organization_pk);
             return scoped ? scoped.organization_pk : null;
         },
@@ -2354,8 +2881,8 @@ function adminApp() {
         // rather than a generic "Org Dashboard", per design request.
         get myOrgDashboardLabel() {
             const scopes = this.currentUser?.scopes || [];
-            const isNssWide = this.isNssAdmin || scopes.some(s => s.scope_level === "NSS-WIDE");
-            if (isNssWide) return "Kendra Dashboard";
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) return "Kendra Dashboard";
             const scoped = scopes.find(s => s.organization_pk);
             return (scoped && ROLE_ORG_LABELS[scoped.role_code]) || "Org Dashboard";
         },
@@ -2371,7 +2898,8 @@ function adminApp() {
         // not just the Zilla's own.
         get scopeOrgPkSet() {
             const scopes = this.currentUser?.scopes || [];
-            if (this.isNssAdmin || scopes.some(s => s.scope_level === "NSS-WIDE")) {
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) {
                 return null;
             }
             const roots = scopes.filter(s => s.organization_pk).map(s => s.organization_pk);
@@ -2488,8 +3016,8 @@ function adminApp() {
             );
             // NSS-WIDE or full admin: show all
             if (this.isNssAdmin || !this.currentUser?.scopes) return allSakha;
-            const isNssWide = this.currentUser.scopes.some(s => s.scope_level === "NSS-WIDE");
-            if (isNssWide) return allSakha;
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) return allSakha;
             // Scoped admin: filter to only their assigned org(s)
             const scopedPks = new Set(
                 this.currentUser.scopes
@@ -5090,20 +5618,36 @@ function adminApp() {
             this.assignSakhaLoading = true;
             this.assignSakhaError = "";
             try {
-                const [sakhaRes, ancRes, zilRes] = await Promise.all([
-                    NSSAuth.apiFetch(`/api/v1/organization/organizations?type_code=SAKHA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`),
-                    NSSAuth.apiFetch(`/api/v1/organization/organizations?type_code=ANCHALIKA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`),
-                    NSSAuth.apiFetch(`/api/v1/organization/organizations?type_code=ZILLA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`),
-                ]);
-                if (!sakhaRes.ok || !ancRes.ok || !zilRes.ok) {
-                    this.assignSakhaError = "Failed to load Sakha/Anchalika/Zilla organizations.";
-                    return;
-                }
-                const [sakhas, ancs, zils] = await Promise.all([
-                    sakhaRes.json(), ancRes.json(), zilRes.json(),
+                // Two different scopes on purpose (see the per-call comment
+                // below): the SAKHA list uses the admin-scoped
+                // /admin/organizations (you only re-parent Sakhas you
+                // administer); the Anchalika/Zilla PARENT options use the
+                // nationwide selectable list (a Sakha admin must be able to
+                // pick any Anchalika as the new parent).
+                // The SAKHA list (what you may RE-PARENT) stays admin-scoped
+                // — you can only move Sakhas within your own admin scope.
+                // But the Anchalika/Zilla PARENT options must be nationwide:
+                // a Sakha admin's scope subtree is their own Sakha (downward
+                // only), so the scoped /admin/organizations returns ZERO
+                // Anchalikas and the parent dropdown was empty — a Sakha
+                // admin literally could not assign their Sakha under a newly
+                // created Anchalika (owner report, 2026-10-27). The valid
+                // PARENTS are the whole NSS regardless of the caller's
+                // downward scope, so the parent options come from the
+                // authenticated-but-unscoped /organization/organizations/
+                // selectable list (same source find-a-Sakha uses). The
+                // backend PATCH (update_organization) authorizes the write on
+                // the SAKHA being edited (in scope) and only validates the
+                // parent's TYPE, not its scope — so this is purely restoring
+                // the missing options, not widening write authority.
+                const [sakhas, parentOrgs] = await Promise.all([
+                    this._fetchAllAdminOrganizations("SAKHA_SANGHA"),
+                    NSSAuth.apiFetch(
+                        "/api/v1/organization/organizations/selectable?type_code=ANCHALIKA_SANGHA&type_code=ZILLA_SANGHA&limit=" + NSS.MAX_PAGE_SIZE
+                    ).then(r => r.ok ? r.json() : []).catch(() => []),
                 ]);
                 this.assignSakhaList = sakhas;
-                this.anchalikaZillaOptions = [...ancs, ...zils].sort(
+                this.anchalikaZillaOptions = (parentOrgs || []).slice().sort(
                     (a, b) => a.organization_name.localeCompare(b.organization_name)
                 );
                 // Pre-select each row's dropdown to its current parent.
@@ -5111,10 +5655,38 @@ function adminApp() {
                 for (const s of sakhas) targets[s.organization_pk] = s.parent_organization_pk || "";
                 this.assignSakhaTarget = targets;
             } catch (err) {
-                this.assignSakhaError = "Failed to load Sakha/Anchalika/Zilla organizations.";
+                this.assignSakhaError = err.message || "Failed to load Sakha/Anchalika/Zilla organizations.";
             } finally {
                 this.assignSakhaLoading = false;
             }
+        },
+
+        // Fetches every page of /api/v1/admin/organizations for one
+        // organization type (page_size is capped at 200 server-side, below
+        // NSS.MAX_PAGE_SIZE, so a single page can't be assumed complete).
+        // Throws on a non-OK response so loadAssignSakhaData's catch can
+        // report the failure the same way it did for the old bare-array
+        // endpoint.
+        async _fetchAllAdminOrganizations(typeCode) {
+            const pageSize = 200;
+            let page = 1;
+            let all = [];
+            while (true) {
+                const params = new URLSearchParams({
+                    type_code: typeCode,
+                    page: String(page),
+                    page_size: String(pageSize),
+                });
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/organizations?${params}`);
+                if (!res.ok) {
+                    throw new Error(`Failed to load ${typeCode} organizations.`);
+                }
+                const data = await res.json();
+                all = all.concat(data.organizations || []);
+                if (all.length >= data.total || !(data.organizations || []).length) break;
+                page += 1;
+            }
+            return all;
         },
 
         // A Sakha still parented directly under Kendra (i.e. not yet under
@@ -5586,6 +6158,8 @@ function adminApp() {
                 if (!this.govSelectedBodyPk) return;
             }
             this._loadGovAllowedPositions();
+            this._loadGovActingPositions();
+            this.loadGovActing();
             this.govAssignmentsLoading = true;
             this.govAssignmentsError = "";
             try {
@@ -5594,6 +6168,7 @@ function adminApp() {
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 const data = await res.json();
                 this.govAssignments = data.items;
+                this._applyGovSakhaFilterDefault();
             } catch (err) {
                 this.govAssignmentsError = err.message || "Failed to load assignments.";
             } finally {
@@ -5627,6 +6202,9 @@ function adminApp() {
 
         onGovBodyChange() {
             this.govAssignments = [];
+            this.govActing = [];
+            this.govSakhaFilter = "";
+            this.govAssignmentsShowAll = false;
             this.loadGovAssignments();
         },
 
@@ -5638,6 +6216,8 @@ function adminApp() {
             this.govSeatsFilled = 0;
             this.govInheritedPositions = [];
             this.govAssignFromResults = [];
+            this.govAssignOfficersFromMembers = false;
+            this.govAssignOrgPk = null;
             if (!this.govSelectedBodyPk) return;
             const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${this.govSelectedBodyPk}/allowed-positions`);
             if (res.ok) {
@@ -5645,6 +6225,14 @@ function adminApp() {
                 this.govAllowedPositions = data.positions;
                 this.govSeatLimit = data.seat_limit;
                 this.govSeatsFilled = data.seats_filled;
+                // Drives the Member-search scope in the Add Assignment form:
+                // a body whose officers are chosen from among its own existing
+                // members (Advisory Board President/Secretary) must search
+                // only this body's current members; an org-scoped body
+                // searches its own org subtree; an NSS-wide body with neither
+                // searches everyone. See onGovPersonQueryInput().
+                this.govAssignOfficersFromMembers = !!data.officers_from_members;
+                this.govAssignOrgPk = data.organization_pk || null;
             }
             // Read-only office-holders inherited from another body (e.g. the
             // Mahila Parichalana Mandali inherits the Kendra GB's Parichalak).
@@ -5701,7 +6289,11 @@ function adminApp() {
         // retry — the update/replace path the backend otherwise requires as
         // two explicit calls (End, then Apply/Add Assignment).
         async assignGovResultWinner(result) {
-            if (!confirm(`Assign ${result.winner_name || "the declared winner"} as ${result.position_name} from this election result?`)) return;
+            const ok = await NSSDialog.confirm(
+                `Assign ${result.winner_name || "the declared winner"} as ${result.position_name} from this election result?`,
+                { title: "Assign Winner", confirmText: "Assign", confirmClass: "primary" }
+            );
+            if (!ok) return;
             this.govAssignmentsError = "";
             try {
                 let res = await NSSAuth.apiFetch(`/api/v1/governance/results/${result.election_result_pk}/apply`, {
@@ -5718,7 +6310,11 @@ function adminApp() {
                         this.govAssignmentsError = NSS.errorMessage(data, res.status);
                         return;
                     }
-                    if (!confirm(`${existing.person_name || "The current holder"} currently holds ${result.position_name}. End their assignment and assign ${result.winner_name} instead?`)) {
+                    const replaceOk = await NSSDialog.confirm(
+                        `${existing.person_name || "The current holder"} currently holds ${result.position_name}. End their assignment and assign ${result.winner_name} instead?`,
+                        { title: "Replace Office-Bearer", confirmText: "End & Assign", confirmClass: "danger" }
+                    );
+                    if (!replaceOk) {
                         return;
                     }
                     const today = new Date().toISOString().slice(0, 10);
@@ -5752,7 +6348,20 @@ function adminApp() {
         // Debounced type-ahead against the membership search endpoint —
         // returns sangha_sevi_pk alongside person_pk, which is exactly
         // what a governance assignment needs (GOV-BR-056/074: the holder
-        // must be an active member, not just a Person).
+        // must be an active member, not just a Person). Scoped so the
+        // results are actually eligible candidates for the position chosen,
+        // not every member in NSS (same bug class as the election
+        // typeahead, which already scopes via _govSearchMembers/orgPk):
+        //   - officers-from-members body (Advisory Board President/
+        //     Secretary — GOV-BR-033/034) -> only this body's own current
+        //     members (member_of_body_pk), since the officer must already
+        //     be seated as Member here;
+        //   - org-scoped body (Sakha GB, Sevak Sangha Executive, ...) ->
+        //     that org's own subtree (organization_pk), same as everywhere
+        //     else this pattern is used;
+        //   - NSS-wide body with no such rule (Kendra GB, Advisory Board's
+        //     own MEMBER seat, which is filled via nomination not body
+        //     membership) -> unscoped, any active member.
         _govPersonSearchTimer: null,
         onGovPersonQueryInput() {
             clearTimeout(this._govPersonSearchTimer);
@@ -5762,10 +6371,22 @@ function adminApp() {
             this._govPersonSearchTimer = setTimeout(() => this.searchGovPerson(q), 300);
         },
 
+        get govAssignSelectedPositionCode() {
+            const p = (this.govAllowedPositions || [])
+                .find(p => p.position_master_pk === this.govAssignForm.position_master_pk);
+            return p ? p.position_code : null;
+        },
+
         async searchGovPerson(q) {
             this.govAssignForm.personSearching = true;
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/membership/search?q=${encodeURIComponent(q)}`);
+                let url = `/api/v1/membership/search?q=${encodeURIComponent(q)}`;
+                if (this.govAssignOfficersFromMembers && this.govAssignSelectedPositionCode !== "MEMBER") {
+                    url += `&member_of_body_pk=${encodeURIComponent(this.govSelectedBodyPk)}`;
+                } else if (this.govAssignOrgPk) {
+                    url += `&organization_pk=${encodeURIComponent(this.govAssignOrgPk)}`;
+                }
+                const res = await NSSAuth.apiFetch(url);
                 this.govAssignForm.personResults = res.ok ? (await res.json()).members : [];
             } catch {
                 this.govAssignForm.personResults = [];
@@ -5819,7 +6440,11 @@ function adminApp() {
 
         async endGovAssignment(a) {
             const today = new Date().toISOString().slice(0, 10);
-            if (!confirm(`End ${a.person_name || "this holder"}'s Position as ${a.position_name}?`)) return;
+            const ok = await NSSDialog.confirm(
+                `End ${a.person_name || "this holder"}'s Position as ${a.position_name}?`,
+                { title: "End Assignment", confirmText: "End", confirmClass: "danger" }
+            );
+            if (!ok) return;
             try {
                 const res = await NSSAuth.apiFetch(`/api/v1/governance/assignments/${a.body_member_assignment_pk}/end`, {
                     method: "POST",
@@ -5837,6 +6462,136 @@ function adminApp() {
                 this._loadGovAllowedPositions();
             } catch (err) {
                 this.govAssignmentsError = err.message || "Failed to end assignment.";
+            }
+        },
+
+        // ── Governance: Acting / Interim Cover (GOV-BR-018/019/020) ──
+        // Separate table from body_member_assignment — no composition/
+        // seat-limit check, so the position dropdown is fetched with
+        // exclude_filled=false (interim cover is legitimate while a seat
+        // is vacant or its holder unavailable).
+        async _loadGovActingPositions() {
+            this.govActingPositions = [];
+            if (!this.govSelectedBodyPk) return;
+            const res = await NSSAuth.apiFetch(
+                `/api/v1/governance/bodies/${this.govSelectedBodyPk}/allowed-positions?exclude_filled=false`);
+            if (res.ok) this.govActingPositions = (await res.json()).positions;
+        },
+
+        async loadGovActing() {
+            if (!this.govSelectedBodyPk) { this.govActing = []; return; }
+            this.govActingLoading = true;
+            this.govActingError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${this.govSelectedBodyPk}/acting-assignments`);
+                if (res.status === 403) { this.govActingError = "You do not have permission to view acting assignments."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.govActing = (await res.json()).items;
+            } catch (err) {
+                this.govActingError = err.message || "Failed to load acting assignments.";
+            } finally {
+                this.govActingLoading = false;
+            }
+        },
+
+        // Member-search typeahead for the acting-cover form — org-scoped
+        // the same way the regular Assignment form is (govAssignOrgPk, set
+        // by _loadGovAllowedPositions), but deliberately NOT restricted to
+        // the body's own current members (unlike officers-from-members):
+        // an acting holder is defined against the Person performing the
+        // role, not against prior membership on this body (DDL comment,
+        // 05_acting_position_assignment.sql).
+        _govActingPersonSearchTimer: null,
+        onGovActingPersonQueryInput() {
+            clearTimeout(this._govActingPersonSearchTimer);
+            this.govActingForm.selectedPerson = null;
+            const q = this.govActingForm.personQuery.trim();
+            if (q.length < 2) { this.govActingForm.personResults = []; return; }
+            this._govActingPersonSearchTimer = setTimeout(() => this.searchGovActingPerson(q), 300);
+        },
+
+        async searchGovActingPerson(q) {
+            this.govActingForm.personSearching = true;
+            try {
+                let url = `/api/v1/membership/search?q=${encodeURIComponent(q)}`;
+                if (this.govAssignOrgPk) url += `&organization_pk=${encodeURIComponent(this.govAssignOrgPk)}`;
+                const res = await NSSAuth.apiFetch(url);
+                this.govActingForm.personResults = res.ok ? (await res.json()).members : [];
+            } catch {
+                this.govActingForm.personResults = [];
+            } finally {
+                this.govActingForm.personSearching = false;
+            }
+        },
+
+        selectGovActingPerson(member) {
+            this.govActingForm.selectedPerson = member;
+            this.govActingForm.personQuery =
+                `${member.first_name} ${member.last_name || ""}`.trim() + ` (${member.sangha_sevi_id || ""})`;
+            this.govActingForm.personResults = [];
+        },
+
+        async createGovActing() {
+            const f = this.govActingForm;
+            f.error = "";
+            if (!f.position_master_pk || !f.selectedPerson || !f.effective_from) {
+                f.error = "Position, acting person, and effective date are required.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${this.govSelectedBodyPk}/acting-assignments`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        position_master_pk: f.position_master_pk,
+                        person_pk: f.selectedPerson.person_pk,
+                        effective_from: f.effective_from,
+                        effective_to: f.effective_to || null,
+                        reason: f.reason || null,
+                        remarks: f.remarks || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govActing.unshift(await res.json());
+                f.show = false;
+                f.position_master_pk = ""; f.effective_from = ""; f.effective_to = "";
+                f.reason = ""; f.remarks = "";
+                f.personQuery = ""; f.personResults = []; f.selectedPerson = null;
+            } catch (err) {
+                f.error = err.message || "Failed to create acting assignment.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        async endGovActing(a) {
+            const today = new Date().toISOString().slice(0, 10);
+            const ok = await NSSDialog.confirm(
+                `End ${a.person_name || "this person"}'s acting cover as ${a.position_name}?`,
+                { title: "End Acting Cover", confirmText: "End", confirmClass: "danger" }
+            );
+            if (!ok) return;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/acting-assignments/${a.acting_position_assignment_pk}/end`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ effective_to: today }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govActingError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govActing.findIndex(x => x.acting_position_assignment_pk === a.acting_position_assignment_pk);
+                if (idx !== -1) this.govActing[idx] = updated;
+            } catch (err) {
+                this.govActingError = err.message || "Failed to end acting assignment.";
             }
         },
 
@@ -6075,7 +6830,13 @@ function adminApp() {
         },
         async changeGovElectionStatus(status) {
             if (!this.govSelectedElection) return;
-            if (status === "CANCELLED" && !confirm("Cancel this election?")) return;
+            if (status === "CANCELLED") {
+                const ok = await NSSDialog.confirm(
+                    "Cancel this election?",
+                    { title: "Cancel Election", confirmText: "Cancel Election", confirmClass: "danger" }
+                );
+                if (!ok) return;
+            }
             this.govElectionBusy = true;
             this.govElectionActionError = "";
             try {
@@ -6321,7 +7082,11 @@ function adminApp() {
             }
         },
         async applyGovResult(r) {
-            if (!confirm(`Apply this result — create a governance assignment for ${r.winner_name}?`)) return;
+            const ok = await NSSDialog.confirm(
+                `Apply this result — create a governance assignment for ${r.winner_name}?`,
+                { title: "Apply Result", confirmText: "Apply", confirmClass: "primary" }
+            );
+            if (!ok) return;
             this.govElectionActionError = "";
             try {
                 const res = await NSSAuth.apiFetch(
@@ -6337,7 +7102,7 @@ function adminApp() {
                 }
                 const data = await res.json();
                 this.govElectionActionError = "";
-                alert(data.message || "Assignment created from election result.");
+                await NSSDialog.alert(data.message || "Assignment created from election result.", "Result Applied");
             } catch (err) {
                 this.govElectionActionError = err.message || "Failed to apply result.";
             }
@@ -6351,7 +7116,11 @@ function adminApp() {
             if (f.reset_mode === "ADMIN_WITH_PRESIDENT_APPROVAL" && !f.selectedPresident) {
                 f.error = "Select the approving President."; return;
             }
-            if (!confirm("This permanently deletes the cast ballots in scope. Continue?")) return;
+            const ok = await NSSDialog.confirm(
+                "This permanently deletes the cast ballots in scope. Continue?",
+                { title: "Reset Ballots", confirmText: "Reset Ballots", confirmClass: "danger" }
+            );
+            if (!ok) return;
             f.saving = true;
             try {
                 const payload = {
@@ -6379,7 +7148,7 @@ function adminApp() {
                     reset_mode: "PRESIDENT_UNILATERAL", position_master_pk: "", reason: "",
                     presidentQuery: "", presidentResults: [], presidentSearching: false, selectedPresident: null,
                 };
-                alert(data.message || `Ballots reset: ${data.votes_deleted} vote(s), ${data.participation_deleted} participation record(s) deleted.`);
+                await NSSDialog.alert(data.message || `Ballots reset: ${data.votes_deleted} vote(s), ${data.participation_deleted} participation record(s) deleted.`, "Ballots Reset");
                 this.loadGovTally();
             } catch (err) {
                 f.error = err.message || "Failed to reset ballots.";
@@ -6400,7 +7169,17 @@ function adminApp() {
         // CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE) — once per session,
         // same lazy-catalog pattern as loadGovBodies()'s govBodyTypes.
         async corrLoadCatalog() {
-            if (this.corrCatalogLoaded) return;
+            // Medium default (owner request, 2026-10-25: simpler create
+            // form) — the first catalog value, applied whether this is a
+            // fresh fetch or the catalog was already cached from an
+            // earlier form open, so a second "+ Send Application" click
+            // still gets a pre-filled Medium instead of a bare "Select…".
+            if (this.corrCatalogLoaded) {
+                if (!this.corrCreateForm.medium && this.corrMediums.length) {
+                    this.corrCreateForm.medium = this.corrMediums[0].value_code;
+                }
+                return;
+            }
             try {
                 const [mediumRes, financeRes] = await Promise.all([
                     NSSAuth.apiFetch("/api/v1/foundation/master-data?category_code=CORRESPONDENCE_MEDIUM"),
@@ -6409,7 +7188,165 @@ function adminApp() {
                 this.corrMediums = mediumRes.ok ? await mediumRes.json() : [];
                 this.corrFinanceRelationshipTypes = financeRes.ok ? await financeRes.json() : [];
                 this.corrCatalogLoaded = true;
+                if (!this.corrCreateForm.medium && this.corrMediums.length) {
+                    this.corrCreateForm.medium = this.corrMediums[0].value_code;
+                }
             } catch { /* non-fatal — dropdowns stay empty */ }
+        },
+
+        // Register Organization auto-resolution (owner request, 2026-10-25)
+        // — an admin scoped to exactly one organization almost certainly
+        // means THAT org every single time they file correspondence, so
+        // asking them to re-search-and-pick it on every letter is pure
+        // friction. An admin holding more than one distinct org-anchored
+        // scope (e.g. a Kendra Governing Body President who is ALSO a
+        // Sakha President — owner follow-up, 2026-10-26: "it should show
+        // for every admin and i was checking kendra president, who is
+        // also sakhas president who has dual admin roles") gets a real
+        // tab-per-org switcher, same .tab-pill chrome as the status
+        // filters above.
+        //
+        // Correction from the first version of this method (which called
+        // GET /admin/organizations and keyed off its total count): that
+        // endpoint collapses the instant ANY of the admin's grants is
+        // NSS-WIDE scope_level — which a Kendra-President composite grant
+        // (§63, rbac_service.load_composite_grants) always is — to
+        // "unrestricted" (null scope = every org in the system), because
+        // that collapse is CORRECT for backend authorization but wrong
+        // for "which hats does this person wear". It made every dual
+        // Kendra+Sakha admin fall straight to the manual search picker,
+        // which is exactly the bug just reported.
+        //
+        // Fixed by reading the admin's own RAW currentUser.scopes array
+        // instead (already loaded at login, no network call needed) —
+        // one entry per role grant, each resolved to its real
+        // organization_pk individually (a NULL organization_pk means
+        // NSS-WIDE scope_level, e.g. the Kendra-President grant, and
+        // resolves to the actual Kendra organization row — same
+        // resolution myOrgDashboardPk already does for the sidebar, not
+        // re-derived here). Deduplicated by resolved org, so two role
+        // grants pointing at the same org only ever produce one tab.
+        corrResolveDefaultOrg() {
+            const f = this.corrCreateForm;
+            const scopes = this.currentUser?.scopes || [];
+            const kendraPk = this.kendraOrg?.organization_pk || null;
+            const seenPks = new Set();
+            const candidates = [];
+            const pushOrg = (pk) => {
+                if (!pk || seenPks.has(pk)) return;
+                const org = this.organizations.find(o => o.organization_pk === pk);
+                if (!org) return;
+                seenPks.add(pk);
+                candidates.push(org);
+            };
+
+            // Scope-derived registers: a scoped admin's own org(s); a KENDRA /
+            // NSS-WIDE scope carries a null org and resolves to the Kendra
+            // register.
+            for (const s of scopes) {
+                pushOrg(s.organization_pk || kendraPk);
+            }
+
+            // Owner 2026-10-26 ("we should have anchalika/zilla and
+            // pathhchakra tab also for send and receive"): an NSS-wide /
+            // Kendra-equivalent admin may file for ANY register, so offer
+            // every register org, not just the scope-derived ones. Grouping
+            // by tier below means even the 175 Sakhas cost one tab with a
+            // dropdown — which is why this no longer has to exclude them the
+            // way the old one-tab-per-org switcher did. A scope-bounded
+            // admin never enters this branch, so they keep seeing only their
+            // own register.
+            if (this.isGovNssWideAdmin) {
+                pushOrg(kendraPk);
+                const TABBED_TYPES = CORR_REGISTER_TAB_GROUPS.flatMap(g => g.typeCodes);
+                for (const org of this.organizations) {
+                    if (TABBED_TYPES.includes(org.organization_type_code)) {
+                        pushOrg(org.organization_pk);
+                    }
+                }
+            }
+
+            // Group the candidates into tier tabs, dropping empty tiers and
+            // name-sorting each tier's dropdown.
+            const groups = CORR_REGISTER_TAB_GROUPS
+                .map(g => ({
+                    key: g.key,
+                    label: g.label,
+                    orgs: candidates
+                        .filter(o => g.typeCodes.includes(o.organization_type_code))
+                        .sort((a, b) => (a.organization_name || "").localeCompare(b.organization_name || "")),
+                }))
+                .filter(g => g.orgs.length > 0);
+
+            // An org whose type matches no tab group (nothing does today —
+            // this is a guard against a future org type silently losing its
+            // register rather than a live case) still has to be reachable, so
+            // fall through to the manual search picker in that case.
+            const grouped = groups.reduce((n, g) => n + g.orgs.length, 0);
+            if (!groups.length || grouped !== candidates.length) {
+                f.orgTabGroups = [];
+                f.orgMultipleChoices = false;
+                if (candidates.length === 1) {
+                    this.corrSelectOrg(f.org, candidates[0]);
+                    f.orgAutoResolved = true;
+                }
+                this.corrSyncBroadcastToOrg();
+                return;
+            }
+
+            f.orgTabGroups = groups;
+            if (groups.length === 1 && groups[0].orgs.length === 1) {
+                // Exactly one register overall — no tabs, no dropdown, just
+                // the read-only "Register: X" strip.
+                this.corrSelectOrg(f.org, groups[0].orgs[0]);
+                f.orgAutoResolved = true;
+            } else {
+                f.orgMultipleChoices = true;
+                this.corrSelectRegisterTab(groups[0].key);
+            }
+            this.corrSyncBroadcastToOrg();
+        },
+
+        // The orgs behind the currently active register tab — drives the
+        // tier's dropdown, and decides whether a dropdown is needed at all.
+        get corrActiveTabOrgs() {
+            const f = this.corrCreateForm;
+            const g = (f.orgTabGroups || []).find(x => x.key === f.activeOrgTab);
+            return g ? g.orgs : [];
+        },
+
+        // Switching tier: a tier holding exactly one org selects it outright
+        // (a dropdown with one option is noise); a tier holding several
+        // clears the selection so its dropdown opens on "Select…" rather
+        // than silently filing against an arbitrary first org.
+        corrSelectRegisterTab(groupKey) {
+            const f = this.corrCreateForm;
+            f.activeOrgTab = groupKey;
+            const orgs = this.corrActiveTabOrgs;
+            if (orgs.length === 1) {
+                f.activeOrgPk = orgs[0].organization_pk;
+                this.corrSelectOrg(f.org, orgs[0]);
+            } else {
+                f.activeOrgPk = "";
+                this.corrClearPicker(f.org);
+            }
+            // The register changed, so anything derived from it must follow:
+            // the circular controls, and the recipient (whose candidates are
+            // that register's descendants — a stale pick could now be
+            // outside the new register's subtree entirely).
+            this.corrSyncBroadcastToOrg();
+            this.corrClearPicker(f.recipientOrg);
+        },
+
+        corrSelectOrgChoice(organizationPk) {
+            const f = this.corrCreateForm;
+            const org = this.corrActiveTabOrgs.find(o => o.organization_pk === organizationPk);
+            if (org) {
+                f.activeOrgPk = organizationPk;
+                this.corrSelectOrg(f.org, org);
+                this.corrSyncBroadcastToOrg();
+                this.corrClearPicker(f.recipientOrg);
+            }
         },
 
         // GET /foundation/documents needs FOUNDATION_VIEW, which a
@@ -6513,7 +7450,16 @@ function adminApp() {
 
         corrSelectOrg(picker, org) {
             picker.selected = org;
-            picker.query = `${org.organization_name} (${org.type_name || org.type_code})`;
+            // Two source shapes reach this: /admin/organizations search hits
+            // carry type_name/type_code, while this.organizations entries (the
+            // register tabs' dropdown and the recipient candidates) carry
+            // organization_type_name/organization_type_code. Reading only the
+            // first pair rendered "Name (undefined)" for the latter.
+            const typeLabel = org.type_name || org.organization_type_name
+                || org.type_code || org.organization_type_code;
+            picker.query = typeLabel
+                ? `${org.organization_name} (${typeLabel})`
+                : org.organization_name;
             picker.results = [];
         },
 
@@ -6537,14 +7483,54 @@ function adminApp() {
 
         // ── Create ───────────────────────────────────────────────
 
+        // Live "From → To" summaries for the .corr-flow strip, which states
+        // the record's direction instead of asking for it (owner-confirmed
+        // 2026-10-25: Send is always OUTWARD and Receive always INWARD for
+        // the logged-in admin's own organization, so a direction dropdown
+        // on this form was redundant and confusing). Returns "" while the
+        // other party is still unfilled — the markup renders a muted
+        // placeholder in that case rather than an empty line.
+        _corrPartySummary(type, personPicker, orgPicker, externalName) {
+            const f = this.corrCreateForm;
+            if (type === "PERSON") {
+                const p = f[personPicker].selected;
+                return p ? `${p.first_name} ${p.last_name || ""}`.trim() : "";
+            }
+            if (type === "ORGANIZATION") {
+                const o = f[orgPicker].selected;
+                return o ? o.organization_name : "";
+            }
+            const name = (f[externalName] || "").trim();
+            return name;
+        },
+
+        get corrSenderSummary() {
+            const f = this.corrCreateForm;
+            return this._corrPartySummary(
+                f.sender_type, "senderPerson", "senderOrg", "sender_external_name",
+            );
+        },
+
+        get corrRecipientSummary() {
+            const f = this.corrCreateForm;
+            return this._corrPartySummary(
+                f.recipient_type, "recipientPerson", "recipientOrg", "recipient_external_name",
+            );
+        },
+
         corrResetCreateForm() {
             const empty = () => ({ query: "", results: [], searching: false, selected: null });
             this.corrCreateForm = {
                 show: false, saving: false, error: "",
-                org: empty(),
+                org: empty(), orgAutoResolved: false, orgPickerExpanded: false,
+                orgTabGroups: [], orgMultipleChoices: false,
+                activeOrgTab: "", activeOrgPk: "",
                 direction: "INWARD",
+                date: "", splitDates: false,
                 correspondence_date: "", received_or_sent_date: "", follow_up_date: "",
                 subject: "", remarks: "", medium: "",
+                isBroadcast: false, broadcastRecipientTypeCode: "",
+                moreOptions: false, usPartyOverride: false,
                 sender_type: "PERSON",
                 sender_person_capacity: "",
                 senderPerson: empty(), senderPersonOrg: empty(), senderOrg: empty(),
@@ -6553,15 +7539,307 @@ function adminApp() {
                 recipientPerson: empty(), recipientOrg: empty(),
                 recipient_external_name: "", recipient_external_organization: "",
                 responsiblePerson: empty(), responsibleOrg: empty(),
+                inReplyToPk: "", replyingToReference: "",
             };
         },
 
-        toggleCorrCreateForm() {
+        // direction is optional — the two quick-action buttons ("Send
+        // Application" / "Receive Application") pass OUTWARD/INWARD to
+        // preset the register's direction; omitted it defaults to INWARD
+        // same as before.
+        toggleCorrCreateForm(direction) {
             if (this.corrCreateForm.show) {
                 this.corrResetCreateForm();
             } else {
+                this.corrResetCreateForm();
                 this.corrCreateForm.show = true;
+                this.corrCreateForm.direction = direction === "OUTWARD" ? "OUTWARD" : "INWARD";
+                // Date defaults to today — the overwhelmingly common case
+                // (same-day filing); splitDates reveals the two original
+                // independent fields when that's not true.
+                this.corrCreateForm.date = new Date().toISOString().slice(0, 10);
                 this.corrLoadCatalog();
+                this.corrResolveDefaultOrg();
+            }
+        },
+
+        // Reply (v1.2, owner 2026-10-26: "we should also add reply option to
+        // letter too. which will have its own numbers (conceptually same
+        // process)") — opens the ordinary create form, pre-filled from the
+        // letter being replied to, rather than a separate reply-specific
+        // endpoint/payload: a reply IS just a new correspondence row (own
+        // reference_number via the normal counter) that additionally
+        // carries in_reply_to_correspondence_pk. `original` is the detail
+        // view's corrSelected.
+        replyToCorrespondence(original) {
+            this.corrResetCreateForm();
+            const f = this.corrCreateForm;
+            f.show = true;
+            // The create form lives inside the "!corrSelected" wrapper (same
+            // markup the list view uses) — Reply is launched FROM the detail
+            // view (corrSelected still set), so without this the form opens
+            // but stays invisible behind the still-showing detail panel
+            // (bug reported 2026-10-26: "REPLY TO CORRESPONDENCE LETTER NOT
+            // WORKING. nothing happening"). Mirrors what backToCorrList()
+            // clears, minus the list reload — reply doesn't need one yet.
+            this.corrSelected = null;
+            f.direction = original.direction === "OUTWARD" ? "INWARD" : "OUTWARD";
+            f.date = new Date().toISOString().slice(0, 10);
+            f.inReplyToPk = original.correspondence_pk;
+            f.replyingToReference = original.reference_number;
+            f.subject = "Re: " + (original.subject || "").replace(/^re:\s*/i, "");
+
+            // Filed under the SAME register the original lives in — a reply
+            // is always written as/to whoever that register belongs to.
+            const regOrg = this.organizations.find(
+                o => o.organization_pk === original.register_organization_pk
+            );
+            if (regOrg) {
+                this.corrSelectOrg(f.org, regOrg);
+                f.orgAutoResolved = true;
+            }
+            // Else: leave org unresolved — the manual search picker (reset's
+            // default) covers it, same as any other letter with no scope
+            // match. Shouldn't normally happen; a correspondence's own
+            // register is always a real, loaded organization.
+
+            // The "other party" carries over unchanged from the original —
+            // only WHICH form field it occupies (sender vs recipient) flips,
+            // mirroring the direction flip: whichever party was NOT "us" in
+            // the original stays NOT "us" here, it just changes slot name.
+            if (original.direction === "INWARD") {
+                this.corrPrefillParty("recipient", original, "sender");
+            } else {
+                this.corrPrefillParty("sender", original, "recipient");
+            }
+
+            this.corrLoadCatalog();
+            this.corrSyncBroadcastToOrg();
+        },
+
+        // Shared by replyToCorrespondence(): copies one party's resolved
+        // identity from a CorrespondenceResponse (fromPrefix: "sender" or
+        // "recipient" on the ORIGINAL record) onto this form's matching
+        // type/picker/external fields (toPrefix: "sender" or "recipient" —
+        // the opposite one, per the direction flip above). Capacity-only
+        // fields (sender_person_capacity, the "acting for" org) have no
+        // equivalent to carry over and are deliberately left for the admin
+        // to fill fresh when toPrefix is "sender" and the party is a PERSON.
+        corrPrefillParty(toPrefix, original, fromPrefix) {
+            const f = this.corrCreateForm;
+            const type = original[`${fromPrefix}_type`];
+            f[`${toPrefix}_type`] = type;
+            if (type === "PERSON") {
+                const pk = original[`${fromPrefix}_person_pk`];
+                if (!pk) return;
+                const name = original[`${fromPrefix}_person_name`] || "";
+                f[`${toPrefix}Person`].selected = { person_pk: pk, first_name: name, last_name: "", person_id: "" };
+                f[`${toPrefix}Person`].query = name;
+            } else if (type === "ORGANIZATION") {
+                const pk = original[`${fromPrefix}_organization_pk`];
+                if (!pk) return;
+                const name = original[`${fromPrefix}_organization_name`] || "";
+                f[`${toPrefix}Org`].selected = { organization_pk: pk, organization_name: name };
+                f[`${toPrefix}Org`].query = name;
+            } else if (type === "EXTERNAL") {
+                f[`${toPrefix}_external_name`] = original[`${fromPrefix}_external_name`] || "";
+                f[`${toPrefix}_external_organization`] = original[`${fromPrefix}_external_organization`] || "";
+            }
+        },
+
+        // Shared by the circular's "Send To Every" select and the
+        // From/To flow strip's own label — resolves an ORGANIZATION_TYPE
+        // value_code to its display name from the already-loaded
+        // orgTypes catalog (loadOrgTypes(), awaited in init()'s own
+        // Promise.all — no new fetch).
+        corrOrgTypeName(valueCode) {
+            return (this.orgTypes.find(t => t.value_code === valueCode) || {}).value_name || valueCode;
+        },
+
+        // Circular eligibility (owner 2026-10-26: the circular "should be
+        // inside kendra sangha, anchalaika/zilla tab only.. they are the
+        // parents to multiple sakhas and other org types"). A circular is
+        // offered ONLY when the selected register org is one of these three
+        // parent types — a Sakha or Patha Chakra register never shows it.
+        // The selected org can come from either source shape: a tab/
+        // this.organizations entry (organization_type_code) or the manual
+        // search picker (/admin/organizations → type_code).
+        get corrCanBroadcast() {
+            const o = this.corrCreateForm.org.selected;
+            if (!o) return false;
+            const t = o.organization_type_code || o.type_code;
+            return ["KENDRA", "ANCHALIKA_SANGHA", "ZILLA_SANGHA"].includes(t);
+        },
+
+        // "Send To Every <type>" options (owner 2026-10-26: "we cannot add
+        // all types in dropdown. check the repo for parent and child
+        // relationship. (always exclude kutira and smurti mandira)").
+        // POST /correspondence/broadcast targets the RECURSIVE subtree of the
+        // register org (org_subtree_pks), filtered to one descendant type —
+        // so the only sensible options are the descendant org types actually
+        // present under the selected org. We walk the same parent/child links
+        // (this.organizations' parent_organization_pk) the backend recursion
+        // uses, collect the distinct descendant types, and drop the two apex
+        // singletons that are never descendants anyway. This stays WYSIWYG
+        // with what the endpoint will really send to (no dead options that
+        // would just 422 "no organizations of this type under here").
+        // Shared subtree walk (standing no-duplicates rule): every active
+        // descendant organization of one org, read from the already-loaded
+        // this.organizations tree — the same parent/child links the backend's
+        // org_subtree_pks() recursion follows, so the UI can never offer a
+        // target the endpoint wouldn't actually reach. Excludes the root
+        // itself and the two apex singletons (owner 2026-10-26: "always
+        // exclude kutira and smurti mandira") while still traversing THROUGH
+        // them, so anything parented under one stays reachable. Backs both the
+        // circular's type dropdown and the recipient picker.
+        _corrDescendantOrgs(rootPk) {
+            if (!rootPk) return [];
+            const EXCLUDED = new Set(["NILACHALA_KUTIRA", "SMRUTI_MANDIRA"]);
+            const childrenByParent = new Map();
+            for (const org of this.organizations) {
+                const p = org.parent_organization_pk;
+                if (!p) continue;
+                if (!childrenByParent.has(p)) childrenByParent.set(p, []);
+                childrenByParent.get(p).push(org);
+            }
+            const seen = new Set([rootPk]);
+            const out = [];
+            const stack = [rootPk];
+            while (stack.length) {
+                const pk = stack.pop();
+                for (const child of childrenByParent.get(pk) || []) {
+                    if (seen.has(child.organization_pk)) continue;   // guards cycles
+                    seen.add(child.organization_pk);
+                    if (!EXCLUDED.has(child.organization_type_code)) out.push(child);
+                    stack.push(child.organization_pk);
+                }
+            }
+            return out;
+        },
+
+        get corrBroadcastTypeOptions() {
+            const o = this.corrCreateForm.org.selected;
+            if (!o) return [];
+            const typeCodes = new Set(
+                this._corrDescendantOrgs(o.organization_pk).map(d => d.organization_type_code)
+            );
+            // Preserve orgTypes' display order / option shape.
+            return this.orgTypes.filter(t => typeCodes.has(t.value_code));
+        },
+
+        // Valid ORGANIZATION recipients (owner 2026-10-26: "in receipient only
+        // childrem under that parent should show, not everything else") — the
+        // selected register org's own descendants, name-sorted. Filtered
+        // client-side from this.organizations (fully loaded in init()) rather
+        // than via the global /admin/organizations search the other org
+        // pickers use, since that endpoint has no subtree filter to pass.
+        //
+        // Owner follow-up, same day: "Sakha, pathachakra, anachalik/zilla can
+        // send letter to kendra" — the one upward exception. Sakha/Patha
+        // Chakra/Anchalika/Zilla additionally get the Kendra org itself as a
+        // candidate (Kendra has no parent of its own, so it never needs the
+        // reverse case). A Kendra register stays descendants-only — it has
+        // nothing further upward to address.
+        get corrRecipientOrgCandidates() {
+            const o = this.corrCreateForm.org.selected;
+            if (!o) return [];
+            const out = this._corrDescendantOrgs(o.organization_pk);
+            const t = o.organization_type_code || o.type_code;
+            if (["SAKHA_SANGHA", "PATHA_CHAKRA", "ANCHALIKA_SANGHA", "ZILLA_SANGHA"].includes(t)) {
+                const kendra = this.kendraOrg;
+                if (kendra && !out.some(org => org.organization_pk === kendra.organization_pk)) {
+                    out.push(kendra);
+                }
+            }
+            return out.sort((a, b) => (a.organization_name || "").localeCompare(b.organization_name || ""));
+        },
+
+        // Recipient-org type-ahead. Deliberately NOT corrOnOrgQueryInput /
+        // corrSearchOrg: that pair searches every organization in the system,
+        // which is exactly what the owner asked to stop. In-memory filtering
+        // also needs no debounce and no fetch.
+        corrOnRecipientOrgQueryInput(picker) {
+            picker.selected = null;
+            const q = (picker.query || "").trim().toLowerCase();
+            const all = this.corrRecipientOrgCandidates;
+            picker.results = (
+                q ? all.filter(o => (o.organization_name || "").toLowerCase().includes(q)) : all
+            ).slice(0, 20);
+        },
+
+        // Whenever the register org changes, keep the circular controls
+        // consistent with it: a register that can't circulate (Sakha / Patha
+        // Chakra / anything but Kendra-Anchalika-Zilla) must not leave the
+        // form armed with a hidden-but-true isBroadcast, and a previously
+        // chosen target type that isn't under the new org must be cleared.
+        corrSyncBroadcastToOrg() {
+            const f = this.corrCreateForm;
+            if (!this.corrCanBroadcast) {
+                f.isBroadcast = false;
+                f.broadcastRecipientTypeCode = "";
+            } else if (
+                f.broadcastRecipientTypeCode &&
+                !this.corrBroadcastTypeOptions.some(t => t.value_code === f.broadcastRecipientTypeCode)
+            ) {
+                f.broadcastRecipientTypeCode = "";
+            }
+        },
+
+        // Circular (owner request, 2026-10-26: "sometimes, kendra/
+        // anchalika/zilla send letter to all sakhas under it. we should
+        // have some option") — POST /correspondence/broadcast, one admin
+        // action instead of N manual create+dispatch repeats. Always
+        // sender=ORGANIZATION (no override), always OUTWARD — both
+        // enforced by the markup already hiding the controls that would
+        // let either vary, but re-checked here too since this method
+        // doesn't re-run createCorrespondence()'s own validation.
+        async createBroadcastCorrespondence() {
+            const f = this.corrCreateForm;
+            f.error = "";
+
+            if (!f.org.selected) { f.error = "Select the register organization."; return; }
+            if (!f.broadcastRecipientTypeCode) { f.error = "Select which organization type to send to."; return; }
+            const correspondence_date = f.splitDates ? f.correspondence_date : f.date;
+            const received_or_sent_date = f.splitDates ? f.received_or_sent_date : f.date;
+            if (!correspondence_date || !received_or_sent_date) {
+                f.error = f.splitDates
+                    ? "Correspondence date and received/sent date are required."
+                    : "Date is required.";
+                return;
+            }
+            if (!f.subject.trim()) { f.error = "Subject is required."; return; }
+            if (!f.medium) { f.error = "Medium is required."; return; }
+
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/correspondence/broadcast", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        register_organization_pk: f.org.selected.organization_pk,
+                        recipient_organization_type_code: f.broadcastRecipientTypeCode,
+                        correspondence_date,
+                        received_or_sent_date,
+                        follow_up_date: f.follow_up_date || null,
+                        subject: f.subject.trim(),
+                        remarks: f.remarks.trim() || null,
+                        medium: f.medium,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const data = await res.json();
+                this.corrResetCreateForm();
+                this.corrPage = 1;
+                await this.loadCorrespondence();
+                this.showToast(`Circular sent to ${data.recipient_count} organization(s).`);
+            } catch (err) {
+                f.error = err.message || "Failed to send the circular.";
+            } finally {
+                f.saving = false;
             }
         },
 
@@ -6569,55 +7847,96 @@ function adminApp() {
             const f = this.corrCreateForm;
             f.error = "";
 
+            // A circular has its own endpoint/payload shape entirely
+            // (CorrespondenceBroadcastCreate has no sender_*/recipient_*
+            // fields at all) — delegate rather than branch every field
+            // below for a case that never shares them.
+            if (f.isBroadcast) { return this.createBroadcastCorrespondence(); }
+
             if (!f.org.selected) { f.error = "Select the register organization."; return; }
-            if (!f.correspondence_date || !f.received_or_sent_date) { f.error = "Correspondence date and received/sent date are required."; return; }
+            // splitDates=false (the default): both DB dates come from the
+            // single collapsed Date field. splitDates=true: the two
+            // original independent fields, exactly as before this form
+            // was simplified.
+            const correspondence_date = f.splitDates ? f.correspondence_date : f.date;
+            const received_or_sent_date = f.splitDates ? f.received_or_sent_date : f.date;
+            if (!correspondence_date || !received_or_sent_date) {
+                f.error = f.splitDates
+                    ? "Correspondence date and received/sent date are required."
+                    : "Date is required.";
+                return;
+            }
             if (!f.subject.trim()) { f.error = "Subject is required."; return; }
             if (!f.medium) { f.error = "Medium is required."; return; }
 
             const body = {
                 register_organization_pk: f.org.selected.organization_pk,
                 direction: f.direction,
-                correspondence_date: f.correspondence_date,
-                received_or_sent_date: f.received_or_sent_date,
+                correspondence_date,
+                received_or_sent_date,
                 follow_up_date: f.follow_up_date || null,
                 subject: f.subject.trim(),
                 remarks: f.remarks.trim() || null,
-                sender_type: f.sender_type,
-                recipient_type: f.recipient_type,
                 medium: f.medium,
                 responsible_person_pk: f.responsiblePerson.selected ? f.responsiblePerson.selected.person_pk : null,
                 responsible_organization_pk: f.responsibleOrg.selected ? f.responsibleOrg.selected.organization_pk : null,
+                in_reply_to_correspondence_pk: f.inReplyToPk || null,
             };
 
-            if (f.sender_type === "PERSON") {
-                if (!f.senderPerson.selected) { f.error = "Select the sender."; return; }
-                if (!f.sender_person_capacity) { f.error = "Sender capacity (Personal/Organizational) is required."; return; }
-                if (f.sender_person_capacity === "ORGANIZATIONAL" && !f.senderPersonOrg.selected) {
-                    f.error = "Select the organization the sender is acting for."; return;
-                }
-                body.sender_person_pk = f.senderPerson.selected.person_pk;
-                body.sender_person_capacity = f.sender_person_capacity;
-                body.sender_person_organization_pk = f.sender_person_capacity === "ORGANIZATIONAL"
-                    ? f.senderPersonOrg.selected.organization_pk : null;
-            } else if (f.sender_type === "ORGANIZATION") {
-                if (!f.senderOrg.selected) { f.error = "Select the sender organization."; return; }
-                body.sender_organization_pk = f.senderOrg.selected.organization_pk;
-            } else {
-                if (!f.sender_external_name.trim()) { f.error = "Sender name is required for an external sender."; return; }
-                body.sender_external_name = f.sender_external_name.trim();
-                body.sender_external_organization = f.sender_external_organization.trim() || null;
+            // "Our" side (owner request, 2026-10-25: simpler form) —
+            // defaults silently to ORGANIZATION = the register
+            // organization, unless usPartyOverride reveals the full
+            // picker for it. usIsSender mirrors create_member_application
+            // ()'s own OUTWARD/INWARD framing (§4.6): sending FROM us is
+            // OUTWARD, receiving addressed TO us is INWARD.
+            const usIsSender = f.direction === "OUTWARD";
+
+            if (usIsSender && !f.usPartyOverride) {
+                body.sender_type = "ORGANIZATION";
+                body.sender_organization_pk = f.org.selected.organization_pk;
+            } else if (!usIsSender && !f.usPartyOverride) {
+                body.recipient_type = "ORGANIZATION";
+                body.recipient_organization_pk = f.org.selected.organization_pk;
             }
 
-            if (f.recipient_type === "PERSON") {
-                if (!f.recipientPerson.selected) { f.error = "Select the recipient."; return; }
-                body.recipient_person_pk = f.recipientPerson.selected.person_pk;
-            } else if (f.recipient_type === "ORGANIZATION") {
-                if (!f.recipientOrg.selected) { f.error = "Select the recipient organization."; return; }
-                body.recipient_organization_pk = f.recipientOrg.selected.organization_pk;
-            } else {
-                if (!f.recipient_external_name.trim()) { f.error = "Recipient name is required for an external recipient."; return; }
-                body.recipient_external_name = f.recipient_external_name.trim();
-                body.recipient_external_organization = f.recipient_external_organization.trim() || null;
+            // The sender fields are filled whenever sender is the "other
+            // party" (INWARD) OR the override is in effect for an OUTWARD
+            // letter — i.e. whenever they were NOT just defaulted above.
+            if (!usIsSender || f.usPartyOverride) {
+                body.sender_type = f.sender_type;
+                if (f.sender_type === "PERSON") {
+                    if (!f.senderPerson.selected) { f.error = "Select the sender."; return; }
+                    if (!f.sender_person_capacity) { f.error = "Sender capacity (Personal/Organizational) is required."; return; }
+                    if (f.sender_person_capacity === "ORGANIZATIONAL" && !f.senderPersonOrg.selected) {
+                        f.error = "Select the organization the sender is acting for."; return;
+                    }
+                    body.sender_person_pk = f.senderPerson.selected.person_pk;
+                    body.sender_person_capacity = f.sender_person_capacity;
+                    body.sender_person_organization_pk = f.sender_person_capacity === "ORGANIZATIONAL"
+                        ? f.senderPersonOrg.selected.organization_pk : null;
+                } else if (f.sender_type === "ORGANIZATION") {
+                    if (!f.senderOrg.selected) { f.error = "Select the sender organization."; return; }
+                    body.sender_organization_pk = f.senderOrg.selected.organization_pk;
+                } else {
+                    if (!f.sender_external_name.trim()) { f.error = "Sender name is required for an external sender."; return; }
+                    body.sender_external_name = f.sender_external_name.trim();
+                    body.sender_external_organization = f.sender_external_organization.trim() || null;
+                }
+            }
+
+            if (usIsSender || f.usPartyOverride) {
+                body.recipient_type = f.recipient_type;
+                if (f.recipient_type === "PERSON") {
+                    if (!f.recipientPerson.selected) { f.error = "Select the recipient."; return; }
+                    body.recipient_person_pk = f.recipientPerson.selected.person_pk;
+                } else if (f.recipient_type === "ORGANIZATION") {
+                    if (!f.recipientOrg.selected) { f.error = "Select the recipient organization."; return; }
+                    body.recipient_organization_pk = f.recipientOrg.selected.organization_pk;
+                } else {
+                    if (!f.recipient_external_name.trim()) { f.error = "Recipient name is required for an external recipient."; return; }
+                    body.recipient_external_name = f.recipient_external_name.trim();
+                    body.recipient_external_organization = f.recipient_external_organization.trim() || null;
+                }
             }
 
             f.saving = true;
@@ -6650,7 +7969,8 @@ function adminApp() {
         async viewCorrespondence(pk) {
             this.corrDetailError = "";
             this.corrDetailLoading = true;
-            this.corrTransitionForm = { show: false, saving: false, error: "", new_status: "", remarks: "" };
+            this.corrHistory = { events: [], ancestors: [], descendants: [] };
+            this.corrHistoryError = "";
             this.corrResponsibleForm = {
                 show: false, saving: false, error: "", mode: "person",
                 person: { query: "", results: [], searching: false, selected: null },
@@ -6662,6 +7982,7 @@ function adminApp() {
                 this.corrSelected = await res.json();
                 this.loadCorrDocuments();
                 this.loadCorrFinanceRefs();
+                this.loadCorrHistory();
             } catch (err) {
                 this.corrDetailError = err.message || "Failed to load correspondence detail.";
             } finally {
@@ -6675,56 +7996,44 @@ function adminApp() {
             this.loadCorrespondence();
         },
 
-        // Mirrors the backend's _VALID_TRANSITIONS / _REOPEN_TRANSITIONS
-        // tables in api/routers/correspondence.py exactly — this copy only
-        // decides which options the <select> offers; the API is the
-        // authority and re-validates server-side.
-        CORR_VALID_NEXT_STATUSES: {
-            REGISTERED:     ["PENDING_ACTION", "ACTIONED", "CLOSED"],
-            PENDING_ACTION: ["ACTIONED"],
-            ACTIONED:       ["CLOSED", "PENDING_ACTION"],
-            CLOSED:         ["PENDING_ACTION"],
-        },
-        CORR_REOPEN_TRANSITIONS: new Set(["ACTIONED->PENDING_ACTION", "CLOSED->PENDING_ACTION"]),
+        // The manual "Transition Status" admin.html box (CORR_VALID_NEXT_STATUSES/
+        // CORR_REOPEN_TRANSITIONS/corrNextStatuses/corrIsReopenTransition/
+        // submitCorrTransition) was removed 2026-10-26 (owner: "remove the
+        // trnasition status box entirely" — after the event-driven lifecycle
+        // amendment made the REGISTERED->PENDING_ACTION and ->ACTIONED hops
+        // automatic, the manual dropdown mostly just confused what was now
+        // happening on its own). The POST /{pk}/transition endpoint itself is
+        // UNCHANGED and still live — this only removes its one UI surface.
+        // Net effect: there is currently no UI control left for ACTIONED->
+        // CLOSED or for reopening (ACTIONED/CLOSED->PENDING_ACTION, §6.3) —
+        // those remain reachable only via direct API call. Flagged, not
+        // silently dropped — a lighter "Close"/"Reopen" control may be
+        // wanted back as a follow-up.
 
-        corrNextStatuses(status) {
-            return this.CORR_VALID_NEXT_STATUSES[status] || [];
-        },
-
-        corrIsReopenTransition(fromStatus, toStatus) {
-            return this.CORR_REOPEN_TRANSITIONS.has(`${fromStatus}->${toStatus}`);
-        },
-
-        async submitCorrTransition() {
-            const f = this.corrTransitionForm;
+        // ── Dispatch (v1.1, owner-confirmed 2026-10-25) — mints the
+        //    recipient organization's own linked INWARD counterpart row.
+        //    Only ever shown (admin.html) for an OUTWARD row addressed to
+        //    recipient_type=ORGANIZATION with no counterpart yet; the API
+        //    independently re-validates all of that (422/409) regardless
+        //    of what this button's visibility already implies.
+        async dispatchCorrespondence() {
+            const f = this.corrDispatchForm;
             f.error = "";
-            const current = this.corrSelected.status_value_code;
-            if (!f.new_status) { f.error = "Select the new status."; return; }
-            if (this.corrIsReopenTransition(current, f.new_status) && !(f.remarks && f.remarks.trim())) {
-                f.error = "Reopening requires remarks explaining why.";
-                return;
-            }
-            if (current === "REGISTERED" && f.new_status === "PENDING_ACTION" &&
-                !this.corrSelected.responsible_person_pk && !this.corrSelected.responsible_organization_pk) {
-                f.error = "Assign a responsible person or organization before moving to Pending Action.";
-                return;
-            }
             f.saving = true;
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/transition`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ new_status: f.new_status, remarks: f.remarks.trim() || null }),
-                });
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/correspondence/${this.corrSelected.correspondence_pk}/dispatch`,
+                    { method: "POST" },
+                );
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
                     f.error = NSS.errorMessage(data, res.status);
                     return;
                 }
                 this.corrSelected = await res.json();
-                this.corrTransitionForm = { show: false, saving: false, error: "", new_status: "", remarks: "" };
+                await this.loadCorrespondence();
             } catch (err) {
-                f.error = err.message || "Failed to transition status.";
+                f.error = err.message || "Failed to dispatch this correspondence.";
             } finally {
                 f.saving = false;
             }
@@ -6850,6 +8159,25 @@ function adminApp() {
             if (this.corrFinanceForm.show) this.corrLoadCatalog();
         },
 
+        // ── History + reply-thread path tracker ──────────────────
+        // (owner 2026-10-26: "can we add history with path tracker for
+        // correspondance?") — one GET, both parts of the response.
+        async loadCorrHistory() {
+            if (!this.corrSelected) return;
+            this.corrHistoryLoading = true;
+            this.corrHistoryError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/history`);
+                if (res.status === 403) { this.corrHistoryError = "You do not have permission to view this record's history."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.corrHistory = await res.json();
+            } catch (err) {
+                this.corrHistoryError = err.message || "Failed to load history.";
+            } finally {
+                this.corrHistoryLoading = false;
+            }
+        },
+
         async addCorrFinanceRef() {
             const f = this.corrFinanceForm;
             f.error = "";
@@ -6879,5 +8207,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    };
+    });
 }

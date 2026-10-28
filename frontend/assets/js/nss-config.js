@@ -85,6 +85,22 @@ const NSS = {
         REACTIVATED: "badge-aff-reactivated",
     },
 
+    // Attendance status (Tier 6, 2026-10-27) — PRESENT/ABSENT/EXCUSED_ABSENCE.
+    ATTENDANCE_STATUS_BADGE_MAP: {
+        PRESENT:          "badge-att-present",
+        ABSENT:           "badge-att-absent",
+        EXCUSED_ABSENCE:  "badge-att-excused_absence",
+    },
+
+    // Attendance Review lifecycle (Tier 6, 2026-10-27).
+    ATTENDANCE_REVIEW_STATUS_BADGE_MAP: {
+        OPEN:                     "badge-attrev-open",
+        DEFERRED:                 "badge-attrev-deferred",
+        CLOSED:                   "badge-attrev-closed",
+        ESCALATED_TO_PRESIDENT:   "badge-attrev-escalated_to_president",
+        ESCALATED_TO_PARICHALAK:  "badge-attrev-escalated_to_parichalak",
+    },
+
     GENDER_BADGE_MAP: {
         MALE:   "badge-gender-male",
         FEMALE: "badge-gender-female",
@@ -116,6 +132,43 @@ const NSS = {
         LOCKED:           "badge-account-locked",
         INACTIVE:         "badge-account-inactive",
         PENDING_APPROVAL: "badge-account-pending-approval",
+    },
+
+    // acting_position_assignment.acting_status (chk_acting_position_assignment_status:
+    // ASSIGNED/ACTIVE/ENDED/HISTORICAL/PENDING_APPROVAL/REJECTED). Added
+    // 2026-10-24 — the admin Acting/Interim Cover table previously bound
+    // acting_status === "ENDED" to badge-muted and everything else
+    // (including PENDING_APPROVAL) to the DaisyUI success badge, wrongly
+    // showing an admin-initiated PENDING_APPROVAL row as green/success. All
+    // four non-default values get their own semantic badge below, reusing
+    // existing badges.css classes (never inventing a new one): badge-
+    // attention is the existing "needs action" amber badge, and badge-
+    // claim-rejected is the existing red "rejected" badge. ASSIGNED/ACTIVE
+    // (the "currently acting" states) are deliberately left unmapped — the
+    // caller falls back to the plain DaisyUI success badge utility class
+    // (literal badge- then success, deliberately not spelled out here with
+    // quotes), which has no badges.css definition of its own (by design,
+    // not an omission) and so must never appear as a quoted literal in
+    // this file — see
+    // tests/ui/test_ui_badges.py::test_js_map_classes_are_all_defined.
+    ACTING_STATUS_BADGE_MAP: {
+        PENDING_APPROVAL: "badge-attention",
+        REJECTED: "badge-claim-rejected",
+        ENDED: "badge-muted",
+        HISTORICAL: "badge-muted",
+    },
+
+    /**
+     * acting_position_assignment.acting_status -> badge CSS class, or null
+     * for ASSIGNED/ACTIVE (the "currently acting" states) — the caller must
+     * fall back to the plain DaisyUI success badge utility in that case
+     * (kept out of this file as an unquoted literal; see the map comment
+     * above for why).
+     * @param {string} status
+     * @returns {string|null} CSS class, or null meaning "use the success badge"
+     */
+    actingStatusBadgeClass(status) {
+        return this.ACTING_STATUS_BADGE_MAP[status] || null;
     },
 
     // registration_claim.claim_status — full set per
@@ -186,6 +239,24 @@ const NSS = {
      */
     affBadgeClass(status) {
         return this.AFF_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Attendance status → badge CSS class.
+     * @param {string} code - PRESENT | ABSENT | EXCUSED_ABSENCE
+     * @returns {string} CSS class
+     */
+    attStatusBadgeClass(code) {
+        return this.ATTENDANCE_STATUS_BADGE_MAP[code] || "badge-muted";
+    },
+
+    /**
+     * Attendance Review status → badge CSS class.
+     * @param {string} code - OPEN | DEFERRED | CLOSED | ESCALATED_TO_PRESIDENT | ESCALATED_TO_PARICHALAK
+     * @returns {string} CSS class
+     */
+    attReviewStatusBadgeClass(code) {
+        return this.ATTENDANCE_REVIEW_STATUS_BADGE_MAP[code] || "badge-muted";
     },
 
     /**
@@ -268,6 +339,401 @@ const NSS = {
      */
     correspondenceDirectionBadgeClass(direction) {
         return this.CORRESPONDENCE_DIRECTION_BADGE_MAP[direction] || "badge-muted";
+    },
+
+    // correspondence_approval_step.step_status — PENDING/APPROVED/REJECTED
+    // (api/schemas/correspondence.py ApprovalStepResponse). Deliberately
+    // reuses EXISTING badge classes rather than inventing a parallel
+    // palette (frontend fix, 2026-10-23, owner item 5): PENDING maps to
+    // the same outline-grey as badge-muted (a step that hasn't happened
+    // yet is annotation, not yet a held state), APPROVED to the same
+    // green as badge-status-active, REJECTED to the same red as
+    // badge-claim-rejected.
+    CORRESPONDENCE_STEP_BADGE_MAP: {
+        PENDING:  "badge-muted",
+        APPROVED: "badge-status-active",
+        REJECTED: "badge-claim-rejected",
+    },
+
+    /**
+     * Approval-chain step status (correspondence_approval_step.step_status)
+     * → badge CSS class for the text pill next to an approver's name.
+     * @param {string} status - PENDING | APPROVED | REJECTED
+     * @returns {string} CSS class
+     */
+    correspondenceStepBadgeClass(status) {
+        return this.CORRESPONDENCE_STEP_BADGE_MAP[status] || "badge-muted";
+    },
+
+    // Same step_status domain, but for the circular stepper-node icon
+    // (frontend/assets/css/nss-layout.css .corr-stepper-icon — geometry
+    // only). 2026-10-23: now points at the real badge classes for this
+    // family (pending/approved/rejected/done, defined in badges.css — that
+    // file's own single-source-of-truth header) instead of raw hex
+    // duplicated locally in nss-layout.css — the two were
+    // guaranteed to drift apart the first time either one changed.
+    CORRESPONDENCE_STEP_ICON_MAP: {
+        PENDING:  "badge-corr-step-pending",
+        APPROVED: "badge-corr-step-approved",
+        REJECTED: "badge-corr-step-rejected",
+    },
+
+    /**
+     * Approval-chain step status → stepper-node icon CSS class.
+     * @param {string} status - PENDING | APPROVED | REJECTED
+     * @returns {string} CSS class
+     */
+    correspondenceStepIconClass(status) {
+        return this.CORRESPONDENCE_STEP_ICON_MAP[status] || "badge-corr-step-pending";
+    },
+
+    // Governance position (position_master.position_code) → badge CSS
+    // class (frontend/assets/css/badges.css badge-position-*). Owner
+    // decision 2026-10-23, item 5: "distinct but grouped" — Leadership
+    // (President/VP/Parichalak, blue family), Secretary (Secretary/
+    // Assistant/Joint, violet family), Finance (Treasurer/Cashier, amber
+    // family), Mukhya Pujaka (ceremonial singleton, teal), Member (ordinary
+    // seat, neutral gray). Used wherever a named office-bearer is shown
+    // (the correspondence approval stepper; extend to the governance tabs'
+    // own member/position lists if/when those get the same treatment).
+    //
+    // Separate owner decision, same date (2026-10-23): CASHIER is no
+    // longer a governing-body composition position at any tier (TREASURER
+    // replaced it everywhere — see api/routers/governance.py
+    // _COMPOSITION_RULES and database/seed/08_governance/
+    // 02_position_master.sql). CASHIER's badge class is kept here
+    // unchanged — the position still exists for a future, person-to-event
+    // assignment (conceptual only; Programmes & Events is unbuilt) — but a
+    // reader should not expect CASHIER to appear in body-composition
+    // contexts (governance tabs, correspondence approval stepper, etc.)
+    // going forward.
+    POSITION_BADGE_MAP: {
+        PRESIDENT:            "badge-position-president",
+        VICE_PRESIDENT:       "badge-position-vice_president",
+        PARICHALAK:           "badge-position-parichalak",
+        SECRETARY:            "badge-position-secretary",
+        ASSISTANT_SECRETARY:  "badge-position-assistant_secretary",
+        JOINT_SECRETARY:      "badge-position-joint_secretary",
+        TREASURER:            "badge-position-treasurer",
+        CASHIER:              "badge-position-cashier",
+        MUKHYA_PUJAKA:        "badge-position-mukhya_pujaka",
+        MEMBER:               "badge-position-member",
+    },
+
+    /**
+     * Governance position code → badge CSS class.
+     * @param {string} positionCode - position_master.position_code
+     * @returns {string} CSS class
+     */
+    positionBadgeClass(positionCode) {
+        return this.POSITION_BADGE_MAP[positionCode] || "badge-muted";
+    },
+
+    /* ── Governance body composition display (shared across the member
+     * dashboard's Governance tab and the org-dashboard's Governance
+     * section — dashboard.js and org-dashboard.js are separate Alpine
+     * components with no shared-include mechanism between module JS files
+     * in this static frontend, so this SORT/CAP/FILTER logic lives here in
+     * nss-config.js, which every page already loads, rather than being
+     * duplicated. Only the per-component modal open/close state stays
+     * local to each file. Owner fix, 2026-10-23: within the capped
+     * display, President and Secretary must never be the ones cut off,
+     * regardless of API order. ──────────────────────────────── */
+
+    GOV_MEMBER_CAP: 9,
+
+    // Explicit requirement: President and Secretary are guaranteed a seat
+    // within the cap. Keyed on position_master.position_code (stable),
+    // never the display name (which can vary/translate).
+    GOV_PRIORITY_POSITION_CODES: ["PRESIDENT", "SECRETARY"],
+
+    /**
+     * Sort a governance body's members so President/Secretary sort to the
+     * front — never the ones trimmed off by a display cap. Returns a NEW
+     * array (stable sort: everyone else keeps their original relative
+     * order from the API).
+     * @param {Array} members
+     * @returns {Array}
+     */
+    sortGovMembersForDisplay(members) {
+        const list = Array.isArray(members) ? members : [];
+        const rank = (m) => {
+            const i = this.GOV_PRIORITY_POSITION_CODES.indexOf(m && m.position_code);
+            return i === -1 ? this.GOV_PRIORITY_POSITION_CODES.length : i;
+        };
+        return [...list].sort((a, b) => rank(a) - rank(b));
+    },
+
+    /**
+     * At most `cap` members for an inline banner/card — President/Secretary
+     * guaranteed a seat via sortGovMembersForDisplay.
+     * @param {object} body - { members: [...] }
+     * @param {number} [cap] - defaults to GOV_MEMBER_CAP
+     * @returns {Array}
+     */
+    govBodyDisplayMembers(body, cap) {
+        const n = cap || this.GOV_MEMBER_CAP;
+        return this.sortGovMembersForDisplay((body && body.members) || []).slice(0, n);
+    },
+
+    /**
+     * True when the body has more members than the inline cap — drives a
+     * "Show all" control.
+     * @param {object} body - { members: [...] }
+     * @param {number} [cap] - defaults to GOV_MEMBER_CAP
+     * @returns {boolean}
+     */
+    govBodyHasMore(body, cap) {
+        const n = cap || this.GOV_MEMBER_CAP;
+        return ((body && body.members) || []).length > n;
+    },
+
+    // ── Governance body card theme — per body-type colour (2026-10-24) ─────
+    // Owner request: "lets give different different colors to all body
+    // types. assignment page also.. match the governance body boxes
+    // including show more." Reverses the earlier (2026-10-23) uniform-
+    // violet decision for body-TYPE variety, while keeping the "one
+    // consistent colour per type, everywhere that type appears" principle —
+    // this is still a single shared definition, just keyed by
+    // body_type_code instead of a bare constant. KENDRA_GOVERNING_BODY
+    // keeps the original violet (it is the flagship body); every other
+    // type below reuses a hue family already present in badges.css, never
+    // an invented colour:
+    //   KENDRA_GOVERNING_BODY        -> violet (unchanged)
+    //   ADVISORY_BOARD                -> blue   (badge-corr-status-registered family)
+    //   MAHILA_PARICHALANA_MANDALI    -> pink   (badge-gender-female family)
+    //   SAKHA_GOVERNING_BODY          -> yellow (badge-position-treasurer/cashier family)
+    //   SEVAK_SANGHA_EXECUTIVE        -> teal   (badge-status-approved family)
+    //   ANCHALIKA_GOVERNING_BODY      -> green  (badge-status-active family, shared
+    //   ZILLA_GOVERNING_BODY          -> green   with the other two Sangha-tier
+    //   PATHA_CHAKRA_GOVERNING_BODY   -> green   bodies by owner's own choice)
+    // Mahila was "rose" until 2026-10-24; the owner asked for "mahila
+    // sangha may be pinkish color?" and rose-50 reads red-leaning, so it
+    // moved to Tailwind's unambiguously pink `pink` family (the same hue
+    // family badge-gender-female already uses). Nothing else mapped to
+    // rose, so the rose branches and .btn-action.rose were removed rather
+    // than left as a dead colour.
+    // Sakha was "amber" until 2026-10-24 too; the owner then asked "for
+    // local sakha may be slightly less shade of yellow" — amber reads
+    // orange-leaning, so it moved to Tailwind's true `yellow` family.
+    // Nothing else mapped to amber for body theming, so the amber branches
+    // and .btn-action.amber / .gov-body-table-amber were removed the same
+    // way (amber itself is still used elsewhere in the app — badges.css,
+    // the dashboard stat tiles — just not by this body-type mapping).
+    // Any unmapped/unknown body_type_code (and the KENDRA entry itself)
+    // falls through to the "violet" default in the four functions below.
+    GOV_BODY_COLOR_BY_TYPE: {
+        ADVISORY_BOARD: "blue",
+        MAHILA_PARICHALANA_MANDALI: "pink",
+        SAKHA_GOVERNING_BODY: "yellow",
+        SEVAK_SANGHA_EXECUTIVE: "teal",
+        ANCHALIKA_GOVERNING_BODY: "green",
+        ZILLA_GOVERNING_BODY: "green",
+        PATHA_CHAKRA_GOVERNING_BODY: "green",
+    },
+
+    /**
+     * Card background/border class for a governance body, keyed by
+     * body_type_code. Replaces the old flat GOV_BODY_CARD_CLASS string.
+     * Every case is a full, literal Tailwind class string (never built via
+     * interpolation) so tailwind.config.js's content scan of this file
+     * (frontend/assets/js/**\/*.js is a scanned path) actually sees it —
+     * run `npm run css:build` after adding/changing a case here.
+     * @param {string} bodyTypeCode
+     * @returns {string}
+     */
+    govBodyCardClass(bodyTypeCode) {
+        switch (this.GOV_BODY_COLOR_BY_TYPE[bodyTypeCode]) {
+            case "blue": return "card bg-blue-50 border border-blue-200";
+            case "pink": return "card bg-pink-50 border border-pink-200";
+            case "yellow": return "card bg-yellow-50 border border-yellow-200";
+            case "teal": return "card bg-teal-50 border border-teal-200";
+            case "green": return "card bg-green-50 border border-green-200";
+            default: return "card bg-violet-50 border border-violet-200";
+        }
+    },
+
+    /** Card title text-colour class for a governance body. See govBodyCardClass(). */
+    govBodyTitleClass(bodyTypeCode) {
+        switch (this.GOV_BODY_COLOR_BY_TYPE[bodyTypeCode]) {
+            case "blue": return "font-semibold text-blue-800";
+            case "pink": return "font-semibold text-pink-800";
+            case "yellow": return "font-semibold text-yellow-800";
+            case "teal": return "font-semibold text-teal-800";
+            case "green": return "font-semibold text-green-800";
+            default: return "font-semibold text-violet-800";
+        }
+    },
+
+    /**
+     * Wrapper class for the TABLE panel inside a governance-body card
+     * (owner ask, 2026-10-24: "evry body table has its own color naow, may
+     * the table inside should match the theme" — the panel was hardcoded
+     * bg-violet-100 everywhere regardless of the card's colour).
+     *
+     * Two things travel in the returned string:
+     *   - the Tailwind panel utilities (bg-<colour>-100 etc.), which MUST
+     *     appear as full literal strings per case, exactly like
+     *     govBodyCardClass() — tailwind.config.js content-scans this file
+     *     and an interpolated class silently fails to compile;
+     *   - `gov-body-table` plus a `gov-body-table-<colour>` modifier, which
+     *     are hand-written CSS in nss-layout.css (the thead heading colour)
+     *     and so could safely be interpolated — kept literal anyway so the
+     *     whole class string for a colour is readable in one place.
+     *
+     * Only use this where ONE body's type is actually in scope. Tables that
+     * span several bodies (the delegation history list, "Awaiting My
+     * Approval", the combined delegation confirmation table) keep plain
+     * `gov-body-table`, i.e. the violet default.
+     * @param {string} bodyTypeCode
+     * @returns {string}
+     */
+    govBodyTableClass(bodyTypeCode) {
+        switch (this.GOV_BODY_COLOR_BY_TYPE[bodyTypeCode]) {
+            case "blue": return "overflow-x-auto bg-blue-100 rounded-xl shadow-sm gov-body-table gov-body-table-blue";
+            case "pink": return "overflow-x-auto bg-pink-100 rounded-xl shadow-sm gov-body-table gov-body-table-pink";
+            case "yellow": return "overflow-x-auto bg-yellow-100 rounded-xl shadow-sm gov-body-table gov-body-table-yellow";
+            case "teal": return "overflow-x-auto bg-teal-100 rounded-xl shadow-sm gov-body-table gov-body-table-teal";
+            case "green": return "overflow-x-auto bg-green-100 rounded-xl shadow-sm gov-body-table gov-body-table-green";
+            default: return "overflow-x-auto bg-violet-100 rounded-xl shadow-sm gov-body-table";
+        }
+    },
+
+    /**
+     * Action-button class for a governance body. ".btn-action.<colour>" is
+     * hand-written CSS in nss-layout.css (not a Tailwind utility), so this
+     * one may build the class via interpolation safely — no content-scan
+     * dependency, unlike the two functions above.
+     */
+    govBodyButtonClass(bodyTypeCode) {
+        const color = this.GOV_BODY_COLOR_BY_TYPE[bodyTypeCode];
+        return color ? `btn-action ${color}` : "btn-action violet";
+    },
+
+    /**
+     * 'Jun 2024' from an ISO date string, or '—' when absent/unparseable.
+     * Shared by EVERY governance surface (the member dashboard's Governance
+     * tab, the org-dashboard's embedded Governance section in both
+     * dashboard.html and admin.html) — the unified governance-body card
+     * markup calls NSS.govMonthYear() so the one block works unchanged in
+     * both Alpine components. dashboard.js keeps its own identical local
+     * method because other dashboard.html markup still calls it unqualified.
+     * @param {string} isoDate
+     * @returns {string}
+     */
+    govMonthYear(isoDate) {
+        if (!isoDate) return "—";
+        const d = new Date(isoDate);
+        if (isNaN(d)) return "—";
+        return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    },
+
+    /**
+     * Merges a raw office-bearer list into ONE selectable row per DISTINCT
+     * person, for the "Send Application" addressing picker (owner request,
+     * 2026-10-25). Replaces officeBearerDropdownOptions() — a native
+     * <option> cannot render a <span> badge at all (not a bug, an HTML
+     * limitation), and treating the absent holder and their acting
+     * delegate as two separate rows was also wrong whenever the delegate
+     * happens to ALSO hold a substantive seat of their own (e.g. the Vice
+     * President standing in for the absent President): that person was
+     * appearing twice. Here every position a person currently holds —
+     * substantive or acting, on however many different ob entries — folds
+     * into ONE row carrying a list of {code, name, status} badges, so
+     * "Vice President, Acting President" renders as two badges beside one
+     * name, not two rows.
+     *
+     * status is one of:
+     *   'substantive' — a real seat they hold outright.
+     *   'acting'      — they are the live delegate covering someone else's
+     *                   seat (acting_person_pk from _assemble_bodies_with_
+     *                   members, api/routers/governance.py).
+     *   'absent'      — this IS the seat's substantive holder, but it
+     *                   currently has a live delegate covering it, so this
+     *                   specific position cannot be picked.
+     * A row is only disabled when EVERY position on it is 'absent' — the
+     * Vice-President-acting-as-President case has one 'substantive' badge
+     * and one 'acting' badge, so it stays selectable.
+     * @param {Array} list - office-bearer rows: {person_pk, position_code,
+     *   position_name, person_name, acting_person_pk, acting_person_name}
+     * @returns {Array<{person_pk, person_name, disabled, positions:
+     *   Array<{code, name, status}>}>}
+     */
+    officeBearerPickerRows(list) {
+        const byPerson = new Map();
+        const ensure = (pk, name) => {
+            if (!byPerson.has(pk)) byPerson.set(pk, { person_pk: pk, person_name: name, positions: [] });
+            return byPerson.get(pk);
+        };
+        (list || []).forEach((ob) => {
+            if (ob.acting_person_pk && ob.acting_person_name) {
+                ensure(ob.person_pk, ob.person_name).positions.push(
+                    { code: ob.position_code, name: ob.position_name, status: "absent" },
+                );
+                ensure(ob.acting_person_pk, ob.acting_person_name).positions.push(
+                    { code: ob.position_code, name: ob.position_name, status: "acting" },
+                );
+            } else {
+                ensure(ob.person_pk, ob.person_name).positions.push(
+                    { code: ob.position_code, name: ob.position_name, status: "substantive" },
+                );
+            }
+        });
+        return Array.from(byPerson.values()).map((row) => ({
+            ...row,
+            disabled: row.positions.every((p) => p.status === "absent"),
+        }));
+    },
+
+    /**
+     * Badge class for one officeBearerPickerRows() position entry — the
+     * position's own colour (NSS.positionBadgeClass) for substantive/
+     * acting, or the neutral badge-muted for an absent seat (it is not an
+     * identity to colour-code, it is a "not currently available" notice).
+     * @param {{code:string, status:string}} position
+     * @returns {string}
+     */
+    officeBearerPositionBadgeClass(position) {
+        return position.status === "absent" ? "badge-muted" : this.positionBadgeClass(position.code);
+    },
+
+    /**
+     * Label text for one officeBearerPickerRows() position entry —
+     * "Acting <Position>" / "<Position> (Absent)" / "<Position>".
+     * @param {{name:string, status:string}} position
+     * @returns {string}
+     */
+    officeBearerPositionLabel(position) {
+        if (position.status === "acting") return `Acting ${position.name}`;
+        if (position.status === "absent") return `${position.name} (Absent)`;
+        return position.name;
+    },
+
+    /**
+     * Free-text filter for a "Show all" governance body modal (client-side,
+     * over the already-loaded composition) — matches against every column
+     * the modal's table actually shows (owner request, 2026-10-23: the
+     * search should cover "all related information from the body", not
+     * just Sakha name): position, person name, Sangha Sevi ID, Sakha name,
+     * and Anchalika/Zilla name.
+     * @param {Array} members
+     * @param {string} query
+     * @returns {Array}
+     */
+    filterGovMembers(members, query) {
+        const list = Array.isArray(members) ? members : [];
+        const q = (query || "").trim().toLowerCase();
+        if (!q) return list;
+        return list.filter((m) => [
+            m.position_name, m.person_name, m.sangha_sevi_id,
+            m.sakha_name, m.anchalika_zilla_name,
+        ].some((v) => (v || "").toLowerCase().includes(q)));
+    },
+    // Back-compat alias — same function, old Sakha-only name. Both callers
+    // (dashboard.js, org-dashboard.js) have been updated to the new name;
+    // kept only in case anything else still references it.
+    filterGovMembersBySakha(members, query) {
+        return this.filterGovMembers(members, query);
     },
 
     /* ── Document visibility rules ──────────────────────────────

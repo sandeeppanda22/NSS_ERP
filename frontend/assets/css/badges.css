@@ -150,6 +150,56 @@
 .badge-corr-direction-inward       { background-color: #0284c7 !important; color: #fff !important; }  /* sky-600    */
 .badge-corr-direction-outward      { background-color: #7c3aed !important; color: #fff !important; }  /* violet-600 */
 
+/* Approval-chain step status (correspondence_approval_step.step_status) —
+   used by the "Applications" tab's visual stepper (frontend/dashboard.html,
+   NSS.correspondenceStepIconClass() in nss-config.js). Was previously
+   duplicated as raw hex in nss-layout.css's .corr-stepper-icon-* rules
+   (2026-10-23 bug: two files owning the same colors, guaranteed to drift)
+   — moved here as the one source of truth; nss-layout.css now owns only
+   the stepper's circular geometry, this file owns the fill color, and the
+   two classes are applied together on the same element. */
+.badge-corr-step-pending   { background-color: #9ca3af !important; color: #fff !important; }  /* gray-400  — same as badge-status-resigned; not yet decided */
+.badge-corr-step-approved  { background-color: #16a34a !important; color: #fff !important; }  /* green-600 — same as badge-status-active */
+.badge-corr-step-rejected  { background-color: #dc2626 !important; color: #fff !important; }  /* red-600   — same as badge-claim-rejected */
+.badge-corr-step-done      { background-color: #0d9488 !important; color: #fff !important; }  /* teal-600  — same as badge-status-approved; terminal "delivered" node */
+
+/* ══════════════════════════════════════════════════════════════
+   GOVERNANCE POSITION BADGES (body_member_assignment / position_master)
+   Owner decision 2026-10-23: "distinct but grouped" — each seniority tier
+   shares a hue family, with a distinct shade per position within that
+   tier, so an office-bearer's rank is visually legible at a glance (e.g.
+   on the correspondence approval stepper, naming "President" vs "Joint
+   Secretary") without the 10 positions looking like unrelated noise.
+   Palette reuses existing hexes from the families above — no new colors.
+   Naming matches position_master.position_code lowercased, underscores
+   kept (see badge-corr-status-pending_action for the existing convention
+   on multi-word codes).
+   ══════════════════════════════════════════════════════════════ */
+
+/* Leadership tier — blue/sky family */
+.badge-position-president            { background-color: #1d4ed8 !important; color: #fff !important; }  /* blue-700 */
+.badge-position-vice_president       { background-color: #2563eb !important; color: #fff !important; }  /* blue-600  — same as badge-status-proposed */
+.badge-position-parichalak           { background-color: #0284c7 !important; color: #fff !important; }  /* sky-600   — same as badge-org */
+
+/* Secretary tier — violet family */
+.badge-position-secretary            { background-color: #6d28d9 !important; color: #fff !important; }  /* violet-700 */
+.badge-position-assistant_secretary  { background-color: #7c3aed !important; color: #fff !important; }  /* violet-600 — same as badge-status-transferred */
+.badge-position-joint_secretary      { background-color: #8b5cf6 !important; color: #fff !important; }  /* violet-500 — same as badge-gender-other */
+
+/* Finance tier — amber family. NOTE (owner decision, 2026-10-23): CASHIER
+   is no longer a governing-body composition position at any tier — TREASURER
+   replaced it everywhere (api/routers/governance.py _COMPOSITION_RULES).
+   The badge class below is kept, unused in body-composition contexts for
+   now, in case a future person-to-event assignment UI needs it. */
+.badge-position-treasurer            { background-color: #b45309 !important; color: #fff !important; }  /* amber-700 */
+.badge-position-cashier              { background-color: #d97706 !important; color: #fff !important; }  /* amber-600  — same as badge-status-lapsed */
+
+/* Ceremonial singleton — own hue, not part of a tier */
+.badge-position-mukhya_pujaka        { background-color: #0d9488 !important; color: #fff !important; }  /* teal-600  — same as badge-status-approved */
+
+/* Ordinary seat — neutral, deliberately the least visually loud */
+.badge-position-member               { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500  — same as badge-status-inactive */
+
 /* ══════════════════════════════════════════════════════════════
    MUTED / ANNOTATION BADGE
    Outline, not solid — see the fill convention in the header. Used for
@@ -183,6 +233,39 @@
 .badge-aff-active         { background-color: #16a34a !important; color: #fff !important; }  /* green-600 */
 .badge-aff-archived       { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500  */
 .badge-aff-reactivated    { background-color: #2563eb !important; color: #fff !important; }  /* blue-600  */
+
+/* ══════════════════════════════════════════════════════════════
+   ATTENDANCE STATUS BADGES (Tier 6, 2026-10-27)
+   weekly_sangha_puja_attendance.attendance_status (ATTENDANCE_STATUS
+   master_data — PRESENT/ABSENT/EXCUSED_ABSENCE, frozen SOL-ATT-004 §5).
+   NSS.attStatusBadgeClass() in nss-config.js is the single JS lookup —
+   never set these colors via inline style= per this file's own rule.
+   ══════════════════════════════════════════════════════════════ */
+
+.badge-att-present           { background-color: #16a34a !important; color: #fff !important; }  /* green-600 */
+.badge-att-absent            { background-color: #dc2626 !important; color: #fff !important; }  /* red-600   */
+.badge-att-excused_absence   { background-color: #d97706 !important; color: #fff !important; }  /* amber-600 */
+
+/* Darshak (Visitors) type badge — owner-confirmed 2026-10-28 (reverted
+   from a brief one-colour experiment): three distinct colours, one per
+   sub-type:
+     HOME  (teal)  — Probationary member attending their OWN Sakha.
+     OTHER (blue)  — ACTIVE+APPROVED darshak_attendance_registration at
+                      this Sakha (the formal three-step-approved
+                      cross-Sakha arrangement).
+     NEW   (green) — everything else darshak-worthy (unregistered /
+                      casual cross-Sakha visitor, the demo's "New Visitor"). */
+.badge-darshak-home          { background-color: #0D7377 !important; color: #fff !important; }  /* NSS teal  — Darshak (home)   */
+.badge-darshak-new           { background-color: #16a34a !important; color: #fff !important; }  /* green-600 — New Visitor      */
+.badge-darshak-other         { background-color: #0284c7 !important; color: #fff !important; }  /* sky-600   — Other Sakha      */
+
+/* Attendance Review lifecycle (attendance_review.review_status —
+   ATTENDANCE_REVIEW_STATUS master_data, frozen SOL-ATT-005 §15). */
+.badge-attrev-open                      { background-color: #d97706 !important; color: #fff !important; }  /* amber-600 — needs action */
+.badge-attrev-deferred                  { background-color: #2563eb !important; color: #fff !important; }  /* blue-600  */
+.badge-attrev-closed                    { background-color: #16a34a !important; color: #fff !important; }  /* green-600 */
+.badge-attrev-escalated_to_president    { background-color: #ea580c !important; color: #fff !important; }  /* orange-600 */
+.badge-attrev-escalated_to_parichalak   { background-color: #991b1b !important; color: #fff !important; }  /* red-900   */
 
 /* ══════════════════════════════════════════════════════════════
    MEMBER CREDENTIAL BADGES (Anumati/Parichaya Patra, MBR-019B)

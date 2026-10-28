@@ -168,15 +168,6 @@
             justify-content: space-between;
         }
 
-        .remember-label {
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            cursor: pointer;
-            font-size: 0.85rem;
-            color: #4b5563;
-        }
-
         .forgot-link {
             font-size: 0.85rem;
             color: #0D7377;
@@ -223,28 +214,12 @@
             margin: 0;
         }
 
-        .form-group {
-            margin-bottom: 1rem;
-        }
-
+        /* Base .form-group margin-bottom comes from the shared
+           nss-layout.css rule; this trims the trailing gap on the last
+           field in each login-card form (narrower selector, not a
+           duplicate of the base rule). */
         .form-group:last-of-type {
             margin-bottom: 0;
-        }
-
-        .alert-box {
-            background: #fef2f2;
-            border: 1px solid #fca5a5;
-            border-radius: 0.5rem;
-            padding: 0.5rem 0.75rem;
-            font-size: 0.85rem;
-            color: #991b1b;
-            margin-bottom: 0.75rem;
-        }
-
-        .alert-box-success {
-            background: #f0fdf4;
-            border: 1px solid #86efac;
-            color: #166534;
         }
 
         .pw-requirements {
@@ -383,7 +358,7 @@
 
             <!-- Error alert -->
             <template x-if="error">
-                <div class="alert-box">
+                <div class="alert-msg alert-error">
                     <span x-text="error"></span>
                 </div>
             </template>
@@ -465,14 +440,14 @@
 
             <!-- Change error -->
             <template x-if="changeError">
-                <div class="alert-box">
+                <div class="alert-msg alert-error">
                     <span x-text="changeError"></span>
                 </div>
             </template>
 
             <!-- Change success -->
             <template x-if="changeSuccess">
-                <div class="alert-box alert-box-success">
+                <div class="alert-msg alert-success">
                     <span x-text="changeSuccess"></span>
                 </div>
             </template>
@@ -554,7 +529,7 @@
 
             <!-- Error -->
             <template x-if="forgotError">
-                <div class="alert-box">
+                <div class="alert-msg alert-error">
                     <span x-text="forgotError"></span>
                 </div>
             </template>
@@ -598,7 +573,7 @@
 
             <!-- Debug OTP (development only) -->
             <template x-if="debugOtp">
-                <div class="alert-box alert-box-success" style="text-align: center;">
+                <div class="alert-msg alert-success" style="text-align: center;">
                     <span style="font-size: 0.75rem; display: block; color: #6b7280;">Your OTP (dev mode)</span>
                     <span style="font-size: 1.5rem; font-weight: 700; letter-spacing: 0.3em; color: #166534; font-family: ui-monospace, monospace;" x-text="debugOtp"></span>
                 </div>
@@ -613,14 +588,14 @@
 
             <!-- Error -->
             <template x-if="resetError">
-                <div class="alert-box">
+                <div class="alert-msg alert-error">
                     <span x-text="resetError"></span>
                 </div>
             </template>
 
             <!-- Success -->
             <template x-if="resetSuccess">
-                <div class="alert-box alert-box-success">
+                <div class="alert-msg alert-success">
                     <span x-text="resetSuccess"></span>
                 </div>
             </template>

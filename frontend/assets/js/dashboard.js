@@ -123,6 +123,16 @@ const FAMILY_BROWSER_ROLES = new Set([
     "NSS_ERP_SAKHA_ADMIN",
 ]);
 
+/* ── The five organizational admin-tab roles (Kendra/Anchalika/Zilla/
+ * Sakha/Patha Chakra Management) — distinct from the three fixed SYSTEM
+ * roles (NSS_ERP_ADMIN/NSS_ERP_AUDITOR/NSS_ERP_REPORT_VIEWER). Used to
+ * gate the "pending approvals in your org" panel, which only makes sense
+ * for a role anchored to one organization's subtree. */
+const ORG_LEVEL_ADMIN_ROLES = new Set([
+    "NSS_ERP_KENDRA_ADMIN", "NSS_ERP_ANCHALIKA_ADMIN", "NSS_ERP_ZILLA_ADMIN",
+    "NSS_ERP_SAKHA_ADMIN", "NSS_ERP_PATHA_CHAKRA_ADMIN",
+]);
+
 /* ── Family tree constants (ported from family.js) ──────────── */
 const SPOUSE_LABELS = new Set(["Husband", "Wife"]);
 const PARENT_LABELS = new Set(["Father", "Mother", "Step-Father", "Step-Mother"]);
@@ -257,7 +267,13 @@ function _buildCoupleTree(allPersons) {
 
 
 function dashboardApp() {
-    return {
+    // NSSAttendanceRegister.install() adds the shared attendance-register
+    // members (permission getters, roster rows, tallies, filter,
+    // search-to-add, submit) that the Administration > Attendance tab and
+    // this dashboard's own Attendance Register nav tab both run — see
+    // assets/js/attendance-register.js. install() never overwrites a
+    // property defined below, which is how `_afterAttendanceSaved` wins.
+    return NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -358,6 +374,48 @@ function dashboardApp() {
         myChangeRequests: [],
         myChangeRequestsLoading: false,
 
+        // Send Application tab — member self-service "Send Application"
+        // with a real 2-step approval chain for the Kendra-via-Sakha-
+        // President addressing mode (owner request 2026-10-21;
+        // api/routers/correspondence.py's /my-applications,
+        // /addressed-to-me and /approval-steps/* endpoints). Own top-level
+        // nav tab (tab === 'sendApplication'), not nested in Membership.
+        sendApp: {
+            subTab: "create",
+            form: {
+                addressing_mode: "SAKHA_ORG",
+                recipient_person_pk: "",
+                subject: "",
+                remarks: "",
+                follow_up_date: "",
+            },
+            saving: false,
+            error: "",
+            sakhaOfficeBearers: [],
+            kendraOfficeBearers: [],
+            // Added 2026-10-25 (gender-gated Mahila/Sevak addressing modes):
+            // local Mahila Parichalana Mandali, central (Kendra-level)
+            // Mahila Parichalana Mandali, local Sevak Sangha. Split out of
+            // sakhaOfficeBearers below instead of being silently lumped
+            // into "a specific office-bearer of my Sakha".
+            mahilaOfficeBearers: [],
+            kendraMahilaOfficeBearers: [],
+            sevakOfficeBearers: [],
+            // In-flight guard only (not a one-time latch — see
+            // _loadSendApplicationOfficeBearers()'s own comment, 2026-10-25
+            // fix): every tab visit refetches fresh data.
+            officeBearersLoading: false,
+            officeBearersError: "",
+            history: [],
+            historyLoading: false,
+            historyLoaded: false,
+            expandedPk: null,
+            pendingApprovals: [],
+            decisionRemarks: {},
+            deciding: false,
+        },
+
+
         // Find a Sakha / Patha Chakra directory (member dashboard).
         // Both a browsable directory (unfiltered load on tab open, capped
         // at NSS.MAX_PAGE_SIZE) and a search — free-text over the loaded
@@ -382,14 +440,181 @@ function dashboardApp() {
         // with the directory and merged into rows client-side (no N+1).
         findOrgOfficeBearers: {},
 
+        // ── Member Directory tab (owner-confirmed 2026-10-27): any
+        // logged-in member may browse/search every active member NSS-wide
+        // via GET /membership/directory — deliberately not admin-scoped
+        // (unlike admin.html's Member Directory, which calls /search under
+        // MEMBERSHIP_VIEW). Sakha filter reuses the SAME public
+        // /organization/organizations/selectable?type_code=SAKHA_SANGHA
+        // list findOrg already loads (findOrgCountries' sibling), loaded
+        // once and cached here rather than refetched.
+        memberDirResults: [],
+        memberDirTotal: 0,
+        memberDirLoading: false,
+        memberDirError: "",
+        memberDirQuery: "",
+        memberDirSakhaPk: "",
+        memberDirSakhas: [],
+        memberDirLimit: 50,
+        _memberDirDebounce: null,
+
+        // ── Attendance tab (Tier 6, 2026-10-27) — the member's own
+        // history + stats, self-access (no ATTENDANCE_VIEW needed since
+        // sangha_sevi_pk === caller) ──
+        myAttRecords: [], myAttRecordsLoading: false, myAttRecordsError: "",
+        myAttStats: null, myAttStatsLoading: false, myAttStatsError: "",
+
+        async _loadMyAttendance() {
+            if (!this.member || !this.member.sangha_sevi_pk) return;
+            await Promise.all([this._loadMyAttRecords(), this._loadMyAttStats()]);
+        },
+
+        async _loadMyAttRecords() {
+            this.myAttRecordsLoading = true;
+            this.myAttRecordsError = "";
+            try {
+                const params = new URLSearchParams({ sangha_sevi_pk: this.member.sangha_sevi_pk, page_size: "200" });
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/records?${params}`);
+                if (!res.ok) throw new Error("Failed to load your attendance history.");
+                const data = await res.json();
+                this.myAttRecords = data.records || [];
+            } catch (e) {
+                this.myAttRecordsError = e.message || "Failed to load your attendance history.";
+                this.myAttRecords = [];
+            } finally {
+                this.myAttRecordsLoading = false;
+            }
+        },
+
+        async _loadMyAttStats() {
+            this.myAttStatsLoading = true;
+            this.myAttStatsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/stats/members/${this.member.sangha_sevi_pk}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.myAttStats = data;
+            } catch (e) {
+                this.myAttStatsError = e.message || "Failed to load your attendance statistics.";
+                this.myAttStats = null;
+            } finally {
+                this.myAttStatsLoading = false;
+            }
+        },
+
+        // ── Attendance Register tab (owner ask 2026-10-28: "not in sakha
+        // dashboard add it in member left nav bar") — a top-level nav tab
+        // for a designated marker (ATTENDANCE_MANAGE, typically the
+        // per-Sakha NSS_ERP_ATTENDANCE_MARKER role or a Sakha admin) to
+        // record Weekly Sangha Puja attendance without any administration
+        // access. The marking grid itself — roster, tallies, filter,
+        // search-to-add, submit — is the SHARED NSSAttendanceRegister
+        // mixin installed on this component, the very same code the
+        // Administration > Attendance tab runs; only the puja list /
+        // create form and the Sakha picker are specific to this tab.
+        //
+        // Previously lived as a launcher card inside the Sakha dashboard
+        // (org-dashboard.js) — moved out entirely per the owner's
+        // correction, since a marker who is not also a Sakha admin has no
+        // reason to open that dashboard at all.
+        //
+        // Which Sakha: a marker's admin_scope is always SAKHA-scoped
+        // (role_permission seeds ATTENDANCE_MANAGE only onto SAKHA_SANGHA-
+        // scoped roles), so dashboardOrgsFor('SAKHA_SANGHA') — the same
+        // helper the "Dashboards" sidebar group already uses — is exactly
+        // the right candidate list. One Sakha auto-selects; more than one
+        // (a marker or Sakha admin holding several) shows a picker.
+        attRegSakhaPk: "",
+        attRegPujas: [], attRegPujasLoading: false, attRegPujasError: "",
+        attRegForm: { show: false, saving: false, error: "", puja_date: "", remarks: "" },
+
+        get attRegSakhaOptions() {
+            return this.dashboardOrgsFor("SAKHA_SANGHA");
+        },
+
+        _initAttendanceRegister() {
+            const options = this.attRegSakhaOptions;
+            // Keep the current selection if it is still valid (e.g.
+            // revisiting the tab); otherwise default to the only option,
+            // or clear it so the picker prompts a choice.
+            if (!options.some(o => o.organization_pk === this.attRegSakhaPk)) {
+                this.attRegSakhaPk = options.length === 1 ? options[0].organization_pk : "";
+            }
+            this.closeMarkAttendance();
+            if (this.attRegSakhaPk) this.loadAttRegPujas();
+            else { this.attRegPujas = []; this.attRegPujasError = ""; }
+        },
+
+        onAttRegSakhaChange() {
+            this.closeMarkAttendance();
+            this.attRegForm = { show: false, saving: false, error: "", puja_date: "", remarks: "" };
+            if (this.attRegSakhaPk) this.loadAttRegPujas();
+            else this.attRegPujas = [];
+        },
+
+        async loadAttRegPujas() {
+            if (!this.attRegSakhaPk) return;
+            this.attRegPujasLoading = true;
+            this.attRegPujasError = "";
+            try {
+                const params = new URLSearchParams({ organization_pk: this.attRegSakhaPk, page_size: "50" });
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/pujas?${params}`);
+                if (!res.ok) throw new Error("Failed to load Weekly Sangha Puja events.");
+                const data = await res.json();
+                this.attRegPujas = data.pujas || [];
+            } catch (e) {
+                this.attRegPujasError = e.message || "Failed to load Weekly Sangha Puja events.";
+                this.attRegPujas = [];
+            } finally {
+                this.attRegPujasLoading = false;
+            }
+        },
+
+        async submitCreateAttRegPuja() {
+            if (!this.attRegSakhaPk || !this.attRegForm.puja_date) return;
+            this.attRegForm.saving = true;
+            this.attRegForm.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/pujas", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        sakha_pk: this.attRegSakhaPk,
+                        puja_date: this.attRegForm.puja_date,
+                        remarks: this.attRegForm.remarks || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attRegForm = { show: false, saving: false, error: "", puja_date: "", remarks: "" };
+                await this.loadAttRegPujas();
+                // Straight into marking the puja just created — that is
+                // the only reason to create one.
+                await this.openMarkAttendance(data);
+            } catch (e) {
+                this.attRegForm.error = e.message || "Failed to create the puja event.";
+            } finally {
+                this.attRegForm.saving = false;
+            }
+        },
+
+        // Host hook for the shared register (assets/js/attendance-
+        // register.js) — the puja list's own tallies just changed.
+        _afterAttendanceSaved() {
+            return this.loadAttRegPujas();
+        },
+
         // ── Governance tab (read-only, all logged-in users) ──
         // 4 bodies: the 3 NSS-wide singletons + the viewer's own Sakha
         // Governing Body, each with current composition. Public endpoint,
         // no GOVERNANCE_VIEW required.
         govBodies: [],
+        mySakhaBodies: [],           // item 4 — viewer's own Sakha GB + local Mahila PM
         govLoading: false,
         govError: "",
         govLoaded: false,
+        govMemberCap: 9,             // item 9 — inline banners show at most 9 members
+        // item 9 — Advisory "show all" modal: full member list + Sakha-name filter
+        govAllMembers: { open: false, body: null, filter: "" },
 
         // Open elections — member self-service voting (GOV-BR-045)
         govOpenElections: [],
@@ -399,6 +624,51 @@ function dashboardApp() {
         govVoteSubmitting: {},       // key: electionPk + '-' + positionPk -> bool
         govVoteError: {},            // key: electionPk -> message
         govVoteSuccess: {},          // key: electionPk -> message
+
+        // ── "Acting on My Behalf" delegation (owner asks #2/#3/#4) ──
+        // A sitting office bearer may nominate another member of the SAME
+        // body to act on their behalf in a position THEY hold. Everything
+        // here is driven by GET /governance/me/positions (login-only, so a
+        // plain member needs no GOVERNANCE_VIEW): it returns only the bodies
+        // the caller holds office on, each already carrying that body's full
+        // composition — which is the candidate radio list, so picking a body
+        // costs no extra fetch. Both loaders fail soft: a non-office-bearer
+        // simply ends up with empty arrays and the whole section is hidden
+        // (myGovPositions.length > 0 guards it in dashboard.html).
+        myGovPositions: [],          // GET /me/positions  -> bodies[] (+ my_positions, members)
+        myGovDelegations: [],        // GET /me/acting-delegations (incl. ENDED, newest first)
+        myGovDelegationsError: "",
+        // Owner request, 2026-10-25: "there should be a history page for
+        // on behalf also" — mirrors the Applications tab's own Create/
+        // History sub-tab split (sendApp.subTab). "current" shows the
+        // create-form + only-live rows; "history" shows only resolved
+        // (ENDED/REJECTED) rows and hides the create-form, same as
+        // Applications' History sub-tab hides Create Application.
+        myGovDelegationsView: "current",
+        // Admin-initiated acting assignments awaiting the caller's own
+        // approval — rows where the caller is the NOMINEE, the opposite
+        // axis from myGovDelegations (which is scoped by the caller's own
+        // office-bearer seats). GET /me/pending-acting-approvals; reuses
+        // ActingAssignmentResponse, the same shape admin.js's govActing
+        // already uses — no new response model (Priority 1, 2026-10-24).
+        myPendingActingApprovals: [],
+        myPendingActingApprovalsError: "",
+        // stage "form" -> "confirm": Assign never submits (owner ask #4), it
+        // flips to a plain-language preview with Confirm / Back.
+        //
+        // 2026-10-24 (owner ask #1): one candidate table PER delegation slot
+        // and every table mandatory, so the form no longer holds a single
+        // (body, position, person) triple — it holds a SELECTIONS MAP,
+        // slot.key -> chosen person_pk, where slot.key is
+        // `${body_master_pk}|${my_position_master_pk}` (see
+        // myGovDelegationSlots()). effective_from/effective_to/reason stay
+        // single-valued: one date range and one reason apply to the whole
+        // batch, matching the owner's single-confirmation-table framing.
+        delegateForm: {
+            stage: "form", saving: false, error: "",
+            selections: {},
+            effective_from: "", effective_to: "", reason: "",
+        },
 
         // GOV-BR-043-A — Parichalak-only "probationary candidate exception"
         // nomination. is_parichalak comes from the server (single source of
@@ -510,6 +780,26 @@ function dashboardApp() {
         adminTabs: [],
         adminStats: {},
         initials: "",
+
+        // Audit & Compliance tab (NSS_ERP_AUDITOR) — real paginated data
+        // from GET /api/v1/audit/change-log (api/routers/audit.py), loaded
+        // lazily the first time that tab is viewed (see _refreshTab()).
+        adminAudit: {
+            loading: false,
+            error: "",
+            entries: [],
+            tableFilter: "",
+            actionFilter: "",
+            offset: 0,
+            pageSize: 20,
+            hasMore: true,
+        },
+
+        // Pending-approvals panel for the 5 organizational admin tabs
+        // (Kendra/Anchalika/Zilla/Sakha/Patha Chakra Management), keyed by
+        // roleCode. Both counts reuse real, already-scoped endpoints — see
+        // _loadOrgPendingApprovals().
+        adminApprovals: {},
         myOrgDashboardPk: null,
         // Restored from sessionStorage like `tab` above — otherwise a
         // refresh landing back on the orgDashboard tab (tab alone is
@@ -546,12 +836,12 @@ function dashboardApp() {
 
                 // tab is restored from sessionStorage before /auth/me has been
                 // read, so it can name an admin tab this user no longer has —
-                // e.g. a super admin whose session still points at
-                // admin_nss_erp_sakha_admin, a tab _buildAdminTabs() now
-                // deliberately omits. Every admin_* block is x-show'd off
-                // adminTabs, so that would render an empty content area with
-                // no way back except a sidebar click. Fall back to the first
-                // tab this user actually has.
+                // e.g. a role was revoked since the last session, or a
+                // session simply predates the current role set. Every
+                // admin_* block is x-show'd off adminTabs, so that would
+                // render an empty content area with no way back except a
+                // sidebar click. Fall back to the first tab this user
+                // actually has.
                 if (typeof this.tab === "string" && this.tab.startsWith("admin_")
                     && !this.adminTabs.some(t => t.key === this.tab)) {
                     this.switchTab(this.adminTabs.length ? this.adminTabs[0].key : "personal");
@@ -564,81 +854,58 @@ function dashboardApp() {
                 // Fetch real dashboard stats (non-blocking)
                 this._loadAdminStats();
 
+                // Same per-tab-type content the sidebar's click handler
+                // triggers (_refreshTab), fired once here too since a
+                // restored `tab` from sessionStorage lands here without
+                // ever going through switchTab()/_refreshTab().
+                if (typeof this.tab === "string" && this.tab.startsWith("admin_")) {
+                    const restoredTab = this.adminTabs.find(t => t.key === this.tab);
+                    if (restoredTab?.roleCode === "NSS_ERP_AUDITOR") {
+                        this._loadAuditRecent(true);
+                    } else if (restoredTab && ORG_LEVEL_ADMIN_ROLES.has(restoredTab.roleCode)) {
+                        this._loadOrgPendingApprovals(restoredTab);
+                    }
+                }
+
                 // GOV-BR-043-A — non-blocking self-check; drives the
                 // Parichalak-only exception panel inside the Governance tab.
                 this._loadParichalakStatus();
 
-                // Step 2: Fetch person + membership + family data in parallel
-                const fetches = [];
+                // Sidebar "pending items" badges (owner request, 2026-10-25:
+                // "a pending items with pending items no. for everyone") —
+                // these loaders were previously only triggered when their
+                // own tab was opened, so the sidebar badge would show
+                // nothing until the user had already visited the tab once.
+                // Fire all unconditionally and non-blocking here so every
+                // logged-in user sees an accurate count on login, regardless
+                // of which tab they land on. Each endpoint is either
+                // login-only (returning an empty list for a caller with
+                // nothing pending — safe for every user) or, for the claims
+                // count, internally gated on canApproveRegistrations.
+                this._loadMyPendingActingApprovals();
+                this._loadPendingApprovals();
+                this._loadOpenElectionsForVoting();
+                this._loadPendingClaimsCount();
 
-                // Person details
-                if (this.user.person_pk) {
-                    fetches.push(
-                        NSSAuth.apiFetch(`/api/v1/person/persons/${this.user.person_pk}`)
-                            .then(r => r.ok ? r.json() : null)
-                            .catch(() => null)
-                    );
-                    // Addresses
-                    fetches.push(
-                        NSSAuth.apiFetch(`/api/v1/person/persons/${this.user.person_pk}/addresses`)
-                            .then(r => r.ok ? r.json() : [])
-                            .catch(() => [])
-                    );
-                } else {
-                    fetches.push(Promise.resolve(null));
-                    fetches.push(Promise.resolve([]));
-                }
-
-                // Membership detail (own record) — direct PK lookup now that
-                // /auth/me exposes sangha_sevi_pk and GET /membership/members/{pk}
-                // has an ownership carve-out, replacing the old /search-by-ID
-                // workaround (which needed MEMBERSHIP_VIEW and 403'd for
-                // regular members with no admin permissions).
-                if (this.user.sangha_sevi_pk) {
-                    fetches.push(
-                        NSSAuth.apiFetch(`/api/v1/membership/members/${this.user.sangha_sevi_pk}`)
-                            .then(r => r.ok ? r.json() : null)
-                            .catch(() => null)
-                    );
-                } else {
-                    fetches.push(Promise.resolve(null));
-                }
-
-                // Person's families
-                if (this.user.person_pk) {
-                    fetches.push(
-                        NSSAuth.apiFetch(`/api/v1/family/person/${this.user.person_pk}/families`)
-                            .then(r => r.ok ? r.json() : [])
-                            .catch(() => [])
-                    );
-                } else {
-                    fetches.push(Promise.resolve([]));
-                }
-
-                const [personData, addressData, memberData, familiesData] = await Promise.all(fetches);
-
-                // Process person
-                if (personData) {
-                    personData.display_name = this._buildDisplayName(personData);
-                    this.person = personData;
-                }
-
-                // Process addresses
-                this.addresses = Array.isArray(addressData) ? addressData : [];
-
-                // Process membership
-                if (memberData) {
-                    this.member = memberData;
-                }
-
-                // Process family — use first family
-                if (Array.isArray(familiesData) && familiesData.length > 0) {
-                    this.family = familiesData[0];
-                    this.ownFamily = familiesData[0];
-                }
+                // Step 2: Fetch person + membership + family data
+                await this._fetchPersonalDetail();
 
             } catch (err) {
-                this.error = err.message || "An unexpected error occurred.";
+                // NSSAuth.apiFetch() never returns a 401 to its caller — on a
+                // genuine expired/invalid session it already attempts one
+                // refresh, and on failure calls NSSAuth.logout() (clears
+                // tokens, sets window.location.href = "/login") BEFORE
+                // throwing this exact message. That redirect is already in
+                // flight by the time we get here, so don't also render the
+                // dead-end "Unable to load profile" card on top of it — on
+                // a slow navigation that produced a confusing stuck screen
+                // instead of a clean logout (2026-10-22). Every OTHER error
+                // (a real backend failure, e.g. a DB auth/connection issue)
+                // is not a session problem — forcing a logout wouldn't fix
+                // it, so those still show the normal retry card.
+                if (err.message !== "Session expired. Please log in again.") {
+                    this.error = err.message || "An unexpected error occurred.";
+                }
             } finally {
                 this.loading = false;
             }
@@ -657,6 +924,21 @@ function dashboardApp() {
                 this._loadFindOrgDirectory();
             }
 
+            // Same direct-load coverage for the Member Directory tab.
+            if (this.tab === "memberDirectory") {
+                this._loadMemberDirectory();
+            }
+
+            // Same direct-load coverage for the Attendance tab.
+            if (this.tab === "attendance") {
+                this._loadMyAttendance();
+            }
+
+            // Same direct-load coverage for the Attendance Register tab.
+            if (this.tab === "attendanceRegister") {
+                this._initAttendanceRegister();
+            }
+
             // personal is the default tab, so a direct/refreshed load lands
             // there without ever going through switchTab() — cover that
             // the same way findOrg is covered above.
@@ -667,7 +949,11 @@ function dashboardApp() {
             // Same direct-load coverage for the Governance tab.
             if (this.tab === "governance") {
                 this._loadGovernanceBodies();
+                this._loadMySakhaBodies();
                 this._loadOpenElectionsForVoting();
+                this._loadMyGovPositions();
+                this._loadMyGovDelegations();
+                this._loadMyPendingActingApprovals();
             }
         },
 
@@ -1504,8 +1790,18 @@ function dashboardApp() {
 
             // ── BROTHER / SISTER ─────────────────────────────
             // A sibling shares the same parents as the viewer.
-            // Inferred: each existing parent PARENT_OF new sibling
-            // (new person is person_b — child)
+            // If the viewer already has a parent on file: keep the
+            // existing (working) behaviour — infer PARENT_OF links from
+            // each existing parent to the new sibling (new person is
+            // person_b — child).
+            // If the viewer has NO parent on file (owner decision,
+            // 2026-10-22): there's nothing to anchor a PARENT_OF link
+            // to, so send a direct SIBLING_OF link between the viewer
+            // and the new person instead — the backend now supports
+            // this (api/routers/family.py insert_family_link_edge /
+            // SIBLING_OF link_type). This is what previously left
+            // `inferred` empty and made the sibling invisible in the
+            // tree view.
             if (relType === "BROTHER" || relType === "SISTER") {
                 const fathers = findByRelLabel("Father");
                 const mothers = findByRelLabel("Mother");
@@ -1530,6 +1826,15 @@ function dashboardApp() {
                             person_b_pk: null, // will be new person
                         });
                     }
+                } else {
+                    // No parent in the graph yet — create a direct
+                    // SIBLING_OF edge between the viewer and the new
+                    // person so they're still visible in the tree.
+                    // SIBLING_OF is symmetric (like SPOUSE_OF), so it
+                    // can use the main link_type/link_target_person_pk
+                    // fields rather than the inferred-links array.
+                    this.addMemberLinkType = "SIBLING_OF";
+                    this.addMemberLinkTarget = viewerPk;
                 }
 
                 this.addMemberInferredLinks = inferred;
@@ -2097,7 +2402,11 @@ function dashboardApp() {
             this.myChangeRequestsLoading = true;
             try {
                 const res = await NSSAuth.apiFetch(
-                    `/api/v1/membership/change-requests?page_size=${NSS.MAX_PAGE_SIZE}`
+                    // page_size caps at 100 server-side (api/routers/
+                    // membership_change_request.py le=100) — NSS.MAX_PAGE_SIZE
+                    // (500) is for the separate `limit`-param family of
+                    // endpoints (api/helpers.py MAX_LIMIT) and 500 here 422s.
+                    `/api/v1/membership/change-requests?page_size=100`
                 );
                 if (res.ok) {
                     const data = await res.json();
@@ -2109,6 +2418,285 @@ function dashboardApp() {
                 this.myChangeRequestsLoading = false;
             }
         },
+
+        // ── Send Application tab ────────────────────────────────────────
+        // Loads the 4 dropdown sources (never duplicated SQL — these call
+        // the real governance endpoints) every time the tab is opened.
+        // Owner report, 2026-10-25 (two separate reports):
+        //   1. a failed fetch was only ever logged to the console, never
+        //      shown on screen — now surfaced via sendApp.officeBearersError
+        //      (same .alert-msg.alert-error pattern used everywhere else).
+        //   2. "it should refresh when I reselect the value from the
+        //      dropdown.. but still I have to change tab and come back" —
+        //      this used to be a permanent one-time latch
+        //      (`officeBearersLoaded`, set true in `finally` and never
+        //      reset): the FIRST visit to this tab fetched once, and every
+        //      later visit — including after an admin seated/removed an
+        //      office-bearer elsewhere — short-circuited on stale, possibly
+        //      years-old in-memory data for the rest of the page's life.
+        //      Only a full page reload (a fresh Alpine instance) ever
+        //      actually refetched. Replaced with officeBearersLoading, an
+        //      IN-FLIGHT guard only (blocks a second fetch while one is
+        //      already running — e.g. a fast double tab-switch — but never
+        //      blocks the NEXT visit), matching this project's established
+        //      "refetch on tab reopen" fix for this exact bug class.
+        async _loadSendApplicationOfficeBearers() {
+            if (this.sendApp.officeBearersLoading) return;
+            this.sendApp.officeBearersLoading = true;
+            this.sendApp.officeBearersError = "";
+            const isOfficeBearer = m => m.person_pk && m.position_name && m.position_name.toLowerCase() !== "member";
+            try {
+                const [mineRes, nationalRes] = await Promise.all([
+                    NSSAuth.apiFetch("/api/v1/governance/public/my-sakha-bodies"),
+                    NSSAuth.apiFetch("/api/v1/governance/public/national-bodies"),
+                ]);
+                const errors = [];
+                if (mineRes.ok) {
+                    const data = await mineRes.json();
+                    const bodies = data.bodies || [];
+                    // Split by body_type_name (2026-10-25) — Mahila/Sevak
+                    // office-bearers get their own clearly-labelled
+                    // addressing-mode options instead of being merged into
+                    // the generic "office-bearer of my Sakha" bucket.
+                    this.sendApp.sakhaOfficeBearers = bodies
+                        .filter(b => b.body_type_name === "Sakha Governing Body")
+                        .flatMap(b => b.members || [])
+                        .filter(isOfficeBearer);
+                    this.sendApp.mahilaOfficeBearers = bodies
+                        .filter(b => b.body_type_name === "Mahila Parichalana Mandali")
+                        .flatMap(b => b.members || [])
+                        .filter(isOfficeBearer);
+                    this.sendApp.sevakOfficeBearers = bodies
+                        .filter(b => b.body_type_name === "Sevak Sangha")
+                        .flatMap(b => b.members || [])
+                        .filter(isOfficeBearer);
+                } else {
+                    errors.push(`your Sakha's office-bearers (${mineRes.status})`);
+                }
+                if (nationalRes.ok) {
+                    const data = await nationalRes.json();
+                    const bodies = data.bodies || [];
+                    const kendraBody = bodies.find(b => b.body_type_name === "Kendra Governing Body");
+                    this.sendApp.kendraOfficeBearers = kendraBody
+                        ? (kendraBody.members || []).filter(isOfficeBearer)
+                        : [];
+                    // The central Mahila Parichalana Mandali — same
+                    // body_type_name as the local one (not tier-
+                    // distinguishing), disambiguated here simply by coming
+                    // from the national-bodies response rather than
+                    // my-sakha-bodies.
+                    const kendraMahilaBody = bodies.find(b => b.body_type_name === "Mahila Parichalana Mandali");
+                    this.sendApp.kendraMahilaOfficeBearers = kendraMahilaBody
+                        ? (kendraMahilaBody.members || []).filter(isOfficeBearer)
+                        : [];
+                } else {
+                    errors.push(`Kendra office-bearers (${nationalRes.status})`);
+                }
+                if (errors.length) {
+                    this.sendApp.officeBearersError = `Failed to load ${errors.join(" and ")}. Try reloading the page.`;
+                }
+            } catch (e) {
+                console.error("Failed to load office-bearer lookups", e);
+                this.sendApp.officeBearersError = "Failed to load office-bearer lookups — check your connection and reload.";
+            } finally {
+                this.sendApp.officeBearersLoading = false;
+            }
+        },
+
+        // Fail-closed gender gates (owner-confirmed 2026-10-25) for the
+        // Mahila/Sevak addressing-mode options and picker blocks — reuse
+        // this.person.gender_code (already loaded by _fetchPersonalDetail()
+        // for the Personal tab; see line ~4198) rather than a new fetch.
+        // Unset/unknown gender (including the seeded 'OTHER' value) must
+        // show/allow NEITHER gendered option, mirroring the backend's
+        // _require_gender() in correspondence.py.
+        sendAppIsFemale() {
+            return this.person && this.person.gender_code === "FEMALE";
+        },
+
+        sendAppIsMale() {
+            return this.person && this.person.gender_code === "MALE";
+        },
+
+        resetSendApplicationForm() {
+            this.sendApp.form = {
+                addressing_mode: "SAKHA_ORG",
+                recipient_person_pk: "",
+                subject: "",
+                remarks: "",
+                follow_up_date: "",
+            };
+            this.sendApp.error = "";
+        },
+
+        async submitSendApplication() {
+            const f = this.sendApp.form;
+            if (!f.subject.trim()) {
+                this.sendApp.error = "Please enter a subject.";
+                return;
+            }
+            if (f.addressing_mode !== "SAKHA_ORG" && !f.recipient_person_pk) {
+                this.sendApp.error = "Please select a recipient.";
+                return;
+            }
+            this.sendApp.error = "";
+            this.sendApp.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/correspondence/my-applications", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        addressing_mode: f.addressing_mode,
+                        recipient_person_pk: f.addressing_mode === "SAKHA_ORG" ? null : f.recipient_person_pk,
+                        subject: f.subject.trim(),
+                        remarks: f.remarks.trim() || null,
+                        follow_up_date: f.follow_up_date || null,
+                    }),
+                });
+                if (res.ok) {
+                    this.resetSendApplicationForm();
+                    this.sendApp.subTab = "history";
+                    this.sendApp.historyLoaded = false;
+                    await this.loadSendApplicationHistory();
+                    await NSSDialog.alert("Your application has been submitted.", "Send Application");
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    this.sendApp.error = data.detail || "Failed to submit application.";
+                }
+            } catch (e) {
+                console.error("Failed to submit application", e);
+                this.sendApp.error = "Unable to connect to server.";
+            } finally {
+                this.sendApp.saving = false;
+            }
+        },
+
+        async loadSendApplicationHistory() {
+            if (this.sendApp.historyLoaded) return;
+            this.sendApp.historyLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    // Item 2 fix (2026-10-23): /my-involvements, not
+                    // /my-applications — every correspondence the member is
+                    // attached to in ANY role (sender, recipient, responsible
+                    // party, or an approver at either step), not just what
+                    // they personally sent. page_size caps at 100 server-side
+                    // (api/routers/correspondence.py le=100) — see the
+                    // change-requests fix above for why NSS.MAX_PAGE_SIZE
+                    // (500) 422s here.
+                    `/api/v1/correspondence/my-involvements?page_size=100`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.sendApp.history = data.items || [];
+                }
+            } catch (e) {
+                console.error("Failed to load application history", e);
+            } finally {
+                this.sendApp.historyLoading = false;
+                this.sendApp.historyLoaded = true;
+            }
+        },
+
+        // Derives the viewer's role(s) on one /my-involvements row by
+        // comparing sender/recipient/responsible/approver person_pks
+        // against the logged-in user's own person_pk (item 2) — never
+        // fabricates a role if nothing matches (shouldn't happen given the
+        // endpoint's own filter, but the UI codes defensively rather than
+        // assuming).
+        sendAppRolesFor(item) {
+            const myPk = this.user && this.user.person_pk;
+            if (!item || !myPk) return [];
+            const roles = [];
+            if (item.sender_person_pk === myPk) roles.push("Sender");
+            if (item.recipient_person_pk === myPk) roles.push("Addressed to me");
+            if (item.responsible_person_pk === myPk) roles.push("Responsible party");
+            for (const step of item.approval_steps || []) {
+                if (step.approver_person_pk === myPk) {
+                    roles.push(step.step_number === 1 ? "Step 1 approver" : `Step ${step.step_number} approver`);
+                }
+            }
+            return roles;
+        },
+
+        // Finds the approval-chain step (1 or 2) that is this viewer's own
+        // PENDING decision on a given /pending-for-me row — generalized
+        // 2026-10-23 so the pending-decision panel and decideSendApplication
+        // work identically for a step-1 (Sakha President) or step-2 (Kendra
+        // office-bearer) item, instead of assuming step_number is always 1.
+        sendAppMyStepFor(item) {
+            const myPk = this.user && this.user.person_pk;
+            if (!item || !myPk) return null;
+            return (item.approval_steps || []).find(
+                s => s.approver_person_pk === myPk && s.step_status === "PENDING"
+            ) || null;
+        },
+
+        // "Approve & Forward" only makes sense when there is a real step 2
+        // to forward TO. A collapsed single-step chain (owner request,
+        // 2026-10-25: step-1 and step-2 approver were the same person, so
+        // creation never inserted a redundant step 2 — see
+        // correspondence.py::create_member_application) has exactly one
+        // approval_steps row, and that row's own approval is already the
+        // chain's terminal decision — so the button must read plain
+        // "Approve", same as an ordinary step-2 decision.
+        sendAppApproveLabel(item) {
+            const myStep = this.sendAppMyStepFor(item);
+            const hasStep2 = (item.approval_steps || []).length > 1;
+            return (myStep && myStep.step_number === 1 && hasStep2) ? "Approve & Forward" : "Approve";
+        },
+
+        async _loadPendingApprovals() {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    // page_size caps at 100 server-side — see the
+                    // change-requests fix above for why NSS.MAX_PAGE_SIZE
+                    // (500) 422s here.
+                    `/api/v1/correspondence/approval-steps/pending-for-me?page_size=100`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.sendApp.pendingApprovals = data.items || [];
+                }
+            } catch (e) {
+                console.error("Failed to load pending approvals", e);
+            }
+        },
+
+        async decideSendApplication(item, decision) {
+            // Generalized 2026-10-23 (owner item: step-2 decisions) — finds
+            // WHICHEVER step (1 or 2) is this viewer's own pending decision
+            // on this item, instead of hardcoding step_number === 1. The
+            // backend (/approval-steps/{step_pk}/decision) independently
+            // re-verifies the caller still holds that seat for either step.
+            const myStep = this.sendAppMyStepFor(item);
+            if (!myStep) return;
+            this.sendApp.deciding = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/correspondence/approval-steps/${myStep.correspondence_approval_step_pk}/decision`,
+                    {
+                        method: "POST",
+                        body: JSON.stringify({
+                            decision,
+                            remarks: (this.sendApp.decisionRemarks[item.correspondence_pk] || "").trim() || null,
+                        }),
+                    }
+                );
+                if (res.ok) {
+                    delete this.sendApp.decisionRemarks[item.correspondence_pk];
+                    await this._loadPendingApprovals();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    await NSSDialog.alert(data.detail || "Failed to record decision.", "Send Application");
+                }
+            } catch (e) {
+                console.error("Failed to record approval decision", e);
+                await NSSDialog.alert("Unable to connect to server.", "Send Application");
+            } finally {
+                this.sendApp.deciding = false;
+            }
+        },
+
 
         startEditProfile() {
             this.profileForm = {
@@ -2364,6 +2952,7 @@ function dashboardApp() {
                 if (res.ok) {
                     const data = await res.json();
                     this.govBodies = data.bodies || [];
+                    await this._mergeMahilaInheritedParichalak();
                 } else {
                     this.govError = "Failed to load governance bodies.";
                 }
@@ -2375,6 +2964,489 @@ function dashboardApp() {
                 this.govLoaded = true;
             }
         },
+
+        // ── Item 4 — viewer's own Sakha-level bodies ─────────
+        // The member's own Sakha Governing Body + that Sakha's org-scoped
+        // Mahila Parichalana Mandali, with current composition. Login-only
+        // public endpoint; empty for members with no active Sakha Sangha
+        // membership. Rendered in the same single-banner style as item 9.
+        async _loadMySakhaBodies() {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/public/my-sakha-bodies`
+                );
+                this.mySakhaBodies = res.ok ? ((await res.json()).bodies || []) : [];
+            } catch (e) {
+                console.error("Failed to load own Sakha governance bodies", e);
+                this.mySakhaBodies = [];
+            }
+        },
+
+        // Owner report, 2026-10-25: "to take the effect of removing on
+        // behalf or to see the GB members, I have to switch to another tab
+        // and come back to see it populate." Root cause: the "Absent —
+        // Acting: X" annotation shown in the governance-body card comes
+        // from govBodies/mySakhaBodies (acting_person_name, attached
+        // server-side by _assemble_bodies_with_members), NOT from
+        // myGovDelegations — but creating/ending a delegation, and
+        // approving/rejecting one, only ever updated myGovDelegations (or
+        // myPendingActingApprovals) in place. The card itself was never
+        // told to re-fetch, so it kept showing the pre-mutation state
+        // until something else (a tab switch) happened to reload it.
+        // Shared by all three acting-delegation mutations below instead of
+        // duplicating this pair of calls three times.
+        async _refreshGovBodiesAfterActingChange() {
+            await Promise.all([this._loadGovernanceBodies(), this._loadMySakhaBodies()]);
+        },
+
+        // ── Item 3 — inherited Parichalak on the NSS-wide Mahila PM ──
+        // PARICHALAK is never a real row on the Mahila Parichalana Mandali
+        // (it is excluded from that body's assignable positions) — the Kendra
+        // Governing Body's current Parichalak is surfaced read-only so the
+        // nine-member body reads completely.
+        //
+        // The admin dashboard reads this from the gated
+        // /bodies/{pk}/inherited-positions endpoint; that endpoint requires
+        // GOVERNANCE_VIEW, which ordinary members do NOT hold, so here the
+        // inherited seat is derived from the Kendra Governing Body's Parichalak
+        // member already present in the national-bodies payload (visible to
+        // every member). The gated endpoint is still consulted as a fallback
+        // for privileged viewers whose Kendra GB composition isn't populated.
+        async _mergeMahilaInheritedParichalak() {
+            const mahila = (this.govBodies || []).find(b => b.body_code === "KENDRA_MAHILA_PM");
+            if (!mahila) return;
+            mahila.members = mahila.members || [];
+            // Already carries a Parichalak row? nothing to inherit-merge.
+            if (mahila.members.some(m => (m.position_name || "").toLowerCase() === "parichalak")) return;
+
+            let inherited = null;
+            const kendraGb = (this.govBodies || []).find(b => b.body_code === "KENDRA_GB");
+            const gbParichalak = (kendraGb?.members || [])
+                .find(m => (m.position_name || "").toLowerCase() === "parichalak");
+            if (gbParichalak) {
+                inherited = { ...gbParichalak };
+            } else {
+                try {
+                    const res = await NSSAuth.apiFetch(
+                        `/api/v1/governance/bodies/${mahila.body_master_pk}/inherited-positions`
+                    );
+                    if (res.ok) {
+                        const row = ((await res.json()).inherited || [])
+                            .find(p => p.position_code === "PARICHALAK");
+                        if (row) {
+                            inherited = {
+                                position_name: row.position_name,
+                                position_code: row.position_code || "PARICHALAK",
+                                person_name: row.person_name,
+                                sangha_sevi_id: null, sakha_name: null,
+                                anchalika_zilla_name: null,
+                                effective_from: null, effective_to: null,
+                            };
+                        }
+                    }
+                } catch (e) {
+                    // Gated for non-admins — the Kendra-GB-derived path is the
+                    // member-visible source; silently skip when neither exists.
+                }
+            }
+
+            const seat = inherited
+                ? { ...inherited, position_name: "Parichalak", position_code: "PARICHALAK", is_inherited: true }
+                : {
+                    position_name: "Parichalak", position_code: "PARICHALAK", person_name: null,
+                    sangha_sevi_id: null, sakha_name: null,
+                    anchalika_zilla_name: null, effective_from: null,
+                    effective_to: null, is_inherited: true,
+                };
+            mahila.members = [...mahila.members, seat];
+            mahila.member_count = mahila.members.length;
+        },
+
+        // ── Items 9 + 4 — governance body banner helpers ────
+        // One banner per board, grouped: the NSS-wide boards (national-bodies)
+        // and the viewer's own Sakha boards (my-sakha-bodies, item 4).
+        govBodyGroups() {
+            const groups = [{
+                key: "nss",
+                label: "NSS-wide Governance Bodies",
+                bodies: (this.govBodies || []).filter(b => b.scope_label === "NSS-wide"),
+            }];
+            if ((this.mySakhaBodies || []).length) {
+                groups.push({ key: "sakha", label: "Your Sakha", bodies: this.mySakhaBodies });
+            }
+            return groups;
+        },
+        // At most govMemberCap members shown inline in a banner — President/
+        // Secretary guaranteed a seat (owner fix, 2026-10-23). Shared with
+        // org-dashboard.js's Governance section via NSS.govBodyDisplayMembers
+        // (nss-config.js), not reimplemented here.
+        govBodyDisplayMembers(b) {
+            return NSS.govBodyDisplayMembers(b, this.govMemberCap);
+        },
+        // True when the board has more members than the inline cap (Advisory
+        // Board) — drives the "Show all" control.
+        govBodyHasMore(b) {
+            return NSS.govBodyHasMore(b, this.govMemberCap);
+        },
+        openGovAllMembers(b) {
+            this.govAllMembers = { open: true, body: b, filter: "" };
+        },
+        closeGovAllMembers() {
+            this.govAllMembers = { open: false, body: null, filter: "" };
+        },
+        // The "show all" body's members filtered across all visible columns
+        // (position, name, Sangha Sevi ID, Sakha, Anchalika/Zilla) —
+        // client-side, over the already-loaded composition.
+        govAllMembersFiltered() {
+            const b = this.govAllMembers.body;
+            if (!b) return [];
+            return NSS.filterGovMembers(b.members || [], this.govAllMembers.filter);
+        },
+
+
+        // ── "Acting on My Behalf" delegation (owner asks #2/#3/#4) ─────
+        // Loaders are deliberately silent on failure: this whole section is
+        // an office-bearer-only extra, and an ordinary member must never see
+        // an error card for an endpoint that simply has nothing for them.
+        async _loadMyGovPositions() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/me/positions");
+                this.myGovPositions = res.ok ? ((await res.json()).bodies || []) : [];
+            } catch (e) {
+                console.error("Failed to load my governance positions", e);
+                this.myGovPositions = [];
+            }
+        },
+
+        async _loadMyGovDelegations() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/me/acting-delegations");
+                this.myGovDelegations = res.ok ? ((await res.json()).items || []) : [];
+            } catch (e) {
+                console.error("Failed to load my acting delegations", e);
+                this.myGovDelegations = [];
+            }
+        },
+
+        // ── "Awaiting My Approval" (Priority 1, 2026-10-24) — admin-
+        // initiated acting assignments naming the caller as the nominee,
+        // sitting PENDING_APPROVAL until the caller approves/rejects them.
+        async _loadMyPendingActingApprovals() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/me/pending-acting-approvals");
+                this.myPendingActingApprovals = res.ok ? ((await res.json()).items || []) : [];
+            } catch (e) {
+                console.error("Failed to load pending acting approvals", e);
+                this.myPendingActingApprovals = [];
+            }
+        },
+
+        async decideMyPendingActingApproval(a, decision) {
+            // decision: "approve" | "reject".
+            this.myPendingActingApprovalsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/acting-assignments/${a.acting_position_assignment_pk}/${decision}`,
+                    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
+                );
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.myPendingActingApprovalsError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                // Resolved either way — it is no longer pending, so it drops
+                // off this list. If it was approved, it is now a live
+                // delegation on the office-bearer's own "my delegations"
+                // list too (that list is scoped by the CALLER's own seats,
+                // not by who they delegated to — a row where the caller is
+                // the nominee never appears there, so no refresh is needed
+                // for myGovDelegations here) — but approving DOES make a
+                // new "Absent — Acting: X" annotation appear on the
+                // governance card for the seat the caller is now covering,
+                // so govBodies/mySakhaBodies still need the same refresh.
+                this.myPendingActingApprovals = this.myPendingActingApprovals.filter(
+                    x => x.acting_position_assignment_pk !== a.acting_position_assignment_pk
+                );
+                this._refreshGovBodiesAfterActingChange();
+            } catch (err) {
+                this.myPendingActingApprovalsError = err.message || "Failed to record the decision.";
+            }
+        },
+
+        // Owner ask #1, 2026-10-24: "every body should get their own table..
+        // after selecting the on behalf they selected persons should be in a
+        // single table for confirmation. for this you have to make all table
+        // (indivual body table) mandatory to select." This REVERSES the
+        // previous round's single combined candidate table (also an owner
+        // ask) — deliberate.
+        //
+        // The unit of delegation is a (body, position-I-hold) PAIR, not a
+        // body: in practice a caller holds one position per body, so this
+        // renders as "one table per body" exactly as asked, but it stays
+        // unambiguous if someone ever holds two seats on the same body
+        // (then that body contributes two slots and `title` disambiguates
+        // them by position name).
+        //
+        // Carried over unchanged from the previous combined list:
+        //   - a slot whose (body, position) already has a LIVE delegation
+        //     (ASSIGNED/ACTIVE/PENDING_APPROVAL — a pending-approval row
+        //     still occupies the one-delegate-per-position slot, the same
+        //     rule the server enforces) is omitted entirely;
+        //   - the caller themselves is never a candidate.
+        // New: a slot with no eligible candidate at all is also omitted —
+        // it could never be satisfied, and since every table is mandatory
+        // one such slot would otherwise block the Assign button forever.
+        myGovDelegationSlots() {
+            const me = this.user && this.user.person_pk;
+            const LIVE_STATUSES = ["ASSIGNED", "ACTIVE", "PENDING_APPROVAL"];
+            const slots = [];
+            (this.myGovPositions || []).forEach(b => {
+                const myPositions = b.my_positions || [];
+                const multiSeat = myPositions.length > 1;
+                myPositions.forEach(myPos => {
+                    const taken = (this.myGovDelegations || []).some(d =>
+                        d.body_master_pk === b.body_master_pk &&
+                        d.position_master_pk === myPos.position_master_pk &&
+                        LIVE_STATUSES.includes(d.acting_status)
+                    );
+                    if (taken) return;
+                    const candidates = (b.members || [])
+                        .filter(m => m.person_pk && m.person_pk !== me)
+                        .map(m => ({
+                            person_pk: m.person_pk,
+                            person_name: m.person_name,
+                            sangha_sevi_id: m.sangha_sevi_id,
+                            position_code: m.position_code,
+                            position_name: m.position_name,
+                        }));
+                    if (!candidates.length) return;
+                    slots.push({
+                        key: `${b.body_master_pk}|${myPos.position_master_pk}`,
+                        body_master_pk: b.body_master_pk,
+                        body_name: b.body_name,
+                        // Drives NSS.govBodyTableClass() — the per-body-type
+                        // table colour (owner ask #2). Comes from the server
+                        // (_assemble_bodies_with_members), never inferred here.
+                        body_type_code: b.body_type_code,
+                        my_position_master_pk: myPos.position_master_pk,
+                        my_position_code: myPos.position_code,
+                        my_position_name: myPos.position_name,
+                        title: multiSeat
+                            ? `${b.body_name} — ${myPos.position_name}`
+                            : b.body_name,
+                        candidates,
+                    });
+                });
+            });
+            return slots;
+        },
+
+        // Picks the nominee for ONE slot. Each slot's radios share a group
+        // name of their own (slot.key), so the slots are independent.
+        selectDelegateFor(slot, personPk) {
+            this.delegateForm.selections[slot.key] = personPk;
+            this.delegateForm.error = "";
+        },
+
+        // "All tables mandatory" (owner ask #1) — a FRONTEND AFFORDANCE ONLY.
+        // The server deliberately does not require a full set: the batch
+        // endpoint validates each item on its own merits, so a future
+        // surface may submit a subset.
+        allSlotsSelected() {
+            const slots = this.myGovDelegationSlots();
+            if (!slots.length) return false;
+            return slots.every(s => !!this.delegateForm.selections[s.key]);
+        },
+
+        // The combined confirmation list — one row per slot, resolving the
+        // chosen candidate. This is also exactly the payload shape the batch
+        // POST needs, so confirmDelegation() maps straight off it.
+        myGovConfirmRows() {
+            return this.myGovDelegationSlots().map(s => {
+                const pk = this.delegateForm.selections[s.key];
+                const c = (s.candidates || []).find(x => x.person_pk === pk) || null;
+                return {
+                    key: s.key,
+                    body_master_pk: s.body_master_pk,
+                    body_name: s.body_name,
+                    body_type_code: s.body_type_code,
+                    my_position_master_pk: s.my_position_master_pk,
+                    my_position_code: s.my_position_code,
+                    my_position_name: s.my_position_name,
+                    person_pk: pk || "",
+                    person_name: c ? c.person_name : "",
+                    sangha_sevi_id: c ? c.sangha_sevi_id : "",
+                };
+            }).filter(r => r.person_pk);
+        },
+
+        // "Assign" does NOT submit — it validates and flips to the preview.
+        startDelegateConfirm() {
+            const f = this.delegateForm;
+            f.error = "";
+            if (!this.allSlotsSelected() || !f.effective_from) {
+                f.error = "Select a member for every governance body, and an effective date.";
+                return;
+            }
+            f.stage = "confirm";
+        },
+
+        backToDelegateForm() {
+            this.delegateForm.stage = "form";
+        },
+
+        // One atomic batch POST, never N single POSTs: with every table
+        // mandatory, a partial success (2 of 3 created, the 3rd rejected)
+        // would leave a half-delegated state the member cannot easily
+        // unwind. The server wraps the whole loop in a SAVEPOINT.
+        async confirmDelegation() {
+            const f = this.delegateForm;
+            const rows = this.myGovConfirmRows();
+            f.error = "";
+            if (!rows.length) {
+                f.error = "Select a member for every governance body, and an effective date.";
+                f.stage = "form";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/me/acting-delegations/batch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        items: rows.map(r => ({
+                            body_master_pk: r.body_master_pk,
+                            position_master_pk: r.my_position_master_pk,
+                            person_pk: r.person_pk,
+                        })),
+                        effective_from: f.effective_from,
+                        effective_to: f.effective_to || null,
+                        reason: f.reason || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    f.stage = "form";
+                    return;
+                }
+                // Newest first, matching GET /me/acting-delegations' order.
+                // Each created row is ACTIVE, so myGovDelegationSlots()'s
+                // live-delegation skip rule drops its slot on the next
+                // render — the delegated tables disappear on their own.
+                const created = (await res.json()).items || [];
+                this.myGovDelegations = created.concat(this.myGovDelegations || []);
+                f.selections = {};
+                f.effective_from = ""; f.effective_to = ""; f.reason = "";
+                f.stage = "form";
+                this._refreshGovBodiesAfterActingChange();
+            } catch (err) {
+                f.error = err.message || "Failed to assign the delegations.";
+                f.stage = "form";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // "current" = still live or awaiting a decision; "history" =
+        // resolved and done. ACTING_STATUS_RESOLVED mirrors the DDL's
+        // terminal values (ENDED/REJECTED/HISTORICAL) — ASSIGNED/ACTIVE/
+        // PENDING_APPROVAL are all still "current" (owner request,
+        // 2026-10-25: a dedicated history view for "on behalf").
+        myGovDelegationsCurrent() {
+            return (this.myGovDelegations || []).filter(
+                d => !["ENDED", "REJECTED", "HISTORICAL"].includes(d.acting_status));
+        },
+        myGovDelegationsHistory() {
+            return (this.myGovDelegations || []).filter(
+                d => ["ENDED", "REJECTED", "HISTORICAL"].includes(d.acting_status));
+        },
+
+        // History split per body (owner request, 2026-10-25) — one table per
+        // body_master_pk instead of one flat table spanning every body the
+        // caller has ever held office on. Ordered by body_name so the list
+        // is stable across reloads (the API itself orders by date, not body).
+        myGovDelegationsHistoryGroups() {
+            const groups = new Map();
+            this.myGovDelegationsHistory().forEach(d => {
+                const key = d.body_master_pk;
+                if (!groups.has(key)) {
+                    groups.set(key, { body_master_pk: key, body_name: d.body_name || "—", rows: [] });
+                }
+                groups.get(key).rows.push(d);
+            });
+            return Array.from(groups.values()).sort((a, b) => a.body_name.localeCompare(b.body_name));
+        },
+
+        // Sidebar "pending items" counts (owner request, 2026-10-25) — the
+        // two things that sit waiting for THIS user's own decision: acting-
+        // delegation nominations (Governance tab) and correspondence
+        // applications routed to them as an office-bearer (Applications
+        // tab). Kept as two separate counts (one badge per nav item,
+        // mirroring admin.html's existing per-item count-badge pattern)
+        // plus a combined total for anywhere a single number is wanted.
+        myPendingActingApprovalsCount() {
+            return (this.myPendingActingApprovals || []).length;
+        },
+        myPendingApplicationApprovalsCount() {
+            return (this.sendApp.pendingApprovals || []).length;
+        },
+        // Open elections (GOV-BR-045) this member is entitled to vote in
+        // AND has not yet cast every ballot for — item 2 follow-up
+        // (2026-10-25): "pending items can be anything related to the
+        // logged-in user", and an open ballot is squarely that. Each
+        // election's own voted_position_pks (per-position, since one
+        // election can elect several positions at once) is what makes
+        // this accurate rather than just "is there an open election".
+        myPendingElectionsToVote() {
+            return (this.govOpenElections || []).filter(el => {
+                const positions = new Set((el.nominations || []).map(n => n.position_master_pk));
+                const voted = new Set(el.voted_position_pks || []);
+                for (const p of positions) { if (!voted.has(p)) return true; }
+                return false;
+            });
+        },
+        myPendingElectionsCount() {
+            return this.myPendingElectionsToVote().length;
+        },
+        myTotalPendingItemsCount() {
+            return this.myPendingActingApprovalsCount() + this.myPendingApplicationApprovalsCount()
+                + this.myPendingElectionsCount() + (this.pendingClaimsCount || 0);
+        },
+
+        // Mirrors admin.js::endGovActing — confirm(), POST, replace in place.
+        async endMyDelegation(d) {
+            const today = new Date().toISOString().slice(0, 10);
+            const ok = await NSSDialog.confirm(
+                `End ${d.person_name || "this member"}'s acting cover as ${d.position_name}?`,
+                { title: "End Delegation", confirmText: "End", confirmClass: "danger" }
+            );
+            if (!ok) return;
+            this.myGovDelegationsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/me/acting-delegations/${d.acting_position_assignment_pk}/end`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ effective_to: today }),
+                    },
+                );
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.myGovDelegationsError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.myGovDelegations.findIndex(
+                    x => x.acting_position_assignment_pk === d.acting_position_assignment_pk);
+                if (idx !== -1) this.myGovDelegations[idx] = updated;
+                this._refreshGovBodiesAfterActingChange();
+            } catch (err) {
+                this.myGovDelegationsError = err.message || "Failed to end the delegation.";
+            }
+        },
+
 
         // ── GOV-BR-043-A: Parichalak-only probationary candidate exception ──
         async _loadParichalakStatus() {
@@ -2572,16 +3644,6 @@ function dashboardApp() {
             }
         },
 
-        // Badge class per governance position, using the badge classes
-        // defined in badges.css (no DaisyUI colour badges here). Named
-        // office-bearers get the NSS identity badge; plain members the muted
-        // outline, mirroring the status-badge preview palette.
-        govPositionBadge(positionName) {
-            const n = (positionName || "").toLowerCase();
-            if (!n || n.includes("member")) return "badge-muted";
-            return "badge-identity";
-        },
-
         // 'Jun 2024' from an ISO date string, or '—'.
         govMonthYear(isoDate) {
             if (!isoDate) return "—";
@@ -2671,6 +3733,78 @@ function dashboardApp() {
                     .filter(Boolean)
                     .some(v => String(v).toLowerCase().includes(q))
             );
+        },
+
+        // ── Member Directory tab ─────────────────────────────────
+        async _loadMemberDirectory() {
+            if (this.memberDirSakhas.length === 0) {
+                try {
+                    const res = await NSSAuth.apiFetch(
+                        "/api/v1/organization/organizations/selectable?type_code=SAKHA_SANGHA&limit=" + NSS.MAX_PAGE_SIZE
+                    );
+                    if (res.ok) {
+                        const orgs = await res.json();
+                        this.memberDirSakhas = orgs.slice().sort(
+                            (a, b) => (a.organization_name || "").localeCompare(b.organization_name || "")
+                        );
+                    }
+                } catch (e) {
+                    console.error("Failed to load Sakha filter list", e);
+                }
+            }
+            await this._fetchMemberDirectory();
+        },
+
+        async _fetchMemberDirectory() {
+            this.memberDirLoading = true;
+            this.memberDirError = "";
+            try {
+                const params = new URLSearchParams({ limit: String(this.memberDirLimit) });
+                const q = (this.memberDirQuery || "").trim();
+                if (q.length >= 2) params.set("q", q);
+                if (this.memberDirSakhaPk) params.set("organization_pk", this.memberDirSakhaPk);
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/directory?${params.toString()}`);
+                if (!res.ok) throw new Error("Failed to load the Member Directory.");
+                const data = await res.json();
+                this.memberDirResults = data.members || [];
+                this.memberDirTotal = data.total || 0;
+            } catch (e) {
+                this.memberDirError = e.message || "Failed to load the Member Directory.";
+                this.memberDirResults = [];
+                this.memberDirTotal = 0;
+            } finally {
+                this.memberDirLoading = false;
+            }
+        },
+
+        // Debounced (300ms, same convention as searchPersonForAdd). A
+        // 1-character query is held back entirely (owner ask 2026-10-27:
+        // "search should take min 2 digits") rather than firing — the
+        // backend's min_length=2 on q would 422 it anyway, and refetching
+        // the full unfiltered list on every single keystroke before the
+        // 2nd character is wasted work. 0 characters (cleared) still
+        // refetches the unfiltered browsable list.
+        searchMemberDirectory() {
+            if (this._memberDirDebounce) clearTimeout(this._memberDirDebounce);
+            if ((this.memberDirQuery || "").trim().length === 1) return;
+            this._memberDirDebounce = setTimeout(() => {
+                this.memberDirLimit = 50;
+                this._fetchMemberDirectory();
+            }, 300);
+        },
+
+        onMemberDirSakhaChange() {
+            this.memberDirLimit = 50;
+            this._fetchMemberDirectory();
+        },
+
+        loadMoreMemberDirectory() {
+            this.memberDirLimit += 50;
+            this._fetchMemberDirectory();
+        },
+
+        memberDirFullName(m) {
+            return [m.first_name, m.middle_name, m.last_name].filter(Boolean).join(" ");
         },
 
         async submitCreateFamily() {
@@ -2814,6 +3948,14 @@ function dashboardApp() {
         adminTabHasFamilyBrowser() {
             const at = this.adminTabs.find(t => t.key === this.tab);
             return at && FAMILY_BROWSER_ROLES.has(at.roleCode);
+        },
+
+        /** Is roleCode one of the 5 organizational admin-tab roles (Kendra/
+         * Anchalika/Zilla/Sakha/Patha Chakra Management)? Used by the
+         * dashboard template to show the real "pending approvals in your
+         * org" panel only where it makes sense. */
+        isOrgLevelAdminRole(roleCode) {
+            return ORG_LEVEL_ADMIN_ROLES.has(roleCode);
         },
 
         /** Get the start org scope for the current admin role (first match). */
@@ -3412,6 +4554,89 @@ function dashboardApp() {
          * Fire-and-forget by design: each loader owns its own loading flag and
          * error handling, and a switch must not block on the network.
          */
+
+        /**
+         * Person + own membership + own family — extracted from init()
+         * (2026-10-22) so revisiting the Personal tab can actually retry
+         * this instead of only ever running once at page load. Previously
+         * inline-only: if this was still in flight (or failed) when the
+         * user first landed on Personal, the card rendered blank with no
+         * way to recover short of a full page reload — switching tabs and
+         * back only "worked" because the original slow init() promise
+         * happened to resolve while attention was elsewhere, not because
+         * anything actually re-fetched. Safe to call more than once —
+         * every assignment below is a plain overwrite.
+         */
+        async _fetchPersonalDetail() {
+            const fetches = [];
+
+            // Person details
+            if (this.user.person_pk) {
+                fetches.push(
+                    NSSAuth.apiFetch(`/api/v1/person/persons/${this.user.person_pk}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(() => null)
+                );
+                // Addresses
+                fetches.push(
+                    NSSAuth.apiFetch(`/api/v1/person/persons/${this.user.person_pk}/addresses`)
+                        .then(r => r.ok ? r.json() : [])
+                        .catch(() => [])
+                );
+            } else {
+                fetches.push(Promise.resolve(null));
+                fetches.push(Promise.resolve([]));
+            }
+
+            // Membership detail (own record) — direct PK lookup now that
+            // /auth/me exposes sangha_sevi_pk and GET /membership/members/{pk}
+            // has an ownership carve-out, replacing the old /search-by-ID
+            // workaround (which needed MEMBERSHIP_VIEW and 403'd for
+            // regular members with no admin permissions).
+            if (this.user.sangha_sevi_pk) {
+                fetches.push(
+                    NSSAuth.apiFetch(`/api/v1/membership/members/${this.user.sangha_sevi_pk}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(() => null)
+                );
+            } else {
+                fetches.push(Promise.resolve(null));
+            }
+
+            // Person's families
+            if (this.user.person_pk) {
+                fetches.push(
+                    NSSAuth.apiFetch(`/api/v1/family/person/${this.user.person_pk}/families`)
+                        .then(r => r.ok ? r.json() : [])
+                        .catch(() => [])
+                );
+            } else {
+                fetches.push(Promise.resolve([]));
+            }
+
+            const [personData, addressData, memberData, familiesData] = await Promise.all(fetches);
+
+            // Process person
+            if (personData) {
+                personData.display_name = this._buildDisplayName(personData);
+                this.person = personData;
+            }
+
+            // Process addresses
+            this.addresses = Array.isArray(addressData) ? addressData : [];
+
+            // Process membership
+            if (memberData) {
+                this.member = memberData;
+            }
+
+            // Process family — use first family
+            if (Array.isArray(familiesData) && familiesData.length > 0) {
+                this.family = familiesData[0];
+                this.ownFamily = familiesData[0];
+            }
+        },
+
         _refreshTab(tab) {
             if (typeof tab !== "string") return;
             try {
@@ -3424,20 +4649,58 @@ function dashboardApp() {
                     if (this.family?.family_group_pk) this._fetchFamilyDetail();
                 } else if (tab === "findOrg") {
                     this._loadFindOrgDirectory();
+                } else if (tab === "memberDirectory") {
+                    this._loadMemberDirectory();
+                } else if (tab === "attendance") {
+                    this._loadMyAttendance();
+                } else if (tab === "attendanceRegister") {
+                    this._initAttendanceRegister();
                 } else if (tab.startsWith("admin_")) {
                     this._loadAdminStats();
+                    const at = this.adminTabs.find(t => t.key === tab);
+                    if (at?.roleCode === "NSS_ERP_AUDITOR") {
+                        this._loadAuditRecent(true);
+                    } else if (at && ORG_LEVEL_ADMIN_ROLES.has(at.roleCode)) {
+                        this._loadOrgPendingApprovals(at);
+                    }
                 } else if (tab === "personal") {
                     this.loadSessions();
+                    // Retry, not unconditional refetch: _fetchPersonalDetail()
+                    // now exists as a real reusable loader (2026-10-22,
+                    // extracted from init()) — only call it again here if
+                    // the first load genuinely never landed (slow/failed
+                    // request), so a normal tab revisit doesn't re-fetch
+                    // data that's already there.
+                    if (!this.person) this._fetchPersonalDetail();
                 } else if (tab === "governance") {
                     this._loadGovernanceBodies();
+                    this._loadMySakhaBodies();
                     this._loadOpenElectionsForVoting();
+                    this._loadMyGovPositions();
+                    this._loadMyGovDelegations();
+                    this._loadMyPendingActingApprovals();
+                } else if (tab === "sendApplication") {
+                    this._loadSendApplicationOfficeBearers();
+                    this._loadPendingApprovals();
+                    if (this.sendApp.subTab === "history") this.loadSendApplicationHistory();
+                } else if (tab === "pendingItems") {
+                    // All four loaders already fire unconditionally at
+                    // init() (so the sidebar count is correct on login), but
+                    // refetch here too — same "revisit refetches" rule as
+                    // every other tab, since any of them can have changed
+                    // since the user last looked (e.g. an admin nominated
+                    // them for a fresh acting delegation in the meantime).
+                    this._loadMyPendingActingApprovals();
+                    this._loadPendingApprovals();
+                    this._loadOpenElectionsForVoting();
+                    this._loadPendingClaimsCount();
                 }
-                // personal: the person/address fetch is inline in init() with
-                // no reusable loader, and saveProfile() already re-fetches
-                // after the only edit path on this page — so there is nothing
-                // safe to re-call here without extracting that block first.
-                // (Active Sessions is the exception: it has its own loader,
-                // loadSessions(), wired above.)
+                // personal: see _fetchPersonalDetail() above — it is now a
+                // real reusable loader, called both from init() and (as a
+                // retry-if-missing) from the branch above. saveProfile()
+                // already re-fetches after the only edit path on this page.
+                // (Active Sessions is a separate concern: it has its own
+                // loader, loadSessions(), wired above.)
                 //
                 // attendance: no endpoint exists yet (no attendance-session
                 // table in the schema), so there is deliberately nothing to
@@ -3470,7 +4733,7 @@ function dashboardApp() {
 
         get myOrgDashboardLabel() {
             const scopes = this.user?.scopes || [];
-            const isNssWide = scopes.some(s => s.role_code === "NSS_ERP_ADMIN" || s.scope_level === "NSS-WIDE");
+            const isNssWide = this.isGovNssWideAdmin;
             if (isNssWide) return "Kendra Dashboard";
             const scoped = scopes.find(s => s.organization_pk);
             return (scoped && ROLE_ORG_LABELS[scoped.role_code]) || "Org Dashboard";
@@ -3506,22 +4769,38 @@ function dashboardApp() {
         },
 
         // Sidebar "Dashboards" group: one entry per tier this user actually
-        // administers. NSS-WIDE admins hold no org-scoped admin_scope rows at
-        // all, so nothing would show — for them myOrgDashboardPk has already
-        // resolved the Kendra, which is the correct single entry.
+        // administers. NSS-WIDE admins (NSS_ERP_ADMIN, or an org-anchor-less
+        // NSS-WIDE role like NSS_ERP_KENDRA_ADMIN per CLAUDE.md — reserved
+        // for governing-body members, capability-equivalent to
+        // NSS_ERP_ADMIN but with no admin_scope.organization_pk row) hold no
+        // org-scoped admin_scope rows of their own, so dashboardOrgsFor()
+        // never surfaces a KENDRA entry for them — there is no
+        // organization_pk on an NSS-WIDE scope row to filter on.
+        //
+        // Bug fix (Problem 3/4): this used to synthesize the Kendra entry
+        // ONLY as a total fallback ("if no org-scoped tiers matched at all,
+        // show Kendra instead") — so a user holding BOTH an NSS-WIDE role
+        // (e.g. NSS_ERP_KENDRA_ADMIN) AND an org-scoped one (e.g.
+        // NSS_ERP_SAKHA_ADMIN) got only the Sakha tier; the Kendra tier was
+        // silently dropped because the Sakha match already made `levels`
+        // non-empty and the fallback is `if (levels.length) return levels`.
+        // The owner's explicit requirement is a UNION of every admin
+        // level's access, so the Kendra tier must be added whenever an
+        // NSS-WIDE scope is held, in ADDITION to whatever org-scoped tiers
+        // also matched — not only when nothing else matched.
         get dashboardLevels() {
             const levels = DASHBOARD_LEVELS
                 .map(lvl => ({ ...lvl, orgs: this.dashboardOrgsFor(lvl.typeCode) }))
                 .filter(lvl => lvl.orgs.length > 0);
-            if (levels.length) return levels;
-            if (this.myOrgDashboardPk) {
-                return [{
+            const isNssWide = this.isGovNssWideAdmin;
+            if (isNssWide && this.myOrgDashboardPk && !levels.some(l => l.typeCode === "KENDRA")) {
+                levels.unshift({
                     typeCode: "KENDRA",
                     label: "Kendra",
                     orgs: [{ organization_pk: this.myOrgDashboardPk, organization_name: "Kendra" }],
-                }];
+                });
             }
-            return [];
+            return levels;
         },
 
         // Topbar title for the org-dashboard tab — tracks the tier actually on
@@ -3596,7 +4875,7 @@ function dashboardApp() {
             const scopes = this.user.scopes || [];
             if (scopes.length === 0) return;
 
-            const isNssWide = scopes.some(s => s.role_code === "NSS_ERP_ADMIN" || s.scope_level === "NSS-WIDE");
+            const isNssWide = this.isGovNssWideAdmin;
             if (isNssWide) {
                 try {
                     const res = await NSSAuth.apiFetch("/api/v1/organization/organizations?type_code=KENDRA&limit=1");
@@ -3617,33 +4896,50 @@ function dashboardApp() {
         _buildAdminTabs() {
             if (!this.user.scopes || this.user.scopes.length === 0) { this.adminTabs = []; return; }
 
-            // ── Super admin: exactly three tabs, always, in fixed order ──
-            // NSS_ERP_ADMIN is the super admin. Two consequences, both
-            // deliberate:
+            // ── "True union" (owner-confirmed 2026-10-22, superseding an
+            // earlier same-day decision that dropped organizational tabs
+            // for a super-wide admin as "noise, not information" — the
+            // owner explicitly rejected that rationale): a user holding
+            // NSS_ERP_ADMIN or NSS_ERP_KENDRA_ADMIN ALWAYS sees the three
+            // fixed system tabs below, in fixed order, AND a separate tab
+            // for every organizational role (Kendra/Anchalika/Zilla/Sakha/
+            // Patha Chakra Management) they also hold — never one at the
+            // expense of the other.
             //
-            // 1. The Audit & Compliance and Reports tabs are built
-            //    unconditionally, not gated on the literal NSS_ERP_AUDITOR /
-            //    NSS_ERP_REPORT_VIEWER role_codes being present in scopes. A
-            //    pure NSS_ERP_ADMIN outranks both but each of those views is
-            //    surfaced by its own role tab, so it previously saw neither.
-            //    Synthesizing them here needs no redundant user_role rows and
-            //    no change to the frozen RBAC (SOL-ADMIN-004 §8.7).
-            // 2. ORGANIZATIONAL role tabs (Kendra/Anchalika/Zilla/Sakha/Patha
-            //    Chakra Management) are dropped. A super admin already has
-            //    unrestricted scope over every one of those orgs, so listing
-            //    "Sakha Management" beside "System Administration" advertises
-            //    a narrower slice of access the user already holds in full —
-            //    noise, not information. The per-org views are still fully
-            //    reachable through the Dashboards group below, which is
-            //    org-driven rather than role-driven.
+            // NSS_ERP_ADMIN is the super admin. NSS_ERP_KENDRA_ADMIN joins
+            // this synthesis too (owner-confirmed 2026-10-22: "NSS = KENDRA
+            // = NSS_WIDE" — Kendra admin is capability-equivalent to
+            // NSS_ERP_ADMIN, reserved for governing-body members; see
+            // UserContext.is_nss_wide() in api/services/rbac_service.py for
+            // the backend side of this same equivalence). Deliberately NOT
+            // a generic "any NSS-WIDE scope_level" check — NSS_ERP_AUDITOR
+            // and NSS_ERP_REPORT_VIEWER also carry scope_level='NSS-WIDE'
+            // per role_master but must NOT escalate to the full 3-tab set
+            // on their own; only NSS_ERP_ADMIN and NSS_ERP_KENDRA_ADMIN
+            // outrank everything.
+            //
+            // The Audit & Compliance and Reports tabs are built
+            // unconditionally here, not gated on the literal NSS_ERP_AUDITOR
+            // / NSS_ERP_REPORT_VIEWER role_codes being present in scopes. A
+            // pure NSS_ERP_ADMIN (or Kendra admin) outranks both but each
+            // of those views is surfaced by its own role tab, so it would
+            // otherwise see neither. Synthesizing them here needs no
+            // redundant user_role rows and no change to the frozen RBAC
+            // (SOL-ADMIN-004 §8.7).
             //
             // Display-only: user_role rows are untouched, and a user WITHOUT
-            // NSS_ERP_ADMIN still gets one tab per role exactly as before.
-            if (this.user.scopes.some(s => s.role_code === "NSS_ERP_ADMIN")) {
-                this.adminTabs = SUPER_ADMIN_TAB_ORDER.map(rc => {
+            // NSS_ERP_ADMIN/NSS_ERP_KENDRA_ADMIN still gets one tab per role
+            // exactly as before (the loop below, unconditionally).
+            const seen = new Set();
+            const fixedTabs = [];
+            const isSuperWide = this.user.scopes.some(
+                s => s.role_code === "NSS_ERP_ADMIN" || s.role_code === "NSS_ERP_KENDRA_ADMIN"
+            );
+            if (isSuperWide) {
+                for (const rc of SUPER_ADMIN_TAB_ORDER) {
                     const def = ADMIN_TAB_MAP[rc];
                     const held = this.user.scopes.some(s => s.role_code === rc);
-                    return {
+                    fixedTabs.push({
                         key: "admin_" + rc.toLowerCase(),
                         label: def.label,
                         description: def.description,
@@ -3654,23 +4950,50 @@ function dashboardApp() {
                         // only whether this user holds the row directly or
                         // reaches the view by outranking it.
                         scopeLabel: held ? "NSS-WIDE" : "NSS-WIDE (via System Administration)",
-                    };
-                });
-                return;
+                    });
+                    // Dedupe guard: a user holding NSS_ERP_ADMIN AND
+                    // NSS_ERP_AUDITOR (say) must not also get a second,
+                    // separate "Audit & Compliance" tab out of the loop
+                    // below — the fixed tab above already covers that
+                    // role_code.
+                    seen.add(rc);
+                }
             }
 
-            const seen = new Set();
-            const tabs = [];
+            // ── Organizational (and any other non-fixed) role tabs — one
+            // per held role_code, same logic as always, now reachable
+            // unconditionally rather than only for non-super-wide users.
+            const orgTabs = [];
             for (const scope of this.user.scopes) {
                 const def = ADMIN_TAB_MAP[scope.role_code];
                 if (!def || seen.has(scope.role_code)) continue;
                 seen.add(scope.role_code);
                 let scopeLabel = scope.scope_level || "NSS-WIDE";
                 if (scope.scope_level !== "NSS-WIDE" && scope.organization_pk) scopeLabel += " (Organization-scoped)";
-                tabs.push({ key: "admin_" + scope.role_code.toLowerCase(), label: def.label, description: def.description, adminUrl: def.adminUrl, roleCode: scope.role_code, scopeLabel });
+                orgTabs.push({
+                    key: "admin_" + scope.role_code.toLowerCase(),
+                    label: def.label,
+                    description: def.description,
+                    adminUrl: def.adminUrl,
+                    roleCode: scope.role_code,
+                    scopeLabel,
+                    // This role's own scope org, if org-anchored — used by
+                    // _loadAdminStats() to fetch stats scoped to THIS tab's
+                    // own org rather than the actor's combined scope across
+                    // every role they hold (bug: a dual Kendra+Sakha admin
+                    // was seeing byte-identical member/family counts on
+                    // both tabs because one actor-wide number set got
+                    // stamped onto every tab). null here means NSS-WIDE for
+                    // this role, so the stats call is intentionally global.
+                    organizationPk: scope.organization_pk || null,
+                });
             }
-            tabs.sort((a, b) => a.label.localeCompare(b.label));
-            this.adminTabs = tabs;
+            // Keep the pre-existing alphabetical-by-label order for the
+            // organizational tabs specifically — the fixed system tabs
+            // stay in SUPER_ADMIN_TAB_ORDER and are never re-sorted.
+            orgTabs.sort((a, b) => a.label.localeCompare(b.label));
+
+            this.adminTabs = [...fixedTabs, ...orgTabs];
         },
 
         /**
@@ -3683,6 +5006,26 @@ function dashboardApp() {
             return CLAIM_APPROVAL_PERMISSIONS.some(p => perms.includes(p));
         },
 
+        // Pending Items tab (owner request, 2026-10-25, item 2: "pending
+        // items can be anything related to the logged-in user... a
+        // separate box for each foreseeable item") — a lightweight count
+        // only, same pattern as admin.js::refreshCredsLapsedCount(): reuse
+        // the existing list endpoint with page_size=1 rather than add a
+        // dedicated summary endpoint. The full review workflow still lives
+        // on /admin#claims (admin.html) — this box only surfaces that it
+        // exists and links there, it does not duplicate that UI here.
+        pendingClaimsCount: 0,
+        async _loadPendingClaimsCount() {
+            if (!this.canApproveRegistrations) { this.pendingClaimsCount = 0; return; }
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/admin/claims?claim_status=PENDING&page_size=1");
+                if (res.ok) {
+                    const data = await res.json();
+                    this.pendingClaimsCount = data.total;
+                }
+            } catch { /* non-fatal — badge just stays at its last value */ }
+        },
+
         /**
          * Whether this user may open the Governance (Tier 6) admin views
          * — mirrors the API's GOVERNANCE_VIEW/GOVERNANCE_MANAGE guard on
@@ -3691,6 +5034,25 @@ function dashboardApp() {
         get canViewGovernance() {
             const perms = this.user?.permissions || [];
             return perms.includes("GOVERNANCE_VIEW") || perms.includes("GOVERNANCE_MANAGE");
+        },
+
+        /**
+         * Whether this user holds an NSS-wide (or NSS_ERP_ADMIN) scope —
+         * mirrors admin.js's own isGovNssWideAdmin getter (same "is this
+         * admin global" test; no cross-file include exists in this static
+         * frontend, so the logic is duplicated, not shared). Used to gate
+         * the sidebar's deep-link into admin.html's Governance catalog tab,
+         * which admin.html itself restricts to the NSS-wide admin only
+         * (2026-10-21 owner decision) — canViewGovernance alone (GOVERNANCE_
+         * VIEW/MANAGE) is held by every scoped admin too and is no longer
+         * the right gate for this link.
+         */
+        get isGovNssWideAdmin() {
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22:
+            // "NSS = KENDRA = NSS_WIDE") — mirrors
+            // api/services/rbac_service.py::UserContext.is_nss_wide().
+            const scopes = this.user?.scopes || [];
+            return scopes.some(s => s.role_code === "NSS_ERP_ADMIN" || s.scope_level === "NSS-WIDE" || s.scope_level === "KENDRA");
         },
 
         /**
@@ -3738,44 +5100,173 @@ function dashboardApp() {
 
         async _loadAdminStats() {
             try {
-                const res = await NSSAuth.apiFetch("/api/v1/admin/dashboard-stats");
-                if (!res.ok) return;   // silently keep placeholders on auth/permission failure
-                const data = await res.json();
-
-                // Apply fetched numbers to every role tab that the user has.
-                //
-                // The two variable slots (`orgs` and `extra`) carry a DIFFERENT
-                // label per role, so they must not be fed a fixed field. This
-                // previously assigned `renewals_due` to the slot labelled
-                // "Sakha Sanghas" and `attendance_pct` to slots labelled
-                // "Mahila Sanghas" / "Total Organizations", so those cards
-                // showed a number that had nothing to do with their caption.
-                // Now the label picks the field via STAT_FIELD_BY_LABEL, and
-                // any label with no table behind it renders "Not tracked"
-                // rather than a plausible-looking 0.
+                // One /dashboard-stats call per DISTINCT org scope among the
+                // held admin tabs, not one call for the whole actor applied
+                // to every tab. Bug fix: previously a single actor-wide call
+                // (no org_pk) got its result stamped onto every tab in
+                // this.adminTabs, so a dual-role admin (e.g. NSS-WIDE Kendra
+                // admin + Sakha-scoped admin) saw byte-identical member/
+                // family counts on both the Kendra and Sakha tabs — the
+                // "orgs"/"extra" tiles differed only in LABEL (which field
+                // STAT_FIELD_BY_LABEL picks), never in the underlying
+                // numbers. Grouping by organizationPk (null = NSS-WIDE/
+                // global for that tab) and passing it as ?org_pk= gives each
+                // org-scoped tab its own subtree-scoped numbers; tabs that
+                // are genuinely NSS-WIDE (the three super-admin tabs, or any
+                // other NSS-WIDE role) correctly continue to share one
+                // global number set — that sameness is accurate, not a bug.
+                const groups = new Map();   // key -> { orgPk, tabs: [] }
                 for (const tab of this.adminTabs) {
-                    const rc = tab.roleCode;
-                    if (!this.adminStats[rc]) continue;
-                    const cur = this.adminStats[rc];
-
-                    const moreLabels = this.MORE_TILES_BY_ROLE[rc] || [];
-                    this.adminStats[rc] = {
-                        ...cur,
-                        members:  data.members  ?? "—",
-                        families: data.families ?? "—",
-                        orgs:     this._statValue(cur.orgsLabel, data),
-                        extra:    this._statValue(cur.extraLabel, data),
-                        moreTiles: moreLabels.map(label => ({
-                            label,
-                            value: this._statValue(label, data),
-                        })),
-                    };
+                    if (!this.adminStats[tab.roleCode]) continue;
+                    const key = tab.organizationPk || "GLOBAL";
+                    if (!groups.has(key)) groups.set(key, { orgPk: tab.organizationPk || null, tabs: [] });
+                    groups.get(key).tabs.push(tab);
                 }
+
+                await Promise.all([...groups.values()].map(async ({ orgPk, tabs }) => {
+                    const url = orgPk
+                        ? `/api/v1/admin/dashboard-stats?org_pk=${encodeURIComponent(orgPk)}`
+                        : "/api/v1/admin/dashboard-stats";
+                    const res = await NSSAuth.apiFetch(url);
+                    if (!res.ok) return;   // silently keep placeholders on auth/permission failure
+                    const data = await res.json();
+
+                    // Apply fetched numbers to every tab sharing this org scope.
+                    //
+                    // The two variable slots (`orgs` and `extra`) carry a DIFFERENT
+                    // label per role, so they must not be fed a fixed field. This
+                    // previously assigned `renewals_due` to the slot labelled
+                    // "Sakha Sanghas" and `attendance_pct` to slots labelled
+                    // "Mahila Sanghas" / "Total Organizations", so those cards
+                    // showed a number that had nothing to do with their caption.
+                    // Now the label picks the field via STAT_FIELD_BY_LABEL, and
+                    // any label with no table behind it renders "Not tracked"
+                    // rather than a plausible-looking 0.
+                    for (const tab of tabs) {
+                        const rc = tab.roleCode;
+                        const cur = this.adminStats[rc];
+                        const moreLabels = this.MORE_TILES_BY_ROLE[rc] || [];
+                        this.adminStats[rc] = {
+                            ...cur,
+                            members:  data.members  ?? "—",
+                            families: data.families ?? "—",
+                            orgs:     this._statValue(cur.orgsLabel, data),
+                            extra:    this._statValue(cur.extraLabel, data),
+                            moreTiles: moreLabels.map(label => ({
+                                label,
+                                value: this._statValue(label, data),
+                            })),
+                        };
+                    }
+                }));
             } catch (e) {
                 console.warn("[dashboard] Failed to load admin stats:", e);
             }
         },
 
+        /**
+         * Audit & Compliance tab content — real, paginated field-level
+         * change history from GET /api/v1/audit/change-log
+         * (api/routers/audit.py, AUDIT_VIEW permission). reset=true clears
+         * the list and starts over (used when the tab is first opened or
+         * a filter changes); reset=false appends the next page ("Load
+         * more").
+         */
+        async _loadAuditRecent(reset) {
+            const a = this.adminAudit;
+            if (reset) {
+                a.entries = [];
+                a.offset = 0;
+                a.hasMore = true;
+            }
+            if (a.loading || !a.hasMore) return;
+
+            a.loading = true;
+            a.error = "";
+            try {
+                const params = new URLSearchParams({
+                    limit: String(a.pageSize),
+                    offset: String(a.offset),
+                });
+                if (a.tableFilter) params.set("table_name", a.tableFilter);
+                if (a.actionFilter) params.set("action", a.actionFilter);
+
+                const res = await NSSAuth.apiFetch(`/api/v1/audit/change-log?${params}`);
+                if (res.ok) {
+                    const rows = await res.json();
+                    a.entries = a.entries.concat(rows);
+                    a.offset += rows.length;
+                    a.hasMore = rows.length === a.pageSize;
+                } else {
+                    a.error = "Unable to load the audit trail.";
+                }
+            } catch (e) {
+                a.error = "Unable to connect to server.";
+            } finally {
+                a.loading = false;
+            }
+        },
+
+        /** "Load more" button handler for the Recent Changes panel. */
+        loadMoreAuditRecent() {
+            this._loadAuditRecent(false);
+        },
+
+        /** Re-run the query from the start when a filter changes. */
+        applyAuditFilter() {
+            this._loadAuditRecent(true);
+        },
+
+        /**
+         * Pending-approvals panel for one of the 5 organizational admin
+         * tabs (Kendra/Anchalika/Zilla/Sakha/Patha Chakra Management).
+         *
+         * transfersPending reuses a real, already-scoped list endpoint —
+         * not a new backend feature: GET /api/v1/membership/change-requests,
+         * summed over both open statuses (PENDING_SOURCE_RELEASE +
+         * PENDING_DESTINATION_ACCEPT — api/routers/
+         * membership_change_request.py's _OPEN_STATUSES), covering both
+         * legs of the Sakha Transfer / Apply for Darshak workflow this
+         * admin might need to act on.
+         *
+         * claimsPending (Registration Approvals count) was REMOVED
+         * (owner decision, 2026-10-22) along with its Quick Actions
+         * button — Registration Approvals must appear only as the one
+         * left-sidebar nav item, not duplicated per admin tab.
+         *
+         * Known limitation (not fixed here — the endpoint doesn't accept
+         * an org_pk override the way /admin/dashboard-stats does): the
+         * count comes from the actor's whole admin scope, not this one
+         * tab's own role/org. A user holding two organizational roles at
+         * once would see an identical count on both tabs, same class of
+         * issue _loadAdminStats() already works around for the 4 stat
+         * tiles via ?org_pk=.
+         */
+        async _loadOrgPendingApprovals(tab) {
+            const rc = tab.roleCode;
+            if (!this.adminApprovals[rc]) {
+                this.adminApprovals[rc] = { transfersPending: null, loading: false, error: "" };
+            }
+            const entry = this.adminApprovals[rc];
+            entry.loading = true;
+            entry.error = "";
+            try {
+                const [srcRes, destRes] = await Promise.all([
+                    NSSAuth.apiFetch("/api/v1/membership/change-requests?status=PENDING_SOURCE_RELEASE&page_size=1"),
+                    NSSAuth.apiFetch("/api/v1/membership/change-requests?status=PENDING_DESTINATION_ACCEPT&page_size=1"),
+                ]);
+                const srcTotal = srcRes.ok ? (await srcRes.json()).total : 0;
+                const destTotal = destRes.ok ? (await destRes.json()).total : 0;
+                entry.transfersPending = (srcRes.ok || destRes.ok) ? (srcTotal + destTotal) : null;
+                if (!srcRes.ok && !destRes.ok) {
+                    entry.error = "Unable to load pending approvals.";
+                }
+            } catch (e) {
+                entry.error = "Unable to connect to server.";
+            } finally {
+                entry.loading = false;
+            }
+        },
 
         /**
          * Resolve one variable stat card's value from its own caption.
@@ -3796,5 +5287,5 @@ function dashboardApp() {
 
             return data[field] ?? "—";
         },
-    };
+    });
 }
