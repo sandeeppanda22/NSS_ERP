@@ -46,7 +46,7 @@ Authority: SOL-AUTH-001, SOL-AUTH-002, SOL-AUTH-006, SOL-AUTH-007
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -789,25 +789,48 @@ def register(
         # ── 6. Generate person_id ───────────────────────────────────────
         person_id = next_id(cur, "PERSON")
 
-        # ── 6b. Resolve city_village_name → city_village_pk ────────────
-        city_village_pk = None
-        if body.city_village_name and body.district_pk:
-            cv_name = body.city_village_name.strip()
-            if cv_name:
-                city_village_pk = resolve_or_create_city_village(
-                    cur, cv_name, body.district_pk,
-                )
+        # ── 6a. Pre-generate person_pk (2026-10-21, Registration-Time
+        # Geography Creation) ───────────────────────────────────────────
+        # person_pk is normally left to the column's gen_random_uuid()
+        # DEFAULT and read back via RETURNING after the INSERT (below).
+        # Here it is generated client-side INSTEAD, before the person row
+        # exists, so it can be threaded into the city_village/postal_code/
+        # post_office auto-create calls just below — those genuinely-new
+        # geo rows are stamped PENDING + submitted_by_person_pk=<this
+        # value> (surfaced later in the submitting person's eventual
+        # Sakha's Location-Approvals queue), while the person row itself
+        # still gets this exact pk at INSERT time (explicit value instead
+        # of the DEFAULT). Ordering is otherwise unchanged.
+        person_pk = str(uuid4())
 
-        # Resolve postal code from text value (lookup/create)
+        # ── 6b. Resolve postal code from text value (lookup/create) ────
+        # Resolved BEFORE city_village (2026-10-21): the PIN disambiguates
+        # the village lookup. Village names repeat within a district (e.g.
+        # 18 distinct "Hosahalli" villages in Tumakuru, one per PIN), so
+        # resolving the village on (name, district) alone would bind the
+        # registrant to an arbitrary one — potentially carrying a PIN that
+        # contradicts the one they just typed.
         resolved_postal_code_pk = body.postal_code_pk or None
         if body.postal_code_value and body.state_pk and body.country_pk:
             pc_val = body.postal_code_value.strip()
             if pc_val:
                 resolved_postal_code_pk = resolve_or_create_postal_code(
                     cur, pc_val, body.state_pk, body.country_pk,
+                    pending_submitter_person_pk=person_pk,
                 )
 
-        # ── 6c. Resolve post_office_name → post_office_pk (optional) ───
+        # ── 6c. Resolve city_village_name → city_village_pk ────────────
+        city_village_pk = None
+        if body.city_village_name and body.district_pk:
+            cv_name = body.city_village_name.strip()
+            if cv_name:
+                city_village_pk = resolve_or_create_city_village(
+                    cur, cv_name, body.district_pk,
+                    pending_submitter_person_pk=person_pk,
+                    postal_code_pk=resolved_postal_code_pk,
+                )
+
+        # ── 6d. Resolve post_office_name → post_office_pk (optional) ───
         # Scoped to the resolved PIN — a post office cannot exist without
         # one, so this is skipped entirely until postal_code_pk resolves.
         resolved_post_office_pk = None
@@ -816,12 +839,14 @@ def register(
             if po_name:
                 resolved_post_office_pk = resolve_or_create_post_office(
                     cur, po_name, resolved_postal_code_pk,
+                    pending_submitter_person_pk=person_pk,
                 )
 
         # ── 7. Insert person ────────────────────────────────────────────
         cur.execute(
             """
             INSERT INTO nss.person (
+                person_pk,
                 person_id,
                 first_name,
                 middle_name,
@@ -838,10 +863,11 @@ def register(
                 district_pk,
                 city_village_pk,
                 postal_code_pk
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING person_pk
             """,
             (
+                person_pk,
                 person_id,
                 body.first_name.strip().title(),
                 body.middle_name.strip().title() if body.middle_name else None,

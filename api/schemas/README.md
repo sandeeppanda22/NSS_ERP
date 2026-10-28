@@ -2,7 +2,7 @@
 
 Pydantic models, one module per router (`bootstrap`, `foundation`, `organization`, `person`,
 `family`, `membership`, `auth`, `admin`, `audit`, `geo_approval`, and Tier 6 `governance`,
-`membership_change_request`, `correspondence`). `registration.py` and `claim_approval.py` have no
+`membership_change_request`, `correspondence`, and Tier 6 `attendance`). `registration.py` and `claim_approval.py` have no
 schema module — their request/response models are defined inline in the routers, as are
 `admin.py`'s organization create/update and admin-person request bodies.
 

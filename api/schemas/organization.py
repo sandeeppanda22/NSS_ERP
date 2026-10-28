@@ -135,6 +135,15 @@ class OrgChildStatsResponse(BaseModel):
     member_count: int = 0
     person_count: int = 0
 
+    # Attendance % (Tier 6, 2026-10-27) — present/(present+absent) across
+    # every descendant Sakha's Weekly Sangha Puja history, same
+    # computation as attendance.py::organization_stats. None/
+    # attendance_tracked=False only when no puja event has been recorded
+    # yet anywhere in this child's subtree (pre-adoption), matching
+    # /admin/dashboard-stats' own convention.
+    attendance_pct: float | None = None
+    attendance_tracked: bool = False
+
 
 class OrgStatsResponse(BaseModel):
     """
@@ -159,10 +168,11 @@ class OrgStatsResponse(BaseModel):
     renewals_due counts PENDING nss.membership_renewal_request rows whose
     Sangha Sevi's home Sakha falls in this org's subtree — real today
     (0 until the renewal module writes rows), not a placeholder.
-    attendance_pct has no supporting table (darshak_attendance_registration
-    is a registration/approval record, not a per-meeting log — there is no
-    session table anywhere in the schema), so it is always None with
-    attendance_tracked=False rather than a fabricated figure.
+    attendance_pct (Tier 6, 2026-10-27) — present/(present+absent) across
+    every descendant Sakha's Weekly Sangha Puja history, same computation
+    as attendance.py::organization_stats and admin.py::dashboard_stats'
+    own rollup. None/attendance_tracked=False only when no puja event has
+    been recorded yet anywhere in this subtree (pre-adoption).
 
     parichay_patra_holders + darshaks is an exact partition of member_count
     (every MEMBERSHIP_TYPE except PROBATIONARY carries a Parichay Patra, and
@@ -190,7 +200,7 @@ class OrgStatsResponse(BaseModel):
     kumari_sanghas: int = 0
     sevak_sanghas: int = 0
     renewals_due: int = 0
-    attendance_pct: int | None = None
+    attendance_pct: float | None = None
     attendance_tracked: bool = False
 
 

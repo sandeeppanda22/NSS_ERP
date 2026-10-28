@@ -5,13 +5,18 @@ Builds an in-memory graph from ``nss.family_link`` rows and computes
 relationship labels relative to any viewer via BFS traversal.
 
 Edge types stored in the DB:
-    PARENT_OF  — person_a is parent of person_b (directed)
-    SPOUSE_OF  — person_a and person_b are spouses (bidirectional)
+    PARENT_OF   — person_a is parent of person_b (directed)
+    SPOUSE_OF   — person_a and person_b are spouses (bidirectional)
+    SIBLING_OF  — person_a and person_b are siblings (bidirectional).
+                  Added 2026-10-22 (owner decision) so a member can add a
+                  Brother/Sister directly, without first needing a parent
+                  in the graph. See the SIBLING_OF handling note below.
 
 Traversal step types (internal):
-    UP      — move to a parent   (reverse of PARENT_OF)
-    DOWN    — move to a child    (forward  PARENT_OF)
-    SPOUSE  — move to a spouse   (either direction of SPOUSE_OF)
+    UP       — move to a parent    (reverse of PARENT_OF)
+    DOWN     — move to a child     (forward  PARENT_OF)
+    SPOUSE   — move to a spouse    (either direction of SPOUSE_OF)
+    SIBLING  — move to a sibling   (either direction of SIBLING_OF)
 
 The path from viewer → target is a tuple of step types.  A lookup table
 maps each path pattern to a gendered relationship label pair
@@ -21,6 +26,33 @@ which label to use.
 Design decision:  Only direct edges are stored.  Every other kinship
 term is derived.  When the Family Head changes, zero data re-entry
 is required — the graph is the same, only the viewer changes.
+
+SIBLING_OF handling (owner decision, 2026-10-22):
+
+  - Redundancy with shared-parent paths: once a parent is known for two
+    people already linked by a direct SIBLING_OF edge, there are now two
+    paths between them — the direct SIBLING_OF edge (1 step) and the
+    shared-parent path (UP then DOWN — 2 steps). Both resolve to the
+    same label, and BFS below only ever keeps the *first* (shortest)
+    path found per target node, so the direct edge simply wins
+    display-wise with no contradiction or double-listing. We
+    deliberately do NOT delete the direct SIBLING_OF edge once a
+    shared-parent path appears: keeping both is safer under later edits
+    (e.g. if the parent's PARENT_OF edge is later removed, the sibling
+    relationship must not silently disappear — the direct edge is what
+    keeps it intact).
+
+  - Transitivity: a sibling relationship is an equivalence relation in
+    real life (A-B siblings and B-C siblings implies A-C siblings), and
+    that must hold even when no shared parent is on file for either
+    pair. ``_path_to_label`` below canonicalizes any run of one-or-more
+    consecutive SIBLING steps down to a single (UP, DOWN) pair before
+    the PATH_LABELS lookup — the same pair a shared-parent hop already
+    produces. So (SIBLING,) and (SIBLING, SIBLING, ...) both resolve
+    like (UP, DOWN) → "Brother"/"Sister", and a SIBLING step chained
+    with other steps (e.g. (SIBLING, SPOUSE)) resolves like
+    (UP, DOWN, SPOUSE) → "Brother-in-Law"/"Sister-in-Law" — no new
+    PATH_LABELS entries were needed.
 """
 
 from __future__ import annotations
@@ -35,9 +67,10 @@ from uuid import UUID
 # ── Step types ───────────────────────────────────────────────────────────
 
 class Step(Enum):
-    UP = "UP"          # to parent
-    DOWN = "DOWN"      # to child
-    SPOUSE = "SPOUSE"  # to spouse
+    UP = "UP"            # to parent
+    DOWN = "DOWN"        # to child
+    SPOUSE = "SPOUSE"    # to spouse
+    SIBLING = "SIBLING"  # to sibling (direct SIBLING_OF edge)
 
 
 # ── Path → label mapping ────────────────────────────────────────────────
@@ -244,6 +277,11 @@ class FamilyGraph:
             # Bidirectional
             self.adjacency[person_a_pk].append((person_b_pk, Step.SPOUSE))
             self.adjacency[person_b_pk].append((person_a_pk, Step.SPOUSE))
+        elif link_type == "SIBLING_OF":
+            # Bidirectional, same convention as SPOUSE_OF (store one row,
+            # traversable either direction).
+            self.adjacency[person_a_pk].append((person_b_pk, Step.SIBLING))
+            self.adjacency[person_b_pk].append((person_a_pk, Step.SIBLING))
 
     def compute_relationships(
         self,
@@ -310,8 +348,38 @@ class FamilyGraph:
         return results
 
     @staticmethod
+    def _canonicalize_siblings(path: tuple[Step, ...]) -> tuple[Step, ...]:
+        """
+        Collapse every maximal run of one-or-more consecutive SIBLING
+        steps into a single (UP, DOWN) pair — the same pair a
+        shared-parent hop already produces — so PATH_LABELS only ever
+        needs entries for the shared-parent form.
+
+        This is what makes SIBLING_OF transitive (A-B and B-C siblings
+        with no parent on file for either pair still resolve A-C to
+        "Brother"/"Sister", since (SIBLING, SIBLING) collapses to the
+        same (UP, DOWN) as a single direct SIBLING_OF edge) and lets a
+        SIBLING step compose correctly with surrounding steps (e.g.
+        (SIBLING, SPOUSE) → (UP, DOWN, SPOUSE) = "Brother-in-Law").
+        """
+        canonical: list[Step] = []
+        i = 0
+        n = len(path)
+        while i < n:
+            if path[i] == Step.SIBLING:
+                canonical.append(Step.UP)
+                canonical.append(Step.DOWN)
+                while i < n and path[i] == Step.SIBLING:
+                    i += 1
+            else:
+                canonical.append(path[i])
+                i += 1
+        return tuple(canonical)
+
+    @staticmethod
     def _path_to_label(path: tuple[Step, ...], gender_code: Optional[str]) -> str:
         """Map a BFS path to a human-readable relationship label."""
+        path = FamilyGraph._canonicalize_siblings(path)
         labels = PATH_LABELS.get(path)
         if labels is None:
             return "Relative"
@@ -330,7 +398,9 @@ class FamilyGraph:
         """
         Compute generation offset from a path.
 
-        UP = -1, DOWN = +1, SPOUSE = 0.
+        UP = -1, DOWN = +1, SPOUSE = 0, SIBLING = 0 (SIBLING is a
+        same-generation hop, same as the (UP, DOWN) pair it
+        canonicalizes to for label lookup — see _canonicalize_siblings).
         """
         gen = 0
         for step in path:
@@ -338,7 +408,7 @@ class FamilyGraph:
                 gen -= 1
             elif step == Step.DOWN:
                 gen += 1
-            # SPOUSE: no generation change
+            # SPOUSE / SIBLING: no generation change
         return gen
 
 

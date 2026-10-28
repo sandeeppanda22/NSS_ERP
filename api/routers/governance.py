@@ -29,7 +29,16 @@ Unified Body Governance Model (GOV-BR-004, SOL-GOV-002/004). Endpoints:
     GET    /api/v1/governance/bodies/{body_pk}/acting-assignments
     POST   /api/v1/governance/bodies/{body_pk}/acting-assignments
     POST   /api/v1/governance/acting-assignments/{pk}/end
+    POST   /api/v1/governance/acting-assignments/{pk}/approve
+    POST   /api/v1/governance/acting-assignments/{pk}/reject
     GET    /api/v1/governance/advisory-board/missing-nominations
+
+  Member-facing "act on my behalf" delegation (login-only, self-role gated):
+    GET    /api/v1/governance/me/positions
+    GET    /api/v1/governance/me/acting-delegations
+    POST   /api/v1/governance/me/acting-delegations
+    POST   /api/v1/governance/me/acting-delegations/{pk}/end
+    GET    /api/v1/governance/me/pending-acting-approvals
 
   Elections / nominations / votes / results:
     GET    /api/v1/governance/me/parichalak-status
@@ -105,9 +114,12 @@ from api.schemas.governance import (
     CreateBodyRequest,
     CreateBodyTypeRequest,
     CreateElectionRequest,
+    CreateMyActingDelegationBatchRequest,
+    CreateMyActingDelegationRequest,
     CreateNominationRequest,
     CreatePositionRequest,
     DeclareResultRequest,
+    DecideActingAssignmentRequest,
     DecideAssignmentRemovalRequest,
     ElectionListResponse,
     ElectionResponse,
@@ -280,6 +292,7 @@ def update_body_type(
 ) -> BodyTypeResponse:
     """Edit a body type's name/description. body_type_code is immutable (identity)."""
     with conn.cursor() as cur:
+        _require_scope_for_org_or_nss_wide(cur, user, None, "edit a governance body type")
         require_entity(cur, "body_type_master", str(body_type_master_pk), label="Body type")
         sets, params = [], []
         if body.body_type_name is not None:
@@ -419,6 +432,7 @@ def update_position(
 ) -> PositionResponse:
     """Edit a position's name/description/display_order. position_code is immutable."""
     with conn.cursor() as cur:
+        _require_scope_for_org_or_nss_wide(cur, user, None, "edit a governance position")
         require_entity(cur, "position_master", str(position_master_pk), label="Position")
         sets, params = [], []
         if body.position_name is not None:
@@ -619,6 +633,13 @@ def list_bodies(
     include_inactive: bool = Query(False),
     sort_by: str | None = Query(None),
     sort_dir: str | None = Query(None),
+    include_members: bool = Query(
+        False,
+        description="Attach each body's current composition (same member shape as "
+                    "/public/national-bodies, via the shared "
+                    "_assemble_bodies_with_members) — drives the org-dashboard "
+                    "governance cards.",
+    ),
     user: UserContext = Depends(
         require_any_permission("GOVERNANCE_VIEW", "GOVERNANCE_MANAGE")
     ),
@@ -661,8 +682,32 @@ def list_bodies(
         )
         rows = cur.fetchall()
 
+        # include_members: reuse the SAME composition assembler the public
+        # panels use, so the org-dashboard governance cards and the member
+        # dashboard's Governance tab render from one identical member shape
+        # (owner request, 2026-10-23). Must run inside this `with` block —
+        # the assembler needs the live cursor. Keyed by body_master_pk, never
+        # positionally. When false, nothing changes: all three added fields
+        # stay None and the response is byte-for-byte what it always was.
+        composition: dict[str, dict] = {}
+        if include_members:
+            composition = {
+                str(b["body_master_pk"]): b
+                for b in _assemble_bodies_with_members(cur, rows)
+            }
+
+    items = []
+    for r in rows:
+        item = _row_to_body(r)
+        extra = composition.get(str(r[0]))
+        if extra is not None:
+            item.members = extra["members"]
+            item.member_count = extra["member_count"]
+            item.scope_label = extra["scope_label"]
+        items.append(item)
+
     return BodyListResponse(
-        items=[_row_to_body(r) for r in rows], total=total, page=page, page_size=page_size,
+        items=items, total=total, page=page, page_size=page_size,
     )
 
 
@@ -852,6 +897,180 @@ def _mobile_display(country_phone_code, mobile_number) -> str | None:
     return f"{code} {num}".strip() if code else num
 
 
+def _assemble_bodies_with_members(cur, body_rows) -> list[dict]:
+    """
+    Attach each body's current composition to the given _BODY_SELECT_SQL rows
+    and shape them for the read-only public governance panels (national-bodies
+    and my-sakha-bodies). Shared so both endpoints produce the identical member
+    shape from one query — no duplicated composition SQL.
+
+    Each member's home Sakha (via sangha_sevi.organization_pk) plus that Sakha's
+    Anchalika/Zilla parent is resolved by walking UP the organization tree. No
+    existing helper does this (every CTE elsewhere in the codebase, e.g.
+    actor_scope_org_pks, walks DOWN from a root to its descendants) — this is a
+    new upward walk, mirrored on the same parent_organization_pk recursion/index
+    (idx_organization_parent_active) those downward CTEs already use. Needed
+    because bodies like the Advisory Board draw one representative per Sakha —
+    without the Sakha (and its Anchalika/Zilla), the composition table can't
+    tell them apart.
+    """
+    body_pks = [str(r[0]) for r in body_rows]
+    members_by_body: dict[str, list] = {pk: [] for pk in body_pks}
+    if body_pks:
+        cur.execute(
+            f"""
+            WITH RECURSIVE assignment_rows AS (
+                SELECT a.body_master_pk, pm.position_name, pm.display_order,
+                       {_person_name_sql('p')} AS person_name, ss.sangha_sevi_id,
+                       a.effective_from, a.effective_to,
+                       ss.organization_pk AS sakha_org_pk,
+                       a.person_pk, pm.position_code
+                FROM nss.body_member_assignment a
+                JOIN nss.position_master pm
+                  ON pm.position_master_pk = a.position_master_pk
+                JOIN nss.person p ON p.person_pk = a.person_pk
+                LEFT JOIN nss.sangha_sevi ss
+                  ON ss.sangha_sevi_pk = a.sangha_sevi_pk
+                WHERE a.body_master_pk::text = ANY(%s)
+                  AND a.is_active = TRUE
+                  AND a.assignment_status IN ('ASSIGNED', 'ACTIVE')
+            ),
+            ancestors AS (
+                SELECT o.organization_pk AS start_pk, o.organization_pk,
+                       o.parent_organization_pk, o.organization_name,
+                       md.value_code AS organization_type_code
+                FROM nss.organization o
+                JOIN nss.master_data md
+                  ON md.master_data_pk = o.organization_type_master_data_pk
+                WHERE o.organization_pk IN (
+                    SELECT DISTINCT sakha_org_pk FROM assignment_rows
+                    WHERE sakha_org_pk IS NOT NULL
+                )
+                UNION ALL
+                SELECT anc.start_pk, o.organization_pk,
+                       o.parent_organization_pk, o.organization_name,
+                       md.value_code
+                FROM nss.organization o
+                JOIN nss.master_data md
+                  ON md.master_data_pk = o.organization_type_master_data_pk
+                JOIN ancestors anc ON anc.parent_organization_pk = o.organization_pk
+            )
+            SELECT ar.body_master_pk, ar.position_name, ar.display_order,
+                   ar.person_name, ar.sangha_sevi_id,
+                   ar.effective_from, ar.effective_to,
+                   sakha.organization_name AS sakha_name,
+                   az.organization_name AS anchalika_zilla_name,
+                   ar.person_pk, ar.position_code
+            FROM assignment_rows ar
+            LEFT JOIN nss.organization sakha ON sakha.organization_pk = ar.sakha_org_pk
+            LEFT JOIN ancestors az
+                   ON az.start_pk = ar.sakha_org_pk
+                  AND az.organization_type_code IN ('ANCHALIKA_SANGHA', 'ZILLA_SANGHA')
+            ORDER BY ar.display_order, ar.position_name
+            """,
+            (body_pks,),
+        )
+        for m in cur.fetchall():
+            members_by_body[str(m[0])].append({
+                "position_name": m[1],
+                "person_name": m[3].strip() if m[3] and m[3].strip() else None,
+                "sangha_sevi_id": m[4],
+                "effective_from": m[5],
+                "effective_to": m[6],
+                "sakha_name": m[7],
+                # Added for the member dashboard's "Send Application" addressing
+                # dropdowns (owner request, 2026-10-21) — the public panels this
+                # function backs (national-bodies, my-sakha-bodies) previously
+                # rendered name-only; a dropdown needs the actual person_pk to
+                # submit MemberApplicationCreate.recipient_person_pk against.
+                # Non-breaking: an added dict key, no existing consumer reads
+                # positionally.
+                "person_pk": m[9],
+                "anchalika_zilla_name": m[8],
+                # position_master.position_code — 2026-10-23 position-badge
+                # sweep, so every composition view can key
+                # NSS.positionBadgeClass() off the stable code.
+                "position_code": m[10],
+            })
+
+    # "Absent — Acting" lookup (owner ask #3, 2026-10-24: "when onbehalf is
+    # selected ... show he is absent.. and acting text beside the selected
+    # person everywhere"). Composition here is already login-only visible
+    # (no GOVERNANCE_VIEW required), so attaching each member's current
+    # LIVE (acting_status = 'ACTIVE') delegate is the only way an ordinary
+    # member's dashboard (the public panels + /me/positions, all backed by
+    # this function) can show it — GET /bodies/{pk}/acting-assignments
+    # requires GOVERNANCE_VIEW/MANAGE and is not available to them.
+    # Matched by (body_master_pk, position_code) — one active holder per
+    # position per body, so the match is unambiguous. Display-only: never
+    # changes who may act, approve, or vote.
+    #
+    # "Currently in effect" means today falls inside [effective_from,
+    # effective_to] — NOT "effective_to IS NULL" (bug found 2026-10-25:
+    # the owner's own test delegations both carry a real end date, e.g.
+    # "acting while I'm on leave this week", and effective_to IS NULL
+    # wrongly excluded every bounded-date delegation from this lookup,
+    # even while genuinely active today).
+    acting_by_body_position: dict[tuple[str, str], tuple[str, str]] = {}
+    if body_pks:
+        cur.execute(
+            """
+            SELECT a.body_master_pk, pm.position_code, a.person_pk,
+                   CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name)
+            FROM nss.acting_position_assignment a
+            JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
+            JOIN nss.person p ON p.person_pk = a.person_pk
+            WHERE a.body_master_pk::text = ANY(%s)
+              AND a.is_active = TRUE AND a.acting_status = 'ACTIVE'
+              AND a.effective_from <= CURRENT_DATE
+              AND (a.effective_to IS NULL OR a.effective_to >= CURRENT_DATE)
+            """,
+            (body_pks,),
+        )
+        for body_pk, position_code, acting_person_pk, acting_name in cur.fetchall():
+            name = acting_name.strip() if acting_name and acting_name.strip() else None
+            if name:
+                acting_by_body_position[(str(body_pk), position_code)] = (str(acting_person_pk), name)
+    for pk, members in members_by_body.items():
+        for m in members:
+            # (person_pk, person_name) of the live delegate, or (None, None) —
+            # owner request, 2026-10-25: the addressing dropdowns must route
+            # to the acting person's OWN person_pk when one exists, not just
+            # display their name next to the absent holder (see
+            # NSS.officeBearerDropdownOptions in nss-config.js, the consumer).
+            acting = acting_by_body_position.get((pk, m["position_code"]))
+            m["acting_person_pk"] = acting[0] if acting else None
+            m["acting_person_name"] = acting[1] if acting else None
+
+    bodies = []
+    for r in body_rows:
+        pk = str(r[0])
+        members = members_by_body.get(pk, [])
+        bodies.append({
+            "body_master_pk": r[0],
+            "body_type_name": r[2],
+            # Additive (2026-10-24, owner ask #4 "different colors to all
+            # body types"): the frontend keys NSS.govBodyCardClass/Title/
+            # ButtonClass() off body_type_code, so every _assemble_bodies_
+            # with_members() consumer (both /public/* panels and
+            # /me/positions) needs it on every body dict, not just the
+            # admin-only BodyResponse shape above.
+            "body_type_code": r[12],
+            "body_code": r[3],
+            "body_name": r[4],
+            "description": r[5],
+            "organization_pk": r[6],
+            "organization_name": r[7],
+            "scope_label": "NSS-wide" if r[6] is None else "Your Sakha",
+            "body_status": r[8],
+            "effective_from": r[9],
+            "effective_to": r[10],
+            "member_count": len(members),
+            "members": members,
+        })
+    return bodies
+
+
 @router.get("/public/national-bodies")
 def public_national_bodies(
     user: UserContext = Depends(get_current_user),
@@ -866,6 +1085,13 @@ def public_national_bodies(
         Mandali; and
       - the viewer's OWN Sakha Governing Body, resolved from their active
         sangha_sevi.organization_pk.
+
+    Ordered Kendra Governing Body, Advisory Board, Mahila Parichalana
+    Mandali (owner-specified display order, 2026-10-23 — not alphabetical),
+    with the viewer's own Sakha Governing Body last (the frontend's
+    govBodyGroups() splits it into its own "Your Sakha" group anyway, via
+    scope_label, so its position here only matters if that filter is ever
+    removed).
 
     No scope filtering beyond that — these are the bodies every member is
     entitled to see. No management/term-edit fields are exposed.
@@ -897,106 +1123,75 @@ def public_national_bodies(
                  OR (bm.organization_pk = %s
                      AND bt.body_type_code = 'SAKHA_GOVERNING_BODY')
                   )
-            ORDER BY (bm.organization_pk IS NOT NULL), bm.body_name
+            ORDER BY (bm.organization_pk IS NOT NULL),
+                     CASE bt.body_type_code
+                         WHEN 'KENDRA_GOVERNING_BODY' THEN 1
+                         WHEN 'ADVISORY_BOARD' THEN 2
+                         WHEN 'MAHILA_PARICHALANA_MANDALI' THEN 3
+                         ELSE 4
+                     END,
+                     bm.body_name
             """,
             (own_sakha_pk,),
         )
         body_rows = cur.fetchall()
 
-        body_pks = [str(r[0]) for r in body_rows]
-        members_by_body: dict[str, list] = {pk: [] for pk in body_pks}
-        if body_pks:
-            # Each member's home Sakha (via sangha_sevi.organization_pk) plus
-            # that Sakha's Anchalika/Zilla parent — resolved by walking UP the
-            # organization tree. No existing helper does this (every CTE
-            # elsewhere in the codebase, e.g. actor_scope_org_pks, walks DOWN
-            # from a root to its descendants) — this is a new upward walk,
-            # mirrored on the same parent_organization_pk recursion/index
-            # (idx_organization_parent_active) those downward CTEs already use.
-            # Needed because bodies like the Advisory Board draw one
-            # representative per Sakha — without the Sakha (and its
-            # Anchalika/Zilla), the composition table can't tell them apart.
-            cur.execute(
-                f"""
-                WITH RECURSIVE assignment_rows AS (
-                    SELECT a.body_master_pk, pm.position_name, pm.display_order,
-                           {_person_name_sql('p')} AS person_name, ss.sangha_sevi_id,
-                           a.effective_from, a.effective_to,
-                           ss.organization_pk AS sakha_org_pk
-                    FROM nss.body_member_assignment a
-                    JOIN nss.position_master pm
-                      ON pm.position_master_pk = a.position_master_pk
-                    JOIN nss.person p ON p.person_pk = a.person_pk
-                    LEFT JOIN nss.sangha_sevi ss
-                      ON ss.sangha_sevi_pk = a.sangha_sevi_pk
-                    WHERE a.body_master_pk::text = ANY(%s)
-                      AND a.is_active = TRUE
-                      AND a.assignment_status IN ('ASSIGNED', 'ACTIVE')
-                ),
-                ancestors AS (
-                    SELECT o.organization_pk AS start_pk, o.organization_pk,
-                           o.parent_organization_pk, o.organization_name,
-                           md.value_code AS organization_type_code
-                    FROM nss.organization o
-                    JOIN nss.master_data md
-                      ON md.master_data_pk = o.organization_type_master_data_pk
-                    WHERE o.organization_pk IN (
-                        SELECT DISTINCT sakha_org_pk FROM assignment_rows
-                        WHERE sakha_org_pk IS NOT NULL
-                    )
-                    UNION ALL
-                    SELECT anc.start_pk, o.organization_pk,
-                           o.parent_organization_pk, o.organization_name,
-                           md.value_code
-                    FROM nss.organization o
-                    JOIN nss.master_data md
-                      ON md.master_data_pk = o.organization_type_master_data_pk
-                    JOIN ancestors anc ON anc.parent_organization_pk = o.organization_pk
-                )
-                SELECT ar.body_master_pk, ar.position_name, ar.display_order,
-                       ar.person_name, ar.sangha_sevi_id,
-                       ar.effective_from, ar.effective_to,
-                       sakha.organization_name AS sakha_name,
-                       az.organization_name AS anchalika_zilla_name
-                FROM assignment_rows ar
-                LEFT JOIN nss.organization sakha ON sakha.organization_pk = ar.sakha_org_pk
-                LEFT JOIN ancestors az
-                       ON az.start_pk = ar.sakha_org_pk
-                      AND az.organization_type_code IN ('ANCHALIKA_SANGHA', 'ZILLA_SANGHA')
-                ORDER BY ar.display_order, ar.position_name
-                """,
-                (body_pks,),
-            )
-            for m in cur.fetchall():
-                members_by_body[str(m[0])].append({
-                    "position_name": m[1],
-                    "person_name": m[3].strip() if m[3] and m[3].strip() else None,
-                    "sangha_sevi_id": m[4],
-                    "effective_from": m[5],
-                    "effective_to": m[6],
-                    "sakha_name": m[7],
-                    "anchalika_zilla_name": m[8],
-                })
+        bodies = _assemble_bodies_with_members(cur, body_rows)
+    return {"bodies": bodies}
 
-    bodies = []
-    for r in body_rows:
-        pk = str(r[0])
-        members = members_by_body.get(pk, [])
-        bodies.append({
-            "body_master_pk": r[0],
-            "body_type_name": r[2],
-            "body_code": r[3],
-            "body_name": r[4],
-            "description": r[5],
-            "organization_pk": r[6],
-            "organization_name": r[7],
-            "scope_label": "NSS-wide" if r[6] is None else "Your Sakha",
-            "body_status": r[8],
-            "effective_from": r[9],
-            "effective_to": r[10],
-            "member_count": len(members),
-            "members": members,
-        })
+
+@router.get("/public/my-sakha-bodies")
+def public_my_sakha_bodies(
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_connection),
+) -> dict:
+    """
+    Read-only panel of the viewer's OWN Sakha-level governance bodies for ANY
+    logged-in member (dashboard Governance tab): their Sakha Governing Body,
+    that Sakha's org-scoped Mahila Parichalana Mandali, and that Sakha's
+    Sevak Sangha Executive — all three attach to the SAME Sakha
+    organization_pk, not a distinct org (confirmed against
+    admin.js::govBodyOrgTypeByBodyType / api/routers/admin.py's
+    create_organization: there is no separate "Mahila Sangha"/"Sevak Sangha"
+    org creation path). Only bodies that actually exist for this Sakha are
+    returned — a Sakha with no Sevak Sangha Executive simply gets no row for
+    it, so the frontend never renders an empty box for a body that was never
+    created (owner-specified, 2026-10-23). Login-only (not GOVERNANCE_VIEW) —
+    every member is entitled to see their own Sakha's bodies, mirroring
+    /public/national-bodies.
+
+    Returns an empty list when the viewer has no active Sakha Sangha membership
+    (e.g. a Kendra-level member). Reuses _home_sakha (Sakha resolution) and
+    _assemble_bodies_with_members (identical member shape as national-bodies).
+    """
+    with conn.cursor() as cur:
+        own_sakha_pk = None
+        if user.person_pk is not None:
+            own_sakha_pk, _ = _home_sakha(cur, user.person_pk)
+        if own_sakha_pk is None:
+            return {"bodies": []}
+
+        cur.execute(
+            f"""
+            {_BODY_SELECT_SQL}
+            WHERE bm.is_active = TRUE
+              AND bm.organization_pk = %s
+              AND bt.body_type_code IN (
+                    'SAKHA_GOVERNING_BODY', 'MAHILA_PARICHALANA_MANDALI',
+                    'SEVAK_SANGHA_EXECUTIVE'
+                  )
+            ORDER BY CASE bt.body_type_code
+                         WHEN 'SAKHA_GOVERNING_BODY' THEN 1
+                         WHEN 'MAHILA_PARICHALANA_MANDALI' THEN 2
+                         WHEN 'SEVAK_SANGHA_EXECUTIVE' THEN 3
+                         ELSE 4
+                     END,
+                     bm.body_name
+            """,
+            (own_sakha_pk,),
+        )
+        body_rows = cur.fetchall()
+        bodies = _assemble_bodies_with_members(cur, body_rows)
     return {"bodies": bodies}
 
 
@@ -1056,10 +1251,20 @@ _ASSIGNMENT_SELECT_SQL = f"""
     SELECT a.body_member_assignment_pk, a.body_master_pk, a.position_master_pk,
            pm.position_name, a.person_pk, {_person_name_sql('p')}, a.sangha_sevi_pk,
            a.effective_from, a.effective_to, a.assignment_status,
-           a.assignment_reference, a.remarks, a.is_active, a.resignation_reason
+           a.assignment_reference, a.remarks, a.is_active, a.resignation_reason,
+           pm.position_code,
+           -- Appended 2026-10-24 (admin Assignments-tab Sakha filter): the
+           -- holder's current home Sakha, via the assignment's own
+           -- sangha_sevi_pk. LEFT JOINs so a holder with no/inactive Sangha
+           -- Sevi still returns a row (sakha_name/pk come back NULL). Columns
+           -- are APPENDED at the end to keep every positional r[n] read above
+           -- stable (several callers read this SQL positionally).
+           sorg.organization_name, sorg.organization_pk
     FROM nss.body_member_assignment a
     JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
     JOIN nss.person p ON p.person_pk = a.person_pk
+    LEFT JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = a.sangha_sevi_pk
+    LEFT JOIN nss.organization sorg ON sorg.organization_pk = ss.organization_pk
 """
 
 
@@ -1069,7 +1274,8 @@ def _row_to_assignment(r) -> AssignmentResponse:
         position_name=r[3], person_pk=r[4], person_name=r[5] if r[5] and r[5].strip() else None,
         sangha_sevi_pk=r[6], effective_from=r[7], effective_to=r[8],
         assignment_status=r[9], assignment_reference=r[10], remarks=r[11], is_active=r[12],
-        resignation_reason=r[13],
+        resignation_reason=r[13], position_code=r[14],
+        sakha_name=r[15], sakha_organization_pk=r[16],
     )
 
 
@@ -1139,16 +1345,29 @@ _COMPOSITION_RULES: dict[str, dict] = {
                       "JOINT_SECRETARY", "TREASURER", "MEMBER"),
         "seat_limit": 8,
     },
+    # TREASURER, not CASHIER — owner decision (2026-10-23), confirmed after
+    # being shown the MOA source's own "Cashier" wording for this office
+    # (docs/01_Authoritative_References/MAHILA_SANGHA/SECTION-A_MEMORANDUM_AND_
+    # REGISTRATION/REF-MS-MOA_Memorandum_and_Registration.md:293): Treasurer is
+    # now the governing-body composition position at EVERY tier (Kendra, this
+    # Sakha-level Mahila PM seat, Sakha GB, Sevak Sangha Executive, and the
+    # Anchalika/Zilla/Patha Chakra GBs below), superseding the Sakha-tier/
+    # lower-tier "Cashier" terminology previously modeled here per §63 and the
+    # MOA document. CASHIER is NOT deleted from position_master — it remains a
+    # valid position, repurposed as an optional, person-to-event assignment
+    # (conceptual only; Programmes & Events is an unbuilt/deferred module),
+    # distinct from body membership, and is therefore no longer assignable in
+    # ANY _COMPOSITION_RULES entry.
     "MAHILA_PARICHALANA_MANDALI@SAKHA": {
-        "positions": ("PRESIDENT", "SECRETARY", "CASHIER"),
+        "positions": ("PRESIDENT", "SECRETARY", "TREASURER"),
         "seat_limit": 3,
     },
     "SAKHA_GOVERNING_BODY": {
-        "positions": ("PRESIDENT", "SECRETARY", "CASHIER", "MEMBER"),
+        "positions": ("PRESIDENT", "SECRETARY", "TREASURER", "MEMBER"),
         "seat_limit": 9,
     },
     "SEVAK_SANGHA_EXECUTIVE": {
-        "positions": ("PRESIDENT", "SECRETARY", "CASHIER"),
+        "positions": ("PRESIDENT", "SECRETARY", "TREASURER"),
         "seat_limit": 3,
     },
     # Anchalika/Zilla/Patha Chakra Governing Bodies (§63 composite auto-grant
@@ -1157,17 +1376,18 @@ _COMPOSITION_RULES: dict[str, dict] = {
     # NSS_ERP_ANCHALIKA_ADMIN / NSS_ERP_ZILLA_ADMIN / NSS_ERP_PATHA_CHAKRA_ADMIN
     # (scoped to that organization). Modeled directly on
     # SEVAK_SANGHA_EXECUTIVE — org-scoped, admin-created via "Add Body", no
-    # NSS-wide singleton counterpart.
+    # NSS-wide singleton counterpart. TREASURER (not Cashier — see the
+    # 2026-10-23 owner decision note above) is the optional third seat.
     "ANCHALIKA_GOVERNING_BODY": {
-        "positions": ("PRESIDENT", "SECRETARY", "CASHIER"),
+        "positions": ("PRESIDENT", "SECRETARY", "TREASURER"),
         "seat_limit": 3,
     },
     "ZILLA_GOVERNING_BODY": {
-        "positions": ("PRESIDENT", "SECRETARY", "CASHIER"),
+        "positions": ("PRESIDENT", "SECRETARY", "TREASURER"),
         "seat_limit": 3,
     },
     "PATHA_CHAKRA_GOVERNING_BODY": {
-        "positions": ("PRESIDENT", "SECRETARY", "CASHIER"),
+        "positions": ("PRESIDENT", "SECRETARY", "TREASURER"),
         "seat_limit": 3,
     },
 }
@@ -1645,6 +1865,118 @@ def _require_valid_composition(cur, body_master_pk, org_pk, position_master_pk, 
         )
 
 
+def _write_assignment_convert_or_insert(
+    cur, *, body_master_pk, position_master_pk, person_pk, sangha_sevi_pk,
+    effective_from, effective_to, assignment_reference, remarks,
+    actor_pk, actor_user_account_pk, conflict_detail,
+) -> UUID:
+    """
+    Write one body_member_assignment "slot" for (body, person) — either a
+    fresh INSERT, or, when the person already holds an active open-ended
+    MEMBER row on this SAME body and the new position is not MEMBER
+    itself, an in-place UPDATE of that existing row instead of a second
+    row.
+
+    Owner-confirmed 2026-10-24: "member and president/secretary all
+    same... instead of promoting can't we just point the president post
+    to a member" — supersedes the 2026-10-23 "insert the officer row,
+    then end the prior MEMBER row" approach. That approach left two
+    historical rows behind per promotion and, for Advisory Board
+    specifically, broke list_missing_nominations(): its "has this Sakha
+    nominated someone" check only recognised a currently-active MEMBER
+    row, so a promoted President/Secretary's Sakha wrongly showed up as
+    "not yet represented" even though the body was reported Full.
+    Converting in place keeps exactly one row per person per body at all
+    times, so that representation check (now matching ANY current
+    position, not just MEMBER — see the fix in list_missing_nominations)
+    stays correct by construction, and there is nothing to display
+    except that one row's current position (no more dual Member+officer
+    badges for the same person).
+
+    No history is lost: fn_audit_trigger() writes a field_change_log row
+    for every field this UPDATE changes, same as any other UPDATE on this
+    table — the fact that this person was once a plain Member is still
+    recoverable from that log.
+
+    Deliberately narrow, same as the superseded helper: only ever
+    converts the person's own MEMBER row on THIS body; a different
+    (non-MEMBER) position they already hold (e.g. Mukhya Pujaka,
+    Treasurer, an inherited Parichalak) is never touched, so multi-office
+    holders are unaffected. Assigning someone AS Member is never a
+    "promotion" and always inserts normally.
+
+    Shared by create_assignment() and apply_result() — the only two
+    writers of this table (no-duplicate-SQL standing rule).
+    """
+    cur.execute(
+        "SELECT position_code FROM nss.position_master WHERE position_master_pk = %s",
+        (str(position_master_pk),),
+    )
+    row = cur.fetchone()
+    new_position_code = row[0] if row else None
+
+    existing_member_pk = None
+    if new_position_code != "MEMBER":
+        cur.execute(
+            f"""
+            SELECT a.body_member_assignment_pk FROM nss.body_member_assignment a
+            JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
+            WHERE a.body_master_pk = %s AND a.person_pk = %s
+              AND pm.position_code = 'MEMBER' AND {_CURRENT_ASSIGNMENT_SQL}
+            LIMIT 1
+            """,
+            (str(body_master_pk), str(person_pk)),
+        )
+        row = cur.fetchone()
+        existing_member_pk = row[0] if row else None
+
+    if existing_member_pk is not None:
+        cur.execute(
+            """
+            UPDATE nss.body_member_assignment
+            SET position_master_pk = %s, sangha_sevi_pk = %s,
+                effective_from = %s, effective_to = %s,
+                assignment_reference = %s, remarks = %s, updated_at = NOW()
+            WHERE body_member_assignment_pk = %s
+            """,
+            (str(position_master_pk), str(sangha_sevi_pk),
+             effective_from, effective_to, assignment_reference, remarks,
+             str(existing_member_pk)),
+        )
+        log_audit(
+            cur, action="UPDATE", table_name="body_member_assignment",
+            record_pk=str(existing_member_pk), actor_pk=actor_pk,
+            actor_user_account_pk=str(actor_user_account_pk),
+            module="governance",
+            summary=f"Converted existing Member seat to {new_position_code} in place",
+        )
+        return existing_member_pk
+
+    cur.execute("SAVEPOINT assignment_write")
+    try:
+        cur.execute(
+            """
+            INSERT INTO nss.body_member_assignment (
+                body_master_pk, position_master_pk, person_pk, sangha_sevi_pk,
+                effective_from, effective_to, assignment_reference, remarks
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING body_member_assignment_pk
+            """,
+            (str(body_master_pk), str(position_master_pk), str(person_pk), str(sangha_sevi_pk),
+             effective_from, effective_to, assignment_reference, remarks),
+        )
+        pk = cur.fetchone()[0]
+    except psycopg2.errors.UniqueViolation:
+        cur.execute("ROLLBACK TO SAVEPOINT assignment_write")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict_detail)
+    cur.execute("RELEASE SAVEPOINT assignment_write")
+    log_audit(cur, action="CREATE", table_name="body_member_assignment", record_pk=str(pk),
+              actor_pk=actor_pk, actor_user_account_pk=str(actor_user_account_pk),
+              module="governance", summary="Created body member assignment")
+    return pk
+
+
+
 def _get_membership_type(cur, person_pk: UUID) -> str | None:
     """
     Return the active Sangha Sevi's membership_type value_code
@@ -2029,6 +2361,17 @@ def list_assignments(
 @router.get("/bodies/{body_master_pk}/allowed-positions")
 def list_allowed_positions(
     body_master_pk: UUID,
+    exclude_filled: bool = Query(
+        True,
+        description="Drop a position already occupied by a current office-bearer "
+                    "from the list (the default — used by the 'Add Assignment' "
+                    "dropdown, which would otherwise 409). Pass false for the "
+                    "Acting Position Assignment form: interim cover is legitimate "
+                    "WHILE a seat is vacant or its holder unavailable, so a "
+                    "currently-filled position must still be offered there "
+                    "(GOV-BR-018/019/020) — acting assignments have no "
+                    "composition/seat-limit check at all.",
+    ),
     user: UserContext = Depends(
         require_any_permission("GOVERNANCE_VIEW", "GOVERNANCE_MANAGE")
     ),
@@ -2059,11 +2402,38 @@ def list_allowed_positions(
             ORDER BY display_order, position_name
             """
         )
+        all_positions = cur.fetchall()
+
+        # A position already occupied should not be offered again in the
+        # "Add Assignment" dropdown — mirrors _require_valid_composition's own
+        # rule 2 (an office-bearer position, i.e. anything but MEMBER, holds
+        # one person per body at a time) and rule 3 (Mukhya Pujaka / Parichalak
+        # are single NSS-wide seats). MEMBER itself is a multi-seat position
+        # (up to seat_limit) and is deliberately never excluded here just
+        # because some members already hold it. Computed as a single set so
+        # the dropdown and the 409 the backend would otherwise raise agree —
+        # same predicate, not re-derived.
+        filled_position_codes: set[str] = set()
+        if exclude_filled:
+            cur.execute(
+                f"""
+                SELECT DISTINCT pm.position_code
+                FROM nss.body_member_assignment a
+                JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
+                WHERE pm.position_code != 'MEMBER' AND {_CURRENT_ASSIGNMENT_SQL}
+                  AND (a.body_master_pk = %s OR pm.position_code = ANY(%s))
+                """,
+                (str(body_master_pk), list(_NSS_WIDE_SINGLETON_CODES)),
+            )
+            filled_position_codes = {r[0] for r in cur.fetchall()}
+
         positions = [
             {"position_master_pk": str(r[0]), "position_code": r[1],
              "position_name": r[2], "display_order": r[3]}
-            for r in cur.fetchall()
-            if (rule is None or r[1] in rule["positions"]) and r[1] != exclude_position_code
+            for r in all_positions
+            if (rule is None or r[1] in rule["positions"])
+            and r[1] != exclude_position_code
+            and r[1] not in filled_position_codes
         ]
         seat_limit = _resolve_seat_limit(cur, rule)
         cur.execute(
@@ -2072,7 +2442,18 @@ def list_allowed_positions(
             (str(body_master_pk),),
         )
         seats_filled = cur.fetchone()[0]
-    return {"positions": positions, "seat_limit": seat_limit, "seats_filled": seats_filled}
+    return {
+        "positions": positions,
+        "seat_limit": seat_limit,
+        "seats_filled": seats_filled,
+        # Lets the frontend scope its member-search typeahead correctly:
+        # Advisory Board (and any future body with this rule) fills
+        # PRESIDENT/SECRETARY from among the body's own existing MEMBER
+        # seat-holders (GOV-BR-033/034), so the candidate search must be
+        # restricted to this body's members, not the whole org subtree.
+        "officers_from_members": bool(rule and rule.get("officers_from_members")),
+        "organization_pk": str(org_pk) if org_pk else None,
+    }
 
 
 # Body types that display one or more INHERITED (non-assignable, read-only)
@@ -2153,10 +2534,10 @@ def list_advisory_board_missing_nominations(
     conn=Depends(get_connection),
 ) -> dict:
     """
-    Active Sakha Sanghas with no current Advisory Board MEMBER nomination.
-    NSS-wide admins only — a Sakha-scoped admin only has standing over its
-    own nomination (see _require_nominating_sakha_scope) and has no reason
-    to see every other Sakha's status.
+    Active Sakha Sanghas with no current representative on the Advisory
+    Board. NSS-wide admins only — a Sakha-scoped admin only has standing
+    over its own nomination (see _require_nominating_sakha_scope) and has
+    no reason to see every other Sakha's status.
     """
     with conn.cursor() as cur:
         if actor_scope_org_pks(cur, user) is not None:
@@ -2165,7 +2546,6 @@ def list_advisory_board_missing_nominations(
                 detail="Only an NSS-wide admin may view Advisory Board nomination status across all Sakhas.",
             )
 
-        nominated_position_code = _SAKHA_NOMINATED_POSITION_CODES.get("ADVISORY_BOARD")
         cur.execute(
             """
             SELECT bm.body_master_pk FROM nss.body_master bm
@@ -2180,6 +2560,18 @@ def list_advisory_board_missing_nominations(
             return {"items": [], "total": 0, "advisory_board_body_master_pk": None}
         body_master_pk = body_row[0]
 
+        # "Represented" means ANY current seat held by one of this Sakha's
+        # members on the Advisory Board — MEMBER, or PRESIDENT/SECRETARY if
+        # their MEMBER seat was converted in place on promotion (owner-
+        # confirmed 2026-10-24: "member and president/secretary all
+        # same... just point the president post to a member" —
+        # _write_assignment_convert_or_insert()). Filtering to
+        # pm.position_code = 'MEMBER' alone broke this the moment a
+        # Sakha's rep got promoted — their Sakha looked unrepresented even
+        # though the body correctly counted them as seated (seats_filled
+        # counts DISTINCT person_pk, position-agnostic, and was never
+        # wrong). No position_master join needed now that there is no
+        # position_code filter.
         cur.execute(
             f"""
             SELECT o.organization_pk, o.organization_name, o.organization_code
@@ -2189,14 +2581,13 @@ def list_advisory_board_missing_nominations(
               AND o.organization_pk NOT IN (
                   SELECT ss.organization_pk
                   FROM nss.body_member_assignment a
-                  JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
                   JOIN nss.sangha_sevi ss ON ss.person_pk = a.person_pk AND ss.is_active = TRUE
-                  WHERE a.body_master_pk = %s AND pm.position_code = %s
+                  WHERE a.body_master_pk = %s
                     AND {_CURRENT_ASSIGNMENT_SQL} AND ss.organization_pk IS NOT NULL
               )
             ORDER BY o.organization_name
             """,
-            (str(body_master_pk), nominated_position_code),
+            (str(body_master_pk),),
         )
         rows = cur.fetchall()
     items = [
@@ -2348,34 +2739,18 @@ def create_assignment(
             raise HTTPException(status_code=422, detail="Effective To cannot be before Effective From.")
 
         actor = user.actor_pk
-        cur.execute("SAVEPOINT assignment_insert")
-        try:
-            cur.execute(
-                """
-                INSERT INTO nss.body_member_assignment (
-                    body_master_pk, position_master_pk, person_pk, sangha_sevi_pk,
-                    effective_from, effective_to, assignment_reference, remarks
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING body_member_assignment_pk
-                """,
-                (str(body_master_pk), str(body.position_master_pk), str(body.person_pk),
-                 str(body.sangha_sevi_pk),
-                 effective_from, effective_to, body.assignment_reference, body.remarks),
-            )
-            pk = cur.fetchone()[0]
-        except psycopg2.errors.UniqueViolation:
-            cur.execute("ROLLBACK TO SAVEPOINT assignment_insert")
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "This person already holds this position in this body in an "
-                    "active, open-ended assignment. End the existing one first."
-                ),
-            )
-        cur.execute("RELEASE SAVEPOINT assignment_insert")
-        log_audit(cur, action="CREATE", table_name="body_member_assignment", record_pk=str(pk),
-                  actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                  module="governance", summary="Created body member assignment")
+        pk = _write_assignment_convert_or_insert(
+            cur,
+            body_master_pk=body_master_pk, position_master_pk=body.position_master_pk,
+            person_pk=body.person_pk, sangha_sevi_pk=body.sangha_sevi_pk,
+            effective_from=effective_from, effective_to=effective_to,
+            assignment_reference=body.assignment_reference, remarks=body.remarks,
+            actor_pk=actor, actor_user_account_pk=user.user_account_pk,
+            conflict_detail=(
+                "This person already holds this position in this body in an "
+                "active, open-ended assignment. End the existing one first."
+            ),
+        )
 
         cur.execute(f"{_ASSIGNMENT_SELECT_SQL} WHERE a.body_member_assignment_pk = %s", (str(pk),))
         r = cur.fetchone()
@@ -2763,10 +3138,12 @@ def reject_assignment_removal(
 _ACTING_SELECT_SQL = f"""
     SELECT a.acting_position_assignment_pk, a.body_master_pk, a.position_master_pk,
            pm.position_name, a.person_pk, {_person_name_sql('p')},
-           a.effective_from, a.effective_to, a.acting_status, a.reason, a.remarks, a.is_active
+           a.effective_from, a.effective_to, a.acting_status, a.reason, a.remarks, a.is_active,
+           pm.position_code, bm.body_name
     FROM nss.acting_position_assignment a
     JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
     JOIN nss.person p ON p.person_pk = a.person_pk
+    JOIN nss.body_master bm ON bm.body_master_pk = a.body_master_pk
 """
 
 
@@ -2775,8 +3152,94 @@ def _row_to_acting(r) -> ActingAssignmentResponse:
         acting_position_assignment_pk=r[0], body_master_pk=r[1], position_master_pk=r[2],
         position_name=r[3], person_pk=r[4], person_name=r[5] if r[5] and r[5].strip() else None,
         effective_from=r[6], effective_to=r[7], acting_status=r[8], reason=r[9],
-        remarks=r[10], is_active=r[11],
+        remarks=r[10], is_active=r[11], position_code=r[12], body_name=r[13],
     )
+
+
+def _insert_acting_assignment(
+    cur, user, *, body_master_pk, position_master_pk, person_pk,
+    effective_from, effective_to, reason, remarks, acting_status="ACTIVE",
+) -> ActingAssignmentResponse:
+    """
+    INSERT one nss.acting_position_assignment row + audit + re-select.
+
+    Single source of the acting-assignment write: shared by the admin
+    POST /bodies/{pk}/acting-assignments and the member-initiated
+    POST /me/acting-delegations (the "act on my behalf" flow). Both paths
+    write the identical row — only the authorization in front of them
+    differs — so the SQL, the SAVEPOINT/UniqueViolation→409 handling and
+    the log_audit() call live here once (no-duplicate-SQL standing rule).
+
+    acting_status defaults to ACTIVE (the DDL default, and what every
+    member-initiated self-delegation gets — immediate, no approval gate).
+    The admin-initiated path (create_acting_assignment) passes
+    'PENDING_APPROVAL' instead (owner decision A, 2026-10-23): it sits
+    there until the concerned person (person_pk on this row) approves or
+    rejects it via POST /acting-assignments/{pk}/approve|reject. Callers
+    must have validated dates and authority before calling.
+    """
+    cur.execute("SAVEPOINT acting_insert")
+    try:
+        cur.execute(
+            """
+            INSERT INTO nss.acting_position_assignment (
+                body_master_pk, position_master_pk, person_pk,
+                effective_from, effective_to, reason, remarks, acting_status
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING acting_position_assignment_pk
+            """,
+            (str(body_master_pk), str(position_master_pk), str(person_pk),
+             effective_from, effective_to, reason, remarks, acting_status),
+        )
+        pk = cur.fetchone()[0]
+    except psycopg2.errors.UniqueViolation:
+        cur.execute("ROLLBACK TO SAVEPOINT acting_insert")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This person already has an active, open-ended acting "
+                "assignment for this position in this body."
+            ),
+        )
+    cur.execute("RELEASE SAVEPOINT acting_insert")
+    log_audit(cur, action="CREATE", table_name="acting_position_assignment", record_pk=str(pk),
+              actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
+              module="governance", summary="Created acting position assignment")
+
+    cur.execute(f"{_ACTING_SELECT_SQL} WHERE a.acting_position_assignment_pk = %s", (str(pk),))
+    return _row_to_acting(cur.fetchone())
+
+
+def _close_acting_assignment(
+    cur, user, acting_position_assignment_pk, *, effective_to, remarks=None,
+) -> ActingAssignmentResponse:
+    """
+    UPDATE one acting row to ENDED + audit + re-select.
+
+    Shared by the admin POST /acting-assignments/{pk}/end and the
+    member-initiated POST /me/acting-delegations/{pk}/end — same write,
+    different authorization in front of it. Callers must have loaded the
+    row (404) and validated the date before calling.
+    """
+    cur.execute(
+        """
+        UPDATE nss.acting_position_assignment
+        SET effective_to = %s, acting_status = 'ENDED',
+            remarks = COALESCE(%s, remarks), updated_at = NOW()
+        WHERE acting_position_assignment_pk = %s
+        """,
+        (effective_to, remarks, str(acting_position_assignment_pk)),
+    )
+    log_audit(cur, action="UPDATE", table_name="acting_position_assignment",
+              record_pk=str(acting_position_assignment_pk), actor_pk=user.actor_pk,
+              actor_user_account_pk=str(user.user_account_pk),
+              module="governance", summary="Ended acting position assignment")
+
+    cur.execute(
+        f"{_ACTING_SELECT_SQL} WHERE a.acting_position_assignment_pk = %s",
+        (str(acting_position_assignment_pk),),
+    )
+    return _row_to_acting(cur.fetchone())
 
 
 @router.get(
@@ -2813,7 +3276,18 @@ def create_acting_assignment(
     user: UserContext = Depends(require_permission("GOVERNANCE_MANAGE")),
     conn=Depends(get_write_connection),
 ) -> ActingAssignmentResponse:
-    """Record a temporary/acting position holder (GOV-BR-018/019/020)."""
+    """
+    Record a temporary/acting position holder (GOV-BR-018/019/020).
+
+    Admin-initiated (owner decision A, 2026-10-23): the row lands as
+    PENDING_APPROVAL, not ACTIVE — "if admin does it then it will go to
+    the concerned person for approval" (the nominee named as person_pk).
+    It only becomes ACTIVE once that person calls
+    POST /acting-assignments/{pk}/approve, or REJECTED via .../reject.
+    Member-initiated self-delegation (POST /me/acting-delegations, the
+    sitting office bearer delegating their OWN seat) is a different path
+    and stays immediate ACTIVE — see _insert_acting_assignment.
+    """
     with conn.cursor() as cur:
         org_pk = _get_body_org_or_404(cur, body_master_pk)
         _require_scope_for_org_or_nss_wide(cur, user, org_pk, "manage acting position assignments")
@@ -2825,38 +3299,15 @@ def create_acting_assignment(
         if effective_to and effective_from and effective_to < effective_from:
             raise HTTPException(status_code=422, detail="Effective To cannot be before Effective From.")
 
-        actor = user.actor_pk
-        cur.execute("SAVEPOINT acting_insert")
-        try:
-            cur.execute(
-                """
-                INSERT INTO nss.acting_position_assignment (
-                    body_master_pk, position_master_pk, person_pk,
-                    effective_from, effective_to, reason, remarks
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING acting_position_assignment_pk
-                """,
-                (str(body_master_pk), str(body.position_master_pk), str(body.person_pk),
-                 effective_from, effective_to, body.reason, body.remarks),
-            )
-            pk = cur.fetchone()[0]
-        except psycopg2.errors.UniqueViolation:
-            cur.execute("ROLLBACK TO SAVEPOINT acting_insert")
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "This person already has an active, open-ended acting "
-                    "assignment for this position in this body."
-                ),
-            )
-        cur.execute("RELEASE SAVEPOINT acting_insert")
-        log_audit(cur, action="CREATE", table_name="acting_position_assignment", record_pk=str(pk),
-                  actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                  module="governance", summary="Created acting position assignment")
-
-        cur.execute(f"{_ACTING_SELECT_SQL} WHERE a.acting_position_assignment_pk = %s", (str(pk),))
-        r = cur.fetchone()
-    return _row_to_acting(r)
+        return _insert_acting_assignment(
+            cur, user,
+            body_master_pk=body_master_pk,
+            position_master_pk=body.position_master_pk,
+            person_pk=body.person_pk,
+            effective_from=effective_from, effective_to=effective_to,
+            reason=body.reason, remarks=body.remarks,
+            acting_status="PENDING_APPROVAL",
+        )
 
 
 @router.post(
@@ -2890,26 +3341,581 @@ def end_acting_assignment(
         if effective_from and effective_to and effective_to < effective_from:
             raise HTTPException(status_code=422, detail="Effective To cannot be before Effective From.")
 
-        cur.execute(
-            """
-            UPDATE nss.acting_position_assignment
-            SET effective_to = %s, acting_status = 'ENDED',
-                remarks = COALESCE(%s, remarks), updated_at = NOW()
-            WHERE acting_position_assignment_pk = %s
-            """,
-            (effective_to, body.remarks, str(acting_position_assignment_pk)),
+        return _close_acting_assignment(
+            cur, user, acting_position_assignment_pk,
+            effective_to=effective_to, remarks=body.remarks,
         )
-        log_audit(cur, action="UPDATE", table_name="acting_position_assignment",
-                  record_pk=str(acting_position_assignment_pk), actor_pk=user.actor_pk,
-                  actor_user_account_pk=str(user.user_account_pk),
-                  module="governance", summary="Ended acting position assignment")
+
+
+def _decide_acting_assignment(
+    cur, user, acting_position_assignment_pk, *, new_status, remarks, summary,
+) -> ActingAssignmentResponse:
+    """
+    UPDATE one PENDING_APPROVAL acting row to ACTIVE or REJECTED + audit +
+    re-select. Shared by approve_acting_assignment/reject_acting_assignment
+    — same shape, only acting_status and the audit summary differ.
+    effective_to is deliberately untouched here (that is _close_acting_
+    assignment's job, for POST .../end, not approve/reject).
+    """
+    cur.execute(
+        """
+        UPDATE nss.acting_position_assignment
+        SET acting_status = %s, remarks = COALESCE(%s, remarks), updated_at = NOW()
+        WHERE acting_position_assignment_pk = %s
+        """,
+        (new_status, remarks, str(acting_position_assignment_pk)),
+    )
+    log_audit(cur, action="UPDATE", table_name="acting_position_assignment",
+              record_pk=str(acting_position_assignment_pk), actor_pk=user.actor_pk,
+              actor_user_account_pk=str(user.user_account_pk),
+              module="governance", summary=summary)
+
+    cur.execute(
+        f"{_ACTING_SELECT_SQL} WHERE a.acting_position_assignment_pk = %s",
+        (str(acting_position_assignment_pk),),
+    )
+    return _row_to_acting(cur.fetchone())
+
+
+def _load_acting_for_decision(cur, acting_position_assignment_pk):
+    """404 if missing; returns (person_pk, acting_status) for the approve/
+    reject auth + state guards shared below."""
+    cur.execute(
+        """
+        SELECT person_pk, acting_status
+        FROM nss.acting_position_assignment
+        WHERE acting_position_assignment_pk = %s
+        """,
+        (str(acting_position_assignment_pk),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Acting assignment not found.")
+    return row
+
+
+@router.post(
+    "/acting-assignments/{acting_position_assignment_pk}/approve",
+    response_model=ActingAssignmentResponse,
+)
+def approve_acting_assignment(
+    acting_position_assignment_pk: UUID,
+    body: DecideActingAssignmentRequest,
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_write_connection),
+) -> ActingAssignmentResponse:
+    """
+    The concerned person (the nominee named on the row) approves an
+    admin-initiated acting assignment — PENDING_APPROVAL becomes ACTIVE
+    (owner decision A, 2026-10-23). Login-only: no permission/scope check
+    at all — the entire authorization is "is this your own row".
+    """
+    with conn.cursor() as cur:
+        person_pk, current_status = _load_acting_for_decision(cur, acting_position_assignment_pk)
+        if str(person_pk) != str(user.person_pk):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the person named on this acting assignment may approve or reject it.",
+            )
+        if current_status != "PENDING_APPROVAL":
+            raise HTTPException(
+                status_code=409, detail="This acting assignment is not pending approval.",
+            )
+        return _decide_acting_assignment(
+            cur, user, acting_position_assignment_pk,
+            new_status="ACTIVE", remarks=body.remarks,
+            summary="Approved acting position assignment",
+        )
+
+
+@router.post(
+    "/acting-assignments/{acting_position_assignment_pk}/reject",
+    response_model=ActingAssignmentResponse,
+)
+def reject_acting_assignment(
+    acting_position_assignment_pk: UUID,
+    body: DecideActingAssignmentRequest,
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_write_connection),
+) -> ActingAssignmentResponse:
+    """
+    The concerned person (the nominee named on the row) rejects an
+    admin-initiated acting assignment — PENDING_APPROVAL becomes REJECTED
+    (owner decision A, 2026-10-23). Login-only: no permission/scope check
+    at all — the entire authorization is "is this your own row".
+    """
+    with conn.cursor() as cur:
+        person_pk, current_status = _load_acting_for_decision(cur, acting_position_assignment_pk)
+        if str(person_pk) != str(user.person_pk):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the person named on this acting assignment may approve or reject it.",
+            )
+        if current_status != "PENDING_APPROVAL":
+            raise HTTPException(
+                status_code=409, detail="This acting assignment is not pending approval.",
+            )
+        return _decide_acting_assignment(
+            cur, user, acting_position_assignment_pk,
+            new_status="REJECTED", remarks=body.remarks,
+            summary="Rejected acting position assignment",
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Member-facing "act on my behalf" delegation (/me/acting-delegations)
+# ═════════════════════════════════════════════════════════════════════
+#
+# Owner asks #2/#3/#4 (2026-10-23). A sitting office bearer may, from
+# their OWN member dashboard, nominate another member of the SAME body to
+# act on their behalf in the specific position THEY hold. Login-only (no
+# GOVERNANCE_VIEW / GOVERNANCE_MANAGE) — authority comes from the caller's
+# own seat, checked with _active_office_bearer(), never from a permission.
+# Same table and same shared write helpers as the admin endpoints above;
+# no schema change (the delegating bearer is not stored — there is no
+# "delegated_by" column and one was deliberately NOT added; the set of
+# delegations a bearer may see/end is derived from their current seats).
+#
+# Admin-initiated delegation with an approval workflow (owner ask #5) is
+# NOT built here — it needs a schema change and is pending an owner
+# decision. The existing admin path is untouched.
+#
+# Route safety: every path below starts with the literal "me" segment, so
+# none can be swallowed by /bodies/{pk} or /acting-assignments/{pk}.
+# /me/parichalak-status is the precedent for a login-only /me route.
+
+
+def _my_office_bearer_seats(cur, person_pk) -> list[tuple]:
+    """
+    The caller's current office-bearer seats as
+    (body_master_pk, position_master_pk, position_code, position_name) rows.
+
+    Same predicate as _active_office_bearer() (active, open-ended,
+    ASSIGNED/ACTIVE/PENDING_REMOVAL, position_code != 'MEMBER') but
+    enumerating rather than testing — a plain Member is not an office
+    bearer and gets nothing. Shared by GET /me/positions and
+    GET /me/acting-delegations.
+    """
+    if person_pk is None:
+        return []
+    cur.execute(
+        """
+        SELECT a.body_master_pk, pm.position_master_pk, pm.position_code, pm.position_name
+        FROM nss.body_member_assignment a
+        JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
+        JOIN nss.body_master bm ON bm.body_master_pk = a.body_master_pk
+        WHERE a.person_pk = %s
+          AND a.is_active = TRUE
+          AND a.effective_to IS NULL
+          AND a.assignment_status IN ('ASSIGNED', 'ACTIVE', 'PENDING_REMOVAL')
+          AND pm.position_code != 'MEMBER'
+          AND bm.is_active = TRUE
+        ORDER BY pm.display_order, pm.position_name
+        """,
+        (str(person_pk),),
+    )
+    return cur.fetchall()
+
+
+@router.get("/me/positions")
+def get_my_governance_positions(
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_connection),
+) -> dict:
+    """
+    The bodies on which the caller currently holds an office-bearer seat,
+    each with that body's full current composition — so the dashboard can
+    build the "act on my behalf" candidate radio list without the caller
+    needing GOVERNANCE_VIEW (ordinary members do not hold it).
+
+    Login-only, read pool. A member who holds no office gets
+    {"bodies": []} — never an error.
+
+    Member rows come from _assemble_bodies_with_members() (the same shape
+    the /public/* governance panels already render), so there is no new
+    composition SQL here.
+    """
+    with conn.cursor() as cur:
+        seats = _my_office_bearer_seats(cur, user.person_pk)
+        if not seats:
+            return {"bodies": []}
+
+        positions_by_body: dict[str, list[dict]] = {}
+        for body_pk, position_pk, position_code, position_name in seats:
+            positions_by_body.setdefault(str(body_pk), []).append({
+                "position_master_pk": position_pk,
+                "position_code": position_code,
+                "position_name": position_name,
+            })
 
         cur.execute(
-            f"{_ACTING_SELECT_SQL} WHERE a.acting_position_assignment_pk = %s",
+            f"{_BODY_SELECT_SQL} WHERE bm.body_master_pk::text = ANY(%s) ORDER BY bm.body_name",
+            (list(positions_by_body.keys()),),
+        )
+        body_rows = cur.fetchall()
+        bodies = _assemble_bodies_with_members(cur, body_rows)
+        for b in bodies:
+            b["my_positions"] = positions_by_body.get(str(b["body_master_pk"]), [])
+    return {"bodies": bodies}
+
+
+def _validate_my_acting_delegation(
+    cur, user, *, body_master_pk, position_master_pk, person_pk,
+) -> tuple[str, str]:
+    """
+    The five authorization/consistency checks a member-initiated
+    "act on my behalf" delegation must pass, in order. Returns the
+    position's (position_code, position_name).
+
+    Single source of the member-delegation rules: shared by
+    POST /me/acting-delegations (one delegation) and
+    POST /me/acting-delegations/batch (N delegations, one per governance
+    body — owner ask 2026-10-24). Date parsing stays with the callers: the
+    single endpoint carries one date range per item, the batch endpoint one
+    date range for the whole payload.
+
+      1. The position (and body) must exist          -> 404
+      2. The caller must currently hold that seat    -> 403  (the core rule)
+      3. No self-delegation                          -> 422
+      4. The nominee must sit on the same body       -> 422
+      5. One live delegate per (body, position)      -> 409
+
+    Every message names the offending body and/or position, because the
+    batch caller needs to know WHICH of its rows was rejected.
+    """
+    # 1. Resolve the position's code (404 when it doesn't exist) and the
+    #    body's name (used by every message below).
+    cur.execute(
+        "SELECT position_code, position_name FROM nss.position_master WHERE position_master_pk = %s",
+        (str(position_master_pk),),
+    )
+    pos_row = cur.fetchone()
+    if pos_row is None:
+        raise HTTPException(status_code=404, detail="Position not found.")
+    position_code, position_name = pos_row
+
+    cur.execute(
+        "SELECT body_name FROM nss.body_master WHERE body_master_pk = %s",
+        (str(body_master_pk),),
+    )
+    body_row = cur.fetchone()
+    if body_row is None:
+        raise HTTPException(status_code=404, detail="Governance body not found.")
+    body_name = body_row[0]
+
+    # 2. Self-role gate (owner ask #2) — the core security rule.
+    if not _active_office_bearer(
+        cur, body_master_pk, user.person_pk, position_code=position_code
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You can only assign someone to act on your behalf for a "
+                f"position you currently hold — you do not hold {position_name} "
+                f"on {body_name}."
+            ),
+        )
+
+    # 3. No self-delegation.
+    if user.person_pk is not None and str(person_pk) == str(user.person_pk):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "You cannot assign yourself to act on your own behalf "
+                f"({position_name}, {body_name})."
+            ),
+        )
+
+    # 4. The nominee must already sit on the SAME body (owner ask #3 —
+    #    candidates come from the body's own members; never trust the
+    #    client's list). Any position counts here, including MEMBER.
+    cur.execute(
+        """
+        SELECT 1
+        FROM nss.body_member_assignment a
+        WHERE a.body_master_pk = %s AND a.person_pk = %s
+          AND a.is_active = TRUE AND a.effective_to IS NULL
+          AND a.assignment_status IN ('ASSIGNED', 'ACTIVE', 'PENDING_REMOVAL')
+        LIMIT 1
+        """,
+        (str(body_master_pk), str(person_pk)),
+    )
+    if cur.fetchone() is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"You can only nominate a current member of {body_name} to act "
+                "on your behalf."
+            ),
+        )
+
+    # 5. One delegate per position at a time (added rule, 2026-10-23 —
+    #    the admin endpoint deliberately does NOT enforce this; its DDL
+    #    unique index is per-person, so two different people could both
+    #    act for one seat. Reversible: drop this block to fall back to
+    #    the admin behaviour).
+    cur.execute(
+        f"""
+        {_ACTING_SELECT_SQL}
+        WHERE a.body_master_pk = %s AND a.position_master_pk = %s
+          AND a.is_active = TRUE AND a.effective_to IS NULL
+          AND a.acting_status IN ('ASSIGNED', 'ACTIVE')
+        LIMIT 1
+        """,
+        (str(body_master_pk), str(position_master_pk)),
+    )
+    existing = cur.fetchone()
+    if existing is not None:
+        holder = (existing[5] or "").strip() or "someone"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{holder} is already acting as {position_name} on your behalf "
+                f"on {body_name}. End that delegation before assigning a new one."
+            ),
+        )
+
+    return position_code, position_name
+
+
+@router.post(
+    "/me/acting-delegations", response_model=ActingAssignmentResponse, status_code=201,
+)
+def create_my_acting_delegation(
+    body: CreateMyActingDelegationRequest,
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_write_connection),
+) -> ActingAssignmentResponse:
+    """
+    Nominate another member of the same body to act on the caller's behalf
+    in a position the caller currently holds (owner asks #2/#3/#4).
+
+    Login-only; the self-role gate inside
+    _validate_my_acting_delegation() IS the authorization — a member may
+    never delegate a seat that is not their own.
+    """
+    with conn.cursor() as cur:
+        # Steps 1-5 — shared with the batch endpoint below.
+        _validate_my_acting_delegation(
+            cur, user,
+            body_master_pk=body.body_master_pk,
+            position_master_pk=body.position_master_pk,
+            person_pk=body.person_pk,
+        )
+
+        # 6. Dates — mirrors create_acting_assignment.
+        effective_from = parse_optional_date(body.effective_from, "Effective From")
+        effective_to = parse_optional_date(body.effective_to, "Effective To")
+        if effective_to and effective_from and effective_to < effective_from:
+            raise HTTPException(status_code=422, detail="Effective To cannot be before Effective From.")
+
+        return _insert_acting_assignment(
+            cur, user,
+            body_master_pk=body.body_master_pk,
+            position_master_pk=body.position_master_pk,
+            person_pk=body.person_pk,
+            effective_from=effective_from, effective_to=effective_to,
+            reason=body.reason, remarks=None,
+        )
+
+
+@router.post(
+    "/me/acting-delegations/batch",
+    response_model=ActingAssignmentListResponse, status_code=201,
+)
+def create_my_acting_delegations_batch(
+    body: CreateMyActingDelegationBatchRequest,
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_write_connection),
+) -> ActingAssignmentListResponse:
+    """
+    Create several "act on my behalf" delegations at once — one per
+    (governance body, position-the-caller-holds) slot (owner ask,
+    2026-10-24: every body gets its own candidate table, every table is
+    mandatory, and the selections are confirmed together in one table).
+
+    All-or-nothing. The dashboard requires a pick in EVERY table before it
+    will submit, so a partial success would leave the member half-delegated
+    with no obvious way back; the whole loop therefore runs inside one
+    SAVEPOINT and any rejected item rolls the entire batch back.
+
+    (get_write_connection commits only on a clean handler return and rolls
+    back on any exception, so in production the SAVEPOINT is belt-and-
+    braces — but tests/conftest.py overrides that dependency with a shared
+    session connection that neither commits nor rolls back per request, so
+    without the explicit SAVEPOINT atomicity would be untestable and, worse,
+    silently absent under any future non-committing override.)
+
+    Login-only; per-item authorization is the same self-role gate as the
+    single-delegation endpoint (_validate_my_acting_delegation).
+
+    Mounted at /me/acting-delegations/batch — "batch" cannot collide with
+    the sibling /me/acting-delegations/{pk}/end route (different depth).
+    """
+    if not body.items:
+        raise HTTPException(
+            status_code=422,
+            detail="Select at least one member to act on your behalf.",
+        )
+
+    # Reject a repeated (body, position) slot up front: the one-live-
+    # delegate-per-position rule (step 5) reads committed state, so two
+    # items for the same seat would both pass validation and then collide
+    # (or, worse, both land). Named so the user can see which slot repeats.
+    seen: set[tuple[str, str]] = set()
+    for item in body.items:
+        pair = (str(item.body_master_pk), str(item.position_master_pk))
+        if pair in seen:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Each position may only be delegated once per request — "
+                    f"position {item.position_master_pk} on body "
+                    f"{item.body_master_pk} appears more than once."
+                ),
+            )
+        seen.add(pair)
+
+    effective_from = parse_optional_date(body.effective_from, "Effective From")
+    effective_to = parse_optional_date(body.effective_to, "Effective To")
+    if effective_to and effective_from and effective_to < effective_from:
+        raise HTTPException(status_code=422, detail="Effective To cannot be before Effective From.")
+
+    created: list[ActingAssignmentResponse] = []
+    with conn.cursor() as cur:
+        cur.execute("SAVEPOINT acting_batch")
+        try:
+            for item in body.items:
+                _validate_my_acting_delegation(
+                    cur, user,
+                    body_master_pk=item.body_master_pk,
+                    position_master_pk=item.position_master_pk,
+                    person_pk=item.person_pk,
+                )
+                created.append(_insert_acting_assignment(
+                    cur, user,
+                    body_master_pk=item.body_master_pk,
+                    position_master_pk=item.position_master_pk,
+                    person_pk=item.person_pk,
+                    effective_from=effective_from, effective_to=effective_to,
+                    reason=body.reason, remarks=None,
+                ))
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT acting_batch")
+            raise
+        cur.execute("RELEASE SAVEPOINT acting_batch")
+    return ActingAssignmentListResponse(items=created, total=len(created))
+
+
+@router.get("/me/acting-delegations", response_model=ActingAssignmentListResponse)
+def list_my_acting_delegations(
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_connection),
+) -> ActingAssignmentListResponse:
+    """
+    Delegations the caller has made — every acting row on the (body,
+    position) pairs they currently hold office on, ended ones included so
+    the dashboard can show history (most recent first).
+
+    There is no delegated_by column on acting_position_assignment and one
+    was deliberately not added, so the set is derived from the caller's
+    own current seats. Login-only; a non-office-bearer gets an empty list.
+    """
+    with conn.cursor() as cur:
+        seats = _my_office_bearer_seats(cur, user.person_pk)
+        if not seats:
+            return ActingAssignmentListResponse(items=[], total=0)
+        clause = " OR ".join(
+            ["(a.body_master_pk = %s AND a.position_master_pk = %s)"] * len(seats)
+        )
+        params: list = []
+        for body_pk, position_pk, _code, _name in seats:
+            params.extend([str(body_pk), str(position_pk)])
+        cur.execute(
+            f"{_ACTING_SELECT_SQL} WHERE ({clause}) "
+            "ORDER BY a.effective_from DESC, a.created_at DESC",
+            params,
+        )
+        items = [_row_to_acting(r) for r in cur.fetchall()]
+    return ActingAssignmentListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/me/acting-delegations/{acting_position_assignment_pk}/end",
+    response_model=ActingAssignmentResponse,
+)
+def end_my_acting_delegation(
+    acting_position_assignment_pk: UUID,
+    body: EndActingAssignmentRequest,
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_write_connection),
+) -> ActingAssignmentResponse:
+    """
+    End a delegation the caller made. Login-only; the caller must still
+    hold the seat the delegation covers (same self-role gate as creation).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.body_master_pk, pm.position_code, a.effective_from
+            FROM nss.acting_position_assignment a
+            JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
+            WHERE a.acting_position_assignment_pk = %s
+            """,
             (str(acting_position_assignment_pk),),
         )
-        r = cur.fetchone()
-    return _row_to_acting(r)
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Acting assignment not found.")
+        body_master_pk, position_code, effective_from = row
+
+        if not _active_office_bearer(
+            cur, body_master_pk, user.person_pk, position_code=position_code
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You can only end an acting delegation for a position you "
+                    "currently hold."
+                ),
+            )
+
+        effective_to = parse_optional_date(body.effective_to, "Effective To")
+        if effective_from and effective_to and effective_to < effective_from:
+            raise HTTPException(status_code=422, detail="Effective To cannot be before Effective From.")
+
+        return _close_acting_assignment(
+            cur, user, acting_position_assignment_pk,
+            effective_to=effective_to, remarks=body.remarks,
+        )
+
+
+@router.get("/me/pending-acting-approvals", response_model=ActingAssignmentListResponse)
+def list_my_pending_acting_approvals(
+    user: UserContext = Depends(get_current_user),
+    conn=Depends(get_connection),
+) -> ActingAssignmentListResponse:
+    """
+    Admin-initiated acting assignments awaiting the caller's own approval —
+    rows where the caller is the NOMINEE (person_pk), not the delegator.
+    This is the opposite axis from GET /me/acting-delegations (which is
+    scoped by the caller's own office-bearer SEATS, i.e. delegations they
+    made); a dedicated endpoint over the exact same table/row shape
+    (ActingAssignmentResponse, _ACTING_SELECT_SQL) is simpler than
+    overloading /me/acting-delegations with a role param, since the WHERE
+    clause here is a trivial person_pk match with no seat-derivation at
+    all. Login-only; a caller with nothing pending gets an empty list.
+    """
+    if user.person_pk is None:
+        return ActingAssignmentListResponse(items=[], total=0)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"{_ACTING_SELECT_SQL} WHERE a.person_pk = %s AND a.acting_status = 'PENDING_APPROVAL' "
+            "ORDER BY a.created_at DESC",
+            (str(user.person_pk),),
+        )
+        items = [_row_to_acting(r) for r in cur.fetchall()]
+    return ActingAssignmentListResponse(items=items, total=len(items))
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -3317,7 +4323,7 @@ _NOMINATION_SELECT_SQL = f"""
            n.proposer_person_pk, {_person_name_sql('pp')},
            n.nomination_date, n.nomination_status, n.remarks,
            n.probationary_exception_approver_sangha_sevi_pk,
-           n.probationary_exception_reason, n.is_active
+           n.probationary_exception_reason, n.is_active, pm.position_code
     FROM nss.election_nomination n
     JOIN nss.position_master pm ON pm.position_master_pk = n.position_master_pk
     JOIN nss.person cp ON cp.person_pk = n.candidate_person_pk
@@ -3333,7 +4339,7 @@ def _row_to_nomination(r) -> NominationResponse:
         proposer_person_pk=r[6], proposer_name=r[7] if r[7] and r[7].strip() else None,
         nomination_date=r[8], nomination_status=r[9], remarks=r[10],
         probationary_exception_approver_sangha_sevi_pk=r[11],
-        probationary_exception_reason=r[12], is_active=r[13],
+        probationary_exception_reason=r[12], is_active=r[13], position_code=r[14],
     )
 
 
@@ -3792,7 +4798,7 @@ def get_tally(
             f"""
             SELECT n.position_master_pk, pm.position_name, n.election_nomination_pk,
                    n.candidate_person_pk, {_person_name_sql('cp')},
-                   COUNT(v.election_vote_pk) AS vote_count
+                   COUNT(v.election_vote_pk) AS vote_count, pm.position_code
             FROM nss.election_nomination n
             JOIN nss.position_master pm ON pm.position_master_pk = n.position_master_pk
             JOIN nss.person cp ON cp.person_pk = n.candidate_person_pk
@@ -3800,7 +4806,8 @@ def get_tally(
                 ON v.election_nomination_pk = n.election_nomination_pk AND v.is_active = TRUE
             WHERE n.election_pk = %s AND n.is_active = TRUE
             GROUP BY n.position_master_pk, pm.position_name, n.election_nomination_pk,
-                     n.candidate_person_pk, cp.first_name, cp.middle_name, cp.last_name
+                     n.candidate_person_pk, cp.first_name, cp.middle_name, cp.last_name,
+                     pm.position_code
             ORDER BY pm.position_name, vote_count DESC
             """,
             (str(election_pk),),
@@ -3810,7 +4817,7 @@ def get_tally(
         TallyRow(
             position_master_pk=r[0], position_name=r[1], election_nomination_pk=r[2],
             candidate_person_pk=r[3], candidate_name=r[4] if r[4] and r[4].strip() else None,
-            vote_count=r[5],
+            vote_count=r[5], position_code=r[6],
         )
         for r in rows
     ]
@@ -3824,7 +4831,8 @@ def get_tally(
 _RESULT_SELECT_SQL = f"""
     SELECT res.election_result_pk, res.election_pk, res.position_master_pk, pm.position_name,
            res.winning_nomination_pk, res.winner_person_pk, {_person_name_sql('wp')},
-           res.vote_count, res.result_status, res.declared_at, res.remarks, res.is_active
+           res.vote_count, res.result_status, res.declared_at, res.remarks, res.is_active,
+           pm.position_code
     FROM nss.election_result res
     JOIN nss.position_master pm ON pm.position_master_pk = res.position_master_pk
     LEFT JOIN nss.person wp ON wp.person_pk = res.winner_person_pk
@@ -3837,6 +4845,7 @@ def _row_to_result(r) -> ResultResponse:
         winning_nomination_pk=r[4], winner_person_pk=r[5],
         winner_name=r[6] if r[6] and r[6].strip() else None,
         vote_count=r[7], result_status=r[8], declared_at=r[9], remarks=r[10], is_active=r[11],
+        position_code=r[12],
     )
 
 
@@ -4052,37 +5061,19 @@ def apply_result(
         effective_from = parse_optional_date(body.effective_from, "Effective From") or date.today()
 
         actor = user.actor_pk
-        cur.execute("SAVEPOINT apply_result_insert")
-        try:
-            cur.execute(
-                """
-                INSERT INTO nss.body_member_assignment (
-                    body_master_pk, position_master_pk, person_pk, sangha_sevi_pk,
-                    effective_from, assignment_reference, remarks
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING body_member_assignment_pk
-                """,
-                (str(body_master_pk), str(position_master_pk), str(winner_person_pk),
-                 str(sangha_sevi_pk),
-                 effective_from, body.assignment_reference or f"ELECTION_RESULT:{election_result_pk}",
-                 f"Applied from election result {election_result_pk}."),
-            )
-            assignment_pk = cur.fetchone()[0]
-        except psycopg2.errors.UniqueViolation:
-            cur.execute("ROLLBACK TO SAVEPOINT apply_result_insert")
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "The winner already holds this position in this body in an "
-                    "active, open-ended assignment. End the existing one first."
-                ),
-            )
-        cur.execute("RELEASE SAVEPOINT apply_result_insert")
-        log_audit(cur, action="CREATE", table_name="body_member_assignment",
-                  record_pk=str(assignment_pk), actor_pk=actor,
-                  actor_user_account_pk=str(user.user_account_pk),
-                  module="governance",
-                  summary=f"Applied election result {election_result_pk} to body member assignment")
+        assignment_pk = _write_assignment_convert_or_insert(
+            cur,
+            body_master_pk=body_master_pk, position_master_pk=position_master_pk,
+            person_pk=winner_person_pk, sangha_sevi_pk=sangha_sevi_pk,
+            effective_from=effective_from, effective_to=None,
+            assignment_reference=body.assignment_reference or f"ELECTION_RESULT:{election_result_pk}",
+            remarks=f"Applied from election result {election_result_pk}.",
+            actor_pk=actor, actor_user_account_pk=user.user_account_pk,
+            conflict_detail=(
+                "The winner already holds this position in this body in an "
+                "active, open-ended assignment. End the existing one first."
+            ),
+        )
 
     return ApplyResultResponse(
         body_member_assignment_pk=assignment_pk, election_result_pk=election_result_pk,

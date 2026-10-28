@@ -5,6 +5,7 @@ bootstrap scripts). Added in Tier 5 (released in v0.11.0).
 
 | File | Purpose |
 |---|---|
+| `backfill_sibling_links.py` | One-time backfill (Tier 6 follow-up): inserts the missing `SIBLING_OF` `family_link` edge for BROTHER/SISTER `family_relationship` rows created before `family.py` started writing it. Run `python3 scripts/backfill_sibling_links.py --dry-run` first (report only), then without the flag; needs the widened `chk_family_link_type` CHECK from `database/ddl/04_family/05_family_link.sql` (full rebuild) and `api/.env` write credentials. |
 | `bootstrap_admin.py` | Seeds the NSS Admin superuser (`P1`/`SS1`, `NSS_ERP_ADMIN` role, `NSS-WIDE` scope). Run as `python3 scripts/bootstrap_admin.py` (optionally `--password <pw>`; default `Admin@123`) from the repository root, after the database has been built through Phase 12 (Administration DDL + `nss_db_writer` grant). |
 
 How it works: it hashes the password with `api.services.auth_service.hash_password` (Argon2),

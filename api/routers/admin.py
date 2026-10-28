@@ -88,6 +88,7 @@ from api.services.rbac_service import (
     UserContext,
     actor_scope_org_pks as _actor_scope_org_pks,
     org_in_scope as _org_in_scope,
+    org_subtree_pks as _org_subtree_pks,
     require_org_in_scope as _require_org_in_scope,
     require_person_in_scope as _require_person_in_scope,
     require_account_in_scope as _require_account_in_scope,
@@ -1289,7 +1290,7 @@ def get_user(
             if org_pks:
                 cur.execute(
                     "SELECT organization_pk, organization_name FROM nss.organization "
-                    "WHERE organization_pk = ANY(%s)",
+                    "WHERE organization_pk = ANY(%s::uuid[])",
                     (org_pks,),
                 )
                 org_names = {str(r[0]): r[1] for r in cur.fetchall()}
@@ -1918,9 +1919,22 @@ def assign_role(
                 ),
             )
 
-        # Validate scope
+        # Validate scope. Per the DB CHECK constraint
+        # (chk_admin_scope_org_consistency, database/ddl/07_administration/
+        # 02_admin_scope.sql), FOUR scope levels require organization_pk IS
+        # NULL — not just NSS-WIDE: KENDRA, KENDRA_MAHILA_SANGHA, and
+        # ADVISORY_BOARD are also apex/no-single-org scopes. This check
+        # previously only exempted NSS-WIDE, so assigning any of the other
+        # three would either 404 here (if no org_pk given, wrongly treated
+        # as missing-required-field) or violate the DB constraint on INSERT
+        # (if an org_pk was supplied, since the constraint forbids one).
+        # KENDRA is additionally owner-confirmed (2026-10-22) as fully
+        # NSS-WIDE-equivalent in authority, not just in this null-org shape
+        # — see UserContext.is_nss_wide()/has_scope_for_org() in
+        # api/services/rbac_service.py.
         organization_name = None
-        if body.scope_level != "NSS-WIDE":
+        _NULL_ORG_SCOPE_LEVELS = ("NSS-WIDE", "KENDRA", "KENDRA_MAHILA_SANGHA", "ADVISORY_BOARD")
+        if body.scope_level not in _NULL_ORG_SCOPE_LEVELS:
             if body.organization_pk is None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1941,7 +1955,7 @@ def assign_role(
             if body.organization_pk is not None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="organization_pk must be null for NSS-WIDE scope.",
+                    detail=f"organization_pk must be null for {body.scope_level} scope.",
                 )
 
         # Check for duplicate active assignment (same role + same scope + same org)
@@ -2887,35 +2901,14 @@ def update_organization(
 
         actor = user.actor_pk
 
-        # ── City/Village text → lookup/create → city_village_pk ────────
-        if body.city_village_name is not None:
-            if city_village_name_val is None:
-                # Empty string → clear city_village_pk
-                updates["city_village_pk"] = None
-            else:
-                # Need district_pk to look up / create
-                district_for_cv = updates.get("district_pk")
-                if not district_for_cv:
-                    # Fetch current district from organization
-                    cur.execute(
-                        "SELECT district_pk FROM nss.organization WHERE organization_pk = %s",
-                        (str(organization_pk),),
-                    )
-                    org_row = cur.fetchone()
-                    district_for_cv = str(org_row[0]) if org_row and org_row[0] else None
-
-                if not district_for_cv:
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                        detail="District is required to set City/Village.",
-                    )
-
-                # Lookup/create city_village by name + district
-                updates["city_village_pk"] = resolve_or_create_city_village(
-                    cur, city_village_name_val, district_for_cv, actor_pk=actor,
-                )
-
         # ── Postal code text → lookup/create → postal_code_pk ────────
+        # Resolved BEFORE city_village (2026-10-21): the PIN disambiguates
+        # the village lookup — village names repeat within a district, so
+        # name+district alone can match several rows. No data dependency
+        # blocks this reorder: each block falls back to the organization's
+        # OWN existing district_pk/state_pk/country_pk independently, never
+        # to a value the other block produces. See
+        # resolve_or_create_city_village().
         if body.postal_code_value is not None:
             pc_val = body.postal_code_value.strip() if body.postal_code_value else None
             if not pc_val:
@@ -2944,6 +2937,49 @@ def update_organization(
 
                 updates["postal_code_pk"] = resolve_or_create_postal_code(
                     cur, pc_val, state_for_pc, country_for_pc, actor_pk=actor,
+                )
+
+        # ── City/Village text → lookup/create → city_village_pk ────────
+        if body.city_village_name is not None:
+            if city_village_name_val is None:
+                # Empty string → clear city_village_pk
+                updates["city_village_pk"] = None
+            else:
+                # Need district_pk to look up / create
+                district_for_cv = updates.get("district_pk")
+                if not district_for_cv:
+                    # Fetch current district from organization
+                    cur.execute(
+                        "SELECT district_pk FROM nss.organization WHERE organization_pk = %s",
+                        (str(organization_pk),),
+                    )
+                    org_row = cur.fetchone()
+                    district_for_cv = str(org_row[0]) if org_row and org_row[0] else None
+
+                if not district_for_cv:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="District is required to set City/Village.",
+                    )
+
+                # Lookup/create city_village by name + district (+ PIN).
+                # Prefer a PIN just resolved above; otherwise fall back to
+                # the organization's OWN existing postal_code_pk (mirrors
+                # the district_for_cv fallback above) — an admin renaming
+                # city_village_name without touching postal_code_value
+                # must not lose PIN disambiguation.
+                postal_code_for_cv = updates.get("postal_code_pk")
+                if postal_code_for_cv is None and "postal_code_pk" not in updates:
+                    cur.execute(
+                        "SELECT postal_code_pk FROM nss.organization WHERE organization_pk = %s",
+                        (str(organization_pk),),
+                    )
+                    org_pc_row = cur.fetchone()
+                    postal_code_for_cv = str(org_pc_row[0]) if org_pc_row and org_pc_row[0] else None
+
+                updates["city_village_pk"] = resolve_or_create_city_village(
+                    cur, city_village_name_val, district_for_cv, actor_pk=actor,
+                    postal_code_pk=postal_code_for_cv,
                 )
 
         if not updates:
@@ -3360,6 +3396,19 @@ def create_organization(
              ins_phone_number, ins_country_phone_code, ins_mobile_number, ins_org_email,
              ins_org_website_url, ins_org_youtube_channel_url) = wing_inherit
         else:
+            # ── Resolve postal_code_value → postal_code_pk ──────────
+            # Resolved BEFORE city_village (2026-10-21): the PIN
+            # disambiguates the village lookup — village names repeat
+            # within a district, so name+district alone can match
+            # several rows. See resolve_or_create_city_village().
+            resolved_postal_code_pk = body.postal_code_pk or None
+            if body.postal_code_value and body.state_pk and body.country_pk:
+                pc_val = body.postal_code_value.strip()
+                if pc_val:
+                    resolved_postal_code_pk = resolve_or_create_postal_code(
+                        cur, pc_val, body.state_pk, body.country_pk, actor_pk=actor,
+                    )
+
             # ── Resolve city_village_name → city_village_pk ─────────
             city_village_pk = None
             if body.city_village_name and body.district_pk:
@@ -3367,15 +3416,7 @@ def create_organization(
                 if cv_name:
                     city_village_pk = resolve_or_create_city_village(
                         cur, cv_name, body.district_pk, actor_pk=actor,
-                    )
-
-            # ── Resolve postal_code_value → postal_code_pk ──────────
-            resolved_postal_code_pk = body.postal_code_pk or None
-            if body.postal_code_value and body.state_pk and body.country_pk:
-                pc_val = body.postal_code_value.strip()
-                if pc_val:
-                    resolved_postal_code_pk = resolve_or_create_postal_code(
-                        cur, pc_val, body.state_pk, body.country_pk, actor_pk=actor,
+                        postal_code_pk=resolved_postal_code_pk,
                     )
 
             ins_address_line_1 = body.address_line_1.strip() if body.address_line_1 else None
@@ -3546,6 +3587,18 @@ def preview_next_organization_code(
 
 @router.get("/dashboard-stats")
 def dashboard_stats(
+    org_pk: str | None = Query(
+        None,
+        description=(
+            "Scope the stats to this organization's subtree instead of the "
+            "actor's full combined scope. Lets the member Dashboard request "
+            "one call per admin tab so a dual-role admin (e.g. NSS-WIDE "
+            "Kendra admin + Sakha-scoped admin) gets distinct numbers per "
+            "tab instead of the same actor-wide union on every tab. Must "
+            "fall within the actor's own scope (ADMIN-BR-076); omit for the "
+            "legacy actor-wide behavior."
+        ),
+    ),
     user: UserContext = Depends(
         require_any_permission("ADMIN_USER_VIEW", "ADMIN_USER_MANAGE", "MEMBERSHIP_APPROVE")
     ),
@@ -3556,12 +3609,24 @@ def dashboard_stats(
 
     Returns per-role stats scoped to the admin's organization(s).
     NSS-WIDE admins see totals across all orgs; org-scoped admins
-    see only their scoped orgs.
+    see only their scoped orgs. Pass *org_pk* to scope to one specific
+    organization's subtree (e.g. one admin tab's own scope row) rather than
+    the actor's combined scope across every role they hold.
     """
     with conn.cursor() as cur:
-        # Determine scoped org PKs (None = all orgs / NSS-WIDE), subtree-aware.
-        allowed = _actor_scope_org_pks(cur, user)
-        is_nss_wide = allowed is None
+        if org_pk is not None:
+            # Single-tab scoping: validate org_pk is actually within this
+            # actor's reach, then compute totals for JUST that org's
+            # subtree — not the actor's full union — so two tabs backed by
+            # two different scope rows get two different answers.
+            _require_org_in_scope(cur, user, org_pk, "view dashboard stats")
+            allowed = _org_subtree_pks(cur, org_pk)
+            is_nss_wide = False
+        else:
+            # Determine scoped org PKs (None = all orgs / NSS-WIDE), subtree-aware.
+            allowed = _actor_scope_org_pks(cur, user)
+            is_nss_wide = allowed is None
+
         if not is_nss_wide and not allowed:
             # An admin whose scope resolves to zero orgs genuinely has zero of
             # everything — except attendance, which is not "0", it is untracked.
@@ -3708,15 +3773,33 @@ def dashboard_stats(
             mahila_sanghas,
         ) = cur.fetchone()
 
-        # ── Attendance % — genuinely not computable ──
-        # This is NOT a "no rows yet" case. nss.darshak_attendance_registration
-        # is a Darshak *registration/approval* record, not a per-meeting
-        # attendance log, and no session/meeting table exists anywhere in the
-        # schema — so the ratio has no denominator to divide by. Reported as
-        # None alongside an explicit attendance_tracked=False so the UI can
-        # render "Not tracked yet" rather than a misleading 0 or "—".
-        attendance_pct = None
-        attendance_tracked = False
+        # ── Attendance % (Tier 6, 2026-10-27) ──
+        # Mirrors api/routers/attendance.py::organization_stats' own
+        # present/(present+absent) computation (EXCUSED_ABSENCE excluded
+        # from the denominator, ATT-008), aggregated across every Sakha in
+        # scope instead of one org at a time. attendance_tracked is False
+        # only when literally no Weekly Sangha Puja event has been
+        # recorded yet in scope (pre-adoption) — once any event exists,
+        # a real percentage (including 0%) is returned instead of "Not
+        # tracked yet".
+        att_sql = """
+            SELECT COUNT(DISTINCT w.weekly_sangha_puja_pk),
+                   COUNT(*) FILTER (WHERE md.value_code = 'PRESENT'),
+                   COUNT(*) FILTER (WHERE md.value_code = 'ABSENT')
+            FROM   nss.weekly_sangha_puja w
+            LEFT JOIN nss.weekly_sangha_puja_attendance a
+                   ON a.weekly_sangha_puja_pk = w.weekly_sangha_puja_pk AND a.is_active = TRUE
+            LEFT JOIN nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
+            WHERE  w.is_active = TRUE
+        """
+        if is_nss_wide:
+            cur.execute(att_sql)
+        else:
+            cur.execute(att_sql + f" AND w.sakha_pk IN ({placeholders})", scoped_org_pks)
+        total_puja_events, att_present, att_absent = cur.fetchone()
+        attendance_tracked = total_puja_events > 0
+        att_denom = att_present + att_absent
+        attendance_pct = round(att_present / att_denom * 100, 1) if att_denom else None
 
     return {
         "members": members,

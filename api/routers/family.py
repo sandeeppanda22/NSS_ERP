@@ -346,7 +346,7 @@ def list_families(
             if not scoped:
                 return []
             sql += (
-                " AND COALESCE(fmj.sakha_pk, fg.sakha_organization_pk) = ANY(%s)"
+                " AND COALESCE(fmj.sakha_pk, fg.sakha_organization_pk) = ANY(%s::uuid[])"
             )
             params.append(list(scoped))
 
@@ -913,7 +913,7 @@ def get_family_graph(
     """
     Compute family relationships dynamically relative to a viewer.
 
-    Uses the ``family_link`` graph (direct PARENT_OF / SPOUSE_OF edges)
+    Uses the ``family_link`` graph (direct PARENT_OF / SPOUSE_OF / SIBLING_OF edges)
     to derive all kinship labels via BFS traversal.  No static
     relationship codes are needed — labels adapt automatically when
     the viewer changes.
@@ -1020,8 +1020,11 @@ def get_family_graph(
                 min(str(dl["person_a_pk"]), str(dl["person_b_pk"])),
                 max(str(dl["person_a_pk"]), str(dl["person_b_pk"])),
             )
-            # Skip SPOUSE_OF if PARENT_OF exists for same pair
-            if dl["link_type"] == "SPOUSE_OF" and "PARENT_OF" in pair_types[pair]:
+            # Skip SPOUSE_OF/SIBLING_OF if PARENT_OF exists for same pair
+            # (PARENT_OF can't legitimately coexist with either on the
+            # exact same pair; SIBLING_OF extension is a defensive
+            # mirror of the pre-existing SPOUSE_OF guard, not a new rule)
+            if dl["link_type"] in ("SPOUSE_OF", "SIBLING_OF") and "PARENT_OF" in pair_types[pair]:
                 continue
             link_rows.append(dl)
 
@@ -1069,7 +1072,7 @@ def get_family_graph(
                 min(str(il["person_a_pk"]), str(il["person_b_pk"])),
                 max(str(il["person_a_pk"]), str(il["person_b_pk"])),
             )
-            if il["link_type"] == "SPOUSE_OF" and "PARENT_OF" in ipair_types[ipair]:
+            if il["link_type"] in ("SPOUSE_OF", "SIBLING_OF") and "PARENT_OF" in ipair_types[ipair]:
                 continue
             link_rows.append(il)
 
@@ -1141,7 +1144,7 @@ def get_family_graph(
                 min(str(gl["person_a_pk"]), str(gl["person_b_pk"])),
                 max(str(gl["person_a_pk"]), str(gl["person_b_pk"])),
             )
-            if gl["link_type"] == "SPOUSE_OF" and "PARENT_OF" in gpair_types[gpair]:
+            if gl["link_type"] in ("SPOUSE_OF", "SIBLING_OF") and "PARENT_OF" in gpair_types[gpair]:
                 continue
             link_rows.append(gl)
 
@@ -1532,6 +1535,126 @@ def get_person_membership_summary(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 7b. SHARED family_link HELPERS (SIBLING_OF — owner decision, 2026-10-22)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# One shared INSERT path for family_link rows, used by add_family_member,
+# create_family_link, AND scripts/backfill_sibling_links.py (a one-time
+# live-data fix — see that script). Keeping the SQL in one place avoids a
+# second parallel implementation drifting out of sync (standing rule,
+# CLAUDE.md "Shared code — no duplicates").
+
+_SYMMETRIC_LINK_TYPES = ("SPOUSE_OF", "SIBLING_OF")
+
+
+def persons_share_parent(cur, family_group_pk: str, person_a_pk: str, person_b_pk: str) -> bool:
+    """
+    True if person_a and person_b already have a common parent via a
+    current PARENT_OF edge in this family — i.e. the shared-parent-derived
+    sibling relationship already works for this pair, so a direct
+    SIBLING_OF edge between them would be redundant (see family_graph.py's
+    SIBLING_OF handling note for why the redundant edge, once it DOES
+    exist for another reason, is left in place rather than deleted).
+    """
+    cur.execute("""
+        SELECT 1
+        FROM   nss.family_link p1
+        JOIN   nss.family_link p2
+               ON  p2.family_group_pk = p1.family_group_pk
+               AND p2.person_a_pk = p1.person_a_pk
+               AND p2.link_type = 'PARENT_OF'
+               AND p2.is_current = TRUE
+        WHERE  p1.family_group_pk = %s
+          AND  p1.link_type = 'PARENT_OF'
+          AND  p1.is_current = TRUE
+          AND  p1.person_b_pk = %s
+          AND  p2.person_b_pk = %s
+    """, (str(family_group_pk), str(person_a_pk), str(person_b_pk)))
+    return cur.fetchone() is not None
+
+
+def family_link_exists(cur, family_group_pk: str, person_a_pk: str, person_b_pk: str, link_type: str) -> bool:
+    """Current family_link of this type already connects the pair (either
+    direction for the symmetric types SPOUSE_OF/SIBLING_OF)."""
+    if link_type in _SYMMETRIC_LINK_TYPES:
+        cur.execute("""
+            SELECT 1 FROM nss.family_link
+            WHERE  family_group_pk = %s
+              AND  link_type = %s
+              AND  ((person_a_pk = %s AND person_b_pk = %s)
+                OR  (person_a_pk = %s AND person_b_pk = %s))
+              AND  is_current = TRUE
+        """, (
+            str(family_group_pk), link_type,
+            str(person_a_pk), str(person_b_pk),
+            str(person_b_pk), str(person_a_pk),
+        ))
+    else:
+        cur.execute("""
+            SELECT 1 FROM nss.family_link
+            WHERE  family_group_pk = %s
+              AND  person_a_pk = %s
+              AND  person_b_pk = %s
+              AND  link_type = %s
+              AND  is_current = TRUE
+        """, (str(family_group_pk), str(person_a_pk), str(person_b_pk), link_type))
+    return cur.fetchone() is not None
+
+
+def insert_family_link_edge(
+    cur,
+    *,
+    family_group_pk: str,
+    person_a_pk: str,
+    person_b_pk: str,
+    link_type: str,
+    effective_from,
+    actor_pk: str | None = None,
+    actor_user_account_pk: str | None = None,
+) -> str | None:
+    """
+    Insert one nss.family_link row, with the dedup/redundancy checks that
+    both live endpoints need:
+
+      - family_link_exists(): never create a second current edge of the
+        same type for the same pair (checked bidirectionally for the
+        symmetric types SPOUSE_OF/SIBLING_OF).
+      - For SIBLING_OF specifically: skip the insert when
+        persons_share_parent() already holds — the shared-parent-derived
+        sibling relationship already works for this pair, so a direct
+        edge would be redundant (owner decision; see family_graph.py).
+
+    Returns the new family_link_pk, or None when the insert was skipped
+    (either reason above). Does not raise on a skip — a skip is a normal,
+    expected outcome, not an error.
+    """
+    if link_type == "SIBLING_OF" and persons_share_parent(cur, family_group_pk, person_a_pk, person_b_pk):
+        return None
+
+    if family_link_exists(cur, family_group_pk, person_a_pk, person_b_pk, link_type):
+        return None
+
+    cur.execute("""
+        INSERT INTO nss.family_link
+            (family_group_pk, person_a_pk, person_b_pk, link_type,
+             effective_from, is_current)
+        VALUES (%s, %s, %s, %s, %s, TRUE)
+        RETURNING family_link_pk
+    """, (
+        str(family_group_pk),
+        str(person_a_pk),
+        str(person_b_pk),
+        link_type,
+        effective_from,
+    ))
+    fl_pk = cur.fetchone()[0]
+    log_audit(cur, action="CREATE", table_name="family_link", record_pk=str(fl_pk),
+              actor_pk=actor_pk, actor_user_account_pk=actor_user_account_pk,
+              module="family", summary=f"Created {link_type} family link in family {family_group_pk}")
+    return str(fl_pk)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 8. ADD MEMBER TO FAMILY (Tier 5 — authenticated write)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1700,10 +1823,10 @@ def add_family_member(
 
     # 8. Optionally insert family_link edge
     if body.link_type:
-        if body.link_type not in ("PARENT_OF", "SPOUSE_OF"):
+        if body.link_type not in ("PARENT_OF", "SPOUSE_OF", "SIBLING_OF"):
             raise HTTPException(
                 status_code=400,
-                detail="link_type must be PARENT_OF or SPOUSE_OF",
+                detail="link_type must be PARENT_OF, SPOUSE_OF or SIBLING_OF",
             )
         if not body.link_target_person_pk:
             raise HTTPException(
@@ -1724,18 +1847,16 @@ def add_family_member(
                     detail="link_target_person_pk must be a current family member",
                 )
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO nss.family_link
-                    (family_group_pk, person_a_pk, person_b_pk, link_type,
-                     effective_from, is_current)
-                VALUES (%s, %s, %s, %s, %s, TRUE)
-            """, (
-                str(family_group_pk),
-                str(body.person_pk),
-                str(body.link_target_person_pk),
-                body.link_type,
-                today,
-            ))
+            insert_family_link_edge(
+                cur,
+                family_group_pk=str(family_group_pk),
+                person_a_pk=str(body.person_pk),
+                person_b_pk=str(body.link_target_person_pk),
+                link_type=body.link_type,
+                effective_from=today,
+                actor_pk=user.actor_pk,
+                actor_user_account_pk=str(user.user_account_pk),
+            )
 
     # 9. Return the newly created member row
     sql = (
@@ -1771,7 +1892,9 @@ def create_family_link(
 
     Used for auto-inferred links when adding family members:
     e.g., adding a Father also creates SPOUSE_OF with existing Mother,
-    or PARENT_OF links to siblings.
+    PARENT_OF links to siblings, or (owner decision, 2026-10-22) a direct
+    SIBLING_OF edge when adding a Brother/Sister with no parent yet on
+    file (see insert_family_link_edge / family_graph.py).
 
     Authorization: the family head or a family admin (or FAMILY_MANAGE) —
     this accompanies add_family_member and carries the same authority.
@@ -1779,10 +1902,10 @@ def create_family_link(
     """
     today = date_type.today()
 
-    if body.link_type not in ("PARENT_OF", "SPOUSE_OF"):
+    if body.link_type not in ("PARENT_OF", "SPOUSE_OF", "SIBLING_OF"):
         raise HTTPException(
             status_code=400,
-            detail="link_type must be PARENT_OF or SPOUSE_OF",
+            detail="link_type must be PARENT_OF, SPOUSE_OF or SIBLING_OF",
         )
 
     # 1. Verify family exists
@@ -1807,60 +1930,24 @@ def create_family_link(
                     detail=f"{pk_label}_pk must be a current family member",
                 )
 
-    # 4. Check if this exact link already exists (avoid duplicates)
+    # 4/5. Dedup + redundant-edge check + insert (shared with
+    # add_family_member and scripts/backfill_sibling_links.py).
     with conn.cursor() as cur:
-        if body.link_type == "SPOUSE_OF":
-            # SPOUSE_OF is bidirectional — check both directions
-            cur.execute("""
-                SELECT 1 FROM nss.family_link
-                WHERE  family_group_pk = %s
-                  AND  link_type = 'SPOUSE_OF'
-                  AND  ((person_a_pk = %s AND person_b_pk = %s)
-                    OR  (person_a_pk = %s AND person_b_pk = %s))
-                  AND  is_current = TRUE
-            """, (
-                str(family_group_pk),
-                str(body.person_a_pk), str(body.person_b_pk),
-                str(body.person_b_pk), str(body.person_a_pk),
-            ))
-        else:
-            cur.execute("""
-                SELECT 1 FROM nss.family_link
-                WHERE  family_group_pk = %s
-                  AND  person_a_pk = %s
-                  AND  person_b_pk = %s
-                  AND  link_type = %s
-                  AND  is_current = TRUE
-            """, (
-                str(family_group_pk),
-                str(body.person_a_pk),
-                str(body.person_b_pk),
-                body.link_type,
-            ))
-        if cur.fetchone() is not None:
-            # Link already exists — return success without duplicating
+        fl_pk = insert_family_link_edge(
+            cur,
+            family_group_pk=str(family_group_pk),
+            person_a_pk=str(body.person_a_pk),
+            person_b_pk=str(body.person_b_pk),
+            link_type=body.link_type,
+            effective_from=today,
+            actor_pk=user.actor_pk,
+            actor_user_account_pk=str(user.user_account_pk),
+        )
+        if fl_pk is None:
+            # Either an identical current edge already exists, or (for
+            # SIBLING_OF) the pair already shares a parent — either way,
+            # nothing to do, and this is not an error condition.
             return MessageResponse(message="Link already exists")
-
-    # 5. Insert the link
-    with conn.cursor() as cur:
-        cur.execute("""
-            INSERT INTO nss.family_link
-                (family_group_pk, person_a_pk, person_b_pk, link_type,
-                 effective_from, is_current)
-            VALUES (%s, %s, %s, %s, %s, TRUE)
-            RETURNING family_link_pk
-        """, (
-            str(family_group_pk),
-            str(body.person_a_pk),
-            str(body.person_b_pk),
-            body.link_type,
-            today,
-        ))
-        fl_pk = cur.fetchone()[0]
-        actor = user.actor_pk
-        log_audit(cur, action="CREATE", table_name="family_link", record_pk=str(fl_pk),
-                  actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                  module="family", summary=f"Created family link in family {family_group_pk}")
 
     return MessageResponse(message="Family link created successfully")
 

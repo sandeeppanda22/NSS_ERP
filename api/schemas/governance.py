@@ -108,6 +108,14 @@ class BodyResponse(BaseModel):
     effective_from: date | None = None
     effective_to: date | None = None
     is_active: bool
+    # Populated only when GET /bodies is called with include_members=true:
+    # the identical composition shape /public/national-bodies returns (both
+    # go through _assemble_bodies_with_members), so every governance-body
+    # card in the frontend renders from ONE member shape. 2026-10-23, owner
+    # request for uniform governance cards.
+    members: list[dict] | None = None
+    member_count: int | None = None
+    scope_label: str | None = None
 
 
 class BodyListResponse(BaseModel):
@@ -175,6 +183,10 @@ class AssignmentResponse(BaseModel):
     body_master_pk: UUID
     position_master_pk: UUID
     position_name: str | None = None
+    # position_master.position_code — added 2026-10-23 (frontend position-badge
+    # sweep) so the Assignments tab / org-dashboard composition views can key
+    # NSS.positionBadgeClass() off the stable code, not the display name.
+    position_code: str | None = None
     person_pk: UUID
     person_name: str | None = None
     sangha_sevi_pk: UUID
@@ -185,6 +197,12 @@ class AssignmentResponse(BaseModel):
     remarks: str | None = None
     resignation_reason: str | None = None
     is_active: bool
+    # Holder's current home Sakha (added 2026-10-24 for the admin Assignments
+    # tab's Sakha filter). Both optional/None-default — a holder with no active
+    # Sangha Sevi, or a body whose seats aren't Sakha-nominated, yields NULLs.
+    # Additive: every existing caller keeps working.
+    sakha_name: str | None = None
+    sakha_organization_pk: UUID | None = None
 
 
 class AssignmentListResponse(BaseModel):
@@ -213,6 +231,13 @@ class ActingAssignmentResponse(BaseModel):
     body_master_pk: UUID
     position_master_pk: UUID
     position_name: str | None = None
+    # position_code / body_name are additive display fields (2026-10-23):
+    # admin.html already keyed NSS.positionBadgeClass() off position_code on
+    # this payload (it was silently undefined, so every acting badge fell
+    # back to badge-muted), and the member dashboard's delegation list needs
+    # the body name because its rows span several bodies.
+    position_code: str | None = None
+    body_name: str | None = None
     person_pk: UUID
     person_name: str | None = None
     effective_from: date
@@ -226,6 +251,86 @@ class ActingAssignmentResponse(BaseModel):
 class ActingAssignmentListResponse(BaseModel):
     items: list[ActingAssignmentResponse]
     total: int
+
+
+# ── Member-facing "act on my behalf" delegation (owner asks #2/#3/#4) ────
+#
+# Same underlying table as the admin acting-assignment endpoints above
+# (nss.acting_position_assignment — no schema change), but initiated by a
+# sitting office bearer from their own dashboard for a position THEY
+# currently hold. body_master_pk therefore travels in the body rather than
+# the path: the member endpoints are mounted under /me/..., not under
+# /bodies/{pk}/..., so the caller's own seat (not a URL) selects the body.
+# The response deliberately reuses ActingAssignmentResponse — one row
+# shape for one table.
+
+class CreateMyActingDelegationRequest(BaseModel):
+    body_master_pk: UUID
+    position_master_pk: UUID = Field(
+        ..., description="Must be a position the caller currently holds on that body."
+    )
+    person_pk: UUID = Field(
+        ..., description="The nominee — must already be a current member of the same body."
+    )
+    effective_from: str = Field(..., description="ISO (YYYY-MM-DD)")
+    effective_to: str | None = None
+    reason: str | None = None
+
+
+# ── Batch self-delegation (owner ask, 2026-10-24) ────────────────────────
+#
+# The member dashboard now renders ONE candidate table per (governance
+# body, position-the-caller-holds) slot and makes EVERY table mandatory,
+# then shows a single combined confirmation table ("every body should get
+# their own table.. after selecting the on behalf they selected persons
+# should be in a single table for confirmation"). Confirm therefore has to
+# create N delegations at once, and must be all-or-nothing: with every
+# table mandatory, a partial success (2 of 3 created, the 3rd rejected)
+# would leave a half-delegated state the member cannot easily unwind. So
+# the batch travels as ONE request instead of N client-side POSTs, and the
+# handler wraps the whole loop in a SAVEPOINT.
+#
+# The shared effective_from/effective_to/reason sit at the top level, not
+# per item: the UI collects one date range and one reason for the whole
+# batch (the owner's single-confirmation-table framing).
+
+class MyActingDelegationBatchItem(BaseModel):
+    """One (body, position-I-hold, nominee) triple inside a batch."""
+    body_master_pk: UUID
+    position_master_pk: UUID = Field(
+        ..., description="Must be a position the caller currently holds on that body."
+    )
+    person_pk: UUID = Field(
+        ..., description="The nominee — must already be a current member of the same body."
+    )
+
+
+class CreateMyActingDelegationBatchRequest(BaseModel):
+    items: list[MyActingDelegationBatchItem] = Field(
+        ...,
+        description="One entry per (body, position) slot being delegated. Must be "
+                    "non-empty and must not repeat a (body, position) pair.",
+    )
+    effective_from: str = Field(..., description="ISO (YYYY-MM-DD) — applies to every item")
+    effective_to: str | None = None
+    reason: str | None = None
+
+
+# ── Admin-initiated acting-delegation approval workflow (owner ask #5,
+# 2026-10-23 decision A) ──────────────────────────────────────────────────
+#
+# When an admin (not the sitting office bearer) names someone to act on a
+# seat via the existing POST /bodies/{pk}/acting-assignments, the row now
+# lands as PENDING_APPROVAL and sits there until the CONCERNED PERSON (the
+# nominee) approves or rejects it. Mirrors body_member_assignment's
+# PENDING_REMOVAL request/approve/reject pattern. No new request-body shape
+# is needed for approve/reject — effective dates were already fixed when
+# the admin filed the row; only an optional remarks note travels here.
+
+class DecideActingAssignmentRequest(BaseModel):
+    """Approve or reject a PENDING_APPROVAL acting assignment. Only the
+    concerned person (the nominee named on the row) may call either."""
+    remarks: str | None = None
 
 
 # ── Election ─────────────────────────────────────────────────────────────
@@ -338,6 +443,9 @@ class NominationResponse(BaseModel):
     election_pk: UUID
     position_master_pk: UUID
     position_name: str | None = None
+    # position_master.position_code — same 2026-10-23 position-badge addition
+    # as AssignmentResponse.position_code.
+    position_code: str | None = None
     candidate_person_pk: UUID
     candidate_name: str | None = None
     proposer_person_pk: UUID | None = None
@@ -435,6 +543,9 @@ class VoteResponse(BaseModel):
 class TallyRow(BaseModel):
     position_master_pk: UUID
     position_name: str | None = None
+    # position_master.position_code — same 2026-10-23 position-badge addition
+    # as AssignmentResponse.position_code.
+    position_code: str | None = None
     election_nomination_pk: UUID
     candidate_person_pk: UUID
     candidate_name: str | None = None
@@ -496,6 +607,9 @@ class ResultResponse(BaseModel):
     election_pk: UUID
     position_master_pk: UUID
     position_name: str | None = None
+    # position_master.position_code — same 2026-10-23 position-badge addition
+    # as AssignmentResponse.position_code.
+    position_code: str | None = None
     winning_nomination_pk: UUID | None = None
     winner_person_pk: UUID | None = None
     winner_name: str | None = None

@@ -33,7 +33,7 @@ from api.helpers import (
     rows_to_models,
     PERSON_MASTER_DATA_JOINS_SQL,
 )
-from api.services.rbac_service import UserContext
+from api.services.rbac_service import UserContext, actor_scope_org_pks
 from api.routers.family import _shares_current_family
 from api.schemas.person import (
     PersonAddressResponse,
@@ -260,9 +260,34 @@ def list_persons(
     order_by = build_order_by(
         sort_by, sort_dir, _PERSON_SORT_COLUMNS, "p.first_name, p.last_name"
     )
-    sql = _PERSON_SUMMARY_SELECT + where + f" ORDER BY {order_by} LIMIT %s OFFSET %s"
 
     with conn.cursor() as cur:
+        # ── Scope filter (ADMIN-BR-076, subtree-aware) ──
+        # nss.person carries no organization_pk of its own, so a person's
+        # scope is resolved through their own active sangha_sevi
+        # (nss.sangha_sevi.organization_pk) — a scoped admin sees only
+        # persons whose active membership falls inside their org subtree,
+        # the same subtree actor_scope_org_pks() already resolves for
+        # every other admin-scoped list. A person with no active
+        # sangha_sevi (e.g. a pending registrant not yet approved) is
+        # conservatively excluded from a scoped admin's view; only the
+        # NSS-wide/global authority (allowed is None) still sees everyone.
+        allowed = actor_scope_org_pks(cur, user)
+        if allowed is not None:
+            if not allowed:
+                return PersonListResponse(persons=[], total=0)
+            where += """
+                AND EXISTS (
+                    SELECT 1 FROM nss.sangha_sevi ss2
+                    WHERE ss2.person_pk = p.person_pk
+                      AND ss2.is_active = TRUE
+                      AND ss2.organization_pk = ANY(%s::uuid[])
+                )
+            """
+            params.append(list(allowed))
+
+        sql = _PERSON_SUMMARY_SELECT + where + f" ORDER BY {order_by} LIMIT %s OFFSET %s"
+
         cur.execute(_PERSON_COUNT_SELECT + where, tuple(params))
         total = cur.fetchone()[0]
 

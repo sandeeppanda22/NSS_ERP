@@ -31,7 +31,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
 from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, row_to_model, rows_to_models, FAMILY_MAJORITY_CTE_SQL, ORGANIZATION_ADDRESS_JOINS_SQL
-from api.services.rbac_service import UserContext, require_org_in_scope
+from api.services.rbac_service import UserContext, require_org_in_scope, actor_scope_org_pks
 from api.schemas.organization import (
     OrgChildStatsResponse,
     OrgStatsResponse,
@@ -431,6 +431,23 @@ _CHILDREN_STATS_SQL = f"""
                ON fr.family_group_pk = fe.family_group_pk
               AND fr.is_current = TRUE
         GROUP BY sp.root_child_pk
+    ),
+    -- Attendance per root_child (Tier 6, 2026-10-27) — present/absent
+    -- across every Weekly Sangha Puja event at any Sakha under this
+    -- child, mirroring attendance.py::organization_stats' own
+    -- computation (EXCUSED_ABSENCE excluded from the denominator,
+    -- ATT-008) and admin.py::dashboard_stats' NSS-wide rollup.
+    attendance_counts AS (
+        SELECT sp.root_child_pk,
+               COUNT(DISTINCT w.weekly_sangha_puja_pk) AS total_puja_events,
+               COUNT(*) FILTER (WHERE md.value_code = 'PRESENT') AS present_c,
+               COUNT(*) FILTER (WHERE md.value_code = 'ABSENT') AS absent_c
+        FROM   sakha_pks sp
+        JOIN   nss.weekly_sangha_puja w ON w.sakha_pk = sp.sakha_pk AND w.is_active = TRUE
+        LEFT JOIN nss.weekly_sangha_puja_attendance a
+               ON a.weekly_sangha_puja_pk = w.weekly_sangha_puja_pk AND a.is_active = TRUE
+        LEFT JOIN nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
+        GROUP BY sp.root_child_pk
     )
     SELECT ot.root_child_pk        AS organization_pk,
            ot.organization_name,
@@ -438,11 +455,16 @@ _CHILDREN_STATS_SQL = f"""
            ot.organization_type_code,
            COALESCE(fc.family_count, 0)  AS family_count,
            COALESCE(mc.member_count, 0)  AS member_count,
-           COALESCE(pc.person_count, 0)  AS person_count
+           COALESCE(pc.person_count, 0)  AS person_count,
+           COALESCE(ac.total_puja_events, 0) > 0 AS attendance_tracked,
+           CASE WHEN COALESCE(ac.present_c, 0) + COALESCE(ac.absent_c, 0) > 0
+                THEN ROUND(100.0 * ac.present_c / (ac.present_c + ac.absent_c), 1)
+                ELSE NULL END AS attendance_pct
     FROM   org_tree ot
     LEFT JOIN family_counts fc   ON fc.root_child_pk = ot.root_child_pk
     LEFT JOIN member_counts mc   ON mc.root_child_pk = ot.root_child_pk
     LEFT JOIN person_counts pc   ON pc.root_child_pk = ot.root_child_pk
+    LEFT JOIN attendance_counts ac ON ac.root_child_pk = ot.root_child_pk
     WHERE  ot.organization_pk = ot.root_child_pk
     ORDER BY ot.organization_name
 """
@@ -607,7 +629,24 @@ _ORG_STATS_SQL = f"""
          WHERE  rr.status = 'PENDING'
            AND  ss.is_active = TRUE
            AND  ss.organization_pk IN (SELECT sakha_pk FROM sakha_pks)
-        ) AS renewals_due
+        ) AS renewals_due,
+        -- Attendance percentage (Tier 6, 2026-10-27) — same present/(present+absent)
+        -- computation as attendance.py::organization_stats, rolled up
+        -- across every Sakha in this org's subtree.
+        (SELECT COUNT(*) > 0
+         FROM   nss.weekly_sangha_puja w
+         WHERE  w.sakha_pk IN (SELECT sakha_pk FROM sakha_pks) AND w.is_active = TRUE
+        ) AS attendance_tracked,
+        (SELECT CASE WHEN COUNT(*) FILTER (WHERE md.value_code IN ('PRESENT', 'ABSENT')) > 0
+                THEN ROUND(100.0 * COUNT(*) FILTER (WHERE md.value_code = 'PRESENT')
+                           / COUNT(*) FILTER (WHERE md.value_code IN ('PRESENT', 'ABSENT')), 1)
+                ELSE NULL END
+         FROM   nss.weekly_sangha_puja w
+         JOIN   nss.weekly_sangha_puja_attendance a
+                ON a.weekly_sangha_puja_pk = w.weekly_sangha_puja_pk AND a.is_active = TRUE
+         JOIN   nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
+         WHERE  w.sakha_pk IN (SELECT sakha_pk FROM sakha_pks) AND w.is_active = TRUE
+        ) AS attendance_pct
 """
 
 
@@ -663,7 +702,8 @@ def get_organization_stats(
         kumari_sanghas=row["kumari_sanghas"] or 0,
         sevak_sanghas=row["sevak_sanghas"] or 0,
         renewals_due=row["renewals_due"] or 0,
-        # attendance_pct stays None/False — see OrgStatsResponse docstring.
+        attendance_pct=row["attendance_pct"],
+        attendance_tracked=bool(row["attendance_tracked"]),
     )
 
 
@@ -1074,17 +1114,44 @@ def get_organization_hierarchy(
     user: UserContext = Depends(require_permission("ORGANIZATION_VIEW")),
 ) -> list[OrganizationHierarchyNodeResponse]:
     """
-    Return the full organizational hierarchy as a flat list with depth.
+    Return the organizational hierarchy as a flat list with depth.
 
-    Uses a recursive CTE starting from root nodes (parent = NULL).
+    Uses a recursive CTE. For the NSS-wide/global authority (NSS_ERP_ADMIN
+    or an NSS-WIDE scope) the anchor is the true root nodes (parent =
+    NULL), returning the whole tree as before. For a scope-bounded admin
+    (ADMIN-BR-076) the anchor is instead their own admin_scope
+    organization(s) — the tree is *rooted* at their own scope rather than
+    filtered after the fact, which would otherwise break parent-chain
+    integrity (orphaned nodes whose parent got filtered out). A scoped
+    admin therefore sees exactly their own org subtree, depth 0 at their
+    own org.
+
     Depth is capped at 10 levels as a defence-in-depth guard against
     circular parent references. Supports pagination via limit/offset.
     The UI reconstructs the tree using depth for indentation.
     """
+    # Scope-rooted anchor (ADMIN-BR-076): resolved without a DB round
+    # trip, same scopes actor_scope_org_pks() itself reads to build the
+    # subtree — here we only need the admin's own org(s), not the full
+    # subtree, since the recursive step below expands descendants itself.
+    root_pks: list[str] | None = None
+    if not (user.is_super_admin() or user.is_nss_wide()):
+        root_pks = [str(s.organization_pk) for s in user.scopes if s.organization_pk]
+        if not root_pks:
+            return []
+
+    anchor_filter = (
+        "o.organization_pk = ANY(%s::uuid[])" if root_pks is not None
+        else "o.parent_organization_pk IS NULL"
+    )
+    anchor_params: list = [root_pks] if root_pks is not None else []
+
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             WITH RECURSIVE org_tree AS (
-                -- Anchor: root nodes (no parent)
+                -- Anchor: root nodes (no parent) for the global authority,
+                -- or the scoped admin's own org(s) for a scope-bounded
+                -- admin (ADMIN-BR-076).
                 SELECT o.organization_pk,
                        o.organization_name,
                        o.organization_code,
@@ -1100,7 +1167,7 @@ def get_organization_hierarchy(
                        ON ot.master_data_pk = o.organization_type_master_data_pk
                 JOIN   nss.master_data os
                        ON os.master_data_pk = o.status_master_data_pk
-                WHERE  o.parent_organization_pk IS NULL
+                WHERE  {anchor_filter}
                   AND  o.is_active = TRUE
 
                 UNION ALL
@@ -1129,5 +1196,5 @@ def get_organization_hierarchy(
             SELECT * FROM org_tree
             ORDER BY depth, organization_name
             LIMIT %s OFFSET %s
-        """, (limit, offset))
+        """, tuple(anchor_params + [limit, offset]))
         return rows_to_models(cur, OrganizationHierarchyNodeResponse)

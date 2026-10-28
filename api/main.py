@@ -46,6 +46,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import hashlib
 import logging
+import os
 import re
 
 import psycopg2
@@ -72,6 +73,7 @@ from api.routers import auth, admin, registration, claim_approval, audit, geo_ap
 from api.routers import governance
 from api.routers import membership_change_request
 from api.routers import correspondence
+from api.routers import attendance
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -112,6 +114,12 @@ def _asset_version(asset_path: Path) -> str:
 def _render_html_with_asset_versions(html_path: Path) -> str:
     html = html_path.read_text(encoding="utf-8")
 
+    # Dev-only: splice in the live-reload client BEFORE the asset-ref
+    # substitution below, so the injected tag picks up a ?v=<hash> exactly
+    # like every hand-written asset reference.
+    if settings.DEV_LIVE_RELOAD:
+        html = _inject_dev_reload_script(html)
+
     def _replace(match: re.Match) -> str:
         attr, rel_url = match.group(1), match.group(2)
         version = _asset_version(_FRONTEND_DIR / rel_url.lstrip("/"))
@@ -128,6 +136,67 @@ def _serve_page(html_path: Path) -> HTMLResponse:
         content=_render_html_with_asset_versions(html_path),
         headers={"Cache-Control": "no-store"},
     )
+
+
+# ── Dev-only browser auto-reload (DEV_LIVE_RELOAD) ───────────────────────
+# `uvicorn --reload` restarts the Python process on a .py edit but does
+# nothing for the browser, and a frontend edit needs no restart at all
+# (the HTML above is re-read and re-hashed per request) — so after every
+# CSS/JS/HTML change the page still has to be hard-refreshed by hand,
+# because the page's JS is parsed once at load and clicking an Alpine tab
+# re-requests nothing.
+#
+# With DEV_LIVE_RELOAD set, _render_html_with_asset_versions() injects
+# frontend/assets/js/dev-reload.js, which polls GET /__dev/frontend-version
+# once a second and calls location.reload() when the fingerprint changes.
+# The fingerprint is a sha256 over the sorted (relative path, mtime_ns)
+# list of every non-dot file under frontend/ — the sorted *list* rather
+# than a max mtime, so additions and deletions are detected too, and
+# dotfiles/dot-directories are skipped because .DS_Store churn on macOS
+# would otherwise fire spurious reloads. No file contents are read.
+#
+# An external same-origin <script src> plus a same-origin fetch() is all
+# this needs, which the existing CSP already allows (script-src 'self',
+# connect-src 'self'); no inline <script> is used, since script-src
+# deliberately has no 'unsafe-inline'. See api/middleware.py::build_csp().
+_DEV_RELOAD_SCRIPT_TAG = '<script src="/assets/js/dev-reload.js"></script>'
+
+
+def _inject_dev_reload_script(html: str) -> str:
+    """Insert the dev-reload <script> immediately before </body>."""
+    if _DEV_RELOAD_SCRIPT_TAG in html:
+        return html
+    index = html.rfind("</body>")
+    if index == -1:
+        # No </body> (fragment or malformed page) — appending still works.
+        return f"{html}\n{_DEV_RELOAD_SCRIPT_TAG}\n"
+    return f"{html[:index]}{_DEV_RELOAD_SCRIPT_TAG}\n{html[index:]}"
+
+
+def _frontend_fingerprint() -> str:
+    """sha256 over the sorted (relpath, mtime_ns) list of frontend/ files."""
+    entries: list[tuple[str, int]] = []
+    for dir_path, dir_names, file_names in os.walk(_FRONTEND_DIR):
+        # Prune dot-directories in place so os.walk never descends into them.
+        dir_names[:] = [d for d in dir_names if not d.startswith(".")]
+        for file_name in file_names:
+            if file_name.startswith("."):
+                continue
+            full_path = Path(dir_path) / file_name
+            try:
+                mtime_ns = full_path.stat().st_mtime_ns
+            except OSError:
+                continue  # vanished mid-walk; the next poll will see it gone
+            rel = full_path.relative_to(_FRONTEND_DIR).as_posix()
+            entries.append((rel, mtime_ns))
+
+    digest = hashlib.sha256()
+    for rel, mtime_ns in sorted(entries):
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(mtime_ns).encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 # ── Rate limiter ─────────────────────────────────────────────────────────
@@ -169,6 +238,15 @@ def _warn_on_insecure_settings() -> None:
         logger.warning(
             "SECURITY: CSP_REPORT_ONLY is enabled — Content-Security-Policy "
             "violations will be reported but not blocked."
+        )
+    if settings.DEV_LIVE_RELOAD:
+        logger.warning(
+            "SECURITY: DEV_LIVE_RELOAD is enabled — GET /__dev/frontend-version "
+            "is served unauthenticated (it returns only a digest, so it leaks no "
+            "paths or timestamps, but it does act as a change-detection oracle "
+            "for frontend/), and every page carries the dev-reload polling "
+            "script, which re-requests that endpoint once a second per open tab. "
+            "This must never be set in a deployed environment."
         )
 
 
@@ -245,6 +323,7 @@ app.include_router(geo_approval.router)
 app.include_router(governance.router)
 app.include_router(membership_change_request.router)
 app.include_router(correspondence.router)
+app.include_router(attendance.router)
 
 # ── Frontend ─────────────────────────────────────────────────────────────
 # Serve static assets at /assets/*, index.html at /
@@ -261,6 +340,19 @@ if _FRONTEND_DIR.is_dir():
     async def serve_frontend():
         """Redirect root to Login page."""
         return RedirectResponse(url="/login", status_code=302)
+
+    # ── Dev-only frontend fingerprint ──────────────────────────────────
+    # Registered ONLY when DEV_LIVE_RELOAD is set, so with the flag at its
+    # default the route genuinely does not exist (404) rather than existing
+    # and refusing. No auth dependency: it is localhost dev tooling, it
+    # returns nothing but an opaque mtime hash, and it has to work before
+    # login for the reload to function on /login and /register.
+    if settings.DEV_LIVE_RELOAD:
+
+        @app.get("/__dev/frontend-version", include_in_schema=False)
+        async def dev_frontend_version():
+            """Fingerprint of frontend/ — changes on any add/edit/delete."""
+            return {"v": _frontend_fingerprint()}
 
     # ── Retired standalone verification pages ──────────────────────────
     # The read-only /foundation, /organization, /person, /membership and

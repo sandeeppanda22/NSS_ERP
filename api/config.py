@@ -42,7 +42,18 @@ class Settings:
         for o in os.environ.get("CORS_ORIGINS", "").split(",")
         if o.strip()
     ]
-    RATE_LIMIT: str = os.environ.get("RATE_LIMIT", "60/minute")
+    # Global per-IP rate limit applied to EVERY endpoint (api/main.py's
+    # Limiter default_limits). Raised 60->300/minute 2026-10-27: a single
+    # authenticated dashboard load legitimately fans out to 20-30 calls
+    # (org children-stats + subtree stats + governance's per-body election
+    # lookups + correspondence + attendance), so 60/min 429'd real users
+    # after a refresh or two. Login brute-force is NOT weakened by this:
+    # it is throttled at the ACCOUNT level (MAX_FAILED_ATTEMPTS ->
+    # lockout in auth.py), not by this IP limit; the forgot-password OTP
+    # has its own app-level 3/hour throttle (RESET_OTP_RATE_LIMIT_MINUTES).
+    # 300/min is the IP-velocity backstop. Override per environment via
+    # the RATE_LIMIT env var.
+    RATE_LIMIT: str = os.environ.get("RATE_LIMIT", "300/minute")
 
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).
@@ -66,6 +77,13 @@ class Settings:
 
     # ── Debug / Development ─────────────────────────────────────────────
     DEBUG_MODE: bool = os.environ.get("DEBUG_MODE", "").lower() in ("1", "true", "yes")
+
+    # DEV_LIVE_RELOAD — development-only browser auto-reload. When truthy,
+    # api/main.py registers GET /__dev/frontend-version (an mtime fingerprint
+    # of frontend/) and injects frontend/assets/js/dev-reload.js into every
+    # page served by _serve_page(), so saving a frontend file reloads the open
+    # tab. Off by default; must never be set in a deployed environment.
+    DEV_LIVE_RELOAD: bool = os.environ.get("DEV_LIVE_RELOAD", "").lower() in ("1", "true", "yes")
 
     # ── Connection Pools ────────────────────────────────────────────────
     DB_READ_POOL_MIN: int = int(os.environ.get("DB_READ_POOL_MIN", "2"))

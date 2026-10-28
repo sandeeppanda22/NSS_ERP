@@ -70,7 +70,12 @@ class UserContext:
         """
         Check if any of the user's scopes cover a given organization.
 
-        NSS-WIDE scope covers everything.
+        NSS-WIDE scope covers everything. KENDRA scope is treated as
+        equivalent to NSS-WIDE (owner-confirmed 2026-10-22: "NSS = KENDRA =
+        NSS_WIDE" — NSS_ERP_KENDRA_ADMIN is capability-equivalent to
+        NSS_ERP_ADMIN, reserved for governing-body members; the role_master
+        seed's `scope_level='KENDRA'`/`role_class='ORGANIZATIONAL'` predates
+        that decision and was never updated — see backlog #12).
         Otherwise, the organization_pk must match one of the user's scopes.
 
         Compares as strings deliberately: psycopg2 returns admin_scope.
@@ -82,19 +87,29 @@ class UserContext:
         the caller's type.
         """
         if organization_pk is None:
-            return any(scope.scope_level == "NSS-WIDE" for scope in self.scopes)
+            return any(scope.scope_level in ("NSS-WIDE", "KENDRA") for scope in self.scopes)
 
         target = str(organization_pk)
         for scope in self.scopes:
-            if scope.scope_level == "NSS-WIDE":
+            if scope.scope_level in ("NSS-WIDE", "KENDRA"):
                 return True
             if scope.organization_pk and str(scope.organization_pk) == target:
                 return True
         return False
 
     def is_nss_wide(self) -> bool:
-        """Check if the user has any NSS-WIDE scope."""
-        return any(s.scope_level == "NSS-WIDE" for s in self.scopes)
+        """
+        Check if the user has any NSS-WIDE (or KENDRA-equivalent) scope.
+
+        KENDRA is treated as NSS-WIDE-equivalent (owner-confirmed
+        2026-10-22) — see has_scope_for_org's docstring for the full
+        rationale. This is the single source of truth every other "is this
+        admin global" check routes through (actor_scope_org_pks,
+        organization.py's hierarchy anchor, governance.py, correspondence.py,
+        family.py, membership_change_request.py, admin.py) — fixing it here
+        propagates everywhere without a duplicate check anywhere else.
+        """
+        return any(s.scope_level in ("NSS-WIDE", "KENDRA") for s in self.scopes)
 
     def is_super_admin(self) -> bool:
         """
@@ -426,6 +441,40 @@ def actor_scope_org_pks(cur, user: UserContext) -> set[str] | None:
         SELECT organization_pk FROM subtree
         """,
         roots,
+    )
+    return {str(r[0]) for r in cur.fetchall()}
+
+
+def org_subtree_pks(cur, organization_pk) -> set[str]:
+    """
+    *organization_pk* plus every descendant organization, no actor
+    involved — the single-root counterpart to ``actor_scope_org_pks``'s
+    multi-root union.
+
+    Added for per-tab dashboard stats (GET /admin/dashboard-stats?org_pk=):
+    a dual-role admin (e.g. NSS-WIDE Kendra admin + Sakha-scoped admin) was
+    seeing byte-identical member/family counts on every admin tab because
+    the endpoint only ever computed one actor-wide union via
+    ``actor_scope_org_pks`` and stamped it onto every tab. Scoping a single
+    call to one specific org (the tab's own scope organization) instead of
+    the actor's combined scope is what lets each tab show its own numbers.
+    Callers must still check ``org_in_scope``/``require_org_in_scope`` first
+    — this function trusts its input and applies no authorization.
+    """
+    cur.execute(
+        """
+        WITH RECURSIVE subtree AS (
+            SELECT organization_pk
+            FROM nss.organization
+            WHERE organization_pk = %s
+            UNION ALL
+            SELECT o.organization_pk
+            FROM nss.organization o
+            JOIN subtree s ON o.parent_organization_pk = s.organization_pk
+        )
+        SELECT organization_pk FROM subtree
+        """,
+        (str(organization_pk),),
     )
     return {str(r[0]) for r in cur.fetchall()}
 

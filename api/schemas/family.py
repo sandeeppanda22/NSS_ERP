@@ -232,8 +232,9 @@ class AddFamilyMemberRequest(BaseModel):
     link_type: str | None = Field(
         None,
         description=(
-            "Optional graph edge to create. Must be PARENT_OF or SPOUSE_OF. "
-            "link_target_person_pk is required when this is set."
+            "Optional graph edge to create. Must be PARENT_OF, SPOUSE_OF "
+            "or SIBLING_OF. link_target_person_pk is required when this "
+            "is set."
         ),
     )
     link_target_person_pk: UUID | None = Field(
@@ -241,7 +242,8 @@ class AddFamilyMemberRequest(BaseModel):
         description=(
             "The other person in the link edge. "
             "For PARENT_OF: this person is the child (new member is parent) "
-            "or vice-versa. For SPOUSE_OF: the existing spouse."
+            "or vice-versa. For SPOUSE_OF/SIBLING_OF (both symmetric): the "
+            "existing spouse/sibling."
         ),
     )
     remarks: str | None = Field(None, max_length=500)
@@ -268,7 +270,9 @@ class CreateFamilyLinkRequest(BaseModel):
     Request to create an additional family_link edge in a family group.
 
     Used for auto-inferred links (e.g., adding a Father also creates
-    SPOUSE_OF link with existing Mother, or PARENT_OF links to siblings).
+    SPOUSE_OF link with existing Mother, PARENT_OF links to siblings, or
+    a direct SIBLING_OF link when adding a Brother/Sister with no parent
+    yet on file — owner decision, 2026-10-22).
 
     Both persons must be current members of the family.
     """
@@ -280,7 +284,7 @@ class CreateFamilyLinkRequest(BaseModel):
         ..., description="Second person in the link. For PARENT_OF: this is the child."
     )
     link_type: str = Field(
-        ..., description="PARENT_OF or SPOUSE_OF"
+        ..., description="PARENT_OF, SPOUSE_OF or SIBLING_OF"
     )
 
 

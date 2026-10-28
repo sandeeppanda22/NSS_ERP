@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-15 routers (201 endpoints; Tier 6 adds `governance.py` 46 + `membership_change_request.py` 5 + `correspondence.py` 9, admin 28→32); the endpoint inventory and per-router counts live in
+16 routers (241 endpoints; Tier 6 adds `governance.py` 55 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 20); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -45,7 +45,7 @@ api/
 │                        outermost, so security headers wrap everything — CSP is emitted by that
 │                        same security-headers middleware, not a separate layer), registers the
 │                        `error_handlers.py` handlers (validation / `psycopg2.IntegrityError` /
-│                        catch-all), includes all 15 routers (the six Tier 0-4 ones plus, Tier 5,
+│                        catch-all), includes all 16 routers (the six Tier 0-4 ones plus, Tier 5,
 │                        `auth`/`admin`/`registration`/`claim_approval`/`audit`/`geo_approval`, then Tier 6
 │                        `governance`/`membership_change_request`/`correspondence`),
 │                        mounts `frontend/assets/` at `/assets`. A `lifespan` hook logs a
@@ -75,7 +75,7 @@ api/
 │                        (default localhost), DB_PORT (5432), API_PORT (8001 — read but not
 │                        used anywhere in `api/`; the port comes from the uvicorn command line),
 │                        DISABLE_DOCS, CORS_ORIGINS (comma-separated, default empty),
-│                        RATE_LIMIT (default `60/minute`), DEBUG_MODE, pool sizes
+│                        RATE_LIMIT (default `300/minute`), DEBUG_MODE, pool sizes
 │                        DB_READ_POOL_MIN/MAX (2/15) and DB_WRITE_POOL_MIN/MAX (1/5), and the
 │                        Content-Security-Policy knobs CSP_ENABLED (default true),
 │                        CSP_REPORT_ONLY (default false), CSP_SCRIPT_SRC_EXTRA/
@@ -161,7 +161,7 @@ api/
 │                        the `-Report-Only` variant when CSP_REPORT_ONLY is set; nothing when
 │                        CSP_ENABLED is false), skipping `CSP_EXEMPT_PATHS` — `/docs`, `/redoc`,
 │                        `/openapi.json` — because Swagger UI embeds an inline script
-├── routers/             15 routers; module docstrings of `foundation.py`,
+├── routers/             16 routers; module docstrings of `foundation.py`,
 │   │                    `membership.py`, `person.py`, `admin.py`, `auth.py`, `registration.py`
 │   │                    and `family.py` still describe their original/partial endpoint set — see
 │   │                    "Known gaps" at the bottom of this file
@@ -257,16 +257,24 @@ api/
 │   ├── geo_approval.py   Tier 5 — 4 endpoints under /api/v1/admin/geo-entries: review queue for
 │   │                     member-proposed district/postal-code/post-office/city-village rows
 │   │                     (list, detail, approve, correct), `FOUNDATION_MANAGE` + admin scope
-│   ├── governance.py     Tier 6 — 46 endpoints under /api/v1/governance: body-type/position
+│   ├── governance.py     Tier 6 — 55 endpoints under /api/v1/governance: body-type/position
 │   │                     catalogues, bodies, member + acting assignments (incl. forced-removal
 │   │                     request/approve/reject), elections, nominations, votes (officer-recorded,
 │   │                     self-service, reset), tally, results and result apply, plus two
 │   │                     any-login public panels. `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`, admin scope
-│   ├── correspondence.py Tier 6 — 9 endpoints under /api/v1/correspondence: register,
-│   │                     list (scoped), detail, status transition (§6.2), responsible-party,
-│   │                     document and finance-reference sub-resources; `CORRESPONDENCE_VIEW`/
+│   ├── correspondence.py Tier 6 — 19 endpoints under /api/v1/correspondence: register,
+│   │                     list (scoped), detail, history, status transition (§6.2), responsible-party,
+│   │                     document and finance-reference sub-resources, `/dispatch`, `/broadcast`,
+│   │                     member-facing `/my-applications`, `/addressed-to-me`, `/my-involvements`,
+│   │                     `/approval-steps/pending-for-me` + `/{step_pk}/decision`; `CORRESPONDENCE_VIEW`/
 │   │                     `CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk`;
 │   │                     reference numbers via `helpers.next_correspondence_reference_number()`
+│   ├── attendance.py     Tier 6 — 20 endpoints under /api/v1/attendance: Weekly Sangha Puja
+│   │                     (`/pujas`, `/pujas/{pk}/attendance`, `/records`), `/exceptions`, Attendance
+│   │                     Review workflow (`/reviews*`: close/defer/revisit/escalate-to-president/
+│   │                     escalate-to-parichalak/reopen/override), `/watch-list`, `/stats/*`.
+│   │                     `ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE` + admin scope; review/exception
+│   │                     authority = live Secretary/President seat (`_require_review_authority`)
 │   ├── membership_change_request.py Tier 6 — 5 endpoints under
 │   │                     /api/v1/membership/change-requests: Sakha Transfer / Apply for Darshak
 │   │                     two-step release/accept workflow (MBR-048/049); write-pool counterpart to
@@ -360,6 +368,8 @@ api/
     ├── correspondence.py Tier 6 — CorrespondenceCreate/Response/ListResponse,
     │                     StatusTransitionRequest, ResponsiblePartyAssignRequest,
     │                     DocumentAssociation*, FinanceReference*
+    ├── attendance.py     Tier 6 — Puja/AttendanceRecord/Exception/Review request + response
+    │                     models, WatchList*, Org/Member attendance stats
     ├── membership_change_request.py Tier 6 — ChangeRequestCreate, SourceDecisionRequest,
     │                     DestinationDecisionRequest, ChangeRequestResponse/ListResponse
     └── audit.py          Tier 5 — FieldChangeLogResponse (the one schema in this
@@ -449,7 +459,7 @@ All write endpoints use the auditing `api/dependencies/auth.py::get_write_connec
 election with `organization_pk IS NULL` is NSS-wide and manageable only by `NSS_ERP_ADMIN`/NSS-WIDE;
 org-scoped ones go through the subtree scope check (ADMIN-BR-076/077).
 
-**`/api/v1/governance`** (`routers/governance.py`, 46 endpoints; paths relative to the prefix)
+**`/api/v1/governance`** (`routers/governance.py`, 55 endpoints; paths relative to the prefix)
 
 | Method | Path | Auth | Returns |
 |--------|------|------|---------|
@@ -541,7 +551,7 @@ Registered in `api/main.py`. Starlette runs the **last-registered** middleware o
 the effective request order is security headers → CORS → rate limiting → route:
 
 1. **Rate limiting** (`slowapi`) — `Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])`
-   registered via `SlowAPIMiddleware`; default `60/minute` per client IP, global (no per-route
+   registered via `SlowAPIMiddleware`; default `300/minute` per client IP, global (no per-route
    `@limiter.limit` overrides exist anywhere in `api/`). Returns 429 once the limit trips.
    `POST /auth/forgot-password`'s 3-per-hour cap is a separate, DB-backed check on
    `password_reset_token`, not this limiter.
@@ -594,7 +604,7 @@ Swagger UI: `http://localhost:8001/docs` (set `DISABLE_DOCS=true` in `api/.env` 
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/api/v1/bootstrap/health` | `{"status", "database"}` — liveness/DB-connectivity probe |
-| GET | `/api/v1/bootstrap/roles` | The 10 frozen roles from `nss.role_master` |
+| GET | `/api/v1/bootstrap/roles` | The 11 frozen roles from `nss.role_master` |
 | GET | `/api/v1/bootstrap/permissions` | `nss.permission_master` rows — was empty by design through Tier 4; **now returns real rows in Tier 5**, since the catalogue is seeded |
 | GET | `/api/v1/bootstrap/roles/{role_pk}/permissions` | Permissions mapped to a role — same, no longer empty for roles with real `role_permission` mappings; 404 if `role_pk` doesn't match an active role |
 

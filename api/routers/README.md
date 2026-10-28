@@ -1,7 +1,7 @@
 # api/routers/
 
-One FastAPI `APIRouter` per module, all included by `api/main.py`. **15 routers, 201 endpoints**
-(decorator-counted; `governance.py`, `membership_change_request.py` and `correspondence.py` are Tier 6, uncommitted on `feature/tier6-governance`). Raw parameterized psycopg2 SQL, no ORM; response models live in
+One FastAPI `APIRouter` per module, all included by `api/main.py`. **16 routers, 241 endpoints**
+(decorator-counted; `governance.py`, `membership_change_request.py` and `correspondence.py` are Tier 6, committed on `feature/tier6-governance`; `attendance.py` is Tier 6, uncommitted). Raw parameterized psycopg2 SQL, no ORM; response models live in
 `api/schemas/`. See `api/README.md` for the per-endpoint tables.
 
 | File | Prefix | Endpoints | Auth |
@@ -11,15 +11,16 @@ One FastAPI `APIRouter` per module, all included by `api/main.py`. **15 routers,
 | `organization.py` | `/api/v1/organization` | 11 | `ORGANIZATION_VIEW`; `/organizations/selectable` needs login only |
 | `person.py` | `/api/v1/person` | 5 | `PERSON_VIEW` (list, search); login only (`/search-selectable`); self-or-`PERSON_VIEW` (detail, addresses) |
 | `family.py` | `/api/v1/family` | 16 | `get_current_user` + ownership checks; `FAMILY_VIEW`/`FAMILY_MANAGE` override |
-| `membership.py` | `/api/v1/membership` | 8 | `MEMBERSHIP_VIEW` (list, search, darshak-summary); self-or-`MEMBERSHIP_VIEW` (per-member) |
+| `membership.py` | `/api/v1/membership` | 9 | `MEMBERSHIP_VIEW` (list, search, darshak-summary); self-or-`MEMBERSHIP_VIEW` (per-member) |
 | `auth.py` | `/api/v1/auth` | 10 | none for login/refresh/forgot/reset; JWT for the rest |
 | `admin.py` | `/api/v1/admin` | 32 (incl. 4 `/credentials/members*` endpoints: list, timeline, issue, promote Darshak→Regular) | `require_any_permission(...)` per endpoint, plus scope checks |
 | `registration.py` | `/api/v1/register` | 12 | none (public) |
 | `claim_approval.py` | `/api/v1/admin/claims` | 5 | `MEMBERSHIP_APPROVE` or `ADMIN_USER_MANAGE`, scope-filtered |
 | `audit.py` | `/api/v1/audit` | 1 | `AUDIT_VIEW` |
 | `geo_approval.py` | `/api/v1/admin/geo-entries` | 4 | `FOUNDATION_MANAGE`, scope-filtered |
-| `governance.py` | `/api/v1/governance` | 46 (bodies, body types, positions, assignments, acting assignments, elections, nominations, votes, results) | reads `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`; writes `GOVERNANCE_MANAGE` + org scope; `/public/*`, `/elections/open-for-voting`, `/votes/self` need login only |
-| `correspondence.py` | `/api/v1/correspondence` | 9 | `CORRESPONDENCE_VIEW` (reads) / `CORRESPONDENCE_MANAGE` (writes) + admin scope on `register_organization_pk` (`actor_scope_org_pks`/`require_org_in_scope`); status transitions per §6.2, reopen needs remarks; reference number from `next_correspondence_reference_number()` (needs the register org's `short_code`, else 422) |
+| `governance.py` | `/api/v1/governance` | 55 (bodies, body types, positions, assignments, acting assignments, elections, nominations, votes, results) | reads `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`; writes `GOVERNANCE_MANAGE` + org scope; `/public/*`, `/elections/open-for-voting`, `/votes/self` need login only |
+| `correspondence.py` | `/api/v1/correspondence` | 19 (adds dispatch, broadcast, member-facing my-applications / addressed-to-me / my-involvements, approval-steps) | `CORRESPONDENCE_VIEW` (reads) / `CORRESPONDENCE_MANAGE` (writes) + admin scope on `register_organization_pk` (`actor_scope_org_pks`/`require_org_in_scope`); status transitions per §6.2, reopen needs remarks; reference number from `next_correspondence_reference_number()` (needs the register org's `short_code`, else 422) |
+| `attendance.py` | `/api/v1/attendance` | 20 (pujas, records, exceptions, reviews, watch-list, stats) | `ATTENDANCE_VIEW` (reads, review actions) / `ATTENDANCE_MANAGE` (puja create, marking) + admin scope; review/exception authority is the live Secretary/President seat on the member's home Sakha governing body (`_require_review_authority`), `NSS_ERP_ADMIN` overrides |
 | `membership_change_request.py` | `/api/v1/membership/change-requests` | 5 | `get_current_user`; Sakha Transfer / Apply for Darshak two-step release→accept workflow (MBR-048/049), scope-checked per Sakha |
 
 ## Non-obvious wiring

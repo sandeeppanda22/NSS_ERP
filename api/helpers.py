@@ -1719,9 +1719,14 @@ def fetch_person_date_of_birth(cur, person_pk: str) -> date | None:
 
 # ── City/Village lookup or create ────────────────────────────────────────
 
-def resolve_or_create_city_village(cur, name: str, district_pk: str, *, actor_pk: str | None = None) -> str:
+def resolve_or_create_city_village(
+    cur, name: str, district_pk: str, *, actor_pk: str | None = None,
+    pending_submitter_person_pk: str | None = None,
+    postal_code_pk: str | None = None,
+) -> str:
     """
-    Resolve a city/village by name + district, creating it if not found.
+    Resolve a city/village by name + district (+ PIN when known), creating
+    it if not found.
 
     Lookup is case-insensitive. On create, generates a code from the
     uppercase name (max 20 chars) and defaults city_village_type to 'CITY'.
@@ -1729,41 +1734,102 @@ def resolve_or_create_city_village(cur, name: str, district_pk: str, *, actor_pk
     *actor_pk* is accepted for call-site compatibility but not written
     to the table (the DB audit trigger records the actor automatically).
 
+    *postal_code_pk* (2026-10-21) disambiguates — and is persisted on
+    create. Village names repeat within a district in real Indian
+    geography, so (name, district) alone is not a unique match; passing
+    the PIN makes the resolve deterministic and keeps the created row
+    inside the (district, PIN, name) duplicate guard. Omitting it
+    preserves the original district+name behaviour for existing callers.
+
+    *pending_submitter_person_pk* (2026-10-21, Registration-Time Geography
+    Creation): when provided AND a row is genuinely newly created (not
+    found-and-reused), the new row lands as entry_status='PENDING' with
+    submitted_by_person_pk set to this value, instead of the default
+    APPROVED/unattributed row every other caller still gets. Default None
+    preserves every existing caller's behaviour byte-for-byte. The
+    registrant's own address still renders normally — person.py's
+    _ADDRESS_SELECT has no entry_status filter — so this is silent to them;
+    the row surfaces in the submitting person's eventual Sakha's
+    Location-Approvals queue (geo_approval.py) once a claim/sangha_sevi
+    links them to it.
+
     Returns: city_village_pk as a string.
     """
     cv_name = name.strip()
-    cur.execute(
-        """
-        SELECT city_village_pk FROM nss.city_village
-        WHERE LOWER(city_village_name) = LOWER(%s)
-          AND district_pk = %s
-          AND is_active = TRUE
-        LIMIT 1
-        """,
-        (cv_name, district_pk),
-    )
+    # Disambiguate by PIN when the caller knows it (2026-10-21). Village
+    # names are NOT unique within a district in real Indian geography —
+    # e.g. Tumakuru holds 18 distinct villages named "Hosahalli", one per
+    # PIN. Matching on (name, district) alone therefore hits several rows
+    # and the bare LIMIT 1 below would bind the member to an arbitrary one,
+    # possibly carrying a PIN that contradicts the one they typed. The
+    # canonical key is (district_pk, postal_code_pk, city_village_name) —
+    # see uq_city_village_pin_name_district_approved. Callers that do not
+    # know the PIN keep the older district+name behaviour unchanged.
+    if postal_code_pk is not None:
+        cur.execute(
+            """
+            SELECT city_village_pk FROM nss.city_village
+            WHERE LOWER(city_village_name) = LOWER(%s)
+              AND district_pk = %s
+              AND postal_code_pk = %s
+              AND is_active = TRUE
+            LIMIT 1
+            """,
+            (cv_name, district_pk, postal_code_pk),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT city_village_pk FROM nss.city_village
+            WHERE LOWER(city_village_name) = LOWER(%s)
+              AND district_pk = %s
+              AND is_active = TRUE
+            LIMIT 1
+            """,
+            (cv_name, district_pk),
+        )
     row = cur.fetchone()
     if row:
         return str(row[0])
 
-    # Create new city_village record
+    # Create new city_village record. postal_code_pk is persisted when
+    # known — without it the row would sit outside the three-column unique
+    # index entirely (NULLs never collide in a Postgres unique index), so
+    # the duplicate guard would not apply to app-created rows.
     cv_code = cv_name.upper().replace(" ", "_")[:20]
-    cur.execute(
-        """
-        INSERT INTO nss.city_village (
-            district_pk, city_village_code, city_village_name,
-            city_village_type
-        ) VALUES (%s, %s, %s, 'CITY')
-        RETURNING city_village_pk
-        """,
-        (district_pk, cv_code, cv_name),
-    )
+    if pending_submitter_person_pk is not None:
+        cur.execute(
+            """
+            INSERT INTO nss.city_village (
+                district_pk, postal_code_pk, city_village_code,
+                city_village_name, city_village_type, entry_status,
+                submitted_by_person_pk
+            ) VALUES (%s, %s, %s, %s, 'CITY', 'PENDING', %s)
+            RETURNING city_village_pk
+            """,
+            (district_pk, postal_code_pk, cv_code, cv_name,
+             pending_submitter_person_pk),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO nss.city_village (
+                district_pk, postal_code_pk, city_village_code,
+                city_village_name, city_village_type
+            ) VALUES (%s, %s, %s, %s, 'CITY')
+            RETURNING city_village_pk
+            """,
+            (district_pk, postal_code_pk, cv_code, cv_name),
+        )
     return str(cur.fetchone()[0])
 
 
 # ── Postal code lookup or create ────────────────────────────────────────
 
-def resolve_or_create_postal_code(cur, postal_code_value: str, state_pk: str, country_pk: str, *, actor_pk: str | None = None) -> str:
+def resolve_or_create_postal_code(
+    cur, postal_code_value: str, state_pk: str, country_pk: str, *, actor_pk: str | None = None,
+    pending_submitter_person_pk: str | None = None,
+) -> str:
     """
     Resolve a postal code by value, creating it if not found.
 
@@ -1780,6 +1846,10 @@ def resolve_or_create_postal_code(cur, postal_code_value: str, state_pk: str, co
 
     *actor_pk* is accepted for call-site compatibility but not written
     to the table (the DB audit trigger records the actor automatically).
+
+    *pending_submitter_person_pk* — see resolve_or_create_city_village's
+    docstring; same contract, default None preserves every existing
+    caller's behaviour.
 
     Returns: postal_code_pk as a string.
     """
@@ -1798,21 +1868,35 @@ def resolve_or_create_postal_code(cur, postal_code_value: str, state_pk: str, co
         return str(row[0])
 
     # Create new postal_code record
-    cur.execute(
-        """
-        INSERT INTO nss.postal_code (
-            state_pk, postal_code
-        ) VALUES (%s, %s)
-        RETURNING postal_code_pk
-        """,
-        (state_pk, code),
-    )
+    if pending_submitter_person_pk is not None:
+        cur.execute(
+            """
+            INSERT INTO nss.postal_code (
+                state_pk, postal_code, entry_status, submitted_by_person_pk
+            ) VALUES (%s, %s, 'PENDING', %s)
+            RETURNING postal_code_pk
+            """,
+            (state_pk, code, pending_submitter_person_pk),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO nss.postal_code (
+                state_pk, postal_code
+            ) VALUES (%s, %s)
+            RETURNING postal_code_pk
+            """,
+            (state_pk, code),
+        )
     return str(cur.fetchone()[0])
 
 
 # ── Post office lookup or create ────────────────────────────────────────
 
-def resolve_or_create_post_office(cur, name: str, postal_code_pk: str, *, actor_pk: str | None = None) -> str:
+def resolve_or_create_post_office(
+    cur, name: str, postal_code_pk: str, *, actor_pk: str | None = None,
+    pending_submitter_person_pk: str | None = None,
+) -> str:
     """
     Resolve a post office by name + PIN, creating it if not found.
 
@@ -1826,6 +1910,12 @@ def resolve_or_create_post_office(cur, name: str, postal_code_pk: str, *, actor_
 
     *actor_pk* is accepted for call-site compatibility but not written
     to the table (the DB audit trigger records the actor automatically).
+
+    *pending_submitter_person_pk* — see resolve_or_create_city_village's
+    docstring; same contract, default None preserves every existing
+    caller's behaviour. When provided, this docstring's APPROVED-by-
+    default statement above no longer applies to the created row: it
+    lands as PENDING/attributed instead, same as the other two helpers.
 
     Returns: post_office_pk as a string.
     """
@@ -1845,15 +1935,26 @@ def resolve_or_create_post_office(cur, name: str, postal_code_pk: str, *, actor_
         return str(row[0])
 
     # Create new post_office record
-    cur.execute(
-        """
-        INSERT INTO nss.post_office (
-            postal_code_pk, post_office_name
-        ) VALUES (%s, %s)
-        RETURNING post_office_pk
-        """,
-        (postal_code_pk, po_name),
-    )
+    if pending_submitter_person_pk is not None:
+        cur.execute(
+            """
+            INSERT INTO nss.post_office (
+                postal_code_pk, post_office_name, entry_status, submitted_by_person_pk
+            ) VALUES (%s, %s, 'PENDING', %s)
+            RETURNING post_office_pk
+            """,
+            (postal_code_pk, po_name, pending_submitter_person_pk),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO nss.post_office (
+                postal_code_pk, post_office_name
+            ) VALUES (%s, %s)
+            RETURNING post_office_pk
+            """,
+            (postal_code_pk, po_name),
+        )
     return str(cur.fetchone()[0])
 
 

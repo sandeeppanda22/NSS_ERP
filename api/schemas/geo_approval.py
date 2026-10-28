@@ -34,6 +34,15 @@ class GeoEntryResponse(BaseModel):
     submitted_by_sangha_sevi_id: str | None = None
     submitted_by_organization_pk: UUID | None = None
     submitted_by_organization_name: str | None = None
+    # Registration-Time Geography Creation (2026-10-21): a row created by
+    # the public self-registration auto-create path (api/helpers.py
+    # resolve_or_create_*) has no sangha_sevi yet — it is attributed to
+    # the creating PERSON instead. NULL for every row submitted via the
+    # member-authenticated "propose" flow (submitted_by_sangha_sevi_pk
+    # set instead) and for seeded/admin-created rows.
+    submitted_by_person_pk: UUID | None = None
+    submitted_by_person_id: str | None = None
+    submitted_by_person_name: str | None = None
     reviewed_by_sangha_sevi_pk: UUID | None
     reviewed_at: datetime | None
     admin_remarks: str | None
