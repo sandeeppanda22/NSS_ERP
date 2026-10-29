@@ -7996,9 +7996,9 @@ function adminApp() {
             this.loadCorrespondence();
         },
 
-        // The manual "Transition Status" admin.html box (CORR_VALID_NEXT_STATUSES/
-        // CORR_REOPEN_TRANSITIONS/corrNextStatuses/corrIsReopenTransition/
-        // submitCorrTransition) was removed 2026-10-26 (owner: "remove the
+        // The manual status-transition box in admin.html (and its next-status/
+        // reopen/submit helpers and valid-transition tables here) was removed
+        // 2026-10-26 (owner: "remove the
         // trnasition status box entirely" — after the event-driven lifecycle
         // amendment made the REGISTERED->PENDING_ACTION and ->ACTIONED hops
         // automatic, the manual dropdown mostly just confused what was now

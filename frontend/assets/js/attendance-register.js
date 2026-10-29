@@ -121,20 +121,28 @@
                     if (!rosterRes.ok) throw new Error("Failed to load this Sakha's member roster.");
                     const roster = await rosterRes.json();
 
-                    const recRes = await NSSAuth.apiFetch(
-                        `/api/v1/attendance/records?${new URLSearchParams({
-                            organization_pk: puja.sakha_pk,
-                            page_size: String(NSS.MAX_PAGE_SIZE),
-                        })}`
-                    );
+                    // list_records() caps page_size at 200 (NOT NSS.MAX_PAGE_SIZE) — page
+                    // through, narrowed server-side to this puja so a long-lived Sakha's
+                    // whole history is never pulled.
                     const existingByPk = {};
-                    if (recRes.ok) {
+                    for (let page = 1; ; page++) {
+                        const recRes = await NSSAuth.apiFetch(
+                            `/api/v1/attendance/records?${new URLSearchParams({
+                                organization_pk: puja.sakha_pk,
+                                weekly_sangha_puja_pk: puja.weekly_sangha_puja_pk,
+                                page_size: "200",
+                                page: String(page),
+                            })}`
+                        );
+                        if (!recRes.ok) break;
                         const recData = await recRes.json();
-                        for (const r of (recData.records || [])) {
+                        const pageRecords = recData.records || [];
+                        for (const r of pageRecords) {
                             if (r.weekly_sangha_puja_pk === puja.weekly_sangha_puja_pk) {
                                 existingByPk[r.sangha_sevi_pk] = r;
                             }
                         }
+                        if (pageRecords.length < 200) break;
                     }
                     this.attMarkRows = (roster.members || []).map(
                         m => this._attMarkRow(m, existingByPk[m.sangha_sevi_pk])
