@@ -177,8 +177,11 @@ CREATE INDEX IF NOT EXISTS idx_election_nomination_status
 CREATE INDEX IF NOT EXISTS idx_election_nomination_active
     ON nss.election_nomination (is_active);
 
--- A candidate may be nominated once (while active) for a
--- given position within a given election (GOV-BR-035).
+-- A candidate may hold one LIVE (NOMINATED/ACCEPTED) nomination for a
+-- given position within a given election (GOV-BR-035). WITHDRAWN and
+-- REJECTED nominations are terminal history and do not block re-filing
+-- (2026-10-28). Existing databases: live DROP INDEX + CREATE of this index
+-- (the build is existence-gated and will not re-run this file).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_election_nomination_active_candidate
     ON nss.election_nomination (election_pk, position_master_pk, candidate_person_pk)
-    WHERE is_active = TRUE;
+    WHERE is_active = TRUE AND nomination_status IN ('NOMINATED', 'ACCEPTED');

@@ -427,7 +427,10 @@ check_table_exists "election_result"
 echo "  Key columns:"
 check_column_exists "body_master" "body_type_master_pk"
 check_column_exists "body_member_assignment" "person_pk"
+check_column_exists "family_head_history" "updated_at"
 check_column_exists "election_vote" "voter_person_pk"
+check_fk_integrity "uq_election_nomination_active_candidate is live-only (re-file index)" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'nss' AND indexname = 'uq_election_nomination_active_candidate' AND indexdef LIKE '%nomination_status%') THEN 0 ELSE 1 END;"
 echo "  FK integrity (no orphans — vacuously true until seeded):"
 check_fk_integrity "body_master -> body_type_master" \
     "SELECT COUNT(*) FROM nss.body_master bm LEFT JOIN nss.body_type_master bt ON bm.body_type_master_pk = bt.body_type_master_pk WHERE bt.body_type_master_pk IS NULL;"

@@ -341,6 +341,10 @@ run_ddl "family_transition_history" "family_transition_history" "${DDL_BASE}/04_
 run_ddl "family_link"               "family_link"               "${DDL_BASE}/04_family/05_family_link.sql"
 run_ddl "family_admin"              "family_admin"              "${DDL_BASE}/04_family/06_family_admin.sql"
 run_sql "family_move_transition_guard" "${DDL_BASE}/04_family/07_family_move_transition_guard.sql"
+# Audit columns the API already writes (updated_at) but the original CREATE
+# TABLE lacked; 03_family_head_history.sql is existence-gated, so this
+# idempotent patch carries them to existing databases.
+run_sql "family_head_history_audit_columns" "${DDL_BASE}/04_family/08_family_head_history_audit_columns.sql"
 
 echo ""
 echo "--- Phase 7: Membership — DDL (16 tables + Sakha-only trigger) ---"
@@ -442,6 +446,10 @@ run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_im
 # body_type_master.max_members column and its seed, not these
 # triggers).
 run_sql "governance_seat_limits"     "${DDL_BASE}/08_governance/12_governance_seat_limits.sql"
+# Re-file index: 07_election_nomination.sql is existence-gated, so its
+# changed uq_election_nomination_active_candidate (live nominations only)
+# never reaches an existing database. This idempotent patch does.
+run_sql "governance_nomination_refile_index" "${DDL_BASE}/08_governance/13_governance_nomination_refile_index.sql"
 
 echo ""
 echo "--- Phase 11c: Governance — Seed Data ---"

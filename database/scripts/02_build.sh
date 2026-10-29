@@ -100,8 +100,15 @@ SEED_BASE="${REPO_ROOT}/database/seed"
 # -------------------------------------------------
 # Install Python dependencies
 # -------------------------------------------------
-echo "=== Installing Python dependencies ==="
-python3 -m pip install -r "${REPO_ROOT}/requirements.txt"
+# PYTHON picks the interpreter for the dependency install AND the admin
+# bootstrap (default: whatever `python3` is first on PATH). Set it when that is
+# not the Python the app/tests run under, e.g.
+#   PYTHON=/opt/homebrew/bin/python3.14 PIP_BREAK_SYSTEM_PACKAGES=1 ./02_build.sh
+# (Homebrew Pythons are PEP 668 "externally managed"; pip reads
+# PIP_BREAK_SYSTEM_PACKAGES itself.)
+PYTHON="${PYTHON:-python3}"
+echo "=== Installing Python dependencies (${PYTHON}) ==="
+"${PYTHON}" -m pip install -r "${REPO_ROOT}/requirements.txt"
 echo ""
 
 # Prompt for password once; export so all psql calls reuse it.
@@ -387,6 +394,10 @@ run_ddl "family_transition_history" "family_transition_history" "${DDL_BASE}/04_
 run_ddl "family_link"               "family_link"               "${DDL_BASE}/04_family/05_family_link.sql"
 run_ddl "family_admin"              "family_admin"              "${DDL_BASE}/04_family/06_family_admin.sql"
 run_sql "family_move_transition_guard" "${DDL_BASE}/04_family/07_family_move_transition_guard.sql"
+# Audit columns the API already writes (updated_at) but the original CREATE
+# TABLE lacked; 03_family_head_history.sql is existence-gated, so this
+# idempotent patch carries them to existing databases.
+run_sql "family_head_history_audit_columns" "${DDL_BASE}/04_family/08_family_head_history_audit_columns.sql"
 echo ""
 
 # -------------------------------------------------
@@ -510,6 +521,10 @@ run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_im
 # an already-bootstrapped nss.body_type_master without a full hard
 # rebuild — see the CAVEAT above run_ddl().
 run_sql "governance_seat_limits"     "${DDL_BASE}/08_governance/12_governance_seat_limits.sql"
+# Re-file index: 07_election_nomination.sql is existence-gated, so its
+# changed uq_election_nomination_active_candidate (live nominations only)
+# never reaches an existing database. This idempotent patch does.
+run_sql "governance_nomination_refile_index" "${DDL_BASE}/08_governance/13_governance_nomination_refile_index.sql"
 echo ""
 
 # -------------------------------------------------
@@ -600,7 +615,7 @@ echo ""
 # -------------------------------------------------
 echo -e "${CYAN}[Phase 13] Admin Bootstrap Seed${NC}"
 total=$((total + 1))
-if output=$(python3 "${REPO_ROOT}/scripts/bootstrap_admin.py" 2>&1); then
+if output=$("${PYTHON}" "${REPO_ROOT}/scripts/bootstrap_admin.py" 2>&1); then
     echo -e "  ${GREEN}[OK]${NC}   admin_bootstrap"
 else
     echo -e "  ${RED}[FAIL]${NC} admin_bootstrap"

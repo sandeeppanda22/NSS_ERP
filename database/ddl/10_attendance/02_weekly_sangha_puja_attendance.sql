@@ -89,9 +89,11 @@ CREATE TABLE IF NOT EXISTS nss.weekly_sangha_puja_attendance
         ),
 
     -- Logical uniqueness (Table Design §9): one attendance record per
-    -- Member per Weekly Sangha Puja event. Scoped to active rows so a
-    -- soft-deleted correction (chk_wspa_soft_delete) never blocks a
-    -- fresh re-record.
+    -- Member per Weekly Sangha Puja event. A plain (NOT partial) UNIQUE:
+    -- it is the ON CONFLICT target of mark_attendance()'s upsert, and it
+    -- also covers soft-deleted rows. A soft-deleted row is therefore
+    -- never duplicated — re-recording upserts onto it and the API
+    -- re-activates it (is_active = TRUE, deleted_* cleared).
     CONSTRAINT uq_wspa_puja_sevi
         UNIQUE (weekly_sangha_puja_pk, sangha_sevi_pk)
 );

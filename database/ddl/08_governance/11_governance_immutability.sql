@@ -7,10 +7,12 @@
 --          participation record (election_vote_participation)
 --          are append-only: once written they can never be
 --          UPDATEd. The only way to clear them is the reset
---          flow, which hard-DELETEs them (president-unilateral
---          or admin-with-president-approval) — a DELETE is
---          still permitted so reset works, and it is captured
---          by the audit trigger (15_audit_trigger.sql).
+--          flow, which SOFT-deletes them (is_active -> FALSE,
+--          deleted_at set; president-unilateral or admin-with-
+--          president-approval) — nss_db_writer has no DELETE
+--          grant, and history is never hard-deleted. That one
+--          bookkeeping transition is the only UPDATE allowed;
+--          it is captured by the audit trigger (15_audit_trigger.sql).
 -- Version: 1.0
 -- Authority: GOV-BR-045, SOL-GOV-004 §12 (immutable ballots,
 --            RESOLVED 2026-10-09)
@@ -36,9 +38,24 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Soft-delete exception (reset flow, 2026-10-28): nss_db_writer has no
+    -- DELETE grant, so the reset flow retires ballots by flipping
+    -- is_active TRUE -> FALSE (+ deleted_at / audit columns). Any UPDATE
+    -- that changes ONLY those bookkeeping columns on a live row is allowed;
+    -- every other change (e.g. rewriting the chosen nomination) is blocked.
+    IF OLD.is_active = TRUE AND NEW.is_active = FALSE
+       AND NEW.deleted_at IS NOT NULL
+       AND (to_jsonb(NEW) - ARRAY['is_active', 'deleted_at', 'deleted_by_sangha_sevi_pk',
+                                   'updated_at', 'updated_by_sangha_sevi_pk'])
+         = (to_jsonb(OLD) - ARRAY['is_active', 'deleted_at', 'deleted_by_sangha_sevi_pk',
+                                   'updated_at', 'updated_by_sangha_sevi_pk'])
+    THEN
+        RETURN NEW;
+    END IF;
+
     RAISE EXCEPTION
         'Row in nss.% is immutable and cannot be updated; '
-        'clear it via the reset flow (DELETE) instead.',
+        'clear it via the reset flow (soft delete) instead.',
         TG_TABLE_NAME
         USING ERRCODE = 'restrict_violation';
 END;

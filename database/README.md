@@ -202,7 +202,7 @@ database/
 │   ├── 06_authentication/ 5 tables: user_account, password_history, registration_claim,
 │   │                     password_reset_token, user_session (Tier 5)
 │   ├── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
-│   ├── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql`, `12_governance_seat_limits.sql` (Tier 6)
+│   ├── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql`, `12_governance_seat_limits.sql`, `13_governance_nomination_refile_index.sql` (Tier 6)
 │   ├── 09_correspondence/ 5 tables (Tier 6)
 │   └── 10_attendance/    4 tables: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review (Tier 6)
 ├── seed/

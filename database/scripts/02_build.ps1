@@ -101,8 +101,11 @@ $SeedBase = "$RepoRoot\database\seed"
 # -------------------------------------------------
 # Install Python dependencies
 # -------------------------------------------------
-Write-Host "=== Installing Python dependencies ===" -ForegroundColor Cyan
-& python3 -m pip install -r "$RepoRoot\requirements.txt"
+# $env:PYTHON picks the interpreter for the dependency install AND the admin
+# bootstrap (default: whatever `python3` is first on PATH).
+$Python = if ($env:PYTHON) { $env:PYTHON } else { "python3" }
+Write-Host "=== Installing Python dependencies ($Python) ===" -ForegroundColor Cyan
+& $Python -m pip install -r "$RepoRoot\requirements.txt"
 Write-Host ""
 
 $total = 0
@@ -292,6 +295,10 @@ Invoke-Ddl "family_transition_history" "family_transition_history" "$DdlBase\04_
 Invoke-Ddl "family_link"               "family_link"               "$DdlBase\04_family\05_family_link.sql"
 Invoke-Ddl "family_admin"              "family_admin"              "$DdlBase\04_family\06_family_admin.sql"
 Invoke-Sql "family_move_transition_guard" "$DdlBase\04_family\07_family_move_transition_guard.sql"
+# Audit columns the API already writes (updated_at) but the original CREATE
+# TABLE lacked; 03_family_head_history.sql is existence-gated, so this
+# idempotent patch carries them to existing databases.
+Invoke-Sql "family_head_history_audit_columns" "$DdlBase\04_family\08_family_head_history_audit_columns.sql"
 Write-Host ""
 
 # Phase 7: Membership DDL (16 tables)
@@ -395,6 +402,10 @@ Invoke-Sql "governance_immutability"    "$DdlBase\08_governance\11_governance_im
 # an already-bootstrapped nss.body_type_master without a full hard
 # rebuild.
 Invoke-Sql "governance_seat_limits"     "$DdlBase\08_governance\12_governance_seat_limits.sql"
+# Re-file index: 07_election_nomination.sql is existence-gated, so its
+# changed uq_election_nomination_active_candidate (live nominations only)
+# never reaches an existing database. This idempotent patch does.
+Invoke-Sql "governance_nomination_refile_index" "$DdlBase\08_governance\13_governance_nomination_refile_index.sql"
 Write-Host ""
 
 # -------------------------------------------------
@@ -479,7 +490,7 @@ Write-Host ""
 Write-Host "[Phase 13] Admin Bootstrap Seed" -ForegroundColor Cyan
 $script:total++
 try {
-    $output = & python3 "$RepoRoot\scripts\bootstrap_admin.py" 2>&1
+    $output = & $Python "$RepoRoot\scripts\bootstrap_admin.py" 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  [OK]   admin_bootstrap" -ForegroundColor Green
     } else {
