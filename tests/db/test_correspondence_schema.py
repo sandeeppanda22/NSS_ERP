@@ -420,3 +420,248 @@ def test_document_bad_purpose_rejected(write_conn, ctx):
             (corr_pk, doc_pk, "BOGUS"),
         )
     cur.execute("ROLLBACK TO SAVEPOINT sp_doc_purpose")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# v1.1 / v1.2 columns (counterpart + reply threading), the member-application
+# approval-step table and the reference-number sequence counter
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("constraint", [
+    "fk_correspondence_counterpart",
+    "fk_correspondence_in_reply_to",
+    "chk_correspondence_counterpart_not_self",
+    "chk_correspondence_in_reply_to_not_self",
+    # correspondence_approval_step
+    "fk_corr_appr_step_correspondence",
+    "fk_corr_appr_step_approver_person",
+    "fk_corr_appr_step_position",
+    "fk_corr_appr_step_organization",
+    "uq_corr_appr_step_correspondence_step",
+    "chk_corr_appr_step_number",
+    "chk_corr_appr_step_status",
+    "chk_corr_appr_step_soft_delete",
+    # correspondence_sequence_counter
+    "fk_corr_seq_counter_organization",
+    "uq_corr_seq_counter_org_direction_fy",
+    "chk_corr_seq_counter_direction",
+    "chk_corr_seq_counter_fy",
+])
+def test_v11_to_v12_and_support_table_constraints_exist(write_conn, constraint):
+    assert _constraint_exists(write_conn, constraint), f"Expected constraint nss.{constraint} to exist"
+
+
+def test_counterpart_unique_index_exists(write_conn):
+    cur = write_conn.cursor()
+    cur.execute(
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = 'nss' AND indexname = 'uq_correspondence_counterpart'"
+    )
+    row = cur.fetchone()
+    assert row is not None and "UNIQUE" in row[0]
+
+
+def test_counterpart_cannot_point_at_itself(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_cp_self")
+    pk = _insert_correspondence(cur, ctx, "KEN/OUT/2026-27/040", direction="OUTWARD")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        cur.execute("UPDATE nss.correspondence SET counterpart_correspondence_pk = %s WHERE correspondence_pk = %s",
+                    (pk, pk))
+    cur.execute("ROLLBACK TO SAVEPOINT sp_cp_self")
+
+
+def test_reply_cannot_point_at_itself(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_reply_self")
+    pk = _insert_correspondence(cur, ctx, "KEN/IN/2026-27/041")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        cur.execute("UPDATE nss.correspondence SET in_reply_to_correspondence_pk = %s WHERE correspondence_pk = %s",
+                    (pk, pk))
+    cur.execute("ROLLBACK TO SAVEPOINT sp_reply_self")
+
+
+def test_two_rows_cannot_share_one_counterpart(write_conn, ctx):
+    """uq_correspondence_counterpart: a row is the counterpart of at most one other row."""
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_cp_unique")
+    target = _insert_correspondence(cur, ctx, "KEN/IN/2026-27/042")
+    first = _insert_correspondence(cur, ctx, "KEN/OUT/2026-27/043", direction="OUTWARD")
+    second = _insert_correspondence(cur, ctx, "KEN/OUT/2026-27/044", direction="OUTWARD")
+    cur.execute("UPDATE nss.correspondence SET counterpart_correspondence_pk = %s WHERE correspondence_pk = %s",
+                (target, first))
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        cur.execute("UPDATE nss.correspondence SET counterpart_correspondence_pk = %s WHERE correspondence_pk = %s",
+                    (target, second))
+    cur.execute("ROLLBACK TO SAVEPOINT sp_cp_unique")
+
+
+def test_one_letter_may_draw_several_replies(write_conn, ctx):
+    """in_reply_to is deliberately NOT unique (no unique index): many replies, one original."""
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_many_replies")
+    original = _insert_correspondence(cur, ctx, "KEN/IN/2026-27/045")
+    for i, ref in enumerate(("KEN/OUT/2026-27/046", "KEN/OUT/2026-27/047")):
+        reply = _insert_correspondence(cur, ctx, ref, direction="OUTWARD")
+        cur.execute("UPDATE nss.correspondence SET in_reply_to_correspondence_pk = %s WHERE correspondence_pk = %s",
+                    (original, reply))
+    cur.execute("SELECT COUNT(*) FROM nss.correspondence WHERE in_reply_to_correspondence_pk = %s", (original,))
+    assert cur.fetchone()[0] == 2
+    cur.execute("ROLLBACK TO SAVEPOINT sp_many_replies")
+
+
+def test_reply_to_unknown_correspondence_rejected(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_reply_fk")
+    pk = _insert_correspondence(cur, ctx, "KEN/OUT/2026-27/048", direction="OUTWARD")
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        cur.execute("UPDATE nss.correspondence SET in_reply_to_correspondence_pk = %s WHERE correspondence_pk = %s",
+                    (str(uuid.uuid4()), pk))
+    cur.execute("ROLLBACK TO SAVEPOINT sp_reply_fk")
+
+
+# ── correspondence_approval_step ────────────────────────────────────────
+
+@pytest.fixture
+def step_ctx(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SELECT person_pk FROM nss.person LIMIT 1")
+    person = cur.fetchone()
+    cur.execute("SELECT position_master_pk FROM nss.position_master LIMIT 1")
+    position = cur.fetchone()
+    if person is None or position is None:
+        pytest.skip("Need a seeded person and position_master row for approval-step tests.")
+    return {**ctx, "person_pk": str(person[0]), "position_pk": str(position[0])}
+
+
+def _insert_step(cur, step_ctx, correspondence_pk, step_number=1, **overrides):
+    """One approval-step row; a valid baseline merged with *overrides* (same idiom as _insert_correspondence)."""
+    row = {
+        "correspondence_pk": correspondence_pk,
+        "step_number": step_number,
+        "approver_person_pk": step_ctx["person_pk"],
+        "approver_position_master_pk": step_ctx["position_pk"],
+        "approver_organization_pk": None,
+        "step_status": "PENDING",
+        "is_active": True,
+        "deleted_at": None,
+    }
+    row.update(overrides)
+    columns = ", ".join(row)
+    placeholders = ", ".join(f"%({c})s" for c in row)
+    cur.execute(
+        f"INSERT INTO nss.correspondence_approval_step ({columns}) VALUES ({placeholders}) "
+        "RETURNING correspondence_approval_step_pk",
+        row,
+    )
+    return str(cur.fetchone()[0])
+
+
+def test_approval_step_valid_rows_insert_and_default_to_pending(write_conn, step_ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_step_ok")
+    corr = _insert_correspondence(cur, step_ctx, "KEN/OUT/2026-27/050", direction="OUTWARD")
+    _insert_step(cur, step_ctx, corr, 1)
+    _insert_step(cur, step_ctx, corr, 2)
+    cur.execute("SELECT step_number, step_status, decided_at FROM nss.correspondence_approval_step "
+                "WHERE correspondence_pk = %s ORDER BY step_number", (corr,))
+    assert cur.fetchall() == [(1, "PENDING", None), (2, "PENDING", None)]
+    cur.execute("ROLLBACK TO SAVEPOINT sp_step_ok")
+
+
+def test_approval_step_duplicate_step_number_rejected(write_conn, step_ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_step_dup")
+    corr = _insert_correspondence(cur, step_ctx, "KEN/OUT/2026-27/051", direction="OUTWARD")
+    _insert_step(cur, step_ctx, corr, 1)
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        _insert_step(cur, step_ctx, corr, 1)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_step_dup")
+
+
+@pytest.mark.parametrize("step_number", [0, 3])
+def test_approval_step_number_must_be_1_or_2(write_conn, step_ctx, step_number):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_step_num")
+    corr = _insert_correspondence(cur, step_ctx, "KEN/OUT/2026-27/052", direction="OUTWARD")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_step(cur, step_ctx, corr, step_number)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_step_num")
+
+
+def test_approval_step_status_is_a_closed_set(write_conn, step_ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_step_status")
+    corr = _insert_correspondence(cur, step_ctx, "KEN/OUT/2026-27/053", direction="OUTWARD")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_step(cur, step_ctx, corr, 1, step_status="MAYBE")
+    cur.execute("ROLLBACK TO SAVEPOINT sp_step_status")
+
+
+def test_approval_step_soft_delete_check(write_conn, step_ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_step_softdel")
+    corr = _insert_correspondence(cur, step_ctx, "KEN/OUT/2026-27/054", direction="OUTWARD")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_step(cur, step_ctx, corr, 1, is_active=False, deleted_at=None)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_step_softdel")
+
+
+def test_approval_step_unknown_correspondence_rejected(write_conn, step_ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_step_fk")
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        _insert_step(cur, step_ctx, str(uuid.uuid4()), 1)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_step_fk")
+
+
+# ── correspondence_sequence_counter ─────────────────────────────────────
+
+def _insert_counter(cur, ctx, direction="INWARD", financial_year_start=2099, current_value=1):
+    cur.execute(
+        "INSERT INTO nss.correspondence_sequence_counter "
+        "(register_organization_pk, direction, financial_year_start, current_value) "
+        "VALUES (%s, %s, %s, %s) RETURNING correspondence_sequence_counter_pk",
+        (ctx["org_pk"], direction, financial_year_start, current_value),
+    )
+    return str(cur.fetchone()[0])
+
+
+def test_sequence_counter_row_inserts(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_seq_ok")
+    assert _insert_counter(cur, ctx)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_seq_ok")
+
+
+def test_sequence_counter_unique_per_org_direction_year(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_seq_dup")
+    _insert_counter(cur, ctx)
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        _insert_counter(cur, ctx)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_seq_dup")
+
+
+def test_sequence_counter_same_org_may_have_both_directions_and_other_years(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_seq_variants")
+    _insert_counter(cur, ctx, "INWARD", 2099)
+    _insert_counter(cur, ctx, "OUTWARD", 2099)
+    _insert_counter(cur, ctx, "INWARD", 2100)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_seq_variants")
+
+
+def test_sequence_counter_bad_direction_rejected(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_seq_dir")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_counter(cur, ctx, direction="SIDEWAYS")
+    cur.execute("ROLLBACK TO SAVEPOINT sp_seq_dir")
+
+
+def test_sequence_counter_financial_year_floor(write_conn, ctx):
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_seq_fy")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_counter(cur, ctx, financial_year_start=1999)
+    cur.execute("ROLLBACK TO SAVEPOINT sp_seq_fy")

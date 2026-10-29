@@ -160,3 +160,40 @@ class TestOrgStatsScopeEnforcement:
             pytest.skip("No SAKHA_SANGHA org available.")
         r = anon_client.get(f"{BASE}/organizations/{two_sakhas[0]}/stats")
         assert r.status_code in (401, 403)
+
+
+class TestOrgWingsScopeEnforcement:
+    """
+    ADMIN-BR-076 for the two wing endpoints, which call the same
+    require_org_in_scope() as /stats but were never covered: a scoped admin
+    may read wings / the wing roster for an org in scope and gets 403 for a
+    sibling Sakha. 404 still precedes 403.
+    """
+
+    WING_PATHS = ("wings", "wings/MAHILA_SANGHA/members")
+
+    @pytest.mark.parametrize("suffix", WING_PATHS)
+    def test_in_scope_org_returns_200(self, client, sakha_admin_headers, two_sakhas, suffix):
+        r = client.get(
+            f"{BASE}/organizations/{two_sakhas[0]}/{suffix}",
+            headers=sakha_admin_headers,
+        )
+        assert r.status_code == 200, r.json()
+
+    @pytest.mark.parametrize("suffix", WING_PATHS)
+    def test_out_of_scope_org_returns_403(self, client, sakha_admin_headers, two_sakhas, suffix):
+        if len(two_sakhas) < 2:
+            pytest.skip("Need a second Sakha to test out-of-scope rejection.")
+        r = client.get(
+            f"{BASE}/organizations/{two_sakhas[1]}/{suffix}",
+            headers=sakha_admin_headers,
+        )
+        assert r.status_code == 403, r.json()
+
+    @pytest.mark.parametrize("suffix", WING_PATHS)
+    def test_nonexistent_org_returns_404_not_403(self, client, sakha_admin_headers, suffix):
+        r = client.get(
+            f"{BASE}/organizations/{FAKE_UUID}/{suffix}",
+            headers=sakha_admin_headers,
+        )
+        assert r.status_code == 404, r.json()

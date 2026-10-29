@@ -20,8 +20,13 @@ CORRESPONDENCE_VIEW/CORRESPONDENCE_MANAGE, and the CORRESPONDENCE_MEDIUM /
 CORRESPONDENCE_STATUS / CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE master data).
 """
 
+import re
+from datetime import date
+
 import pytest
 from uuid import uuid4
+
+from tests.change_request_support import create_sevi_less_account_headers
 
 pytestmark = pytest.mark.integration
 
@@ -779,6 +784,24 @@ class TestGet:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestHistory:
+    def test_auto_dispatch_is_logged_against_the_outward_row_too(
+        self, client, admin_headers, register_org_pk, other_org_pk,
+    ):
+        outward = client.post(BASE, json=_org_payload(register_org_pk, other_org_pk), headers=admin_headers).json()
+        assert outward["counterpart_correspondence_pk"], "precondition: auto-dispatch succeeded"
+        events = client.get(f"{BASE}/{outward['correspondence_pk']}/history", headers=admin_headers).json()["events"]
+        assert any("Auto-dispatched" in (e["summary"] or "") for e in events), [e["summary"] for e in events]
+        inward_events = client.get(
+            f"{BASE}/{outward['counterpart_correspondence_pk']}/history", headers=admin_headers).json()["events"]
+        assert any("Auto-dispatched" in (e["summary"] or "") for e in inward_events)
+
+    def test_a_soft_deleted_record_is_404_on_get_and_history(self, client, write_conn, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        cur = write_conn.cursor()
+        cur.execute("UPDATE nss.correspondence SET is_active = FALSE, deleted_at = NOW() WHERE correspondence_pk = %s", (pk,))
+        assert client.get(f"{BASE}/{pk}", headers=admin_headers).status_code == 404
+        assert client.get(f"{BASE}/{pk}/history", headers=admin_headers).status_code == 404
+
     def test_history_includes_creation_and_auto_transition_events(
         self, client, admin_headers, register_org_pk,
     ):
@@ -1448,19 +1471,24 @@ class TestRBAC:
 # actual seated Kendra Governing Body office-bearer at decision time.
 # ═══════════════════════════════════════════════════════════════════════
 
+def _file_kendra_application(client, applicant_headers, kendra_officer_identity, subject="Test routed application"):
+    """File a KENDRA_VIA_SAKHA_PRESIDENT application (2-step approval chain) and return the 201 body."""
+    r = client.post(
+        f"{BASE}/my-applications",
+        json={
+            "addressing_mode": "KENDRA_VIA_SAKHA_PRESIDENT",
+            "recipient_person_pk": kendra_officer_identity["person_pk"],
+            "subject": subject,
+        },
+        headers=applicant_headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
 class TestApprovalChain:
     def _file_application(self, client, applicant_headers, kendra_officer_identity):
-        r = client.post(
-            f"{BASE}/my-applications",
-            json={
-                "addressing_mode": "KENDRA_VIA_SAKHA_PRESIDENT",
-                "recipient_person_pk": kendra_officer_identity["person_pk"],
-                "subject": "Test routed application",
-            },
-            headers=applicant_headers,
-        )
-        assert r.status_code == 201, r.text
-        return r.json()
+        return _file_kendra_application(client, applicant_headers, kendra_officer_identity)
 
     def test_step2_not_pending_for_kendra_officer_before_step1_approved(
         self, client, applicant_headers, president_headers, kendra_officer_headers, kendra_officer_identity,
@@ -2178,3 +2206,962 @@ class TestBroadcast:
         assert r.status_code in (401, 403), r.text
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 12. Coverage gap-fill — validation, edge cases and member-facing reads
+#     (added 2026-10-28 from the endpoint x test matrix; reuses the
+#     builders and fixtures above, adds no new identity machinery except
+#     create_sevi_less_account_headers for the "account with no Sangha Sevi" case)
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(scope="module")
+def bare_headers(write_conn):
+    """An ACTIVE account with NO sangha_sevi. Login 401s for it, so the token is minted."""
+    return create_sevi_less_account_headers(write_conn, "CBARE")["headers"]
+
+
+def _apply(client, headers, mode="SAKHA_ORG", **extra):
+    return client.post(
+        f"{BASE}/my-applications",
+        json={"addressing_mode": mode, "subject": f"Gap-fill application {mode}", **extra},
+        headers=headers,
+    )
+
+
+def _soft_delete_correspondence(write_conn, correspondence_pk):
+    write_conn.cursor().execute(
+        "UPDATE nss.correspondence SET is_active = FALSE, deleted_at = NOW() WHERE correspondence_pk = %s",
+        (correspondence_pk,),
+    )
+
+
+def _deactivate_assignments(write_conn, *, person_pk, body_master_pk=None):
+    """End every open seat of person_pk (optionally on one body). Call inside isolated_savepoint()."""
+    cur = write_conn.cursor()
+    cur.execute(
+        """
+        UPDATE nss.body_member_assignment
+        SET is_active = FALSE, effective_to = CURRENT_DATE - 1, deleted_at = NOW()
+        WHERE person_pk = %s AND is_active = TRUE AND effective_to IS NULL
+          AND (%s::uuid IS NULL OR body_master_pk = %s::uuid)
+        """,
+        (str(person_pk), body_master_pk, body_master_pk),
+    )
+
+
+# ── POST "" : validation and numbering ───────────────────────────────────
+
+class TestCreateValidation:
+
+    @pytest.mark.parametrize("missing", [
+        "register_organization_pk", "direction", "correspondence_date", "received_or_sent_date",
+        "subject", "sender_type", "recipient_type", "medium",
+    ])
+    def test_missing_required_field_is_422(self, missing, client, admin_headers, register_org_pk):
+        body = _payload(register_org_pk)
+        del body[missing]
+        assert client.post(BASE, json=body, headers=admin_headers).status_code == 422
+
+    @pytest.mark.parametrize("override", [
+        {"subject": "x" * 256},
+        {"remarks": "x" * 2001},
+        {"sender_type": "ROBOT"},
+        {"recipient_type": "ROBOT"},
+        {"received_or_sent_date": "2099-01-01"},
+        {"correspondence_date": "10/01/2026"},
+        {"sender_person_capacity": "PERSONAL"},  # capacity only applies to a PERSON sender
+    ], ids=["subject-too-long", "remarks-too-long", "bad-sender-type", "bad-recipient-type",
+            "future-received-date", "bad-date-format", "capacity-on-non-person"])
+    def test_invalid_field_is_422(self, override, client, admin_headers, register_org_pk):
+        r = client.post(BASE, json=_payload(register_org_pk) | override, headers=admin_headers)
+        assert r.status_code == 422, r.text
+
+    @pytest.mark.parametrize("sender", [
+        {"sender_person_pk": FAKE_UUID},  # PERSON without a capacity
+        {"sender_person_pk": FAKE_UUID, "sender_person_capacity": "ORGANIZATIONAL"},  # ...without the org
+        {"sender_person_pk": FAKE_UUID, "sender_person_capacity": "PERSONAL",
+         "sender_person_organization_pk": FAKE_UUID},  # PERSONAL must not name an org
+    ], ids=["no-capacity", "organizational-without-org", "personal-with-org"])
+    def test_person_sender_capacity_rules_are_422(self, sender, client, admin_headers, register_org_pk):
+        body = _payload(register_org_pk)
+        del body["sender_external_name"]
+        body.update(sender_type="PERSON", **sender)
+        assert client.post(BASE, json=body, headers=admin_headers).status_code == 422
+
+    def test_recipient_with_two_identities_is_422(self, client, admin_headers, register_org_pk, other_org_pk):
+        body = _payload(register_org_pk)
+        body.update(recipient_type="ORGANIZATION", recipient_organization_pk=other_org_pk)  # still has external_name
+        assert client.post(BASE, json=body, headers=admin_headers).status_code == 422
+
+    def test_follow_up_date_may_be_in_the_future(self, client, admin_headers, register_org_pk):
+        """§7.3: follow_up_date is a forward-looking target and exempt from the no-future-date rule."""
+        r = client.post(BASE, json=_payload(register_org_pk) | {"follow_up_date": "2099-12-31"}, headers=admin_headers)
+        assert r.status_code == 201, r.text
+        assert r.json()["follow_up_date"] == "2099-12-31"
+
+    def test_unknown_register_organization_is_rejected(self, client, admin_headers):
+        r = client.post(BASE, json=_payload(FAKE_UUID), headers=admin_headers)
+        assert r.status_code in (404, 422), r.text
+
+    def test_unknown_medium_is_a_client_error(self, client, admin_headers, register_org_pk):
+        r = client.post(BASE, json=_payload(register_org_pk) | {"medium": "CARRIER_PIGEON"}, headers=admin_headers)
+        assert r.status_code == 422 and "CARRIER_PIGEON" in r.json()["detail"], r.text
+
+    @pytest.mark.parametrize("letter_date,fy", [("2026-01-10", "2025-26"), ("2026-05-10", "2026-27")])
+    def test_outward_reference_number_uses_the_letter_dates_financial_year(
+        self, letter_date, fy, client, admin_headers, register_org_pk,
+    ):
+        """Outward numbering follows correspondence_date (like inward/broadcast), not today's date."""
+        body = _payload(register_org_pk, direction="OUTWARD") | {
+            "correspondence_date": letter_date, "received_or_sent_date": letter_date}
+        r = client.post(BASE, json=body, headers=admin_headers)
+        assert r.status_code == 201, r.text
+        assert f"/OUT/{fy}/" in r.json()["reference_number"]
+
+    def test_unknown_sender_person_is_422_not_500(
+        self, client, admin_headers, register_org_pk, isolated_savepoint,
+    ):
+        body = _payload(register_org_pk)
+        del body["sender_external_name"]
+        body.update(sender_type="PERSON", sender_person_pk=FAKE_UUID, sender_person_capacity="PERSONAL")
+        with isolated_savepoint():
+            r = client.post(BASE, json=body, headers=admin_headers)
+        assert r.status_code == 422, r.text
+
+    def test_scoped_admin_can_register_inside_their_scope(self, client, scoped_headers, register_org_pk):
+        r = client.post(BASE, json=_payload(register_org_pk), headers=scoped_headers)
+        assert r.status_code == 201, r.text
+
+    def test_reference_numbers_follow_the_register_format_and_count_up_per_direction(
+        self, client, admin_headers, register_org_pk,
+    ):
+        fmt = re.compile(r"^.+/(IN|OUT)/\d{4}-\d{2}/(\d+)$")
+        first = _create(client, admin_headers, register_org_pk, direction="INWARD")["reference_number"]
+        second = _create(client, admin_headers, register_org_pk, direction="INWARD")["reference_number"]
+        outward = _create(client, admin_headers, register_org_pk, direction="OUTWARD")["reference_number"]
+        m1, m2, m3 = fmt.match(first), fmt.match(second), fmt.match(outward)
+        assert m1 and m2 and m3, (first, second, outward)
+        assert (m1.group(1), m2.group(1), m3.group(1)) == ("IN", "IN", "OUT")
+        assert int(m2.group(2)) == int(m1.group(2)) + 1, "per-register, per-direction, per-FY counter"
+        assert m1.group(0).rsplit("/", 1)[0] == m2.group(0).rsplit("/", 1)[0], "same prefix + FY within a register"
+
+    def test_letter_to_own_organization_is_not_dispatched(self, client, admin_headers, register_org_pk):
+        r = client.post(BASE, json=_org_payload(register_org_pk, register_org_pk), headers=admin_headers)
+        assert r.status_code == 201, r.text
+        assert r.json()["counterpart_correspondence_pk"] is None
+
+    def test_scoped_admin_cannot_reply_to_a_record_outside_their_scope(
+        self, client, admin_headers, scoped_headers, register_org_pk, other_org_pk,
+    ):
+        foreign = _create(client, admin_headers, other_org_pk, direction="INWARD")
+        r = client.post(
+            BASE,
+            json=_payload(register_org_pk, direction="OUTWARD") | {"in_reply_to_correspondence_pk": foreign["correspondence_pk"]},
+            headers=scoped_headers,
+        )
+        assert r.status_code == 403, f"router answered {r.status_code} and leaked {r.text[:120]}"
+
+
+# ── GET "" : list filters, paging and scope ──────────────────────────────
+
+class TestListEdgeCases:
+
+    @pytest.mark.parametrize("params", [
+        {"direction": "SIDEWAYS"}, {"direction": "inward"}, {"page": 0}, {"page_size": 0}, {"page_size": 101},
+    ], ids=["bad-direction", "lowercase-direction", "page-zero", "page-size-zero", "page-size-too-big"])
+    def test_invalid_query_params_are_422(self, params, client, admin_headers):
+        assert client.get(BASE, params=params, headers=admin_headers).status_code == 422
+
+    def test_pagination_page_sizes_and_totals(self, client, admin_headers, register_org_pk):
+        # created_at is the transaction start in this shared-transaction suite, so rows tie on
+        # (correspondence_date, created_at); only sizes/totals are asserted, not page membership.
+        for _ in range(3):
+            _create(client, admin_headers, register_org_pk)
+        params = {"register_organization_pk": register_org_pk, "page_size": 2}
+        p1 = client.get(BASE, params=params | {"page": 1}, headers=admin_headers).json()
+        p2 = client.get(BASE, params=params | {"page": 2}, headers=admin_headers).json()
+        assert len(p1["items"]) == 2 and len(p2["items"]) >= 1
+        assert p1["total"] >= 3 and p1["total"] == p2["total"]
+        past_the_end = client.get(BASE, params=params | {"page": 10_000}, headers=admin_headers).json()
+        assert past_the_end["items"] == [] and past_the_end["total"] == p1["total"]
+
+    def test_newest_correspondence_date_first(self, client, admin_headers, register_org_pk):
+        _create(client, admin_headers, register_org_pk)
+        r = client.get(BASE, params={"register_organization_pk": register_org_pk, "page_size": 100}, headers=admin_headers)
+        dates = [i["correspondence_date"] for i in r.json()["items"]]
+        assert dates == sorted(dates, reverse=True)
+
+    def test_unknown_status_filter_returns_nothing(self, client, admin_headers):
+        r = client.get(BASE, params={"status": "NOT_A_STATUS"}, headers=admin_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+    def test_filters_combine(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk, direction="OUTWARD")["correspondence_pk"]
+        client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=admin_headers)
+        r = client.get(BASE, params={"register_organization_pk": register_org_pk, "direction": "OUTWARD",
+                                     "status": "ACTIONED", "page_size": 100}, headers=admin_headers)
+        items = r.json()["items"]
+        assert pk in {i["correspondence_pk"] for i in items}
+        assert all(i["direction"] == "OUTWARD" and i["status_value_code"] == "ACTIONED" for i in items)
+
+    def test_scoped_admin_list_never_includes_another_register(
+        self, client, admin_headers, scoped_headers, register_org_pk, other_org_pk,
+    ):
+        foreign = _create(client, admin_headers, other_org_pk)["correspondence_pk"]
+        _create(client, admin_headers, register_org_pk)
+        r = client.get(BASE, params={"page_size": 100}, headers=scoped_headers)
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert items and {i["register_organization_pk"] for i in items} == {register_org_pk}
+        assert foreign not in {i["correspondence_pk"] for i in items}
+
+    def test_scoped_admin_filtering_on_a_foreign_register_gets_an_empty_page_not_a_leak(
+        self, client, admin_headers, scoped_headers, other_org_pk,
+    ):
+        _create(client, admin_headers, other_org_pk)
+        r = client.get(BASE, params={"register_organization_pk": other_org_pk}, headers=scoped_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+    def test_soft_deleted_records_are_not_listed(self, client, write_conn, admin_headers, register_org_pk):
+        params = {"register_organization_pk": register_org_pk, "page_size": 1}
+        before = client.get(BASE, params=params, headers=admin_headers).json()["total"]
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        assert client.get(BASE, params=params, headers=admin_headers).json()["total"] == before + 1
+        _soft_delete_correspondence(write_conn, pk)
+        assert client.get(BASE, params=params, headers=admin_headers).json()["total"] == before
+
+
+# ── GET /{pk} and /history ───────────────────────────────────────────────
+
+class TestGetAndHistoryEdgeCases:
+
+    def test_non_uuid_path_is_404(self, client, admin_headers):
+        assert client.get(f"{BASE}/not-a-uuid", headers=admin_headers).status_code == 404
+
+    def test_detail_carries_party_and_register_names(self, client, admin_headers, register_org_pk):
+        body = client.get(f"{BASE}/{_create(client, admin_headers, register_org_pk)['correspondence_pk']}",
+                          headers=admin_headers).json()
+        assert body["register_organization_name"]
+        assert body["sender_external_name"] == "External Sender" and body["recipient_external_name"] == "External Recipient"
+        assert body["medium_value_code"] == "POST"
+        assert body["counterpart_correspondence_pk"] is None and body["in_reply_to_correspondence_pk"] is None
+
+    def test_history_events_are_chronological_and_name_the_actor(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED", "remarks": "done"}, headers=admin_headers)
+        events = client.get(f"{BASE}/{pk}/history", headers=admin_headers).json()["events"]
+        assert [e["event_at"] for e in events] == sorted(e["event_at"] for e in events)
+        assert any(e["summary"] and "REGISTERED -> ACTIONED" in e["summary"] for e in events)
+        assert any(e["actor_name"] for e in events)
+
+    def test_history_walks_a_three_level_reply_thread(self, client, admin_headers, register_org_pk):
+        a = _create(client, admin_headers, register_org_pk, direction="INWARD")["correspondence_pk"]
+        b = client.post(BASE, json=_payload(register_org_pk, direction="OUTWARD") | {"in_reply_to_correspondence_pk": a},
+                        headers=admin_headers).json()["correspondence_pk"]
+        c = client.post(BASE, json=_payload(register_org_pk, direction="INWARD") | {"in_reply_to_correspondence_pk": b},
+                        headers=admin_headers).json()["correspondence_pk"]
+
+        up = client.get(f"{BASE}/{c}/history", headers=admin_headers).json()
+        assert [(n["correspondence_pk"], n["depth"]) for n in up["thread_ancestors"]] == [(a, 2), (b, 1)], "oldest first"
+        assert up["thread_descendants"] == []
+
+        down = client.get(f"{BASE}/{a}/history", headers=admin_headers).json()
+        assert [(n["correspondence_pk"], n["depth"]) for n in down["thread_descendants"]] == [(b, 1), (c, 2)]
+        assert down["thread_ancestors"] == []
+
+    def test_history_of_a_record_with_two_replies_lists_both(self, client, admin_headers, register_org_pk):
+        a = _create(client, admin_headers, register_org_pk, direction="INWARD")["correspondence_pk"]
+        replies = {
+            client.post(BASE, json=_payload(register_org_pk, direction="OUTWARD") | {"in_reply_to_correspondence_pk": a},
+                        headers=admin_headers).json()["correspondence_pk"]
+            for _ in range(2)
+        }
+        nodes = client.get(f"{BASE}/{a}/history", headers=admin_headers).json()["thread_descendants"]
+        assert {n["correspondence_pk"] for n in nodes} == replies and {n["depth"] for n in nodes} == {1}
+
+
+# ── POST /{pk}/transition : the rest of the §6.2 table ───────────────────
+
+def _record_in_state(client, headers, org_pk, state):
+    """A fresh EXTERNAL-addressed record driven to *state* (admin fallback authority applies)."""
+    pk = _create(client, headers, org_pk)["correspondence_pk"]
+    if state == "PENDING_ACTION":
+        r = client.post(f"{BASE}/{pk}/responsible-party", json={"responsible_organization_pk": org_pk}, headers=headers)
+        assert r.status_code == 200 and r.json()["status_value_code"] == "PENDING_ACTION", r.text
+    elif state != "REGISTERED":
+        r = client.post(f"{BASE}/{pk}/transition", json={"new_status": state}, headers=headers)
+        assert r.status_code == 200, r.text
+    return pk
+
+
+class TestTransitionTable:
+
+    def test_registered_to_closed(self, client, admin_headers, register_org_pk):
+        pk = _record_in_state(client, admin_headers, register_org_pk, "REGISTERED")
+        r = client.post(f"{BASE}/{pk}/transition", json={"new_status": "CLOSED"}, headers=admin_headers)
+        assert r.status_code == 200 and r.json()["status_value_code"] == "CLOSED"
+
+    def test_pending_action_to_actioned_to_closed(self, client, admin_headers, register_org_pk):
+        pk = _record_in_state(client, admin_headers, register_org_pk, "PENDING_ACTION")
+        assert client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"},
+                           headers=admin_headers).json()["status_value_code"] == "ACTIONED"
+        assert client.post(f"{BASE}/{pk}/transition", json={"new_status": "CLOSED"},
+                           headers=admin_headers).json()["status_value_code"] == "CLOSED"
+
+    def test_closed_can_be_reopened_with_remarks_even_without_a_responsible_party(
+        self, client, admin_headers, register_org_pk,
+    ):
+        pk = _record_in_state(client, admin_headers, register_org_pk, "CLOSED")
+        assert client.post(f"{BASE}/{pk}/transition", json={"new_status": "PENDING_ACTION"},
+                           headers=admin_headers).status_code == 422
+        r = client.post(f"{BASE}/{pk}/transition",
+                        json={"new_status": "PENDING_ACTION", "remarks": "New facts arrived."}, headers=admin_headers)
+        assert r.status_code == 200 and r.json()["status_value_code"] == "PENDING_ACTION"
+
+    @pytest.mark.parametrize("start,target", [
+        ("CLOSED", "ACTIONED"), ("CLOSED", "REGISTERED"), ("ACTIONED", "REGISTERED"),
+        ("PENDING_ACTION", "REGISTERED"),
+    ])
+    def test_transitions_outside_the_table_are_422(self, start, target, client, admin_headers, register_org_pk):
+        pk = _record_in_state(client, admin_headers, register_org_pk, start)
+        r = client.post(f"{BASE}/{pk}/transition", json={"new_status": target}, headers=admin_headers)
+        assert r.status_code == 422 and "not a valid transition" in r.json()["detail"].lower()
+        assert client.get(f"{BASE}/{pk}", headers=admin_headers).json()["status_value_code"] == start
+
+    def test_whitespace_only_reopen_remarks_are_rejected(self, client, admin_headers, register_org_pk):
+        pk = _record_in_state(client, admin_headers, register_org_pk, "ACTIONED")
+        r = client.post(f"{BASE}/{pk}/transition", json={"new_status": "PENDING_ACTION", "remarks": "   "},
+                        headers=admin_headers)
+        assert r.status_code == 422 and "remarks" in r.json()["detail"].lower()
+
+    @pytest.mark.parametrize("body", [
+        {"new_status": "DONE"}, {"new_status": "actioned"}, {"remarks": "no status"}, {},
+        {"new_status": "ACTIONED", "remarks": "x" * 2001},
+    ], ids=["unknown", "lowercase", "missing-status", "empty", "remarks-too-long"])
+    def test_invalid_body_is_422(self, body, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        assert client.post(f"{BASE}/{pk}/transition", json=body, headers=admin_headers).status_code == 422
+
+    def test_transition_remarks_are_saved_and_kept_by_a_later_remark_less_transition(
+        self, client, admin_headers, register_org_pk,
+    ):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r1 = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED", "remarks": "Replied by post."},
+                         headers=admin_headers)
+        assert r1.json()["remarks"] == "Replied by post."
+        r2 = client.post(f"{BASE}/{pk}/transition", json={"new_status": "CLOSED"}, headers=admin_headers)
+        assert r2.json()["remarks"] == "Replied by post.", "remarks are only overwritten when supplied"
+
+    def test_non_uuid_path_is_404(self, client, admin_headers):
+        r = client.post(f"{BASE}/not-a-uuid/transition", json={"new_status": "ACTIONED"}, headers=admin_headers)
+        assert r.status_code in (404, 405)
+
+
+# ── Directed authority: the paths not yet exercised ──────────────────────
+
+class TestDirectedAuthorityEdgeCases:
+
+    def _person_addressed(self, client, admin_headers, org_pk, person_pk):
+        return TestDirectedAuthority._create_person_addressed(None, client, admin_headers, org_pk, person_pk)
+
+    def test_responsible_person_gains_authority_and_ends_when_not_assigned(
+        self, client, admin_headers, register_org_pk, plain_recipient_identity, plain_recipient_headers,
+        applicant_identity, applicant_headers,
+    ):
+        pk = self._person_addressed(client, admin_headers, register_org_pk, plain_recipient_identity["person_pk"])
+        before = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=applicant_headers)
+        assert before.status_code == 403 and "not directed at you" in before.json()["detail"].lower()
+
+        # The addressed recipient hands responsibility to the applicant.
+        r = client.post(f"{BASE}/{pk}/responsible-party",
+                        json={"responsible_person_pk": applicant_identity["person_pk"]}, headers=plain_recipient_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["responsible_person_pk"] == applicant_identity["person_pk"]
+        assert r.json()["status_value_code"] == "PENDING_ACTION"
+
+        after = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=applicant_headers)
+        assert after.status_code == 200, after.text
+
+    def test_seated_office_bearer_of_the_recipient_organization_can_act(
+        self, client, admin_headers, register_org_pk, president_identity, president_headers,
+        applicant_headers,
+    ):
+        pk = client.post(BASE, json=_org_payload(register_org_pk, register_org_pk), headers=admin_headers).json()["correspondence_pk"]
+        # A bystander and the admin are not the Sakha's office-bearers.
+        for h in (applicant_headers, admin_headers):
+            r = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=h)
+            assert r.status_code == 403 and "not directed at you" in r.json()["detail"].lower()
+        r = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=president_headers)
+        assert r.status_code == 200, r.text
+
+    def test_organization_without_a_governing_body_falls_back_to_admin_scope(
+        self, client, admin_headers, register_org_pk, broadcast_parent_org_pk, plain_recipient_headers,
+    ):
+        """No body_master models this org, so 'directed at' cannot apply (owner-flagged fallback)."""
+        pk = client.post(BASE, json=_org_payload(register_org_pk, broadcast_parent_org_pk),
+                         headers=admin_headers).json()["correspondence_pk"]
+        denied = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=plain_recipient_headers)
+        assert denied.status_code == 403 and denied.json()["detail"].startswith("Permission required to")
+        ok = client.post(f"{BASE}/{pk}/transition", json={"new_status": "ACTIONED"}, headers=admin_headers)
+        assert ok.status_code == 200, ok.text
+
+    def test_scoped_admin_can_act_on_an_external_record_inside_scope_only(
+        self, client, admin_headers, scoped_headers, register_org_pk, other_org_pk,
+    ):
+        mine = _create(client, scoped_headers, register_org_pk)["correspondence_pk"]
+        assert client.post(f"{BASE}/{mine}/transition", json={"new_status": "ACTIONED"},
+                           headers=scoped_headers).status_code == 200
+        theirs = _create(client, admin_headers, other_org_pk)["correspondence_pk"]
+        assert client.post(f"{BASE}/{theirs}/transition", json={"new_status": "ACTIONED"},
+                           headers=scoped_headers).status_code == 403
+
+
+class TestResponsiblePartyEdgeCases:
+
+    def test_assigning_a_person_sets_the_field_and_advances_status(
+        self, client, admin_headers, register_org_pk, applicant_identity,
+    ):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r = client.post(f"{BASE}/{pk}/responsible-party",
+                        json={"responsible_person_pk": applicant_identity["person_pk"]}, headers=admin_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["responsible_person_pk"] == applicant_identity["person_pk"]
+        assert r.json()["responsible_organization_pk"] is None
+        assert r.json()["status_value_code"] == "PENDING_ACTION"
+
+    def test_switching_from_person_to_organization_clears_the_person(
+        self, client, admin_headers, register_org_pk, applicant_identity,
+    ):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        client.post(f"{BASE}/{pk}/responsible-party",
+                    json={"responsible_person_pk": applicant_identity["person_pk"]}, headers=admin_headers)
+        r = client.post(f"{BASE}/{pk}/responsible-party",
+                        json={"responsible_organization_pk": register_org_pk}, headers=admin_headers)
+        assert r.json()["responsible_person_pk"] is None
+        assert r.json()["responsible_organization_pk"] == register_org_pk
+
+    def test_person_and_organization_together_is_422(self, client, admin_headers, register_org_pk, applicant_identity):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r = client.post(f"{BASE}/{pk}/responsible-party",
+                        json={"responsible_person_pk": applicant_identity["person_pk"],
+                              "responsible_organization_pk": register_org_pk}, headers=admin_headers)
+        assert r.status_code == 422
+
+    def test_unknown_person_is_422_not_500(self, client, admin_headers, register_org_pk, isolated_savepoint):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        with isolated_savepoint():
+            r = client.post(f"{BASE}/{pk}/responsible-party", json={"responsible_person_pk": FAKE_UUID},
+                            headers=admin_headers)
+        assert r.status_code == 422, r.text
+
+    def test_the_assignment_is_written_to_the_history(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        client.post(f"{BASE}/{pk}/responsible-party", json={"responsible_organization_pk": register_org_pk},
+                    headers=admin_headers)
+        summaries = [e["summary"] or "" for e in client.get(f"{BASE}/{pk}/history", headers=admin_headers).json()["events"]]
+        assert any("Reassigned responsible party" in s for s in summaries)
+
+
+# ── Documents and finance references: the rest of §8 / §9 ───────────────
+
+class TestDocumentsEdgeCases:
+
+    def test_new_record_has_no_documents(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r = client.get(f"{BASE}/{pk}/documents", headers=admin_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+    def test_list_for_missing_record_is_404(self, client, admin_headers):
+        assert client.get(f"{BASE}/{FAKE_UUID}/documents", headers=admin_headers).status_code == 404
+
+    def test_same_document_under_different_purposes_is_allowed(
+        self, client, admin_headers, register_org_pk, document_master_pk,
+    ):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        for purpose in ("ORIGINAL", "ATTACHMENT", "SUPPORTING", "RESPONSE"):
+            r = client.post(f"{BASE}/{pk}/documents",
+                            json={"document_master_pk": document_master_pk, "document_purpose": purpose, "remarks": purpose.lower()},
+                            headers=admin_headers)
+            assert r.status_code == 201, (purpose, r.text)
+        listed = client.get(f"{BASE}/{pk}/documents", headers=admin_headers).json()
+        assert listed["total"] == 4 and {i["document_purpose"] for i in listed["items"]} == {
+            "ORIGINAL", "ATTACHMENT", "SUPPORTING", "RESPONSE"}
+
+    def test_same_document_and_purpose_twice_is_409(
+        self, client, admin_headers, register_org_pk, document_master_pk, isolated_savepoint,
+    ):
+        """uq_corr_doc_correspondence_document_purpose, surfaced by the integrity handler."""
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        body = {"document_master_pk": document_master_pk, "document_purpose": "ORIGINAL"}
+        assert client.post(f"{BASE}/{pk}/documents", json=body, headers=admin_headers).status_code == 201
+        with isolated_savepoint():
+            r = client.post(f"{BASE}/{pk}/documents", json=body, headers=admin_headers)
+        assert r.status_code == 409, r.text
+
+    def test_unknown_document_is_422_not_500(self, client, admin_headers, register_org_pk, isolated_savepoint):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        with isolated_savepoint():
+            r = client.post(f"{BASE}/{pk}/documents",
+                            json={"document_master_pk": FAKE_UUID, "document_purpose": "ORIGINAL"}, headers=admin_headers)
+        assert r.status_code == 422, r.text
+
+    @pytest.mark.parametrize("body", [
+        {}, {"document_purpose": "ORIGINAL"}, {"document_master_pk": "not-a-uuid", "document_purpose": "ORIGINAL"},
+    ], ids=["empty", "no-document", "bad-uuid"])
+    def test_invalid_body_is_422(self, body, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        assert client.post(f"{BASE}/{pk}/documents", json=body, headers=admin_headers).status_code == 422
+
+    def test_documents_can_be_attached_to_a_closed_record_without_reopening_it(
+        self, client, admin_headers, register_org_pk, document_master_pk,
+    ):
+        """§8: attachable at any state, no status side effect."""
+        pk = _record_in_state(client, admin_headers, register_org_pk, "CLOSED")
+        r = client.post(f"{BASE}/{pk}/documents",
+                        json={"document_master_pk": document_master_pk, "document_purpose": "SUPPORTING"},
+                        headers=admin_headers)
+        assert r.status_code == 201, r.text
+        assert client.get(f"{BASE}/{pk}", headers=admin_headers).json()["status_value_code"] == "CLOSED"
+
+    def test_non_uuid_record_id_is_422(self, client, admin_headers, document_master_pk):
+        r = client.post(f"{BASE}/not-a-uuid/documents",
+                        json={"document_master_pk": document_master_pk, "document_purpose": "ORIGINAL"},
+                        headers=admin_headers)
+        assert r.status_code == 422
+
+
+class TestFinanceReferencesEdgeCases:
+
+    def test_new_record_has_no_references(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r = client.get(f"{BASE}/{pk}/finance-references", headers=admin_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+    def test_list_for_missing_record_is_404(self, client, admin_headers):
+        assert client.get(f"{BASE}/{FAKE_UUID}/finance-references", headers=admin_headers).status_code == 404
+
+    @pytest.mark.parametrize("relationship", ["PAYMENT", "RECEIPT", "REFUND", "TAX", "ADJUSTMENT", "OTHER"])
+    def test_every_seeded_relationship_type_is_accepted(self, relationship, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r = client.post(f"{BASE}/{pk}/finance-references",
+                        json={"financial_transaction_pk": str(uuid4()), "relationship_type": relationship, "remarks": "r"},
+                        headers=admin_headers)
+        assert r.status_code == 201, r.text
+        assert r.json()["relationship_type_value_code"] == relationship and r.json()["remarks"] == "r"
+
+    def test_same_transaction_with_different_relationship_types_is_allowed(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        txn = str(uuid4())
+        for relationship in ("PAYMENT", "TAX"):
+            assert client.post(f"{BASE}/{pk}/finance-references",
+                               json={"financial_transaction_pk": txn, "relationship_type": relationship},
+                               headers=admin_headers).status_code == 201
+        assert client.get(f"{BASE}/{pk}/finance-references", headers=admin_headers).json()["total"] == 2
+
+    def test_exact_duplicate_reference_is_409(self, client, admin_headers, register_org_pk, isolated_savepoint):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        body = {"financial_transaction_pk": str(uuid4()), "relationship_type": "PAYMENT"}
+        assert client.post(f"{BASE}/{pk}/finance-references", json=body, headers=admin_headers).status_code == 201
+        with isolated_savepoint():
+            r = client.post(f"{BASE}/{pk}/finance-references", json=body, headers=admin_headers)
+        assert r.status_code == 409, r.text
+
+    def test_unknown_relationship_type_is_a_client_error(self, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        r = client.post(f"{BASE}/{pk}/finance-references",
+                        json={"financial_transaction_pk": str(uuid4()), "relationship_type": "BARTER"}, headers=admin_headers)
+        assert r.status_code == 422 and "BARTER" in r.json()["detail"], r.text
+
+    @pytest.mark.parametrize("body", [
+        {}, {"relationship_type": "PAYMENT"}, {"financial_transaction_pk": "not-a-uuid", "relationship_type": "PAYMENT"},
+    ], ids=["empty", "no-transaction", "bad-uuid"])
+    def test_invalid_body_is_422(self, body, client, admin_headers, register_org_pk):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        assert client.post(f"{BASE}/{pk}/finance-references", json=body, headers=admin_headers).status_code == 422
+
+    def test_references_persist_on_a_closed_record(self, client, admin_headers, register_org_pk):
+        pk = _record_in_state(client, admin_headers, register_org_pk, "CLOSED")
+        r = client.post(f"{BASE}/{pk}/finance-references",
+                        json={"financial_transaction_pk": str(uuid4()), "relationship_type": "REFUND"}, headers=admin_headers)
+        assert r.status_code == 201, r.text
+
+
+# ── Broadcast: validation and atomicity-adjacent failures ────────────────
+
+class TestBroadcastValidation:
+
+    @pytest.mark.parametrize("missing", ["register_organization_pk", "recipient_organization_type_code", "subject",
+                                         "medium", "correspondence_date", "received_or_sent_date"])
+    def test_missing_required_field_is_422(self, missing, client, broadcast_admin_headers, broadcast_parent_org_pk):
+        body = _broadcast_payload(broadcast_parent_org_pk)
+        del body[missing]
+        assert client.post(f"{BASE}/broadcast", json=body, headers=broadcast_admin_headers).status_code == 422
+
+    @pytest.mark.parametrize("override", [
+        {"correspondence_date": "2099-01-01"}, {"received_or_sent_date": "2099-01-01"}, {"subject": "x" * 256},
+    ], ids=["future-correspondence-date", "future-received-date", "subject-too-long"])
+    def test_invalid_field_is_422(self, override, client, broadcast_admin_headers, broadcast_parent_org_pk):
+        r = client.post(f"{BASE}/broadcast", json=_broadcast_payload(broadcast_parent_org_pk, **override),
+                        headers=broadcast_admin_headers)
+        assert r.status_code == 422
+
+    def test_unknown_organization_type_code_is_422(
+        self, client, broadcast_admin_headers, broadcast_parent_org_pk, broadcast_child_sakha_pks,
+    ):
+        r = client.post(f"{BASE}/broadcast",
+                        json=_broadcast_payload(broadcast_parent_org_pk, recipient_type_code="NOT_A_TYPE"),
+                        headers=broadcast_admin_headers)
+        assert r.status_code == 422 and "No active NOT_A_TYPE" in r.json()["detail"]
+
+    def test_unknown_sender_organization_is_rejected(self, client, broadcast_admin_headers):
+        r = client.post(f"{BASE}/broadcast", json=_broadcast_payload(FAKE_UUID), headers=broadcast_admin_headers)
+        assert r.status_code in (404, 422), r.text
+
+    def test_a_recipient_without_a_short_code_fails_the_whole_circular(
+        self, client, write_conn, broadcast_admin_headers, isolated_savepoint,
+    ):
+        """The inward counterpart cannot be numbered, so the request is a 422 (and rolls back in production)."""
+        parent = _create_test_organization(
+            write_conn, name_prefix="Broadcast NoCode Parent", type_code="ANCHALIKA_SANGHA",
+            parent_pk=None, short_code=f"NP{uuid4().hex[:3].upper()}",
+        )
+        _create_test_organization(
+            write_conn, name_prefix="Broadcast NoCode Sakha", type_code="SAKHA_SANGHA",
+            parent_pk=parent, short_code=None,
+        )
+        with isolated_savepoint():
+            r = client.post(f"{BASE}/broadcast", json=_broadcast_payload(parent), headers=broadcast_admin_headers)
+        assert r.status_code == 422 and "short code" in r.json()["detail"].lower()
+
+
+# ── POST /my-applications ────────────────────────────────────────────────
+
+class TestMemberApplicationCreate:
+
+    def test_sakha_org_application_is_a_registered_outward_letter_from_the_member(
+        self, client, applicant_headers, applicant_identity, register_org_pk,
+    ):
+        r = _apply(client, applicant_headers, remarks="please consider", follow_up_date="2099-01-01")
+        assert r.status_code == 201, r.text
+        b = r.json()
+        assert (b["direction"], b["status_value_code"], b["medium_value_code"]) == ("OUTWARD", "REGISTERED", "HAND_DELIVERY")
+        assert b["sender_type"] == "PERSON" and b["sender_person_pk"] == applicant_identity["person_pk"]
+        assert b["sender_person_capacity"] == "PERSONAL"
+        assert b["recipient_type"] == "ORGANIZATION" and b["recipient_organization_pk"] == register_org_pk
+        assert b["register_organization_pk"] == register_org_pk
+        assert b["correspondence_date"] == b["received_or_sent_date"] == date.today().isoformat()
+        assert b["approval_steps"] == [] and b["responsible_person_pk"] is None
+        assert b["counterpart_correspondence_pk"] is None
+        assert b["remarks"] == "please consider" and b["follow_up_date"] == "2099-01-01"
+        assert re.match(r"^.+/OUT/\d{4}-\d{2}/\d+$", b["reference_number"])
+
+    def test_applications_draw_from_the_registers_outward_counter(self, client, applicant_headers):
+        a = _apply(client, applicant_headers).json()["reference_number"]
+        b = _apply(client, applicant_headers).json()["reference_number"]
+        assert int(b.rsplit("/", 1)[1]) == int(a.rsplit("/", 1)[1]) + 1
+
+    def test_addressed_to_a_seated_office_bearer_has_no_approval_chain(
+        self, client, applicant_headers, president_identity, president_headers,
+    ):
+        r = _apply(client, applicant_headers, "SAKHA_OFFICE_BEARER", recipient_person_pk=president_identity["person_pk"])
+        assert r.status_code == 201, r.text
+        b = r.json()
+        assert b["recipient_type"] == "PERSON" and b["recipient_person_pk"] == president_identity["person_pk"]
+        assert b["approval_steps"] == []
+        # Directly addressed, so it is in the officer's inbox straight away.
+        inbox = client.get(f"{BASE}/addressed-to-me", params={"page_size": 100}, headers=president_headers).json()["items"]
+        assert b["correspondence_pk"] in {i["correspondence_pk"] for i in inbox}
+
+    @pytest.mark.parametrize("mode", [
+        "SAKHA_OFFICE_BEARER", "KENDRA_VIA_SAKHA_PRESIDENT", "MAHILA_OFFICE_BEARER",
+        "KENDRA_MAHILA_VIA_SAKHA_PRESIDENT", "SEVAK_OFFICE_BEARER",
+    ])
+    def test_office_bearer_modes_require_a_recipient(self, mode, client, applicant_headers):
+        assert _apply(client, applicant_headers, mode).status_code == 422
+
+    def test_sakha_org_mode_rejects_a_recipient(self, client, applicant_headers, president_identity):
+        r = _apply(client, applicant_headers, "SAKHA_ORG", recipient_person_pk=president_identity["person_pk"])
+        assert r.status_code == 422
+
+    @pytest.mark.parametrize("body", [
+        {"addressing_mode": "TELEPATHY", "subject": "s"},
+        {"addressing_mode": "SAKHA_ORG"},
+        {"subject": "no mode"},
+        {"addressing_mode": "SAKHA_ORG", "subject": "x" * 256},
+        {"addressing_mode": "SAKHA_ORG", "subject": "s", "remarks": "x" * 2001},
+    ], ids=["bad-mode", "no-subject", "no-mode", "subject-too-long", "remarks-too-long"])
+    def test_invalid_body_is_422(self, body, client, applicant_headers):
+        assert client.post(f"{BASE}/my-applications", json=body, headers=applicant_headers).status_code == 422
+
+    def test_kendra_mode_to_someone_who_is_not_a_kendra_officer_is_422(
+        self, client, applicant_headers, plain_recipient_identity, president_identity,
+    ):
+        r = _apply(client, applicant_headers, "KENDRA_VIA_SAKHA_PRESIDENT",
+                   recipient_person_pk=plain_recipient_identity["person_pk"])
+        assert r.status_code == 422 and "Kendra-level office-bearer" in r.json()["detail"]
+
+    def test_kendra_mode_without_a_sitting_sakha_president_is_422(
+        self, client, write_conn, isolated_savepoint, dual_officer_applicant_headers, kendra_officer_identity,
+        other_sakha_gb_body_pk,
+    ):
+        with isolated_savepoint():
+            write_conn.cursor().execute(
+                """
+                UPDATE nss.body_member_assignment a
+                SET is_active = FALSE, effective_to = CURRENT_DATE - 1, deleted_at = NOW()
+                FROM nss.position_master pm
+                WHERE a.position_master_pk = pm.position_master_pk AND a.body_master_pk = %s
+                  AND pm.position_code = 'PRESIDENT' AND a.is_active = TRUE AND a.effective_to IS NULL
+                """,
+                (other_sakha_gb_body_pk,),
+            )
+            r = _apply(client, dual_officer_applicant_headers, "KENDRA_VIA_SAKHA_PRESIDENT",
+                       recipient_person_pk=kendra_officer_identity["person_pk"])
+        assert r.status_code == 422 and "no sitting President" in r.json()["detail"]
+
+    def test_account_without_a_sangha_sevi_cannot_apply(self, client, bare_headers):
+        r = _apply(client, bare_headers)
+        assert r.status_code == 403 and "no active Sangha Sevi record" in r.json()["detail"]
+
+    def test_anonymous_cannot_apply(self, anon_client):
+        assert anon_client.post(f"{BASE}/my-applications",
+                                json={"addressing_mode": "SAKHA_ORG", "subject": "s"}).status_code in (401, 403)
+
+
+# ── GET /my-applications, /my-applications/{pk} ──────────────────────────
+
+class TestMyApplicationsRead:
+
+    def test_list_shows_only_the_callers_own(
+        self, client, applicant_headers, applicant_identity, plain_recipient_headers,
+    ):
+        first = _apply(client, applicant_headers).json()["correspondence_pk"]
+        second = _apply(client, applicant_headers).json()["correspondence_pk"]
+        mine = client.get(f"{BASE}/my-applications", params={"page_size": 100}, headers=applicant_headers).json()
+        ids = [i["correspondence_pk"] for i in mine["items"]]
+        assert {first, second} <= set(ids) and mine["total"] >= len(ids)
+        assert {i["sender_person_pk"] for i in mine["items"]} == {applicant_identity["person_pk"]}
+        theirs = client.get(f"{BASE}/my-applications", params={"page_size": 100}, headers=plain_recipient_headers).json()
+        assert {first, second}.isdisjoint(i["correspondence_pk"] for i in theirs["items"])
+
+    def test_pagination(self, client, applicant_headers):
+        _apply(client, applicant_headers)
+        _apply(client, applicant_headers)
+        r = client.get(f"{BASE}/my-applications", params={"page_size": 1, "page": 2}, headers=applicant_headers).json()
+        assert len(r["items"]) == 1 and r["total"] >= 2
+
+    @pytest.mark.parametrize("params", [{"page": 0}, {"page_size": 0}, {"page_size": 101}])
+    def test_pagination_bounds_are_422(self, params, client, applicant_headers):
+        assert client.get(f"{BASE}/my-applications", params=params, headers=applicant_headers).status_code == 422
+
+    def test_account_without_a_sangha_sevi_sees_an_empty_list(self, client, bare_headers):
+        r = client.get(f"{BASE}/my-applications", headers=bare_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+    def test_detail_of_own_application(self, client, applicant_headers):
+        pk = _apply(client, applicant_headers).json()["correspondence_pk"]
+        r = client.get(f"{BASE}/my-applications/{pk}", headers=applicant_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["correspondence_pk"] == pk and r.json()["approval_steps"] == []
+
+    def test_detail_includes_the_approval_chain(self, client, applicant_headers, president_identity, kendra_officer_identity):
+        app = _file_kendra_application(client, applicant_headers, kendra_officer_identity)
+        steps = client.get(f"{BASE}/my-applications/{app['correspondence_pk']}", headers=applicant_headers).json()["approval_steps"]
+        assert [s["step_number"] for s in steps] == [1, 2]
+        assert steps[0]["approver_person_pk"] == president_identity["person_pk"]
+        assert steps[1]["approver_person_pk"] == kendra_officer_identity["person_pk"]
+
+    def test_someone_elses_application_is_404_not_403(
+        self, client, applicant_headers, plain_recipient_headers, admin_headers,
+    ):
+        pk = _apply(client, applicant_headers).json()["correspondence_pk"]
+        for h in (plain_recipient_headers, admin_headers):
+            assert client.get(f"{BASE}/my-applications/{pk}", headers=h).status_code == 404
+
+    def test_unknown_and_malformed_ids_are_404(self, client, applicant_headers):
+        assert client.get(f"{BASE}/my-applications/{FAKE_UUID}", headers=applicant_headers).status_code == 404
+        assert client.get(f"{BASE}/my-applications/not-a-uuid", headers=applicant_headers).status_code == 404
+
+    def test_a_soft_deleted_application_is_gone(self, client, write_conn, applicant_headers):
+        pk = _apply(client, applicant_headers).json()["correspondence_pk"]
+        _soft_delete_correspondence(write_conn, pk)
+        assert client.get(f"{BASE}/my-applications/{pk}", headers=applicant_headers).status_code == 404
+        listed = client.get(f"{BASE}/my-applications", params={"page_size": 100}, headers=applicant_headers).json()
+        assert pk not in {i["correspondence_pk"] for i in listed["items"]}
+
+    def test_anonymous_is_rejected(self, anon_client):
+        assert anon_client.get(f"{BASE}/my-applications").status_code in (401, 403)
+        assert anon_client.get(f"{BASE}/my-applications/{FAKE_UUID}").status_code in (401, 403)
+
+
+# ── GET /addressed-to-me, /approval-steps/pending-for-me ─────────────────
+
+class TestAddressedToMeAndPendingForMe:
+
+    def test_an_organization_addressed_application_is_not_in_any_persons_inbox(
+        self, client, applicant_headers, president_headers, president_identity,
+    ):
+        pk = _apply(client, applicant_headers, "SAKHA_ORG").json()["correspondence_pk"]
+        inbox = client.get(f"{BASE}/addressed-to-me", params={"page_size": 100}, headers=president_headers).json()["items"]
+        assert pk not in {i["correspondence_pk"] for i in inbox}
+
+    def test_the_sender_does_not_see_their_own_application_in_their_inbox(self, client, applicant_headers):
+        pk = _apply(client, applicant_headers).json()["correspondence_pk"]
+        inbox = client.get(f"{BASE}/addressed-to-me", params={"page_size": 100}, headers=applicant_headers).json()["items"]
+        assert pk not in {i["correspondence_pk"] for i in inbox}
+
+    @pytest.mark.parametrize("path", ["addressed-to-me", "approval-steps/pending-for-me", "my-involvements"])
+    @pytest.mark.parametrize("params", [{"page": 0}, {"page_size": 0}, {"page_size": 101}])
+    def test_pagination_bounds_are_422(self, path, params, client, applicant_headers):
+        assert client.get(f"{BASE}/{path}", params=params, headers=applicant_headers).status_code == 422
+
+    @pytest.mark.parametrize("path", ["addressed-to-me", "approval-steps/pending-for-me", "my-involvements"])
+    def test_account_without_a_sangha_sevi_gets_an_empty_page(self, path, client, bare_headers):
+        r = client.get(f"{BASE}/{path}", headers=bare_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+    @pytest.mark.parametrize("path", ["addressed-to-me", "approval-steps/pending-for-me"])
+    def test_anonymous_is_rejected(self, path, anon_client):
+        assert anon_client.get(f"{BASE}/{path}").status_code in (401, 403)
+
+    def test_pending_for_me_is_empty_for_someone_with_nothing_to_decide(self, client, plain_recipient_headers):
+        r = client.get(f"{BASE}/approval-steps/pending-for-me", headers=plain_recipient_headers)
+        assert r.status_code == 200 and r.json()["items"] == []
+
+    def test_a_decided_step_leaves_the_presidents_pending_list(
+        self, client, applicant_headers, president_headers, kendra_officer_identity,
+    ):
+        app = _file_kendra_application(client, applicant_headers, kendra_officer_identity)
+        step1 = app["approval_steps"][0]["correspondence_approval_step_pk"]
+        listed = lambda: {i["correspondence_pk"] for i in client.get(  # noqa: E731
+            f"{BASE}/approval-steps/pending-for-me", params={"page_size": 100}, headers=president_headers).json()["items"]}
+        assert app["correspondence_pk"] in listed()
+        client.post(f"{BASE}/approval-steps/{step1}/decision", json={"decision": "APPROVE"}, headers=president_headers)
+        assert app["correspondence_pk"] not in listed()
+
+
+# ── POST /approval-steps/{pk}/decision : the rest of the chain ───────────
+
+class TestApprovalDecisionEdgeCases:
+
+    def _decide(self, client, headers, step_pk, decision="APPROVE", **extra):
+        return client.post(f"{BASE}/approval-steps/{step_pk}/decision", json={"decision": decision, **extra}, headers=headers)
+
+    def _filed(self, client, applicant_headers, kendra_officer_identity):
+        app = _file_kendra_application(client, applicant_headers, kendra_officer_identity)
+        steps = {s["step_number"]: s["correspondence_approval_step_pk"] for s in app["approval_steps"]}
+        return app, steps[1], steps[2]
+
+    def test_step_one_rejection_stops_the_chain(
+        self, client, applicant_headers, president_headers, kendra_officer_headers, kendra_officer_identity,
+    ):
+        app, step1, step2 = self._filed(client, applicant_headers, kendra_officer_identity)
+        r = self._decide(client, president_headers, step1, "REJECT", remarks="Not appropriate")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        s1, s2 = (next(s for s in body["approval_steps"] if s["step_number"] == n) for n in (1, 2))
+        assert s1["step_status"] == "REJECTED" and s1["remarks"] == "Not appropriate" and s1["decided_at"]
+        assert s2["step_status"] == "PENDING" and s2["decided_at"] is None
+        assert body["responsible_person_pk"] is None and body["status_value_code"] == "REGISTERED"
+
+        # The Kendra officer never sees it as actionable, and cannot decide step 2 out of order.
+        for path in ("addressed-to-me", "approval-steps/pending-for-me"):
+            items = client.get(f"{BASE}/{path}", params={"page_size": 100}, headers=kendra_officer_headers).json()["items"]
+            assert app["correspondence_pk"] not in {i["correspondence_pk"] for i in items}, path
+        out_of_order = self._decide(client, kendra_officer_headers, step2)
+        assert out_of_order.status_code == 422 and "step 1" in out_of_order.json()["detail"].lower()
+
+    def test_step_one_approval_hands_responsibility_to_the_step_two_approver(
+        self, client, applicant_headers, president_headers, kendra_officer_identity,
+    ):
+        _, step1, _ = self._filed(client, applicant_headers, kendra_officer_identity)
+        body = self._decide(client, president_headers, step1, "APPROVE", remarks="Forwarded").json()
+        assert body["responsible_person_pk"] == kendra_officer_identity["person_pk"]
+        assert body["status_value_code"] == "REGISTERED", "only the terminal approval advances the status"
+        s1 = next(s for s in body["approval_steps"] if s["step_number"] == 1)
+        assert s1["step_status"] == "APPROVED" and s1["remarks"] == "Forwarded" and s1["decided_at"]
+
+    def test_a_step_cannot_be_decided_twice(
+        self, client, applicant_headers, president_headers, kendra_officer_identity,
+    ):
+        _, step1, _ = self._filed(client, applicant_headers, kendra_officer_identity)
+        assert self._decide(client, president_headers, step1).status_code == 200
+        again = self._decide(client, president_headers, step1, "REJECT")
+        assert again.status_code == 422 and "already APPROVED" in again.json()["detail"]
+
+    def test_unknown_step_is_404(self, client, president_headers):
+        assert self._decide(client, president_headers, FAKE_UUID).status_code == 404
+
+    @pytest.mark.parametrize("body", [{}, {"decision": "MAYBE"}, {"decision": "approve"}, {"remarks": "no decision"},
+                                      {"decision": "APPROVE", "remarks": "x" * 2001}])
+    def test_invalid_body_is_422(self, body, client, president_headers):
+        r = client.post(f"{BASE}/approval-steps/{FAKE_UUID}/decision", json=body, headers=president_headers)
+        assert r.status_code == 422
+
+    def test_only_the_named_approver_may_decide_step_one(
+        self, client, applicant_headers, plain_recipient_headers, admin_headers, kendra_officer_headers,
+        kendra_officer_identity,
+    ):
+        _, step1, _ = self._filed(client, applicant_headers, kendra_officer_identity)
+        # Not the sender, not a bystander, not an NSS-wide admin, not the step-2 approver.
+        for h in (applicant_headers, plain_recipient_headers, admin_headers, kendra_officer_headers):
+            r = self._decide(client, h, step1)
+            assert r.status_code == 403 and "not awaiting your decision" in r.json()["detail"]
+
+    def test_a_president_who_lost_the_seat_can_no_longer_decide(
+        self, client, write_conn, isolated_savepoint, applicant_headers, president_headers, president_identity,
+        kendra_officer_identity, sakha_gb_body_pk,
+    ):
+        _, step1, _ = self._filed(client, applicant_headers, kendra_officer_identity)
+        with isolated_savepoint():
+            _deactivate_assignments(write_conn, person_pk=president_identity["person_pk"], body_master_pk=sakha_gb_body_pk)
+            r = self._decide(client, president_headers, step1)
+        assert r.status_code == 403 and "no longer the seated President" in r.json()["detail"]
+
+    def test_a_kendra_officer_who_lost_the_seat_can_no_longer_decide_step_two(
+        self, client, write_conn, isolated_savepoint, applicant_headers, president_headers,
+        kendra_officer_headers, kendra_officer_identity,
+    ):
+        _, step1, step2 = self._filed(client, applicant_headers, kendra_officer_identity)
+        assert self._decide(client, president_headers, step1).status_code == 200
+        with isolated_savepoint():
+            _deactivate_assignments(write_conn, person_pk=kendra_officer_identity["person_pk"])
+            r = self._decide(client, kendra_officer_headers, step2)
+        assert r.status_code == 403 and "no longer a seated central-level office-bearer" in r.json()["detail"]
+
+    def test_anonymous_cannot_decide(self, anon_client):
+        r = anon_client.post(f"{BASE}/approval-steps/{FAKE_UUID}/decision", json={"decision": "APPROVE"})
+        assert r.status_code in (401, 403)
+
+
+# ── GET /my-involvements ─────────────────────────────────────────────────
+
+class TestMyInvolvementsEdgeCases:
+
+    def test_a_responsible_party_sees_the_record_and_a_bystander_does_not(
+        self, client, admin_headers, register_org_pk, plain_recipient_identity, plain_recipient_headers,
+        applicant_headers,
+    ):
+        pk = _create(client, admin_headers, register_org_pk)["correspondence_pk"]
+        client.post(f"{BASE}/{pk}/responsible-party",
+                    json={"responsible_person_pk": plain_recipient_identity["person_pk"]}, headers=admin_headers)
+        seen = client.get(f"{BASE}/my-involvements", params={"page_size": 100}, headers=plain_recipient_headers).json()["items"]
+        assert pk in {i["correspondence_pk"] for i in seen}
+        other = client.get(f"{BASE}/my-involvements", params={"page_size": 100}, headers=applicant_headers).json()["items"]
+        assert pk not in {i["correspondence_pk"] for i in other}
+
+    def test_a_directly_addressed_recipient_sees_it_and_an_unrelated_member_does_not(
+        self, client, applicant_headers, president_identity, president_headers, plain_recipient_headers,
+    ):
+        pk = _apply(client, applicant_headers, "SAKHA_OFFICE_BEARER",
+                    recipient_person_pk=president_identity["person_pk"]).json()["correspondence_pk"]
+        for h, expected in ((president_headers, True), (applicant_headers, True), (plain_recipient_headers, False)):
+            items = client.get(f"{BASE}/my-involvements", params={"page_size": 100}, headers=h).json()["items"]
+            assert (pk in {i["correspondence_pk"] for i in items}) is expected
+
+    def test_total_matches_the_number_of_involvements(self, client, applicant_headers):
+        _apply(client, applicant_headers)
+        r = client.get(f"{BASE}/my-involvements", params={"page_size": 1}, headers=applicant_headers).json()
+        full = client.get(f"{BASE}/my-involvements", params={"page_size": 100}, headers=applicant_headers).json()
+        assert r["total"] == full["total"] >= 1 and len(r["items"]) == 1

@@ -154,6 +154,83 @@ class TestChangeLogQuery:
         assert r.status_code == 422
 
 
+# ── Remaining filters, ordering and validation ───────────────────────────
+
+class TestChangeLogFiltersAndValidation:
+    """GET /api/v1/audit/change-log — every query parameter and its error path."""
+
+    URL = "/api/v1/audit/change-log"
+
+    def test_field_name_filter(self, client, admin_headers, sample_change):
+        r = client.get(self.URL, headers=admin_headers, params={
+            "record_pk": sample_change["record_pk"], "field_name": "first_name"})
+        assert r.status_code == 200 and len(r.json()) == 1
+        none = client.get(self.URL, headers=admin_headers, params={
+            "record_pk": sample_change["record_pk"], "field_name": "last_name"})
+        assert none.status_code == 200 and none.json() == []
+
+    def test_unknown_table_or_record_yields_empty_list_not_error(self, client, admin_headers):
+        r = client.get(self.URL, headers=admin_headers, params={
+            "table_name": "no_such_table", "record_pk": str(uuid4())})
+        assert r.status_code == 200
+        assert r.json() == []
+
+    @pytest.mark.parametrize("action", ["CREATE", "UPDATE", "DELETE"])
+    def test_action_filter_only_returns_that_action(self, client, admin_headers, action):
+        r = client.get(self.URL, headers=admin_headers, params={"action": action, "limit": 20})
+        assert r.status_code == 200
+        assert all(row["action"] == action for row in r.json())
+
+    @pytest.mark.parametrize("params", [
+        {"action": "ARCHIVE"}, {"action": "update"}, {"limit": 0}, {"offset": -1},
+        {"record_pk": "not-a-uuid"}, {"changed_by_sangha_sevi_pk": "nope"},
+        {"changed_by_user_account_pk": "nope"}, {"changed_from": "yesterday"},
+        {"changed_to": "not-a-date"},
+    ])
+    def test_invalid_parameters_are_422(self, client, admin_headers, params):
+        assert client.get(self.URL, headers=admin_headers, params=params).status_code == 422
+
+    def test_date_range_excludes_rows_outside_it(self, client, admin_headers, sample_change):
+        future = client.get(self.URL, headers=admin_headers, params={
+            "record_pk": sample_change["record_pk"], "changed_from": "2999-01-01T00:00:00Z"})
+        assert future.status_code == 200 and future.json() == []
+        past = client.get(self.URL, headers=admin_headers, params={
+            "record_pk": sample_change["record_pk"], "changed_to": "2000-01-01T00:00:00Z"})
+        assert past.status_code == 200 and past.json() == []
+        inside = client.get(self.URL, headers=admin_headers, params={
+            "record_pk": sample_change["record_pk"],
+            "changed_from": "2000-01-01T00:00:00Z", "changed_to": "2999-01-01T00:00:00Z"})
+        assert len(inside.json()) == 1
+
+    def test_inverted_range_is_empty(self, client, admin_headers):
+        r = client.get(self.URL, headers=admin_headers, params={
+            "changed_from": "2999-01-01T00:00:00Z", "changed_to": "2000-01-01T00:00:00Z"})
+        assert r.status_code == 200 and r.json() == []
+
+    def test_most_recent_change_first(self, client, admin_headers):
+        rows = client.get(self.URL, headers=admin_headers, params={"limit": 50}).json()
+        stamps = [row["changed_at"] for row in rows]
+        assert stamps == sorted(stamps, reverse=True)
+
+    def test_paging_is_deterministic_across_pages(self, client, admin_headers):
+        """Ties on changed_at are broken by field_change_log_pk, so walking the log
+        one row at a time yields exactly the rows a single wide page does."""
+        wide = client.get(self.URL, headers=admin_headers, params={"limit": 6}).json()
+        stepped = []
+        for off in range(len(wide)):
+            stepped += client.get(self.URL, headers=admin_headers,
+                                  params={"limit": 1, "offset": off}).json()
+        assert [r["field_change_log_pk"] for r in stepped] == [r["field_change_log_pk"] for r in wide]
+
+    def test_row_shape(self, client, admin_headers, sample_change):
+        row = client.get(self.URL, headers=admin_headers, params={
+            "record_pk": sample_change["record_pk"]}).json()[0]
+        assert {"field_change_log_pk", "action", "table_name", "record_pk", "field_name",
+                "old_value", "new_value", "change_reason", "changed_at",
+                "changed_by_sangha_sevi_id", "changed_by_name"} <= row.keys()
+        assert row["change_reason"] == "audit-unit-test"
+
+
 # ── Tier 1 guard still holds ──────────────────────────────────────────────
 
 class TestFoundationChangeLogStillHidden:

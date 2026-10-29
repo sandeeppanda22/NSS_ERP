@@ -25,6 +25,9 @@ Usage:
   pytest tests/test_bootstrap.py  # run specific file
 """
 
+from contextlib import contextmanager
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -127,6 +130,34 @@ def write_conn(_db_conn):
     module finishes.
     """
     return _db_conn
+
+
+# ── Per-request SAVEPOINT isolation for tests that provoke a DB error ───
+
+@pytest.fixture
+def isolated_savepoint(write_conn):
+    """
+    Context-manager factory: `with isolated_savepoint(): client.post(...)`.
+
+    A request that trips a constraint (unique/FK/CHECK) aborts the shared
+    session transaction, because the app's per-request rollback does not run
+    under the dependency overrides above. Wrapping that one request in its
+    own SAVEPOINT (rolled back on exit, whatever the outcome) keeps the rest
+    of the module's tests usable. Everything the request wrote is undone too,
+    so only use it around requests that are expected to fail.
+    """
+
+    @contextmanager
+    def _savepoint():
+        name = f"t_sp_{uuid4().hex[:10]}"
+        cur = write_conn.cursor()
+        cur.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        finally:
+            cur.execute(f"ROLLBACK TO SAVEPOINT {name}")
+
+    return _savepoint
 
 
 # ── Authenticated client (admin with all _VIEW permissions) ────────────

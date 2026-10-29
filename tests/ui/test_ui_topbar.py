@@ -66,6 +66,13 @@ def layout_page(admin_page: Page, base_url):
     """Any page that loads nss-layout.js; /admin is authenticated already."""
     admin_page.goto(f"{base_url}/admin")
     wait_for_alpine(admin_page)
+    # login.html does not load nss-layout.js, so a session that was not
+    # accepted (bounced to /login) shows up as "NSSLayout is not defined".
+    # Fail with the real cause instead.
+    assert "/login" not in admin_page.url, (
+        f"admin session bounced to {admin_page.url}; nss-layout.js is not "
+        "loaded on /login, so NSSLayout is undefined there"
+    )
     return admin_page
 
 

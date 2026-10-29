@@ -16,8 +16,10 @@ up via conftest SAVEPOINT rollback.
 
 import pytest
 
+from tests.forgot_password_support import clear_reset_tokens, debug_otp_enabled  # noqa: F401 (fixture)
 
-pytestmark = pytest.mark.integration
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("debug_otp_enabled")]
 
 
 # ── Constants ───────────────────────────────────────────────────────────
@@ -122,11 +124,7 @@ class TestResetPassword:
         login_id = forgot_user["sangha_sevi_id"]
 
         # Clear rate limit tokens
-        with write_conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM nss.password_reset_token WHERE user_account_pk = %s",
-                (str(forgot_user["user_account_pk"]),),
-            )
+        clear_reset_tokens(write_conn, forgot_user["user_account_pk"])
 
         otp = self._get_otp(client, login_id)
         assert otp is not None
@@ -143,13 +141,10 @@ class TestResetPassword:
         login_id = forgot_user["sangha_sevi_id"]
 
         # Clear tokens and insert an expired one manually
+        clear_reset_tokens(write_conn, forgot_user["user_account_pk"])
+        from api.services.auth_service import hash_password
+        otp_hash = hash_password("123456")
         with write_conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM nss.password_reset_token WHERE user_account_pk = %s",
-                (str(forgot_user["user_account_pk"]),),
-            )
-            from api.services.auth_service import hash_password
-            otp_hash = hash_password("123456")
             cur.execute("""
                 INSERT INTO nss.password_reset_token (
                     user_account_pk, otp_hash, expires_at
@@ -178,11 +173,7 @@ class TestResetPassword:
         login_id = forgot_user["sangha_sevi_id"]
 
         # Clear rate limit tokens
-        with write_conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM nss.password_reset_token WHERE user_account_pk = %s",
-                (str(forgot_user["user_account_pk"]),),
-            )
+        clear_reset_tokens(write_conn, forgot_user["user_account_pk"])
 
         otp = self._get_otp(client, login_id)
         assert otp is not None
@@ -199,11 +190,7 @@ class TestResetPassword:
         login_id = forgot_user["sangha_sevi_id"]
 
         # Clear rate limit tokens
-        with write_conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM nss.password_reset_token WHERE user_account_pk = %s",
-                (str(forgot_user["user_account_pk"]),),
-            )
+        clear_reset_tokens(write_conn, forgot_user["user_account_pk"])
 
         otp = self._get_otp(client, login_id)
         assert otp is not None

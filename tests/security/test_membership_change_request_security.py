@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import pytest
 
+from tests.change_request_support import retire_open_requests
+
 pytestmark = pytest.mark.integration
 
 BASE = "/api/v1/membership/change-requests"
@@ -223,6 +225,12 @@ def member_user(write_conn, source_org_pk):
     return data
 
 
+@pytest.fixture(autouse=True)
+def _one_open_request_per_member(write_conn, member_user):
+    """A member may hold one open request at a time; start every test with none left over."""
+    retire_open_requests(write_conn, member_user["sangha_sevi_pk"])
+
+
 @pytest.fixture(scope="module")
 def member_headers(client, member_user):
     return _login_headers(client, member_user["sangha_sevi_id"], member_user["password"])
@@ -344,3 +352,180 @@ class TestAnonymousAccess:
     def test_destination_decision_requires_auth(self, anon_client):
         resp = anon_client.post(f"{BASE}/{FAKE_UUID}/destination-decision", json={"decision": "ACCEPT"})
         assert resp.status_code in (401, 403)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Whole-router gating and scope on the read/create paths
+# (added 2026-10-28 from the endpoint x test matrix)
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(scope="module")
+def source_scoped_headers(client, write_conn, source_org_pk):
+    a = _create_admin_with_scope(write_conn, role_code="NSS_ERP_SAKHA_ADMIN", scope_level="SAKHA",
+                                 organization_pk=source_org_pk, home_org_pk=source_org_pk)
+    return _login_headers(client, a["sangha_sevi_id"], a["password"])
+
+
+@pytest.fixture(scope="module")
+def dest_scoped_headers(client, write_conn, dest_org_pk):
+    a = _create_admin_with_scope(write_conn, role_code="NSS_ERP_SAKHA_ADMIN", scope_level="SAKHA",
+                                 organization_pk=dest_org_pk, home_org_pk=dest_org_pk)
+    return _login_headers(client, a["sangha_sevi_id"], a["password"])
+
+
+@pytest.fixture(scope="module")
+def auditor_headers(client, write_conn, source_org_pk):
+    """NSS_ERP_AUDITOR: MEMBERSHIP_VIEW only (no MANAGE, no APPROVE)."""
+    a = _create_admin_with_scope(write_conn, role_code="NSS_ERP_AUDITOR", scope_level="SAKHA",
+                                 organization_pk=source_org_pk, home_org_pk=source_org_pk)
+    return _login_headers(client, a["sangha_sevi_id"], a["password"])
+
+
+def test_endpoint_table_covers_every_route():
+    """Guard: the five routes this module (and the API tests) cover are the router's complete surface."""
+    import re
+
+    from api.routers.membership_change_request import router
+
+    routes = {(m, re.sub(r"\{[^}]+\}", FAKE_UUID, r.path)) for r in router.routes for m in r.methods if m != "HEAD"}
+    assert routes == {
+        ("POST", BASE), ("GET", BASE), ("GET", f"{BASE}/{FAKE_UUID}"),
+        ("POST", f"{BASE}/{FAKE_UUID}/source-decision"), ("POST", f"{BASE}/{FAKE_UUID}/destination-decision"),
+    }
+
+
+class TestGarbageTokenAndAnonymous:
+
+    @pytest.mark.parametrize("method,path,body", [
+        ("POST", BASE, {"sangha_sevi_pk": FAKE_UUID, "request_type": "TRANSFER", "new_organization_pk": FAKE_UUID}),
+        ("GET", BASE, None),
+        ("GET", f"{BASE}/{FAKE_UUID}", None),
+        ("POST", f"{BASE}/{FAKE_UUID}/source-decision", {"decision": "RELEASE"}),
+        ("POST", f"{BASE}/{FAKE_UUID}/destination-decision", {"decision": "ACCEPT"}),
+    ], ids=["create", "list", "get", "source-decision", "destination-decision"])
+    def test_anonymous_and_garbage_token_are_401(self, method, path, body, anon_client):
+        assert anon_client.request(method, path, json=body).status_code == 401
+        r = anon_client.request(method, path, json=body, headers={"Authorization": "Bearer not.a.jwt"})
+        assert r.status_code == 401
+
+
+class TestViewOnlyRole:
+    """MEMBERSHIP_VIEW without MANAGE/APPROVE: may read, may not file for others or decide."""
+
+    def test_can_list_and_read_in_scope(self, client, auditor_headers, member_headers, member_user, dest_org_pk):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        assert client.get(BASE, headers=auditor_headers).status_code == 200
+        assert client.get(f"{BASE}/{pk}", headers=auditor_headers).status_code == 200
+
+    def test_cannot_file_on_behalf_of_a_member(self, client, auditor_headers, member_user, dest_org_pk):
+        resp = client.post(BASE, headers=auditor_headers, json={
+            "sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "TRANSFER", "new_organization_pk": dest_org_pk})
+        assert resp.status_code == 403
+        assert "You may only file a change request for yourself unless you hold MEMBERSHIP_MANAGE." in resp.text
+
+    def test_cannot_decide(self, client, auditor_headers, member_headers, member_user, dest_org_pk):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        for stage in ("source", "destination"):
+            resp = client.post(f"{BASE}/{pk}/{stage}-decision", headers=auditor_headers,
+                               json={"decision": "RELEASE" if stage == "source" else "ACCEPT"})
+            assert resp.status_code == 403, stage
+
+
+class TestDecisionsBelongToTheirOwnSide:
+    """Source decisions are scoped to old_organization_pk, destination decisions to new_organization_pk."""
+
+    def test_destination_admin_cannot_release_for_the_source(
+        self, client, dest_scoped_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        resp = client.post(f"{BASE}/{pk}/source-decision", headers=dest_scoped_headers, json={"decision": "RELEASE"})
+        assert resp.status_code == 403
+        assert "You can only release this member's affiliation within your admin scope." in resp.text
+
+    def test_source_admin_cannot_accept_for_the_destination(
+        self, client, nss_wide_headers, source_scoped_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        assert client.post(f"{BASE}/{pk}/source-decision", headers=nss_wide_headers,
+                           json={"decision": "RELEASE"}).status_code == 200
+        resp = client.post(f"{BASE}/{pk}/destination-decision", headers=source_scoped_headers, json={"decision": "REJECT"})
+        assert resp.status_code == 403
+        assert "You can only accept this member into this Sakha within your admin scope." in resp.text
+
+    def test_each_side_admin_can_make_their_own_decision(
+        self, client, source_scoped_headers, dest_scoped_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        assert client.post(f"{BASE}/{pk}/source-decision", headers=source_scoped_headers,
+                           json={"decision": "RELEASE"}).status_code == 200
+        resp = client.post(f"{BASE}/{pk}/destination-decision", headers=dest_scoped_headers, json={"decision": "REJECT"})
+        assert resp.status_code == 200 and resp.json()["status"] == "REJECTED_BY_DESTINATION"
+
+
+class TestListScope:
+
+    def test_admin_sees_requests_touching_their_sakha_on_either_side_only(
+        self, client, source_scoped_headers, dest_scoped_headers, outside_scoped_headers,
+        member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+
+        def listed(headers):
+            rows = client.get(BASE, headers=headers, params={"page_size": 100}).json()["requests"]
+            return {r["membership_change_request_pk"] for r in rows}
+
+        assert pk in listed(source_scoped_headers)
+        assert pk in listed(dest_scoped_headers)
+        assert pk not in listed(outside_scoped_headers)
+
+    def test_scoped_admin_only_ever_sees_requests_touching_their_own_sakha(
+        self, client, outside_scoped_headers, outside_org_pk, member_headers, member_user, dest_org_pk,
+    ):
+        _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        rows = client.get(BASE, headers=outside_scoped_headers, params={"page_size": 100}).json()["requests"]
+        assert all(outside_org_pk in (r["old_organization_pk"], r["new_organization_pk"]) for r in rows)
+
+    def test_organization_filter_cannot_widen_a_scoped_view(
+        self, client, outside_scoped_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        rows = client.get(BASE, headers=outside_scoped_headers, params={"organization_pk": dest_org_pk}).json()["requests"]
+        assert pk not in {r["membership_change_request_pk"] for r in rows}
+
+
+class TestScopeOnReadAndCreate:
+    """Detail read and on-behalf filing are admin-scoped exactly like the list endpoint."""
+
+    def test_out_of_scope_admin_cannot_read_a_request_by_id(
+        self, client, outside_scoped_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        assert client.get(f"{BASE}/{pk}", headers=outside_scoped_headers).status_code == 403
+
+    def test_out_of_scope_admin_cannot_file_for_a_member_outside_their_scope(
+        self, client, outside_scoped_headers, member_user, dest_org_pk,
+    ):
+        resp = client.post(BASE, headers=outside_scoped_headers, json={
+            "sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "TRANSFER", "new_organization_pk": dest_org_pk})
+        assert resp.status_code == 403
+
+
+class TestScopeBeforeState:
+    """Authorization precedes state validation: an out-of-scope admin gets 403, never a 422 that discloses the status."""
+
+    def test_out_of_scope_source_decision_on_a_decided_request_is_403(
+        self, client, outside_scoped_headers, nss_wide_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)
+        assert client.post(f"{BASE}/{pk}/source-decision", headers=nss_wide_headers,
+                           json={"decision": "REJECT"}).status_code == 200
+        resp = client.post(f"{BASE}/{pk}/source-decision", headers=outside_scoped_headers, json={"decision": "RELEASE"})
+        assert resp.status_code == 403
+
+    def test_out_of_scope_destination_decision_on_a_wrong_status_request_is_403(
+        self, client, outside_scoped_headers, member_headers, member_user, dest_org_pk,
+    ):
+        pk = _create_request_pk(client, member_headers, member_user, dest_org_pk)  # still PENDING_SOURCE_RELEASE
+        resp = client.post(f"{BASE}/{pk}/destination-decision", headers=outside_scoped_headers,
+                           json={"decision": "ACCEPT"})
+        assert resp.status_code == 403

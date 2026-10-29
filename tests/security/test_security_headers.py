@@ -49,12 +49,18 @@ class TestSecurityHeaders:
         response = client.get("/api/v1/bootstrap/health")
         assert response.headers.get("Cache-Control") == "no-store"
 
-    def test_static_response_no_cache_control_no_store(self, client):
-        """Non-API responses (frontend) must NOT have Cache-Control: no-store."""
-        response = client.get("/")
+    def test_static_asset_is_cacheable_not_no_store(self, client):
+        """/assets/* responses are cached for a day, never no-store."""
+        response = client.get("/assets/js/auth.js")
         assert response.status_code == 200
-        # Static/frontend responses should not force no-store
-        assert response.headers.get("Cache-Control") != "no-store"
+        assert response.headers.get("Cache-Control") == "public, max-age=86400, must-revalidate"
+
+    def test_html_page_is_no_store(self, client):
+        """HTML pages are served no-store so they always carry current ?v= asset hashes
+        (api/main.py::_serve_page)."""
+        response = client.get("/login")
+        assert response.status_code == 200
+        assert response.headers.get("Cache-Control") == "no-store"
 
     def test_x_xss_protection_not_present(self, client):
         """X-XSS-Protection is obsolete and must NOT be set."""
@@ -77,11 +83,15 @@ class TestRateLimiting:
         """
         Exceeding the rate limit must return 429 Too Many Requests.
 
-        The default limit is 60/minute. We send 61 requests and verify
-        the last one is rejected. TestClient is in-process (no network),
-        so this completes in milliseconds.
+        The limit is read from settings.RATE_LIMIT (default 300/minute, e.g.
+        "300/minute"). We send limit+1 requests and verify the last one is
+        rejected. TestClient is in-process (no network), so this completes
+        quickly.
         """
+        from api.config import settings
         from api.main import app, limiter
+
+        limit = int(settings.RATE_LIMIT.split("/")[0])
 
         # NOTE: deliberately NOT using `with TestClient(app) as test_client:` here.
         # Entering/exiting TestClient as a context manager fires the app's
@@ -93,14 +103,14 @@ class TestRateLimiting:
         # TestClient(app) serves requests without ever running startup/shutdown.
         test_client = TestClient(app)
         last_status = None
-        for i in range(61):
+        for i in range(limit + 1):
             resp = test_client.get("/api/v1/bootstrap/health")
             last_status = resp.status_code
             if last_status == 429:
                 break
 
         assert last_status == 429, (
-            "After 61 requests, rate limit (60/minute) should return 429"
+            f"After {limit + 1} requests, rate limit ({settings.RATE_LIMIT}) should return 429"
         )
 
 

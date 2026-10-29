@@ -186,7 +186,8 @@ class TestReviewAuthorityIsASeatNotAPermission:
     """ATTENDANCE_VIEW/MANAGE alone must never grant review or exception approval (ATT-042)."""
 
     @pytest.fixture(scope="class")
-    def review_pk(self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas):
+    @classmethod
+    def review_pk(cls, client, write_conn, sakha_admin_h, register_org_pk, register_pujas):
         m = new_member(write_conn, register_org_pk, "SecRev")
         for p in register_pujas[:3]:
             mark(client, sakha_admin_h, p["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
@@ -221,6 +222,17 @@ class TestReviewAuthorityIsASeatNotAPermission:
             r = client.post(f"{BASE}/reviews/{review_pk}/{action}", json={}, headers=other_president_h)
             assert r.status_code == 403, action
         assert client.get(f"{BASE}/reviews/{review_pk}", headers=other_president_h).status_code == 403
+
+    def test_foreign_admin_review_list_does_not_leak_this_review(self, client, other_admin_h, review_pk):
+        seen = client.get(f"{BASE}/reviews", params={"page_size": 200}, headers=other_admin_h).json()["reviews"]
+        assert review_pk not in {r["review_pk"] for r in seen}
+
+    def test_foreign_president_cannot_override_or_reopen(self, client, other_president_h, review_pk):
+        r = client.post(f"{BASE}/reviews/{review_pk}/override",
+                        json={"new_status_code": "CLOSED", "reason": "x"}, headers=other_president_h)
+        assert r.status_code == 403 and r.json()["detail"] == "Only the Sakha's President may override this review."
+        assert client.post(f"{BASE}/reviews/{review_pk}/escalate-to-parichalak", json={},
+                           headers=other_president_h).status_code in (403, 422)
 
     def test_review_was_not_modified_by_any_denied_call(self, client, sakha_admin_h, review_pk):
         r = client.get(f"{BASE}/reviews/{review_pk}", headers=sakha_admin_h)

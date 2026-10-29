@@ -19,6 +19,10 @@ from uuid import uuid4
 
 import pytest
 
+from tests.change_request_support import (
+    create_sevi_less_account_headers,
+    retire_open_requests,
+)
 from api.helpers import insert_sakha_affiliation, next_festival_date_on_or_after
 
 pytestmark = pytest.mark.integration
@@ -227,6 +231,12 @@ def member_user(write_conn, source_org_pk):
     return data
 
 
+@pytest.fixture(autouse=True)
+def _one_open_request_per_member(write_conn, member_user):
+    """A member may hold one open request at a time; start every test with none left over."""
+    retire_open_requests(write_conn, member_user["sangha_sevi_pk"])
+
+
 @pytest.fixture(scope="module")
 def member_headers(client, member_user):
     return _login_headers(client, member_user["sangha_sevi_id"], member_user["password"])
@@ -374,23 +384,8 @@ class TestListChangeRequests:
 
     def test_neither_admin_view_nor_own_sevi_rejected(self, client, write_conn):
         """A logged-in user with no sangha_sevi_pk and no MEMBERSHIP_VIEW/APPROVE."""
-        from api.services.auth_service import hash_password
-        from uuid import uuid4 as _u
-        suffix = _u().hex[:10].upper()
-        cur = write_conn.cursor()
-        cur.execute("""
-            INSERT INTO nss.person (person_id, first_name, last_name, email)
-            VALUES (%s, %s, %s, %s) RETURNING person_pk
-        """, (f"BARE{suffix}", "Bare", suffix, f"bare.{suffix.lower()}@example.test"))
-        person_pk = cur.fetchone()[0]
-        password = "BarePass1x"
-        cur.execute("""
-            INSERT INTO nss.user_account (
-                person_pk, password_hash, account_status, force_password_change, password_expires_at
-            ) VALUES (%s, %s, 'ACTIVE', FALSE, NOW() + INTERVAL '365 days')
-        """, (str(person_pk), hash_password(password)))
-
-        headers = _login_headers(client, f"BARE{suffix}", password)
+        # Login refuses an account with no Sangha Sevi, so mint the token.
+        headers = create_sevi_less_account_headers(write_conn)["headers"]
         resp = client.get(BASE, headers=headers)
         assert resp.status_code == 403
         assert "You do not have permission to view change requests." in resp.text
@@ -406,7 +401,8 @@ class TestListChangeRequests:
 
 class TestGetChangeRequest:
     @pytest.fixture(scope="class")
-    def created_request_pk(self, client, member_headers, member_user, dest_org_pk):
+    @classmethod
+    def created_request_pk(cls, client, member_headers, member_user, dest_org_pk):
         resp = client.post(BASE, headers=member_headers, json={
             "sangha_sevi_pk": member_user["sangha_sevi_pk"],
             "request_type": "TRANSFER",
@@ -588,8 +584,10 @@ class TestDestinationDecision:
 
         member = _create_member_with_home_affiliation(write_conn, "XferAccept", organization_pk=source_org_pk)
 
+        # Filed by the admin on the member's behalf: member_headers belongs to a DIFFERENT member
+        # (and holds no MEMBERSHIP_MANAGE), so using it here would 403 on create.
         pk = self._make_pending_destination(
-            client, manage_headers, member_headers, member["sangha_sevi_pk"], dest_org_pk, "TRANSFER",
+            client, manage_headers, manage_headers, member["sangha_sevi_pk"], dest_org_pk, "TRANSFER",
         )
         resp = client.post(f"{BASE}/{pk}/destination-decision", headers=manage_headers, json={
             "decision": "ACCEPT", "remarks": "welcome",
@@ -643,7 +641,7 @@ class TestDestinationDecision:
         member = _create_member_with_home_affiliation(write_conn, "DarshakAccept", organization_pk=source_org_pk)
 
         pk = self._make_pending_destination(
-            client, manage_headers, member_headers, member["sangha_sevi_pk"], dest_org_pk, "DARSHAK",
+            client, manage_headers, manage_headers, member["sangha_sevi_pk"], dest_org_pk, "DARSHAK",
         )
         resp = client.post(f"{BASE}/{pk}/destination-decision", headers=manage_headers, json={
             "decision": "ACCEPT",
@@ -683,3 +681,342 @@ class TestDestinationDecision:
             "decision": "ACCEPT",
         })
         assert resp.status_code in (401, 403)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Coverage gap-fill (added 2026-10-28 from the endpoint x test matrix)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _sevi_pk(write_conn, sangha_sevi_id: str) -> str:
+    cur = write_conn.cursor()
+    cur.execute("SELECT sangha_sevi_pk FROM nss.sangha_sevi WHERE sangha_sevi_id = %s", (sangha_sevi_id,))
+    return str(cur.fetchone()[0])
+
+
+def _dola_purnima_or_skip(write_conn) -> date:
+    festival_date = next_festival_date_on_or_after(write_conn.cursor(), "DOLA_PURNIMA", date.today())
+    if festival_date is None:
+        pytest.skip("No confirmed DOLA_PURNIMA festival date on/after today — cannot exercise ACCEPT.")
+    return festival_date
+
+
+def _file_request(client, headers, sangha_sevi_pk, dest_org_pk, request_type="TRANSFER", **extra) -> dict:
+    resp = client.post(BASE, headers=headers, json={
+        "sangha_sevi_pk": sangha_sevi_pk, "request_type": request_type, "new_organization_pk": dest_org_pk, **extra,
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _decide(client, headers, pk, stage, decision, **extra):
+    return client.post(f"{BASE}/{pk}/{stage}-decision", headers=headers, json={"decision": decision, **extra})
+
+
+class TestCreateChangeRequestEdgeCases:
+
+    @pytest.mark.parametrize("override", [
+        {"request_type": "SWAP"}, {"request_type": "transfer"}, {"new_organization_pk": "not-a-uuid"},
+        {"sangha_sevi_pk": "not-a-uuid"}, {"transfer_reason": "x" * 501},
+    ], ids=["bad-type", "lowercase-type", "bad-destination-uuid", "bad-member-uuid", "reason-too-long"])
+    def test_invalid_body_is_422(self, override, client, member_headers, member_user, dest_org_pk):
+        body = {"sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "TRANSFER",
+                "new_organization_pk": dest_org_pk} | override
+        assert client.post(BASE, headers=member_headers, json=body).status_code == 422
+
+    @pytest.mark.parametrize("missing", ["sangha_sevi_pk", "request_type", "new_organization_pk"])
+    def test_missing_required_field_is_422(self, missing, client, member_headers, member_user, dest_org_pk):
+        body = {"sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "TRANSFER",
+                "new_organization_pk": dest_org_pk}
+        del body[missing]
+        assert client.post(BASE, headers=member_headers, json=body).status_code == 422
+
+    def test_a_new_request_echoes_names_dates_and_empty_decision_fields(
+        self, client, member_headers, member_user, source_org_pk, dest_org_pk,
+    ):
+        b = _file_request(client, member_headers, member_user["sangha_sevi_pk"], dest_org_pk,
+                          transfer_reason="Moved house")
+        assert b["sangha_sevi_id"] == member_user["sangha_sevi_id"] and b["member_name"].startswith("Member")
+        assert (b["old_organization_pk"], b["new_organization_pk"]) == (source_org_pk, dest_org_pk)
+        assert b["old_organization_name"] and b["new_organization_name"]
+        assert b["transfer_reason"] == "Moved house" and b["requested_date"] == date.today().isoformat()
+        assert b["requested_by_sangha_sevi_pk"] == member_user["sangha_sevi_pk"]
+        for field in ("source_decided_by_sangha_sevi_pk", "source_decided_at", "source_remarks",
+                      "destination_decided_by_sangha_sevi_pk", "destination_decided_at", "destination_remarks",
+                      "new_local_number", "effective_date"):
+            assert b[field] is None, field
+
+    def test_requested_by_is_the_admin_who_filed_on_behalf(
+        self, client, write_conn, manage_headers, manage_admin, member_user, dest_org_pk,
+    ):
+        b = _file_request(client, manage_headers, member_user["sangha_sevi_pk"], dest_org_pk, "DARSHAK")
+        assert b["sangha_sevi_pk"] == member_user["sangha_sevi_pk"]
+        assert b["requested_by_sangha_sevi_pk"] == _sevi_pk(write_conn, manage_admin["sangha_sevi_id"])
+
+    def test_a_second_open_request_for_the_same_member_is_409(
+        self, client, member_headers, manage_headers, member_user, dest_org_pk,
+    ):
+        first = _file_request(client, member_headers, member_user["sangha_sevi_pk"], dest_org_pk)
+        again = client.post(BASE, headers=manage_headers, json={
+            "sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "DARSHAK", "new_organization_pk": dest_org_pk})
+        assert again.status_code == 409 and "open change request" in again.json()["detail"]
+        # Once the first is decided, a new request may be filed.
+        assert _decide(client, manage_headers, first["membership_change_request_pk"], "source", "REJECT").status_code == 200
+        assert client.post(BASE, headers=manage_headers, json={
+            "sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "DARSHAK",
+            "new_organization_pk": dest_org_pk}).status_code == 201
+
+    def test_unknown_destination_organization_is_422(self, client, member_headers, member_user):
+        resp = client.post(BASE, headers=member_headers, json={
+            "sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "TRANSFER", "new_organization_pk": FAKE_UUID})
+        assert resp.status_code == 422 and "does not exist" in resp.json()["detail"]
+
+    def test_destination_must_be_a_sakha(self, client, write_conn, member_headers, member_user):
+        """MBR-038A: a Kendra/Anchalika/... cannot be a transfer or Darshak destination."""
+        cur = write_conn.cursor()
+        cur.execute("""
+            SELECT o.organization_pk FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+        """)
+        row = cur.fetchone()
+        if row is None:
+            pytest.skip("No non-Sakha organization available.")
+        resp = client.post(BASE, headers=member_headers, json={
+            "sangha_sevi_pk": member_user["sangha_sevi_pk"], "request_type": "DARSHAK", "new_organization_pk": str(row[0])})
+        assert resp.status_code == 422 and "MBR-038A" in resp.json()["detail"]
+
+    def test_unknown_member_filed_by_an_admin_is_422(self, client, manage_headers, dest_org_pk):
+        resp = client.post(BASE, headers=manage_headers, json={
+            "sangha_sevi_pk": FAKE_UUID, "request_type": "TRANSFER", "new_organization_pk": dest_org_pk})
+        assert resp.status_code == 422 and "no active Sakha affiliation" in resp.json()["detail"]
+
+    def test_a_member_cannot_file_for_someone_else(self, client, member_headers, plain_member_user, dest_org_pk):
+        resp = client.post(BASE, headers=member_headers, json={
+            "sangha_sevi_pk": plain_member_user["sangha_sevi_pk"], "request_type": "TRANSFER",
+            "new_organization_pk": dest_org_pk})
+        assert resp.status_code == 403
+
+
+class TestListChangeRequestsEdgeCases:
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def released_and_pending(cls, client, manage_headers, write_conn, source_org_pk, dest_org_pk):
+        """Two requests of two fresh members: one released (PENDING_DESTINATION_ACCEPT), one still PENDING_SOURCE_RELEASE."""
+        m = _create_member_with_home_affiliation(write_conn, "ListFilter", organization_pk=source_org_pk)
+        released = _file_request(client, manage_headers, m["sangha_sevi_pk"], dest_org_pk)["membership_change_request_pk"]
+        assert _decide(client, manage_headers, released, "source", "RELEASE").status_code == 200
+        # A second member: one member can hold only one open request at a time.
+        m2 = _create_member_with_home_affiliation(write_conn, "ListFilter2", organization_pk=source_org_pk)
+        pending = _file_request(client, manage_headers, m2["sangha_sevi_pk"], dest_org_pk, "DARSHAK")["membership_change_request_pk"]
+        return {"member": m, "released": released, "pending": pending}
+
+    def _ids(self, client, headers, **params):
+        r = client.get(BASE, headers=headers, params={"page_size": 100, **params})
+        assert r.status_code == 200, r.text
+        return {x["membership_change_request_pk"] for x in r.json()["requests"]}, r.json()
+
+    def test_status_filter(self, client, manage_headers, released_and_pending):
+        ids, body = self._ids(client, manage_headers, status="PENDING_DESTINATION_ACCEPT")
+        assert released_and_pending["released"] in ids and released_and_pending["pending"] not in ids
+        assert all(x["status"] == "PENDING_DESTINATION_ACCEPT" for x in body["requests"])
+
+    def test_organization_filter_matches_either_side(self, client, manage_headers, released_and_pending,
+                                                     source_org_pk, dest_org_pk):
+        for org in (source_org_pk, dest_org_pk):
+            ids, _ = self._ids(client, manage_headers, organization_pk=org)
+            assert {released_and_pending["released"], released_and_pending["pending"]} <= ids
+
+    def test_unknown_filters_return_nothing(self, client, manage_headers):
+        _, body = self._ids(client, manage_headers, status="NOT_A_STATUS")
+        assert body == {"requests": [], "total": 0}
+        _, body = self._ids(client, manage_headers, organization_pk=FAKE_UUID)
+        assert body == {"requests": [], "total": 0}
+
+    @pytest.mark.parametrize("params", [{"page": 0}, {"page_size": 0}, {"page_size": 101}, {"organization_pk": "x"}])
+    def test_invalid_query_params_are_422(self, params, client, manage_headers):
+        assert client.get(BASE, headers=manage_headers, params=params).status_code == 422
+
+    def test_pagination(self, client, manage_headers, released_and_pending):
+        one = client.get(BASE, headers=manage_headers, params={"page_size": 1}).json()
+        assert len(one["requests"]) == 1 and one["total"] >= 2
+        past_the_end = client.get(BASE, headers=manage_headers, params={"page": 10_000}).json()
+        assert past_the_end["requests"] == [] and past_the_end["total"] == one["total"]
+
+    def test_self_view_ignores_status_and_organization_filters(
+        self, client, member_headers, member_user, dest_org_pk,
+    ):
+        mine = _file_request(client, member_headers, member_user["sangha_sevi_pk"], dest_org_pk)["membership_change_request_pk"]
+        r = client.get(BASE, headers=member_headers, params={"status": "COMPLETED", "organization_pk": FAKE_UUID,
+                                                            "page_size": 100})
+        rows = r.json()["requests"]
+        assert mine in {x["membership_change_request_pk"] for x in rows}
+        assert {x["sangha_sevi_pk"] for x in rows} == {member_user["sangha_sevi_pk"]}
+
+    def test_a_member_never_sees_another_members_request(
+        self, client, plain_headers, plain_member_user, released_and_pending,
+    ):
+        rows = client.get(BASE, headers=plain_headers, params={"page_size": 100}).json()["requests"]
+        assert {x["sangha_sevi_pk"] for x in rows} <= {plain_member_user["sangha_sevi_pk"]}
+        assert released_and_pending["released"] not in {x["membership_change_request_pk"] for x in rows}
+
+
+class TestGetChangeRequestEdgeCases:
+
+    def test_non_uuid_id_is_422(self, client, manage_headers):
+        assert client.get(f"{BASE}/not-a-uuid", headers=manage_headers).status_code == 422
+
+    def test_detail_matches_the_create_response(self, client, manage_headers, member_headers, member_user, dest_org_pk):
+        created = _file_request(client, member_headers, member_user["sangha_sevi_pk"], dest_org_pk)
+        fetched = client.get(f"{BASE}/{created['membership_change_request_pk']}", headers=manage_headers).json()
+        assert fetched == created
+
+    def test_requester_who_is_not_the_member_cannot_read_it_without_a_view_permission(
+        self, client, plain_headers, manage_headers, member_user, dest_org_pk,
+    ):
+        """Filed on the member's behalf by an admin; a different plain member still gets 403."""
+        pk = _file_request(client, manage_headers, member_user["sangha_sevi_pk"], dest_org_pk)["membership_change_request_pk"]
+        assert client.get(f"{BASE}/{pk}", headers=plain_headers).status_code == 403
+
+
+class TestSourceDecisionEdgeCases:
+
+    @pytest.fixture()
+    def request_pk(self, client, member_headers, member_user, dest_org_pk):
+        return _file_request(client, member_headers, member_user["sangha_sevi_pk"], dest_org_pk)["membership_change_request_pk"]
+
+    @pytest.mark.parametrize("body", [{}, {"decision": "MAYBE"}, {"decision": "release"}, {"remarks": "no decision"},
+                                      {"decision": "RELEASE", "remarks": "x" * 2001}])
+    def test_invalid_body_is_422(self, body, client, manage_headers, request_pk):
+        assert client.post(f"{BASE}/{request_pk}/source-decision", headers=manage_headers, json=body).status_code == 422
+
+    def test_release_records_the_decider_remarks_and_time(
+        self, client, write_conn, manage_headers, manage_admin, request_pk,
+    ):
+        b = _decide(client, manage_headers, request_pk, "source", "RELEASE", remarks="Go with our blessing").json()
+        assert b["status"] == "PENDING_DESTINATION_ACCEPT"
+        assert b["source_remarks"] == "Go with our blessing" and b["source_decided_at"]
+        assert b["source_decided_by_sangha_sevi_pk"] == _sevi_pk(write_conn, manage_admin["sangha_sevi_id"])
+        assert b["destination_decided_at"] is None and b["effective_date"] is None
+
+    def test_source_rejection_is_terminal(self, client, manage_headers, request_pk):
+        assert _decide(client, manage_headers, request_pk, "source", "REJECT", remarks="no").json()["status"] == "REJECTED_BY_SOURCE"
+        again = _decide(client, manage_headers, request_pk, "source", "RELEASE")
+        assert again.status_code == 422 and "REJECTED_BY_SOURCE" in again.json()["detail"]
+        dest = _decide(client, manage_headers, request_pk, "destination", "ACCEPT")
+        assert dest.status_code == 422 and "REJECTED_BY_SOURCE" in dest.json()["detail"]
+
+    def test_a_released_request_cannot_be_released_again(self, client, manage_headers, request_pk):
+        _decide(client, manage_headers, request_pk, "source", "RELEASE")
+        again = _decide(client, manage_headers, request_pk, "source", "REJECT")
+        assert again.status_code == 422 and "PENDING_DESTINATION_ACCEPT" in again.json()["detail"]
+
+    def test_release_does_not_touch_the_members_affiliations(
+        self, client, write_conn, manage_headers, member_user, source_org_pk, dest_org_pk,
+    ):
+        cur = write_conn.cursor()
+        count = lambda: (cur.execute("SELECT COUNT(*) FROM nss.membership_sakha_affiliation WHERE sangha_sevi_pk = %s",  # noqa: E731
+                                     (member_user["sangha_sevi_pk"],)), cur.fetchone()[0])[1]
+        before = count()
+        pk = _file_request(client, manage_headers, member_user["sangha_sevi_pk"], dest_org_pk)["membership_change_request_pk"]
+        _decide(client, manage_headers, pk, "source", "RELEASE")
+        assert count() == before
+
+
+class TestDestinationDecisionEdgeCases:
+
+    def _pending_destination(self, client, manage_headers, sangha_sevi_pk, dest_org_pk, request_type="TRANSFER"):
+        return TestDestinationDecision._make_pending_destination(
+            None, client, manage_headers, manage_headers, sangha_sevi_pk, dest_org_pk, request_type)
+
+    @pytest.mark.parametrize("body", [{}, {"decision": "MAYBE"}, {"decision": "accept"}, {"remarks": "no decision"},
+                                      {"decision": "ACCEPT", "new_local_number": "x" * 31, "is_legacy_import": True}])
+    def test_invalid_body_is_422(self, body, client, manage_headers):
+        assert client.post(f"{BASE}/{FAKE_UUID}/destination-decision", headers=manage_headers, json=body).status_code == 422
+
+    def test_destination_rejection_records_the_decision_and_is_terminal(
+        self, client, write_conn, manage_headers, manage_admin, source_org_pk, dest_org_pk,
+    ):
+        m = _create_member_with_home_affiliation(write_conn, "DestReject", organization_pk=source_org_pk)
+        pk = self._pending_destination(client, manage_headers, m["sangha_sevi_pk"], dest_org_pk)
+        b = _decide(client, manage_headers, pk, "destination", "REJECT", remarks="Sakha is full").json()
+        assert b["status"] == "REJECTED_BY_DESTINATION" and b["destination_remarks"] == "Sakha is full"
+        assert b["destination_decided_at"]
+        assert b["destination_decided_by_sangha_sevi_pk"] == _sevi_pk(write_conn, manage_admin["sangha_sevi_id"])
+        assert b["effective_date"] is None and b["new_local_number"] is None
+        for stage, decision in (("destination", "ACCEPT"), ("destination", "REJECT")):
+            r = _decide(client, manage_headers, pk, stage, decision)
+            assert r.status_code == 422 and "REJECTED_BY_DESTINATION" in r.json()["detail"]
+        assert _decide(client, manage_headers, pk, "source", "RELEASE").status_code == 422
+
+        cur = write_conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM nss.membership_sakha_affiliation WHERE sangha_sevi_pk = %s "
+                    "AND effective_to IS NULL", (m["sangha_sevi_pk"],))
+        assert cur.fetchone()[0] == 1, "a rejection leaves the home affiliation open and opens nothing"
+        cur.execute("SELECT COUNT(*) FROM nss.membership_transfer_history WHERE sangha_sevi_pk = %s", (m["sangha_sevi_pk"],))
+        assert cur.fetchone()[0] == 0
+
+    def test_accept_completes_and_cannot_be_repeated(self, client, write_conn, manage_headers, source_org_pk, dest_org_pk):
+        _dola_purnima_or_skip(write_conn)
+        m = _create_member_with_home_affiliation(write_conn, "AcceptTwice", organization_pk=source_org_pk)
+        pk = self._pending_destination(client, manage_headers, m["sangha_sevi_pk"], dest_org_pk)
+        done = _decide(client, manage_headers, pk, "destination", "ACCEPT", remarks="welcome")
+        assert done.status_code == 200, done.text
+        b = done.json()
+        assert b["status"] == "COMPLETED" and b["new_local_number"] and b["effective_date"]
+        assert b["destination_remarks"] == "welcome" and b["destination_decided_at"]
+        for stage, decision in (("destination", "ACCEPT"), ("destination", "REJECT"), ("source", "RELEASE")):
+            r = _decide(client, manage_headers, pk, stage, decision)
+            assert r.status_code == 422 and "COMPLETED" in r.json()["detail"], (stage, decision)
+
+    def test_accept_writes_a_journey_event_referencing_the_request(
+        self, client, write_conn, manage_headers, source_org_pk, dest_org_pk,
+    ):
+        _dola_purnima_or_skip(write_conn)
+        m = _create_member_with_home_affiliation(write_conn, "JourneyRef", organization_pk=source_org_pk)
+        pk = self._pending_destination(client, manage_headers, m["sangha_sevi_pk"], dest_org_pk)
+        _decide(client, manage_headers, pk, "destination", "ACCEPT")
+        cur = write_conn.cursor()
+        cur.execute("SELECT event_reference FROM nss.membership_journey_event WHERE sangha_sevi_pk = %s", (m["sangha_sevi_pk"],))
+        assert [r[0] for r in cur.fetchall()] == [pk]
+
+    def test_legacy_import_uses_the_supplied_local_number_and_a_reuse_is_409(
+        self, client, write_conn, manage_headers, source_org_pk, dest_org_pk,
+    ):
+        _dola_purnima_or_skip(write_conn)
+        number = str(900000 + uuid4().int % 99999)
+        first = _create_member_with_home_affiliation(write_conn, "LegacyOne", organization_pk=source_org_pk)
+        second = _create_member_with_home_affiliation(write_conn, "LegacyTwo", organization_pk=source_org_pk)
+        pk1 = self._pending_destination(client, manage_headers, first["sangha_sevi_pk"], dest_org_pk)
+        pk2 = self._pending_destination(client, manage_headers, second["sangha_sevi_pk"], dest_org_pk)
+
+        ok = _decide(client, manage_headers, pk1, "destination", "ACCEPT", is_legacy_import=True, new_local_number=number)
+        assert ok.status_code == 200, ok.text
+        assert number in ok.json()["new_local_number"]
+
+        clash = _decide(client, manage_headers, pk2, "destination", "ACCEPT", is_legacy_import=True, new_local_number=number)
+        assert clash.status_code == 409, clash.text
+        still = client.get(f"{BASE}/{pk2}", headers=manage_headers).json()
+        assert still["status"] == "PENDING_DESTINATION_ACCEPT", "a refused accept leaves the request open"
+
+    def test_completed_transfer_moves_the_members_home_sakha(
+        self, client, write_conn, manage_headers, source_org_pk, dest_org_pk,
+    ):
+        _dola_purnima_or_skip(write_conn)
+        m = _create_member_with_home_affiliation(write_conn, "HomeMoves", organization_pk=source_org_pk)
+        pk = self._pending_destination(client, manage_headers, m["sangha_sevi_pk"], dest_org_pk)
+        assert _decide(client, manage_headers, pk, "destination", "ACCEPT").status_code == 200
+        cur = write_conn.cursor()
+        cur.execute("SELECT organization_pk FROM nss.sangha_sevi WHERE sangha_sevi_pk = %s", (m["sangha_sevi_pk"],))
+        assert str(cur.fetchone()[0]) == dest_org_pk
+
+    def test_completed_darshak_leaves_the_members_home_sakha_alone(
+        self, client, write_conn, manage_headers, source_org_pk, dest_org_pk,
+    ):
+        _dola_purnima_or_skip(write_conn)
+        m = _create_member_with_home_affiliation(write_conn, "HomeStays", organization_pk=source_org_pk)
+        pk = self._pending_destination(client, manage_headers, m["sangha_sevi_pk"], dest_org_pk, request_type="DARSHAK")
+        assert _decide(client, manage_headers, pk, "destination", "ACCEPT").status_code == 200
+        cur = write_conn.cursor()
+        cur.execute("SELECT organization_pk FROM nss.sangha_sevi WHERE sangha_sevi_pk = %s", (m["sangha_sevi_pk"],))
+        assert str(cur.fetchone()[0]) == source_org_pk

@@ -531,3 +531,220 @@ class TestAnonymousAccess:
             json={"financial_transaction_pk": str(uuid4()), "relationship_type": "PAYMENT"},
         )
         assert r.status_code in (401, 403)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Whole-router gating table (added 2026-10-28 from the endpoint x test matrix)
+#
+# One row per route of api/routers/correspondence.py; ids are FAKE_UUID so a
+# request that got past authentication could only ever 404/422, never succeed.
+# `gate` says how the endpoint is protected:
+#   "permission" - CORRESPONDENCE_VIEW/MANAGE (a role-less member gets 403)
+#   "login"      - get_current_user only (a role-less member is let in)
+# ═══════════════════════════════════════════════════════════════════════
+
+_PAYLOAD_STUB = {
+    "register_organization_pk": FAKE_UUID, "direction": "INWARD", "correspondence_date": "2026-01-10",
+    "received_or_sent_date": "2026-01-11", "subject": "s", "sender_type": "EXTERNAL", "sender_external_name": "S",
+    "recipient_type": "EXTERNAL", "recipient_external_name": "R", "medium": "POST",
+}
+_BROADCAST_STUB = {
+    "register_organization_pk": FAKE_UUID, "recipient_organization_type_code": "SAKHA_SANGHA",
+    "correspondence_date": "2026-01-10", "received_or_sent_date": "2026-01-11", "subject": "s", "medium": "POST",
+}
+_DOCUMENT_STUB = {"document_master_pk": FAKE_UUID, "document_purpose": "ORIGINAL"}
+_FINANCE_STUB = {"financial_transaction_pk": FAKE_UUID, "relationship_type": "PAYMENT"}
+
+# (method, path, json body, gate)
+ENDPOINTS = [
+    ("POST", BASE, _PAYLOAD_STUB, "permission"),
+    ("POST", f"{BASE}/{FAKE_UUID}/dispatch", None, "permission"),
+    ("POST", f"{BASE}/broadcast", _BROADCAST_STUB, "permission"),
+    ("GET", BASE, None, "permission"),
+    ("GET", f"{BASE}/{FAKE_UUID}", None, "permission"),
+    ("GET", f"{BASE}/{FAKE_UUID}/history", None, "permission"),
+    ("POST", f"{BASE}/{FAKE_UUID}/transition", {"new_status": "ACTIONED"}, "login"),
+    ("POST", f"{BASE}/{FAKE_UUID}/responsible-party", {}, "login"),
+    ("POST", f"{BASE}/{FAKE_UUID}/documents", _DOCUMENT_STUB, "permission"),
+    ("GET", f"{BASE}/{FAKE_UUID}/documents", None, "permission"),
+    ("POST", f"{BASE}/{FAKE_UUID}/finance-references", _FINANCE_STUB, "permission"),
+    ("GET", f"{BASE}/{FAKE_UUID}/finance-references", None, "permission"),
+    ("POST", f"{BASE}/my-applications", {}, "login"),
+    ("GET", f"{BASE}/my-applications", None, "login"),
+    ("GET", f"{BASE}/my-applications/{FAKE_UUID}", None, "login"),
+    ("GET", f"{BASE}/addressed-to-me", None, "login"),
+    ("GET", f"{BASE}/approval-steps/pending-for-me", None, "login"),
+    ("POST", f"{BASE}/approval-steps/{FAKE_UUID}/decision", {"decision": "APPROVE"}, "login"),
+    ("GET", f"{BASE}/my-involvements", None, "login"),
+]
+_IDS = [f"{m} {p.removeprefix(BASE) or '/'}" for m, p, _, _ in ENDPOINTS]
+_PERMISSION_GATED = [e for e in ENDPOINTS if e[3] == "permission"]
+_LOGIN_ONLY = [e for e in ENDPOINTS if e[3] == "login"]
+
+
+def _call(client, method, path, body, headers=None):
+    return client.request(method, path, json=body, headers=headers or {})
+
+
+def test_endpoint_table_covers_every_route():
+    """Guard: a new correspondence route must be added to ENDPOINTS above."""
+    import re
+
+    from api.routers.correspondence import router
+
+    routes = {(m, re.sub(r"\{[^}]+\}", FAKE_UUID, r.path)) for r in router.routes for m in r.methods if m != "HEAD"}
+    assert routes == {(m, p) for m, p, _, _ in ENDPOINTS}
+
+
+class TestEveryEndpointRequiresAuthentication:
+
+    @pytest.mark.parametrize("method,path,body,gate", ENDPOINTS, ids=_IDS)
+    def test_anonymous_is_401(self, method, path, body, gate, anon_client):
+        assert _call(anon_client, method, path, body).status_code == 401
+
+    @pytest.mark.parametrize("method,path,body,gate", ENDPOINTS, ids=_IDS)
+    def test_garbage_token_is_401(self, method, path, body, gate, anon_client):
+        assert _call(anon_client, method, path, body, {"Authorization": "Bearer not.a.jwt"}).status_code == 401
+
+
+class TestPermissionGate:
+
+    @pytest.mark.parametrize("method,path,body,gate", _PERMISSION_GATED,
+                             ids=[f"{m} {p.removeprefix(BASE) or '/'}" for m, p, _, _ in _PERMISSION_GATED])
+    def test_member_without_correspondence_permission_is_403(self, method, path, body, gate, client, member_headers):
+        assert _call(client, method, path, body, member_headers).status_code == 403
+
+    @pytest.mark.parametrize("method,path,body,gate", _LOGIN_ONLY,
+                             ids=[f"{m} {p.removeprefix(BASE) or '/'}" for m, p, _, _ in _LOGIN_ONLY])
+    def test_login_only_endpoints_do_not_demand_a_permission(self, method, path, body, gate, client, member_headers):
+        """Member-facing routes are gated by identity (sender/recipient/approver), never by a role."""
+        r = _call(client, method, path, body, member_headers)
+        assert r.status_code in (200, 404, 422), r.text
+
+
+class TestViewOnlyRole:
+    """NSS_ERP_AUDITOR holds CORRESPONDENCE_VIEW only: it reads, it never writes."""
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def auditor_headers(cls, client, write_conn, register_org_pk):
+        auditor = _create_admin_with_scope(
+            write_conn, role_code="NSS_ERP_AUDITOR", scope_level="SAKHA", organization_pk=register_org_pk,
+        )
+        return _login_headers(client, auditor["sangha_sevi_id"], auditor["password"])
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def record_pk(cls, client, nss_wide_headers, register_org_pk):
+        return _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
+
+    def test_can_read_in_scope(self, client, auditor_headers, record_pk):
+        for suffix in ("", "/history", "/documents", "/finance-references"):
+            assert client.get(f"{BASE}/{record_pk}{suffix}", headers=auditor_headers).status_code == 200, suffix
+        assert client.get(BASE, headers=auditor_headers).status_code == 200
+
+    def test_cannot_register_dispatch_broadcast_attach_or_reference(self, client, auditor_headers, record_pk, register_org_pk):
+        assert client.post(BASE, json=_payload(register_org_pk), headers=auditor_headers).status_code == 403
+        assert client.post(f"{BASE}/{record_pk}/dispatch", headers=auditor_headers).status_code == 403
+        assert client.post(f"{BASE}/broadcast", json=_BROADCAST_STUB | {"register_organization_pk": register_org_pk},
+                           headers=auditor_headers).status_code == 403
+        assert client.post(f"{BASE}/{record_pk}/documents", json=_DOCUMENT_STUB, headers=auditor_headers).status_code == 403
+        assert client.post(f"{BASE}/{record_pk}/finance-references", json=_FINANCE_STUB,
+                           headers=auditor_headers).status_code == 403
+
+    def test_cannot_transition_or_reassign_an_external_record(self, client, auditor_headers, record_pk, register_org_pk):
+        """The fallback authority for an EXTERNAL recipient still needs CORRESPONDENCE_MANAGE."""
+        r = client.post(f"{BASE}/{record_pk}/transition", json={"new_status": "ACTIONED"}, headers=auditor_headers)
+        assert r.status_code == 403 and r.json()["detail"] == "Permission required to transition this correspondence record."
+        r = client.post(f"{BASE}/{record_pk}/responsible-party", json={"responsible_organization_pk": register_org_pk},
+                        headers=auditor_headers)
+        assert r.status_code == 403
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Admin-scope negatives for the endpoints the table above does not reach
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestReadScopeOnSubResources:
+
+    def test_out_of_scope_admin_cannot_list_documents(self, client, nss_wide_headers, outside_scoped_headers, register_org_pk):
+        pk = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
+        r = client.get(f"{BASE}/{pk}/documents", headers=outside_scoped_headers)
+        assert r.status_code == 403
+        assert "This correspondence record is outside your admin scope." in r.text
+
+    def test_out_of_scope_admin_cannot_list_finance_references(
+        self, client, nss_wide_headers, outside_scoped_headers, register_org_pk,
+    ):
+        pk = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
+        r = client.get(f"{BASE}/{pk}/finance-references", headers=outside_scoped_headers)
+        assert r.status_code == 403
+        assert "This correspondence record is outside your admin scope." in r.text
+
+    def test_out_of_scope_admin_cannot_read_history(self, client, nss_wide_headers, outside_scoped_headers, register_org_pk):
+        pk = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
+        r = client.get(f"{BASE}/{pk}/history", headers=outside_scoped_headers)
+        assert r.status_code == 403
+        assert "This correspondence record is outside your admin scope." in r.text
+
+    def test_nss_wide_admin_reads_sub_resources_anywhere(self, client, nss_wide_headers, register_org_pk):
+        pk = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
+        for suffix in ("/history", "/documents", "/finance-references"):
+            assert client.get(f"{BASE}/{pk}{suffix}", headers=nss_wide_headers).status_code == 200, suffix
+
+
+class TestDispatchAndBroadcastScope:
+
+    def test_out_of_scope_admin_cannot_dispatch(self, client, nss_wide_headers, outside_scoped_headers, register_org_pk):
+        pk = _create(client, nss_wide_headers, register_org_pk, direction="OUTWARD")["correspondence_pk"]
+        r = client.post(f"{BASE}/{pk}/dispatch", headers=outside_scoped_headers)
+        assert r.status_code == 403
+        assert "You can only dispatch correspondence from this organization within your admin scope." in r.text
+
+    def test_out_of_scope_admin_cannot_broadcast(self, client, outside_scoped_headers, register_org_pk):
+        r = client.post(f"{BASE}/broadcast", json=_BROADCAST_STUB | {"register_organization_pk": register_org_pk},
+                        headers=outside_scoped_headers)
+        assert r.status_code == 403
+        assert "You can only send a circular from this organization within your admin scope." in r.text
+
+    def test_dispatch_scope_is_checked_before_business_rules(self, client, nss_wide_headers, outside_scoped_headers, register_org_pk):
+        """An INWARD record cannot be dispatched (422), but an out-of-scope caller must see 403, not that rule."""
+        pk = _create(client, nss_wide_headers, register_org_pk, direction="INWARD")["correspondence_pk"]
+        assert client.post(f"{BASE}/{pk}/dispatch", headers=nss_wide_headers).status_code == 422
+        assert client.post(f"{BASE}/{pk}/dispatch", headers=outside_scoped_headers).status_code == 403
+
+
+class TestListScope:
+
+    def test_scoped_list_never_contains_other_registers(
+        self, client, nss_wide_headers, outside_scoped_headers, register_org_pk, outside_org_pk,
+    ):
+        foreign = _create(client, nss_wide_headers, register_org_pk)["correspondence_pk"]
+        mine = _create(client, nss_wide_headers, outside_org_pk)["correspondence_pk"]
+        items = client.get(BASE, params={"page_size": 100}, headers=outside_scoped_headers).json()["items"]
+        assert foreign not in {i["correspondence_pk"] for i in items}
+        assert {i["register_organization_pk"] for i in items} == {outside_org_pk}
+        assert mine in {i["correspondence_pk"] for i in items}
+
+    def test_filtering_on_a_foreign_register_is_empty_not_forbidden(
+        self, client, nss_wide_headers, outside_scoped_headers, register_org_pk,
+    ):
+        _create(client, nss_wide_headers, register_org_pk)
+        r = client.get(BASE, params={"register_organization_pk": register_org_pk}, headers=outside_scoped_headers)
+        assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+
+
+class TestMemberFacingIsolation:
+    """A member can only ever read their own applications (404, never 403, for anyone else's)."""
+
+    def test_application_detail_is_invisible_to_other_members(self, client, member_headers, nss_wide_headers):
+        mine = client.post(f"{BASE}/my-applications", json={"addressing_mode": "SAKHA_ORG", "subject": "mine"},
+                           headers=member_headers)
+        assert mine.status_code == 201, mine.text
+        pk = mine.json()["correspondence_pk"]
+        assert client.get(f"{BASE}/my-applications/{pk}", headers=member_headers).status_code == 200
+        assert client.get(f"{BASE}/my-applications/{pk}", headers=nss_wide_headers).status_code == 404
+
+    def test_deciding_an_unknown_approval_step_is_404(self, client, member_headers):
+        r = client.post(f"{BASE}/approval-steps/{FAKE_UUID}/decision", json={"decision": "APPROVE"}, headers=member_headers)
+        assert r.status_code == 404

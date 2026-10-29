@@ -25,7 +25,7 @@ import pytest
 
 from api.helpers import MAX_LIMIT
 from tests.attendance_support import (  # noqa: F401  (fixtures)
-    BASE, FAKE_UUID, PUJA_DATES, WINDOW,
+    BASE, FAKE_UUID, PUJA_DATES, WINDOW, _login_headers, plain_member, plain_member_h,
     admin_h, admin_user, make_puja, mark, marker_h, marker_user, new_member,
     other_admin, other_admin_h, other_org_pk, other_president, other_president_h,
     president_h, president_user, register_org_pk, register_pujas,
@@ -257,7 +257,9 @@ class TestCorrection:
         r = client.patch(f"{BASE}/records/{rec['attendance_pk']}",
                          json={"attendance_status_code": "EXCUSED_ABSENCE"}, headers=sakha_admin_h)
         assert r.status_code == 403, r.text
-        assert r.json()["detail"] == "Only the Sakha's Secretary or President may approve an Excused Absence."
+        detail = r.json()["detail"]
+        assert detail.startswith("Only the Sakha's Secretary or President may ")
+        assert detail.endswith("an Excused Absence.")
 
     @pytest.mark.parametrize("who", ["secretary_h", "president_h", "admin_h"])
     def test_excused_correction_by_seated_officer_or_global_admin(
@@ -734,3 +736,494 @@ class TestMemberLeaderboard:
 
     def test_unknown_org_is_404(self, client, admin_h):
         assert client.get(f"{BASE}/stats/organizations/{FAKE_UUID}/members", headers=admin_h).status_code == 404
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 8. Request validation and pagination bounds (422 coverage, every route)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestRequestValidation:
+    """Pydantic/Query validation fires before any DB work, so these never touch data."""
+
+    @pytest.mark.parametrize("body", [
+        {},
+        {"sakha_pk": FAKE_UUID},
+        {"puja_date": "2001-03-04"},
+        {"sakha_pk": "not-a-uuid", "puja_date": "2001-03-04"},
+        {"sakha_pk": FAKE_UUID, "puja_date": "04/03/2001"},
+    ], ids=["empty", "no-date", "no-sakha", "bad-uuid", "bad-date"])
+    def test_create_puja_invalid_body_is_422(self, body, client, admin_h):
+        assert client.post(f"{BASE}/pujas", json=body, headers=admin_h).status_code == 422
+
+    @pytest.mark.parametrize("body", [
+        {},
+        {"records": [{"sangha_sevi_pk": "not-a-uuid", "attendance_status_code": "PRESENT"}]},
+        {"records": [{"sangha_sevi_pk": FAKE_UUID}]},
+        {"records": [{"attendance_status_code": "PRESENT"}]},
+        {"records": "PRESENT"},
+    ], ids=["empty", "bad-member-uuid", "no-status", "no-member", "records-not-a-list"])
+    def test_mark_attendance_invalid_body_is_422(self, body, client, admin_h):
+        assert client.post(f"{BASE}/pujas/{FAKE_UUID}/attendance", json=body, headers=admin_h).status_code == 422
+
+    def test_non_uuid_path_ids_are_422(self, client, admin_h):
+        assert client.post(f"{BASE}/pujas/not-a-uuid/attendance", json={"records": []}, headers=admin_h).status_code == 422
+        assert client.patch(f"{BASE}/records/not-a-uuid", json={"attendance_status_code": "PRESENT"},
+                            headers=admin_h).status_code == 422
+        assert client.get(f"{BASE}/reviews/not-a-uuid", headers=admin_h).status_code == 422
+        assert client.post(f"{BASE}/reviews/not-a-uuid/close", json={}, headers=admin_h).status_code == 422
+        assert client.get(f"{BASE}/stats/members/not-a-uuid", headers=admin_h).status_code == 422
+        assert client.get(f"{BASE}/stats/organizations/not-a-uuid", headers=admin_h).status_code == 422
+
+    def test_correct_attendance_requires_a_status(self, client, admin_h):
+        r = client.patch(f"{BASE}/records/{FAKE_UUID}", json={"remarks": "only remarks"}, headers=admin_h)
+        assert r.status_code == 422
+
+    @pytest.mark.parametrize("body", [
+        {},
+        {"sangha_sevi_pk": FAKE_UUID, "exception_type_code": "MEDICAL"},
+        {"sangha_sevi_pk": FAKE_UUID, "from_date": "2001-01-01"},
+        {"exception_type_code": "MEDICAL", "from_date": "2001-01-01"},
+        {"sangha_sevi_pk": FAKE_UUID, "exception_type_code": "MEDICAL", "from_date": "yesterday"},
+    ], ids=["empty", "no-from-date", "no-type", "no-member", "bad-date"])
+    def test_create_exception_invalid_body_is_422(self, body, client, admin_h):
+        assert client.post(f"{BASE}/exceptions", json=body, headers=admin_h).status_code == 422
+
+    @pytest.mark.parametrize("body", [{}, {"new_status_code": "OPEN"}, {"reason": "r"}])
+    def test_override_requires_status_and_reason(self, body, client, president_h):
+        assert client.post(f"{BASE}/reviews/{FAKE_UUID}/override", json=body, headers=president_h).status_code == 422
+
+    @pytest.mark.parametrize("path", ["pujas", "records", "exceptions", "reviews"])
+    @pytest.mark.parametrize("params", [{"page_size": 201}, {"page_size": 0}, {"page": 0}],
+                             ids=["page-size-too-big", "page-size-zero", "page-zero"])
+    def test_list_pagination_bounds_are_422(self, path, params, client, sakha_admin_h):
+        assert client.get(f"{BASE}/{path}", params=params, headers=sakha_admin_h).status_code == 422
+
+    @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": MAX_LIMIT + 1}, {"offset": -1}],
+                             ids=["limit-zero", "limit-too-big", "negative-offset"])
+    def test_leaderboard_bounds_are_422(self, params, client, sakha_admin_h, register_org_pk):
+        r = client.get(f"{BASE}/stats/organizations/{register_org_pk}/members", params=params, headers=sakha_admin_h)
+        assert r.status_code == 422
+
+    @pytest.mark.parametrize("path", ["pujas", "stats/members/" + FAKE_UUID, "stats/organizations/" + FAKE_UUID])
+    def test_malformed_date_filters_are_422(self, path, client, admin_h):
+        assert client.get(f"{BASE}/{path}", params={"from_date": "31-12-2001"}, headers=admin_h).status_code == 422
+        assert client.get(f"{BASE}/{path}", params={"to_date": "nope"}, headers=admin_h).status_code == 422
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 9. Marking, correction and exception edge cases
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMarkingEdgeCases:
+
+    def test_empty_records_list_marks_nothing(self, client, sakha_admin_h, register_pujas):
+        r = client.post(f"{BASE}/pujas/{register_pujas[0]['weekly_sangha_puja_pk']}/attendance",
+                        json={"records": []}, headers=sakha_admin_h)
+        assert r.status_code == 201, r.text
+        assert r.json() == {"records": [], "total": 0}
+
+    def test_same_member_twice_in_one_request_keeps_one_row_last_status_wins(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        m = new_member(write_conn, register_org_pk, "MkTwice")
+        out = mark(client, sakha_admin_h, register_pujas[4]["weekly_sangha_puja_pk"],
+                   (m["sangha_sevi_pk"], "ABSENT"), (m["sangha_sevi_pk"], "PRESENT"))
+        assert _status_by_member(out) == {m["sangha_sevi_pk"]: "PRESENT"}
+        listed = client.get(f"{BASE}/records", params={"sangha_sevi_pk": m["sangha_sevi_pk"]}, headers=sakha_admin_h)
+        assert listed.json()["total"] == 1
+
+    def test_remarking_overwrites_remarks(self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas):
+        m = new_member(write_conn, register_org_pk, "MkRemark")
+        pk = register_pujas[4]["weekly_sangha_puja_pk"]
+        mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT", "first"))
+        again = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        assert again["remarks"] is None, "bulk upsert replaces remarks (unlike PATCH, which keeps them)"
+
+    def test_unknown_attendance_sakha_is_422_not_500(
+        self, client, write_conn, isolated_savepoint, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        """fk_wspa_attendance_sakha: a bogus attendance_sakha_pk is a clean 422 from the integrity handler."""
+        m = new_member(write_conn, register_org_pk, "MkBadSakha")
+        with isolated_savepoint():
+            r = client.post(
+                f"{BASE}/pujas/{register_pujas[4]['weekly_sangha_puja_pk']}/attendance",
+                json={"records": [{"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT",
+                                   "attendance_sakha_pk": FAKE_UUID}]},
+                headers=sakha_admin_h,
+            )
+        assert r.status_code == 422, r.text
+
+    def test_attendance_marker_role_can_create_a_puja(self, client, marker_h, register_org_pk):
+        p = make_puja(client, marker_h, register_org_pk, date(2002, 1, 6))
+        assert p["sakha_pk"] == register_org_pk and p["puja_status"] == "CONDUCTED"
+
+    def test_marking_a_future_puja_is_rejected(self, client, write_conn, sakha_admin_h, register_org_pk):
+        """Lifecycle §4: attendance records may be created once the puja date is reached (SCHEDULED -> CONDUCTED)."""
+        future = make_puja(client, sakha_admin_h, register_org_pk, date.today() + timedelta(days=600))
+        assert future["puja_status"] == "SCHEDULED"
+        m = new_member(write_conn, register_org_pk, "MkFuture")
+        r = client.post(
+            f"{BASE}/pujas/{future['weekly_sangha_puja_pk']}/attendance",
+            json={"records": [{"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT"}]},
+            headers=sakha_admin_h,
+        )
+        assert r.status_code == 422 and "before the puja date" in r.json()["detail"], r.text
+
+    def test_puja_for_a_non_sakha_organization_is_rejected(self, client, write_conn, admin_h):
+        """ATT-004: the event identifies the *Sakha* at which the puja was conducted."""
+        cur = write_conn.cursor()
+        cur.execute("""
+            SELECT o.organization_pk FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+        """)
+        row = cur.fetchone()
+        if row is None:
+            pytest.skip("No non-Sakha organization available.")
+        r = client.post(f"{BASE}/pujas", json={"sakha_pk": str(row[0]), "puja_date": "2002-02-03"}, headers=admin_h)
+        assert r.status_code == 422 and "SAKHA_SANGHA" in r.json()["detail"], r.text
+
+
+class TestCorrectionEdgeCases:
+
+    def _marked(self, client, write_conn, headers, org, puja, status):
+        m = new_member(write_conn, org, "CorrEdge")
+        return m, mark(client, headers, puja["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], status))["records"][0]
+
+    def test_correcting_to_the_same_status_is_idempotent(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        _, rec = self._marked(client, write_conn, sakha_admin_h, register_org_pk, register_pujas[4], "PRESENT")
+        r = client.patch(f"{BASE}/records/{rec['attendance_pk']}",
+                         json={"attendance_status_code": "PRESENT"}, headers=sakha_admin_h)
+        assert r.status_code == 200, r.text
+        assert r.json()["attendance_pk"] == rec["attendance_pk"]
+
+    def test_correction_keeps_the_same_row_and_member(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        m, rec = self._marked(client, write_conn, sakha_admin_h, register_org_pk, register_pujas[4], "ABSENT")
+        client.patch(f"{BASE}/records/{rec['attendance_pk']}",
+                     json={"attendance_status_code": "PRESENT"}, headers=sakha_admin_h)
+        listed = client.get(f"{BASE}/records", params={"sangha_sevi_pk": m["sangha_sevi_pk"]}, headers=sakha_admin_h)
+        assert listed.json()["total"] == 1, "ATT-039: corrected in place, original never duplicated or deleted"
+
+    def test_correcting_to_an_unknown_status_is_a_client_error(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        _, rec = self._marked(client, write_conn, sakha_admin_h, register_org_pk, register_pujas[4], "ABSENT")
+        r = client.patch(f"{BASE}/records/{rec['attendance_pk']}",
+                         json={"attendance_status_code": "LATE"}, headers=sakha_admin_h)
+        assert r.status_code == 422 and "LATE" in r.json()["detail"], r.text
+
+    def test_changing_away_from_excused_needs_the_secretary_or_president_seat(
+        self, client, write_conn, sakha_admin_h, secretary_h, register_org_pk, register_pujas,
+    ):
+        """Un-excusing revokes an approval, so it needs the same seat as granting one."""
+        m, rec = self._marked(client, write_conn, sakha_admin_h, register_org_pk, register_pujas[4], "EXCUSED_ABSENCE")
+        body = {"attendance_status_code": "ABSENT"}
+        denied = client.patch(f"{BASE}/records/{rec['attendance_pk']}", json=body, headers=sakha_admin_h)
+        assert denied.status_code == 403, denied.text
+        # The bulk-mark upsert is the same revocation by another route.
+        remark = client.post(f"{BASE}/pujas/{register_pujas[4]['weekly_sangha_puja_pk']}/attendance",
+                             json={"records": [{"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT"}]},
+                             headers=sakha_admin_h)
+        assert remark.status_code == 403, remark.text
+        allowed = client.patch(f"{BASE}/records/{rec['attendance_pk']}", json=body, headers=secretary_h)
+        assert allowed.status_code == 200 and allowed.json()["attendance_status_code"] == "ABSENT"
+
+    def test_remarking_a_soft_deleted_record_reactivates_it(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        """uq_wspa_puja_sevi is a plain UNIQUE, so a re-record upserts onto the soft-deleted row and revives it."""
+        m, rec = self._marked(client, write_conn, sakha_admin_h, register_org_pk, register_pujas[4], "PRESENT")
+        cur = write_conn.cursor()
+        cur.execute("UPDATE nss.weekly_sangha_puja_attendance SET is_active = FALSE, deleted_at = NOW() "
+                    "WHERE attendance_pk = %s", (rec["attendance_pk"],))
+        again = mark(client, sakha_admin_h, register_pujas[4]["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
+        assert again["records"][0]["attendance_pk"] == rec["attendance_pk"]
+        listed = client.get(f"{BASE}/records", params={"sangha_sevi_pk": m["sangha_sevi_pk"]}, headers=sakha_admin_h).json()
+        assert listed["total"] == 1 and listed["records"][0]["attendance_status_code"] == "ABSENT"
+
+
+class TestExceptionEdgeCases:
+
+    def test_to_date_before_from_date_is_422(
+        self, client, write_conn, isolated_savepoint, secretary_h, register_org_pk,
+    ):
+        """chk_attexc_date_range surfaces as a clean 422 via the integrity handler."""
+        m = new_member(write_conn, register_org_pk, "ExcRange")
+        with isolated_savepoint():
+            r = client.post(
+                f"{BASE}/exceptions",
+                json={"sangha_sevi_pk": m["sangha_sevi_pk"], "exception_type_code": "MEDICAL",
+                      "from_date": "2001-03-31", "to_date": "2001-03-01"},
+                headers=secretary_h,
+            )
+        assert r.status_code == 422, r.text
+
+    def test_single_day_exception_is_allowed(self, client, write_conn, secretary_h, register_org_pk):
+        m = new_member(write_conn, register_org_pk, "ExcOneDay")
+        r = client.post(
+            f"{BASE}/exceptions",
+            json={"sangha_sevi_pk": m["sangha_sevi_pk"], "exception_type_code": "MEDICAL",
+                  "from_date": "2001-03-04", "to_date": "2001-03-04"},
+            headers=secretary_h,
+        )
+        assert r.status_code == 201, r.text
+
+    def test_unknown_exception_type_is_a_client_error(self, client, write_conn, secretary_h, register_org_pk):
+        m = new_member(write_conn, register_org_pk, "ExcBadType")
+        r = client.post(
+            f"{BASE}/exceptions",
+            json={"sangha_sevi_pk": m["sangha_sevi_pk"], "exception_type_code": "NOT_A_TYPE", "from_date": "2001-03-01"},
+            headers=secretary_h,
+        )
+        assert r.status_code == 422 and "NOT_A_TYPE" in r.json()["detail"], r.text
+
+    def test_list_pagination_and_newest_first(self, client, write_conn, secretary_h, sakha_admin_h, register_org_pk):
+        m = new_member(write_conn, register_org_pk, "ExcPage")
+        for frm in ("2001-01-01", "2001-02-01", "2001-03-01"):
+            r = client.post(f"{BASE}/exceptions",
+                            json={"sangha_sevi_pk": m["sangha_sevi_pk"], "exception_type_code": "MEDICAL",
+                                  "from_date": frm}, headers=secretary_h)
+            assert r.status_code == 201, r.text
+        r = client.get(f"{BASE}/exceptions", params={"sangha_sevi_pk": m["sangha_sevi_pk"], "page": 1, "page_size": 2},
+                       headers=sakha_admin_h)
+        body = r.json()
+        assert body["total"] == 3 and len(body["exceptions"]) == 2
+        assert [e["from_date"] for e in body["exceptions"]] == ["2001-03-01", "2001-02-01"]
+
+    def test_an_approved_exception_prevents_the_review_trigger(
+        self, client, write_conn, sakha_admin_h, secretary_h, register_org_pk, register_pujas,
+    ):
+        """ATT-025: an absence inside an approved exception period is not an ordinary ABSENT."""
+        m = new_member(write_conn, register_org_pk, "ExcNoReview")
+        r = client.post(
+            f"{BASE}/exceptions",
+            json={"sangha_sevi_pk": m["sangha_sevi_pk"], "exception_type_code": "MEDICAL",
+                  "from_date": "2001-01-01", "to_date": "2001-12-31"},
+            headers=secretary_h,
+        )
+        assert r.status_code == 201, r.text
+        for p in register_pujas[:3]:
+            mark(client, sakha_admin_h, p["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
+        assert m["sangha_sevi_pk"] not in {x["sangha_sevi_pk"] for x in _list_reviews(client, sakha_admin_h)}
+
+
+# ══════════════════════════════════════════════════���════════════════════
+# 10. Review workflow edge cases and the watch list
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestReviewEdgeCases:
+
+    def _act(self, client, headers, review_pk, action, **body):
+        return client.post(f"{BASE}/reviews/{review_pk}/{action}", json=body, headers=headers)
+
+    def _new_review(self, client, write_conn, headers, org, pujas, label="RevEdge"):
+        m = new_member(write_conn, org, label)
+        return _open_review(client, headers, pujas, m), m
+
+    def test_parichalak_escalated_review_accepts_no_further_workflow_action(
+        self, client, write_conn, sakha_admin_h, secretary_h, president_h, register_org_pk, register_pujas,
+    ):
+        pk, _ = self._new_review(client, write_conn, sakha_admin_h, register_org_pk, register_pujas)
+        self._act(client, secretary_h, pk, "escalate-to-president")
+        assert self._act(client, president_h, pk, "escalate-to-parichalak").status_code == 200
+        for action in ("close", "defer", "revisit", "escalate-to-president", "escalate-to-parichalak", "reopen"):
+            assert self._act(client, president_h, pk, action).status_code == 422, action
+
+    def test_escalated_to_president_cannot_be_deferred_or_revisited(
+        self, client, write_conn, sakha_admin_h, secretary_h, president_h, register_org_pk, register_pujas,
+    ):
+        pk, _ = self._new_review(client, write_conn, sakha_admin_h, register_org_pk, register_pujas)
+        self._act(client, secretary_h, pk, "escalate-to-president")
+        for action in ("defer", "revisit", "escalate-to-president", "reopen"):
+            assert self._act(client, president_h, pk, action).status_code == 422, action
+
+    def test_deferred_review_can_only_be_revisited_or_overridden(
+        self, client, write_conn, sakha_admin_h, secretary_h, president_h, register_org_pk, register_pujas,
+    ):
+        pk, _ = self._new_review(client, write_conn, sakha_admin_h, register_org_pk, register_pujas)
+        self._act(client, secretary_h, pk, "defer", remarks="festival")
+        for action in ("close", "escalate-to-president", "escalate-to-parichalak", "reopen"):
+            assert self._act(client, secretary_h, pk, action).status_code == 422, action
+        r = self._act(client, president_h, pk, "override", new_status_code="CLOSED", reason="resolved offline")
+        assert r.status_code == 200 and r.json()["review_status_code"] == "CLOSED"
+
+    def test_action_remarks_and_actor_names_are_recorded(
+        self, client, write_conn, sakha_admin_h, secretary_h, register_org_pk, register_pujas,
+    ):
+        pk, _ = self._new_review(client, write_conn, sakha_admin_h, register_org_pk, register_pujas)
+        body = self._act(client, secretary_h, pk, "defer", remarks="after Holi").json()
+        assert body["remarks"] == "after Holi"
+        assert body["deferred_by_name"] and body["closed_by_name"] is None and body["escalated_by_name"] is None
+        # Revisit without remarks leaves the previous remarks untouched (remarks are only SET when supplied).
+        assert self._act(client, secretary_h, pk, "revisit").json()["remarks"] == "after Holi"
+
+    def test_fourth_absence_after_close_opens_a_fresh_review(
+        self, client, write_conn, sakha_admin_h, secretary_h, register_org_pk, register_pujas,
+    ):
+        """ATT-014: only a *non-terminal* review suppresses a new one; a CLOSED review does not."""
+        pk, m = self._new_review(client, write_conn, sakha_admin_h, register_org_pk, register_pujas)
+        assert self._act(client, secretary_h, pk, "close").status_code == 200
+        mark(client, sakha_admin_h, register_pujas[3]["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
+        mine = [x for x in _list_reviews(client, sakha_admin_h) if x["sangha_sevi_pk"] == m["sangha_sevi_pk"]]
+        assert sorted(x["review_status_code"] for x in mine) == ["CLOSED", "OPEN"]
+
+    def test_override_to_an_unknown_status_is_a_client_error(
+        self, client, write_conn, sakha_admin_h, president_h, register_org_pk, register_pujas,
+    ):
+        pk, _ = self._new_review(client, write_conn, sakha_admin_h, register_org_pk, register_pujas)
+        r = self._act(client, president_h, pk, "override", new_status_code="NOT_A_STATUS", reason="x")
+        assert r.status_code == 422 and "NOT_A_STATUS" in r.json()["detail"], r.text
+
+    def test_review_list_pagination(self, client, sakha_admin_h):
+        r = client.get(f"{BASE}/reviews", params={"page": 1, "page_size": 1}, headers=sakha_admin_h)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["reviews"]) <= 1 and body["total"] >= len(body["reviews"])
+
+    def test_review_status_filter_with_unknown_code_is_empty(self, client, sakha_admin_h):
+        r = client.get(f"{BASE}/reviews", params={"review_status": "NOT_A_STATUS"}, headers=sakha_admin_h)
+        assert r.status_code == 200 and r.json() == {"reviews": [], "total": 0}
+
+
+class TestWatchListEdgeCases:
+
+    def test_threshold_one_lists_a_single_trailing_absence(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        m = new_member(write_conn, register_org_pk, "WatchOne")
+        mark(client, sakha_admin_h, register_pujas[0]["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
+        r = client.get(f"{BASE}/watch-list", params={"organization_pk": register_org_pk, "threshold": 1},
+                       headers=sakha_admin_h)
+        item = next(i for i in r.json()["items"] if i["sangha_sevi_pk"] == m["sangha_sevi_pk"])
+        assert item["current_consecutive_absences"] == 1
+
+    def test_default_threshold_excludes_a_single_absence(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        m = new_member(write_conn, register_org_pk, "WatchSingle")
+        mark(client, sakha_admin_h, register_pujas[0]["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
+        r = client.get(f"{BASE}/watch-list", params={"organization_pk": register_org_pk}, headers=sakha_admin_h)
+        assert m["sangha_sevi_pk"] not in {i["sangha_sevi_pk"] for i in r.json()["items"]}
+
+    def test_a_latest_present_removes_the_member(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        m = new_member(write_conn, register_org_pk, "WatchPresent")
+        for p, s in zip(register_pujas[:3], ("ABSENT", "ABSENT", "PRESENT")):
+            mark(client, sakha_admin_h, p["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], s))
+        r = client.get(f"{BASE}/watch-list", params={"organization_pk": register_org_pk}, headers=sakha_admin_h)
+        assert m["sangha_sevi_pk"] not in {i["sangha_sevi_pk"] for i in r.json()["items"]}
+
+    def test_member_already_at_the_review_trigger_is_not_on_the_watch_list(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        """watch_list's docstring: 'not yet at the 3-absence trigger'."""
+        m = new_member(write_conn, register_org_pk, "WatchTrigger")
+        _open_review(client, sakha_admin_h, register_pujas, m)
+        r = client.get(f"{BASE}/watch-list", params={"organization_pk": register_org_pk}, headers=sakha_admin_h)
+        assert m["sangha_sevi_pk"] not in {i["sangha_sevi_pk"] for i in r.json()["items"]}
+
+    def test_absences_covered_by_an_approved_exception_do_not_count(
+        self, client, write_conn, sakha_admin_h, secretary_h, register_org_pk, register_pujas,
+    ):
+        """ATT-025 applies to the watch list exactly as it does to the review trigger."""
+        m = new_member(write_conn, register_org_pk, "WatchExcepted")
+        assert client.post(f"{BASE}/exceptions", headers=secretary_h, json={
+            "sangha_sevi_pk": m["sangha_sevi_pk"], "exception_type_code": "MEDICAL",
+            "from_date": "2001-01-01", "to_date": "2001-12-31"}).status_code == 201
+        for p in register_pujas[:2]:
+            mark(client, sakha_admin_h, p["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "ABSENT"))
+        r = client.get(f"{BASE}/watch-list", params={"organization_pk": register_org_pk}, headers=sakha_admin_h)
+        assert m["sangha_sevi_pk"] not in {i["sangha_sevi_pk"] for i in r.json()["items"]}
+
+
+class TestSelfAccessAndValidation:
+
+    def test_a_member_can_read_their_own_records_exceptions_and_stats_without_attendance_view(
+        self, client, write_conn, sakha_admin_h, register_org_pk,
+    ):
+        member = new_member(write_conn, register_org_pk, "SelfRead")
+        me = member["sangha_sevi_pk"]
+        # Own puja date outside 2001 so register-wide 2001 stats assertions are unaffected.
+        puja = make_puja(client, sakha_admin_h, register_org_pk, date(2002, 6, 2))
+        mark(client, sakha_admin_h, puja["weekly_sangha_puja_pk"], (me, "PRESENT"))
+        h = _login_headers(client, member["sangha_sevi_id"], member["password"])
+        recs = client.get(f"{BASE}/records", params={"sangha_sevi_pk": me}, headers=h)
+        assert recs.status_code == 200 and recs.json()["total"] == 1
+        assert client.get(f"{BASE}/exceptions", params={"sangha_sevi_pk": me}, headers=h).status_code == 200
+        assert client.get(f"{BASE}/stats/members/{me}", headers=h).status_code == 200
+
+    def test_a_member_cannot_read_someone_elses_without_attendance_view(
+        self, client, write_conn, plain_member_h, register_org_pk,
+    ):
+        other = new_member(write_conn, register_org_pk, "NotMe")["sangha_sevi_pk"]
+        for path in (f"{BASE}/records", f"{BASE}/exceptions"):
+            assert client.get(path, params={"sangha_sevi_pk": other}, headers=plain_member_h).status_code == 403
+        assert client.get(f"{BASE}/stats/members/{other}", headers=plain_member_h).status_code == 403
+
+    def test_records_can_be_narrowed_to_one_puja(self, client, sakha_admin_h, register_org_pk, register_pujas):
+        r = client.get(f"{BASE}/records", headers=sakha_admin_h, params={
+            "organization_pk": register_org_pk, "weekly_sangha_puja_pk": register_pujas[0]["weekly_sangha_puja_pk"],
+            "page_size": 200})
+        assert r.status_code == 200
+        assert {x["weekly_sangha_puja_pk"] for x in r.json()["records"]} <= {register_pujas[0]["weekly_sangha_puja_pk"]}
+
+    def test_records_page_size_is_capped_at_200(self, client, sakha_admin_h):
+        assert client.get(f"{BASE}/records", params={"page_size": 201}, headers=sakha_admin_h).status_code == 422
+
+    def test_attendance_sakha_must_be_a_sakha(self, client, write_conn, admin_h, sakha_admin_h,
+                                              register_org_pk, register_pujas):
+        cur = write_conn.cursor()
+        cur.execute("""
+            SELECT o.organization_pk FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+        """)
+        row = cur.fetchone()
+        if row is None:
+            pytest.skip("No non-Sakha organization available.")
+        m = new_member(write_conn, register_org_pk, "MkNonSakha")
+        r = client.post(
+            f"{BASE}/pujas/{register_pujas[4]['weekly_sangha_puja_pk']}/attendance",
+            json={"records": [{"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT",
+                               "attendance_sakha_pk": str(row[0])}]},
+            headers=sakha_admin_h)
+        assert r.status_code == 422 and "SAKHA_SANGHA" in r.json()["detail"], r.text
+
+    @pytest.mark.parametrize("sort", ["sideways", "DESC", ""])
+    def test_leaderboard_sort_must_be_asc_or_desc(self, sort, client, sakha_admin_h, register_org_pk):
+        r = client.get(f"{BASE}/stats/organizations/{register_org_pk}/members", params={"sort": sort}, headers=sakha_admin_h)
+        assert r.status_code == 422
+
+
+class TestStatsEdgeCases:
+
+    def test_inverted_window_yields_zero_counts(self, client, sakha_admin_h, register_org_pk, stats_members):
+        params = {"from_date": "2001-12-31", "to_date": "2001-01-01"}
+        org = client.get(f"{BASE}/stats/organizations/{register_org_pk}", params=params, headers=sakha_admin_h).json()
+        assert org["total_records"] == 0 and org["attendance_percentage"] is None
+        mem = client.get(f"{BASE}/stats/members/{stats_members['Star']['sangha_sevi_pk']}",
+                         params=params, headers=sakha_admin_h).json()
+        assert mem["total_records"] == 0 and mem["attendance_percentage"] is None
+
+    def test_leaderboard_total_counts_every_active_home_member(
+        self, client, sakha_admin_h, register_org_pk, stats_members,
+    ):
+        r = client.get(f"{BASE}/stats/organizations/{register_org_pk}/members",
+                       params={"limit": MAX_LIMIT}, headers=sakha_admin_h).json()
+        assert r["total"] == len(r["members"]) and r["total"] >= len(stats_members)
+
+    def test_member_stats_echo_the_requested_window(self, client, sakha_admin_h, stats_members):
+        b = client.get(f"{BASE}/stats/members/{stats_members['Half']['sangha_sevi_pk']}",
+                       params=WINDOW, headers=sakha_admin_h).json()
+        assert b["period_from"] == WINDOW["from_date"] and b["period_to"] == WINDOW["to_date"]
+
+    def test_excused_only_history_has_null_percentage(self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas):
+        m = new_member(write_conn, register_org_pk, "OnlyExcused")
+        mark(client, sakha_admin_h, register_pujas[4]["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "EXCUSED_ABSENCE"))
+        b = client.get(f"{BASE}/stats/members/{m['sangha_sevi_pk']}", params=WINDOW, headers=sakha_admin_h).json()
+        assert (b["total_records"], b["excused_count"], b["attendance_percentage"]) == (1, 1, None)

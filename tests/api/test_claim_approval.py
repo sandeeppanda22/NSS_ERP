@@ -27,6 +27,12 @@ NOTE: cleanup is automatic via transaction rollback in conftest.py.
 import pytest
 from uuid import uuid4
 
+from tests.registration_support import (
+    create_person_with_sangha_sevi,
+    non_darshaka_credential_number,
+    registration_address,
+)
+
 
 pytestmark = pytest.mark.integration
 
@@ -136,19 +142,9 @@ def scoped_admin_tokens(write_conn, client, sakha_orgs):
     from api.services.auth_service import hash_password
 
     cur = write_conn.cursor()
-    cur.execute("""
-        SELECT p.person_pk, ss.sangha_sevi_id
-        FROM nss.person p
-        JOIN nss.sangha_sevi ss ON ss.person_pk = p.person_pk AND ss.is_active = TRUE
-        LEFT JOIN nss.user_account ua ON ua.person_pk = p.person_pk AND ua.is_active = TRUE
-        WHERE p.is_active = TRUE AND ua.user_account_pk IS NULL
-        ORDER BY p.created_at
-        LIMIT 1
-    """)
-    row = cur.fetchone()
-    if row is None:
-        pytest.skip("No available person for scoped admin test user.")
-    person_pk, sevi_id = row
+    # A dedicated, freshly created person + Sangha Sevi in org_b (scavenging an
+    # existing member may pick a governing-body seat holder with global reach).
+    person_pk, sevi_id = create_person_with_sangha_sevi(write_conn, sakha_orgs["org_b"], "SCA")
 
     pw_hash = hash_password(SCOPED_PASSWORD)
     cur.execute("""
@@ -238,10 +234,21 @@ def gender_pk(write_conn):
     return str(row[0])
 
 
+# Mandatory address block for POST /register, resolved once per module by the
+# autouse fixture below (the helper functions here take no fixtures).
+_REGISTER_ADDRESS: dict = {}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _register_address(write_conn):
+    _REGISTER_ADDRESS.update(registration_address(write_conn.cursor()))
+
+
 def _register(client, email_suffix, gender_pk, org_pk, membership_type_pk,
               local_sakha_number=None, darshak_org_pk=None, darshak_local_sakha_number=None,
-              last_name="Test"):
+              last_name="Test", credential_number=None):
     payload = {
+        **_REGISTER_ADDRESS,
         "first_name": "ClaimApproval",
         "last_name": last_name,
         "date_of_birth": TEST_DOB,
@@ -262,6 +269,9 @@ def _register(client, email_suffix, gender_pk, org_pk, membership_type_pk,
         # this module-scoped test class approves against the same org.
         "claimed_local_sakha_number": local_sakha_number or uuid4().hex[:6],
     }
+    if credential_number:
+        # Required for every membership type except Darshaka (registration.py 3d).
+        payload["claimed_credential_document_number"] = credential_number
     if darshak_org_pk:
         payload["is_attending_as_darshak"] = True
         payload["darshak_organization_pk"] = darshak_org_pk
@@ -392,6 +402,7 @@ class TestApproveNonDarshakaAndDarshak:
         person = _register(
             client, "nondarshnew", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
             local_sakha_number=local_number,
+            credential_number=non_darshaka_credential_number(),
         )
         claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
 
@@ -530,12 +541,12 @@ class TestApproveNonDarshakaAndDarshak:
 
 
 class TestApproveRequiresLocalSakhaNumber:
-    """approve_claim's own defense-in-depth check (api/routers/claim_approval.py,
-    step 3) — registration.py already requires the number, but a PENDING claim's
-    number can be blanked via PATCH before approval, so approve_claim must catch
-    that too rather than falling back to composing a bogus ID."""
+    """AUTH-BR-086: the Local Sakha Number is required for non-Darshaka claims and
+    optional for Darshaka. A PENDING claim's number can be blanked via PATCH before
+    approval, so approve_claim must handle both cases: reject for non-Darshaka,
+    mint the next Darshak-namespace number (MBR-030C / MBR-048) for Darshaka."""
 
-    def test_approve_darshaka_without_local_number_fails(
+    def test_approve_darshaka_without_local_number_auto_generates_it(
         self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
     ):
         person = _register(client, "darkblank", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
@@ -548,6 +559,39 @@ class TestApproveRequiresLocalSakhaNumber:
         )
         assert patch_resp.status_code == 200, f"Blanking number failed: {patch_resp.json()}"
 
+        resp = client.post(
+            f"/api/v1/admin/claims/{claim_pk}/approve",
+            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
+            json={},
+        )
+        assert resp.status_code == 200, resp.json()
+
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                SELECT msa.local_sakha_erp_id, o.short_code
+                FROM nss.membership_sakha_affiliation msa
+                JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = msa.sangha_sevi_pk
+                JOIN nss.organization o ON o.organization_pk = msa.organization_pk
+                WHERE ss.person_pk = %s AND msa.organization_pk = %s
+            """, (person["person_pk"], sakha_orgs["org_a"]))
+            local_id, short_code = cur.fetchone()
+        # <short_code><Darshak marker><sequence> — never the bare Regular namespace.
+        assert local_id.startswith(short_code) and local_id[len(short_code):].strip("0123456789") != ""
+        assert local_id[-1].isdigit()
+
+    def test_approve_non_darshaka_without_local_number_fails(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(
+            client, "regblank", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            credential_number=non_darshaka_credential_number(),
+        )
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        client.patch(
+            f"/api/v1/admin/claims/{claim_pk}",
+            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
+            json={"claimed_local_sakha_number": ""},
+        )
         resp = client.post(
             f"/api/v1/admin/claims/{claim_pk}/approve",
             headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
@@ -622,3 +666,291 @@ class TestApproveRejectScopeDenied:
                 (claim_pk,),
             )
             assert cur.fetchone()[0] == "PENDING", "Denied rejection must not mutate claim status."
+
+
+# ── Remaining endpoint x edge-case matrix (list / 404 / state guards) ────
+
+def _auth(tokens):
+    return {"Authorization": f"Bearer {tokens['access_token']}"}
+
+
+class TestClaimList:
+    """GET /api/v1/admin/claims"""
+
+    URL = "/api/v1/admin/claims"
+
+    def test_list_shape_and_default_is_pending(self, client, admin_tokens, sakha_orgs,
+                                                darshaka_type_pk, gender_pk, write_conn):
+        person = _register(client, "listshape", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        resp = client.get(self.URL, headers=_auth(admin_tokens), params={"page_size": 100})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert {"claims", "total", "page", "page_size"} <= data.keys()
+        assert all(c["claim_status"] == "PENDING" for c in data["claims"])
+        assert person["person_pk"] in {c["person_pk"] for c in data["claims"]} or data["total"] > 100
+
+    def test_status_filter_separates_pending_and_rejected(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "listrej", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        assert client.post(f"{self.URL}/{claim_pk}/reject", headers=_auth(admin_tokens),
+                           json={"admin_remarks": "list filter test"}).status_code == 200
+
+        rejected = client.get(self.URL, headers=_auth(admin_tokens),
+                              params={"claim_status": "REJECTED", "page_size": 100}).json()
+        pending = client.get(self.URL, headers=_auth(admin_tokens),
+                             params={"claim_status": "PENDING", "page_size": 100}).json()
+        assert claim_pk in {c["registration_claim_pk"] for c in rejected["claims"]}
+        assert claim_pk not in {c["registration_claim_pk"] for c in pending["claims"]}
+
+    @pytest.mark.parametrize("params", [
+        {"claim_status": "BOGUS"}, {"claim_status": "pending"},
+        {"page": 0}, {"page_size": 0}, {"page_size": 101},
+    ])
+    def test_invalid_query_is_422(self, client, admin_tokens, params):
+        assert client.get(self.URL, headers=_auth(admin_tokens), params=params).status_code == 422
+
+    @pytest.mark.parametrize("sort_by", ["person_name", "organization_name", "created_at"])
+    def test_whitelisted_sort_columns_work(self, client, admin_tokens, sort_by):
+        resp = client.get(self.URL, headers=_auth(admin_tokens),
+                          params={"sort_by": sort_by, "sort_dir": "desc"})
+        assert resp.status_code == 200
+
+    def test_scoped_admin_list_is_bounded_to_scope(
+        self, client, scoped_admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        """ADMIN-BR-076: a Sakha admin scoped to org_b lists org_b's claims, never org_a's."""
+        mine = _register(client, "listscope_b", gender_pk, sakha_orgs["org_b"], darshaka_type_pk)
+        theirs = _register(client, "listscope_a", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        data = client.get(self.URL, headers=_auth(scoped_admin_tokens),
+                          params={"page_size": 100}).json()
+        listed = {c["person_pk"] for c in data["claims"]}
+        assert mine["person_pk"] in listed
+        assert theirs["person_pk"] not in listed
+        assert all(c["claimed_organization_pk"] == sakha_orgs["org_b"] for c in data["claims"])
+
+
+class TestClaimNotFoundAndStateGuards:
+
+    UNKNOWN = "00000000-0000-0000-0000-0000000000cc"
+
+    def test_update_unknown_claim_is_404(self, client, admin_tokens):
+        resp = client.patch(f"/api/v1/admin/claims/{self.UNKNOWN}", headers=_auth(admin_tokens),
+                            json={"claimed_local_sakha_number": "X1"})
+        assert resp.status_code == 404
+
+    def test_approve_unknown_claim_is_404(self, client, admin_tokens):
+        resp = client.post(f"/api/v1/admin/claims/{self.UNKNOWN}/approve",
+                           headers=_auth(admin_tokens), json={})
+        assert resp.status_code == 404
+
+    def test_reject_unknown_claim_is_404(self, client, admin_tokens):
+        resp = client.post(f"/api/v1/admin/claims/{self.UNKNOWN}/reject",
+                           headers=_auth(admin_tokens), json={"admin_remarks": "nope"})
+        assert resp.status_code == 404
+
+    @pytest.mark.parametrize("method,suffix", [("get", ""), ("patch", ""),
+                                               ("post", "/approve"), ("post", "/reject")])
+    def test_malformed_claim_pk_is_422(self, client, admin_tokens, method, suffix):
+        kwargs = {"headers": _auth(admin_tokens)}
+        if method != "get":
+            kwargs["json"] = {"admin_remarks": "x"} if suffix == "/reject" else {}
+        resp = getattr(client, method)(f"/api/v1/admin/claims/not-a-uuid{suffix}", **kwargs)
+        assert resp.status_code == 422
+
+    def test_reject_twice_is_422(self, client, admin_tokens, sakha_orgs, darshaka_type_pk,
+                                  gender_pk, write_conn):
+        person = _register(client, "rejtwice", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        url = f"/api/v1/admin/claims/{claim_pk}/reject"
+        assert client.post(url, headers=_auth(admin_tokens), json={"admin_remarks": "first"}).status_code == 200
+        again = client.post(url, headers=_auth(admin_tokens), json={"admin_remarks": "second"})
+        assert again.status_code == 422
+        assert "already REJECTED" in again.json()["detail"]
+
+    def test_approve_rejected_claim_is_422(self, client, admin_tokens, sakha_orgs, darshaka_type_pk,
+                                            gender_pk, write_conn):
+        person = _register(client, "apprejected", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        client.post(f"/api/v1/admin/claims/{claim_pk}/reject", headers=_auth(admin_tokens),
+                    json={"admin_remarks": "no"})
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve", headers=_auth(admin_tokens), json={})
+        assert resp.status_code == 422
+        assert "already REJECTED" in resp.json()["detail"]
+
+    def test_reject_requires_non_empty_remarks(self, client, admin_tokens, sakha_orgs,
+                                                darshaka_type_pk, gender_pk, write_conn):
+        person = _register(client, "rejblank", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/reject", headers=_auth(admin_tokens),
+                           json={"admin_remarks": ""})
+        assert resp.status_code == 422
+        assert _claim_status(write_conn, claim_pk) == "PENDING"
+
+    def test_approve_marks_claim_and_activates_account(self, client, admin_tokens, sakha_orgs,
+                                                        darshaka_type_pk, gender_pk, write_conn):
+        person = _register(client, "apprflow", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve", headers=_auth(admin_tokens),
+                           json={"admin_remarks": "verified"})
+        assert resp.status_code == 200, resp.json()
+        assert _claim_status(write_conn, claim_pk) == "APPROVED"
+        # The approved member can now log in with the Sangha Sevi ID the approval minted.
+        login = client.post("/api/v1/auth/login", json={
+            "login_id": resp.json()["sangha_sevi_id"], "password": TEST_PASSWORD,
+        })
+        assert login.status_code == 200, login.json()
+
+    def test_update_claim_edits_person_contact_and_validates_email(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "editcontact", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        url = f"/api/v1/admin/claims/{claim_pk}"
+
+        bad = client.patch(url, headers=_auth(admin_tokens), json={"email": "not-an-email"})
+        assert bad.status_code == 422
+
+        new_email = f"{TEST_EMAIL_PREFIX}edited@test.example"
+        ok = client.patch(url, headers=_auth(admin_tokens),
+                          json={"email": new_email.upper(), "first_name": "  fixedname "})
+        assert ok.status_code == 200
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT email, first_name FROM nss.person WHERE person_pk = %s",
+                        (person["person_pk"],))
+            assert cur.fetchone() == (new_email, "Fixedname")
+
+    def test_update_claim_empty_body_is_a_harmless_noop(self, client, admin_tokens, sakha_orgs,
+                                                         darshaka_type_pk, gender_pk, write_conn):
+        person = _register(client, "editnoop", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=_auth(admin_tokens), json={})
+        assert resp.status_code == 200
+        assert _claim_status(write_conn, claim_pk) == "PENDING"
+
+
+def _claim_status(write_conn, claim_pk):
+    with write_conn.cursor() as cur:
+        cur.execute("SELECT claim_status FROM nss.registration_claim WHERE registration_claim_pk = %s",
+                    (claim_pk,))
+        return cur.fetchone()[0]
+
+
+class TestClaimRepointAndResubmit:
+    """ADMIN-BR-076 / MBR-038A on claim edits, and AUTH-BR-093 resubmission."""
+
+    def test_scoped_admin_cannot_repoint_claim_to_out_of_scope_org(
+        self, client, scoped_admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "repoint", gender_pk, sakha_orgs["org_b"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=_auth(scoped_admin_tokens),
+                            json={"claimed_organization_pk": sakha_orgs["org_a"]})
+        assert resp.status_code == 403
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT claimed_organization_pk FROM nss.registration_claim "
+                        "WHERE registration_claim_pk = %s", (claim_pk,))
+            assert str(cur.fetchone()[0]) == sakha_orgs["org_b"]
+
+    def test_claim_cannot_be_repointed_to_a_non_sakha_org(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "repointns", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                SELECT o.organization_pk FROM nss.organization o
+                JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+                WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+            """)
+            non_sakha = str(cur.fetchone()[0])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=_auth(admin_tokens),
+                            json={"claimed_organization_pk": non_sakha})
+        assert resp.status_code == 422
+
+    def test_in_scope_repoint_to_another_sakha_in_scope_is_allowed(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "repointok", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=_auth(admin_tokens),
+                            json={"claimed_organization_pk": sakha_orgs["org_b"]})
+        assert resp.status_code == 200, resp.json()
+
+    def _reject(self, client, admin_tokens, write_conn, person):
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/reject", headers=_auth(admin_tokens),
+                           json={"admin_remarks": "wrong Sakha"})
+        assert resp.status_code == 200, resp.json()
+        return claim_pk
+
+    def test_rejected_claimant_can_resubmit_via_lookup_existing(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "resubmit", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        self._reject(client, admin_tokens, write_conn, person)
+        resp = client.post("/api/v1/register/lookup-existing", json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 200, resp.json()
+
+    def test_rejected_claimant_resubmits_a_new_claim_on_the_same_account(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "resubclaim", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        old_claim_pk = self._reject(client, admin_tokens, write_conn, person)
+
+        resp = client.post("/api/v1/register/claim", json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": darshaka_type_pk,
+            "organization_pk": sakha_orgs["org_b"],
+            "claimed_local_sakha_number": uuid4().hex[:6],
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 201, resp.json()
+
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT count(*), min(account_status) FROM nss.user_account WHERE person_pk = %s",
+                        (person["person_pk"],))
+            assert cur.fetchone() == (1, "PENDING_APPROVAL")
+        new_claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        assert new_claim_pk != old_claim_pk
+        assert _claim_status(write_conn, old_claim_pk) == "REJECTED"
+        # ...and the new claim is approvable.
+        ok = client.post(f"/api/v1/admin/claims/{new_claim_pk}/approve",
+                         headers=_auth(admin_tokens), json={})
+        assert ok.status_code == 200, ok.json()
+
+    def test_pending_claim_blocks_a_second_submission(
+        self, client, sakha_orgs, darshaka_type_pk, gender_pk
+    ):
+        person = _register(client, "stillpending", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        resp = client.post("/api/v1/register/lookup-existing", json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 409
+
+    def test_soft_deleted_account_is_reactivated_by_claim(
+        self, client, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        """uq_user_account_person is a plain UNIQUE: a person whose only account was
+        soft-deleted must have that row reactivated, not get an INSERT 500."""
+        person = _register(client, "softdel", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        with write_conn.cursor() as cur:
+            cur.execute("UPDATE nss.registration_claim SET claim_status = 'REJECTED' WHERE person_pk = %s",
+                        (person["person_pk"],))
+            cur.execute("UPDATE nss.user_account SET is_active = FALSE, deleted_at = NOW() "
+                        "WHERE person_pk = %s", (person["person_pk"],))
+        resp = client.post("/api/v1/register/claim", json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": darshaka_type_pk,
+            "organization_pk": sakha_orgs["org_a"],
+            "claimed_local_sakha_number": uuid4().hex[:6],
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 201, resp.json()
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT count(*), bool_and(is_active), min(account_status) "
+                        "FROM nss.user_account WHERE person_pk = %s", (person["person_pk"],))
+            assert cur.fetchone() == (1, True, "PENDING_APPROVAL")

@@ -149,14 +149,18 @@ class TestShortCodeColumn:
                 f"{s['organization_code']} missing short_code field"
             )
 
-    def test_short_code_nullable(self, client):
-        """Seeded Sakhas have short_code = NULL by default."""
-        sakhas = _get_sakhas(client)
-        # All should be null since short_code is admin-assigned
-        null_count = sum(1 for s in sakhas if s["short_code"] is None)
-        assert null_count >= 170, (
-            f"Expected most short_codes to be NULL, only {null_count}/175 are"
-        )
+    def test_short_code_nullable(self, write_conn):
+        """short_code is a nullable column (schema), not a data assertion --
+        the dev DB may already have codes assigned to every Sakha."""
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema = 'nss' AND table_name = 'organization' "
+                "AND column_name = 'short_code'"
+            )
+            row = cur.fetchone()
+        assert row is not None, "organization.short_code column missing"
+        assert row[0] == "YES"
 
     def test_short_code_in_all_org_types(self, client):
         """short_code field is present on non-Sakha orgs too."""

@@ -16,6 +16,8 @@ ADMIN_ROLE_MANAGE, and PERSON_MANAGE permissions.
 
 import pytest
 
+from tests.registration_support import create_person_with_sangha_sevi
+
 
 pytestmark = pytest.mark.integration
 
@@ -349,22 +351,17 @@ class TestRBACEnforcement:
 
         cur = write_conn.cursor()
 
-        # Find yet another person without an account
+        # A fresh member with no role assignments. Do not scavenge an existing
+        # member: a governing-body seat holder is auto-granted admin roles.
         cur.execute("""
-            SELECT p.person_pk, ss.sangha_sevi_id
-            FROM nss.person p
-            JOIN nss.sangha_sevi ss ON ss.person_pk = p.person_pk AND ss.is_active = TRUE
-            LEFT JOIN nss.user_account ua ON ua.person_pk = p.person_pk AND ua.is_active = TRUE
-            WHERE p.is_active = TRUE
-              AND ua.user_account_pk IS NULL
-            ORDER BY p.created_at DESC
-            LIMIT 1
+            SELECT o.organization_pk FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code = 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
         """)
-        row = cur.fetchone()
-        if row is None:
-            pytest.skip("No available person for unpermissioned user test.")
-
-        person_pk, sangha_sevi_id = row
+        org_row = cur.fetchone()
+        if org_row is None:
+            pytest.skip("No active SAKHA_SANGHA organization.")
+        person_pk, sangha_sevi_id = create_person_with_sangha_sevi(write_conn, org_row[0], "UNP")
         password_hash = hash_password("UnpermPass1")
 
         cur.execute("""

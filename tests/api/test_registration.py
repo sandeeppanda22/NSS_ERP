@@ -26,6 +26,10 @@ import pytest
 from fastapi.testclient import TestClient
 from uuid import uuid4
 
+from tests.registration_support import (
+    registration_address, non_darshaka_credential_number, add_user_account,
+)
+
 
 pytestmark = pytest.mark.integration
 
@@ -204,12 +208,18 @@ def gender_pk(write_conn):
     return str(row[0])
 
 
+@pytest.fixture(scope="module")
+def reg_address(write_conn):
+    """Mandatory address block for POST /register (see tests/registration_support.py)."""
+    return registration_address(write_conn.cursor())
+
+
 # ── Registration Tests ──────────────────────────────────────────────────
 
 class TestRegistration:
     """POST /api/v1/register — claim-based registration."""
 
-    def test_register_darshaka_success(self, client, test_org_pk, darshaka_type_pk, gender_pk, write_conn):
+    def test_register_darshaka_success(self, client, test_org_pk, darshaka_type_pk, gender_pk, write_conn, reg_address):
         """Register a new Darshaka member — creates person + PENDING_APPROVAL account + claim."""
         response = client.post("/api/v1/register", json={
             "first_name": TEST_FIRST_NAME,
@@ -218,6 +228,7 @@ class TestRegistration:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}darshaka@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
@@ -251,8 +262,9 @@ class TestRegistration:
             assert claim_row is not None
             assert claim_row[1] == "PENDING"
 
-    def test_register_no_membership(self, client, gender_pk, write_conn):
-        """Register without membership claim — person + PENDING_APPROVAL account only."""
+    def test_register_no_membership(self, client, gender_pk, write_conn, reg_address):
+        """Register without membership claim — person + address only; NO user_account
+        and NO claim (an account with no path to a Sangha Sevi could never log in)."""
         response = client.post("/api/v1/register", json={
             "first_name": TEST_FIRST_NAME,
             "last_name": "NoMembership",
@@ -260,36 +272,53 @@ class TestRegistration:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}nomember@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": False,
         })
         assert response.status_code == 201
         data = response.json()
+        assert data["person_id"].startswith("P")
+        assert "No login account was created" in data["message"]
 
         with write_conn.cursor() as cur:
-            cur.execute(
-                "SELECT user_account_pk, account_status FROM nss.user_account WHERE person_pk = %s",
-                (data["person_pk"],),
-            )
-            ua_row = cur.fetchone()
-            assert ua_row is not None
-            assert ua_row[1] == "PENDING_APPROVAL"
+            cur.execute("SELECT 1 FROM nss.person WHERE person_pk = %s", (data["person_pk"],))
+            assert cur.fetchone() is not None
 
-            # No claim should exist
             cur.execute(
-                "SELECT registration_claim_pk FROM nss.registration_claim WHERE person_pk = %s",
-                (data["person_pk"],),
+                "SELECT 1 FROM nss.user_account WHERE person_pk = %s", (data["person_pk"],),
             )
             assert cur.fetchone() is None
 
-    def test_register_missing_contact_fails(self, client):
-        """Registration without mobile or email returns 422."""
+            cur.execute(
+                "SELECT 1 FROM nss.registration_claim WHERE person_pk = %s", (data["person_pk"],),
+            )
+            assert cur.fetchone() is None
+
+            # The mandatory address block is persisted as the primary PERMANENT address.
+            cur.execute(
+                "SELECT address_line_1, is_primary FROM nss.person_address WHERE person_pk = %s",
+                (data["person_pk"],),
+            )
+            addr = cur.fetchone()
+            assert addr is not None
+            assert addr[0] == reg_address["address_line_1"]
+            assert addr[1] is True
+
+    def test_register_missing_contact_fails(self, client, gender_pk, reg_address):
+        """Registration without mobile or email returns 422 from the contact rule
+        (not merely from a missing required field)."""
         response = client.post("/api/v1/register", json={
             "first_name": "NoContact",
+            "last_name": "Test",
+            "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
             "password": TEST_PASSWORD,
+            **reg_address,
         })
         assert response.status_code == 422
+        assert "mobile_number or email" in response.json()["detail"]
 
-    def test_register_nondarshaka_requires_local_sakha_number(self, client, test_org_pk, gender_pk, write_conn):
+    def test_register_nondarshaka_requires_local_sakha_number(self, client, test_org_pk, gender_pk, write_conn, reg_address):
         """Non-Darshaka registration without Local Sakha Number returns 422."""
         # Get a non-Darshaka membership type
         cur = write_conn.cursor()
@@ -313,17 +342,24 @@ class TestRegistration:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}nondark@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": str(row[0]),
             "organization_pk": test_org_pk,
+            # Credential number supplied so the Local Sakha Number rule (5b) is
+            # the one that fires, not the earlier Parichaya Patra rule (3d).
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             # No claimed_local_sakha_number
         })
         assert response.status_code == 422
         assert "Local Sakha Number" in response.json()["detail"]
 
-    def test_register_darshaka_requires_local_sakha_number(self, client, test_org_pk, darshaka_type_pk, gender_pk):
-        """Darshaka registration without Local Sakha Number also returns 422 (AUTH-BR-086 —
-        Darshak members get a number in a separate namespace, not no number at all)."""
+    def test_register_darshaka_local_sakha_number_optional_at_registration(
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address
+    ):
+        """A Darshaka applicant has no number to self-report, so registration
+        accepts the claim without one (the number is only enforced at approval —
+        see test_claim_approval.py::TestApproveRequiresLocalSakhaNumber)."""
         response = client.post("/api/v1/register", json={
             "first_name": "DarshakaNoNumber",
             "last_name": "Test",
@@ -331,17 +367,16 @@ class TestRegistration:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}darkno@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             # No claimed_local_sakha_number
         })
-        assert response.status_code == 422
-        assert "Local Sakha Number" in response.json()["detail"]
+        assert response.status_code == 201, response.json()
 
     def test_register_attending_as_darshak_requires_darshak_local_sakha_number(
-        self, client, test_org_pk, darshaka_type_pk, gender_pk, write_conn
-    ):
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, write_conn, reg_address):
         """is_attending_as_darshak=True without darshak_local_sakha_number returns 422."""
         with write_conn.cursor() as cur:
             cur.execute(
@@ -363,6 +398,7 @@ class TestRegistration:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}darkattend@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
@@ -397,7 +433,7 @@ class TestClaimApproval:
         assert "claims" in data
         assert "total" in data
 
-    def test_approve_claim(self, client, admin_tokens, test_org_pk, darshaka_type_pk, gender_pk, write_conn):
+    def test_approve_claim(self, client, admin_tokens, test_org_pk, darshaka_type_pk, gender_pk, write_conn, reg_address):
         """Admin approves a Darshaka claim → account ACTIVE, sangha_sevi + affiliation +
         Anumati Patra credential all created."""
         # 1. Register a new person with claim
@@ -408,6 +444,7 @@ class TestClaimApproval:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}approveme@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
@@ -491,8 +528,7 @@ class TestClaimApproval:
             assert credential_row[0]
 
     def test_approve_claim_composes_legacy_credential_number_with_current_fy(
-        self, client, admin_tokens, test_org_pk, darshaka_type_pk, gender_pk, write_conn
-    ):
+        self, client, admin_tokens, test_org_pk, darshaka_type_pk, gender_pk, write_conn, reg_address):
         """A registrant-supplied legacy credential number is a plain sequence
         number (e.g. "789") — the registration form doesn't ask for the FY,
         so approve_claim must compose the full "<no>/<fy_start>/<fy_end>"
@@ -507,6 +543,7 @@ class TestClaimApproval:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}legacycred@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
@@ -546,7 +583,7 @@ class TestClaimApproval:
                 f"({expected_document_number!r}), got {row[0]!r}"
             )
 
-    def test_reject_claim(self, client, admin_tokens, test_org_pk, darshaka_type_pk, gender_pk, write_conn):
+    def test_reject_claim(self, client, admin_tokens, test_org_pk, darshaka_type_pk, gender_pk, write_conn, reg_address):
         """Admin rejects a claim → claim REJECTED, account stays PENDING_APPROVAL."""
         # 1. Register
         reg_resp = client.post("/api/v1/register", json={
@@ -556,6 +593,7 @@ class TestClaimApproval:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}rejectme@test.example",
             "password": TEST_PASSWORD,
+            **reg_address,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
@@ -644,46 +682,12 @@ class TestClaimApproval:
 # ── Registration with address fields tests ───────────────────────────
 
 class TestRegistrationWithAddress:
-    """POST /api/v1/register — registration with address fields (city_village_name, geography FKs)."""
-
-    @pytest.fixture(scope="class")
-    def address_helpers(self, write_conn):
-        """Get geography PKs for address testing."""
-        cur = write_conn.cursor()
-        # India
-        cur.execute(
-            "SELECT country_pk FROM nss.country WHERE country_code = 'IN' AND is_active = TRUE LIMIT 1"
-        )
-        row = cur.fetchone()
-        country_pk = str(row[0]) if row else None
-
-        # Odisha
-        cur.execute(
-            "SELECT state_pk FROM nss.state WHERE LOWER(state_name) LIKE '%odisha%' AND is_active = TRUE LIMIT 1"
-        )
-        row = cur.fetchone()
-        state_pk = str(row[0]) if row else None
-
-        # First district in Odisha
-        district_pk = None
-        if state_pk:
-            cur.execute(
-                "SELECT district_pk FROM nss.district WHERE state_pk = %s AND is_active = TRUE LIMIT 1",
-                (state_pk,),
-            )
-            row = cur.fetchone()
-            district_pk = str(row[0]) if row else None
-
-        return {
-            "country_pk": country_pk,
-            "state_pk": state_pk,
-            "district_pk": district_pk,
-        }
+    """POST /api/v1/register — the mandatory address block (city_village_name, geography FKs, PIN)."""
 
     def test_register_with_city_village_name(
-        self, client, test_org_pk, darshaka_type_pk, gender_pk, address_helpers, write_conn
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address, write_conn
     ):
-        """Registration with city_village_name creates/finds the city_village record."""
+        """Registration with city_village_name creates the city_village record."""
         cv_name = f"TestVillage_{_RUN_ID}_addr"
         response = client.post("/api/v1/register", json={
             "first_name": "AddrTest",
@@ -696,10 +700,7 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D5",
-            "country_pk": address_helpers["country_pk"],
-            "state_pk": address_helpers["state_pk"],
-            "district_pk": address_helpers["district_pk"],
-            "city_village_name": cv_name,
+            **{**reg_address, "city_village_name": cv_name},
         })
         assert response.status_code == 201, f"Registration with address failed: {response.json()}"
         data = response.json()
@@ -724,9 +725,10 @@ class TestRegistrationWithAddress:
             assert str(person_row[0]) == str(row[0])
 
     def test_register_with_all_address_fields(
-        self, client, test_org_pk, darshaka_type_pk, gender_pk, address_helpers
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address, write_conn
     ):
-        """Registration with country, state, district PKs stores them on the person."""
+        """Country, state, district and PIN are stored on the person; the PIN is
+        resolved/created (PENDING, attributed to the registrant)."""
         response = client.post("/api/v1/register", json={
             "first_name": "FullAddr",
             "last_name": "Test",
@@ -738,52 +740,119 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D6",
-            "country_pk": address_helpers["country_pk"],
-            "state_pk": address_helpers["state_pk"],
-            "district_pk": address_helpers["district_pk"],
+            **reg_address,
         })
-        assert response.status_code == 201
+        assert response.status_code == 201, response.json()
         data = response.json()
-        assert "person_pk" in data
 
-    def test_register_without_address_still_works(
-        self, client, test_org_pk, darshaka_type_pk, gender_pk
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT country_pk, state_pk, district_pk, postal_code_pk "
+                "FROM nss.person WHERE person_pk = %s",
+                (data["person_pk"],),
+            )
+            country_pk, state_pk, district_pk, postal_code_pk = cur.fetchone()
+            assert str(country_pk) == reg_address["country_pk"]
+            assert str(state_pk) == reg_address["state_pk"]
+            assert str(district_pk) == reg_address["district_pk"]
+            assert postal_code_pk is not None
+
+            cur.execute(
+                "SELECT postal_code FROM nss.postal_code WHERE postal_code_pk = %s",
+                (str(postal_code_pk),),
+            )
+            assert cur.fetchone()[0] == reg_address["postal_code_value"]
+
+    @pytest.mark.parametrize(
+        "missing_field",
+        ["country_pk", "state_pk", "district_pk", "city_village_name",
+         "postal_code_value", "address_line_1"],
+    )
+    def test_register_without_address_field_rejected(
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address, missing_field
     ):
-        """Registration without any address fields works (address is optional)."""
-        response = client.post("/api/v1/register", json={
+        """Every address field is mandatory (user decision 2026-10-03): omitting any
+        one is a 422, never a silent address-less person."""
+        payload = {
             "first_name": "NoAddr",
             "last_name": "Test",
             "date_of_birth": TEST_DOB,
             "gender_master_data_pk": gender_pk,
-            "email": f"{TEST_EMAIL_PREFIX}no_addr@test.example",
+            "email": f"{TEST_EMAIL_PREFIX}no_addr_{missing_field}@test.example",
             "password": TEST_PASSWORD,
             "has_membership": True,
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D7",
+            **reg_address,
+        }
+        del payload[missing_field]
+        response = client.post("/api/v1/register", json=payload)
+        assert response.status_code == 422
+
+    def test_register_blank_address_field_rejected(
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address
+    ):
+        """Pydantic only guards presence — a blank address_line_1 must be caught by the
+        handler's own check and named in the error."""
+        response = client.post("/api/v1/register", json={
+            "first_name": "BlankAddr",
+            "last_name": "Test",
+            "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}blank_addr@test.example",
+            "password": TEST_PASSWORD,
+            "has_membership": True,
+            "membership_type_master_data_pk": darshaka_type_pk,
+            "organization_pk": test_org_pk,
+            "claimed_local_sakha_number": "D7",
+            **{**reg_address, "address_line_1": "   "},
         })
-        assert response.status_code == 201
+        assert response.status_code == 422
+        assert "address_line_1" in response.json()["detail"]
 
     def test_register_city_village_lookup_existing(
-        self, client, test_org_pk, darshaka_type_pk, gender_pk, address_helpers, write_conn
+        self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address, write_conn
     ):
-        """If city_village already exists in the district, it is reused (not duplicated)."""
+        """If the city_village already exists for (district, PIN, name), it is reused
+        (not duplicated)."""
         cv_name = f"LookupVillage_{_RUN_ID}"
-        district_pk = address_helpers["district_pk"]
-        if not district_pk:
-            pytest.skip("No district available for lookup test.")
+        pin = reg_address["postal_code_value"]
 
-        # Pre-create the city_village
+        # Pre-create the PIN and the city_village hanging off it. The registration
+        # resolves the village on (name, district, PIN), so the fixture row must
+        # carry the PIN the registrant is about to type.
         with write_conn.cursor() as cur:
+            # Reuse whatever active row the router's resolve_or_create_postal_code
+            # would find for this PIN (it matches on postal_code + is_active only,
+            # LIMIT 1); only insert when none exists. A blind INSERT could add a
+            # second row next to an existing PENDING one and the router might
+            # then bind to the other row.
+            cur.execute(
+                "SELECT postal_code_pk FROM nss.postal_code "
+                "WHERE postal_code = %s AND is_active = TRUE "
+                "ORDER BY (entry_status = 'APPROVED') DESC LIMIT 1",
+                (pin,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                cur.execute(
+                    "INSERT INTO nss.postal_code (state_pk, postal_code, entry_status) "
+                    "VALUES (%s, %s, 'APPROVED') RETURNING postal_code_pk",
+                    (reg_address["state_pk"], pin),
+                )
+                row = cur.fetchone()
+            postal_code_pk = str(row[0])
+
             cv_code = cv_name.upper().replace(" ", "_")[:20]
             cur.execute("""
-                INSERT INTO nss.city_village (district_pk, city_village_code, city_village_name, city_village_type)
-                VALUES (%s, %s, %s, 'CITY')
+                INSERT INTO nss.city_village
+                    (district_pk, postal_code_pk, city_village_code, city_village_name, city_village_type)
+                VALUES (%s, %s, %s, %s, 'CITY')
                 RETURNING city_village_pk
-            """, (district_pk, cv_code, cv_name))
+            """, (reg_address["district_pk"], postal_code_pk, cv_code, cv_name))
             existing_pk = str(cur.fetchone()[0])
 
-        # Register with the same city_village_name — should reuse, not create new
         response = client.post("/api/v1/register", json={
             "first_name": "LookupTest",
             "last_name": "Reuse",
@@ -795,12 +864,9 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D8",
-            "country_pk": address_helpers["country_pk"],
-            "state_pk": address_helpers["state_pk"],
-            "district_pk": district_pk,
-            "city_village_name": cv_name,
+            **{**reg_address, "city_village_name": cv_name},
         })
-        assert response.status_code == 201
+        assert response.status_code == 201, response.json()
         data = response.json()
 
         # Verify the person points to the existing city_village, not a new one
@@ -813,3 +879,633 @@ class TestRegistrationWithAddress:
             assert person_cv_pk == existing_pk, (
                 f"Expected reuse of city_village {existing_pk}, got new {person_cv_pk}"
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Public pre-registration helpers and the "previously registered" flow
+# (all unauthenticated — the registrant has no JWT yet)
+# ═══════════════════════════════════════════════════════════════════════
+
+CLAIM_PASSWORD = "ClaimPass1x"
+
+
+@pytest.fixture(scope="module")
+def sakha_pk(write_conn):
+    """Any active SAKHA_SANGHA organization (claim submission needs no short_code)."""
+    cur = write_conn.cursor()
+    cur.execute("""
+        SELECT o.organization_pk
+        FROM nss.organization o
+        JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+        WHERE md.value_code = 'SAKHA_SANGHA' AND o.is_active = TRUE
+        ORDER BY o.created_at
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    if row is None:
+        pytest.skip("No active SAKHA_SANGHA organization exists.")
+    return str(row[0])
+
+
+@pytest.fixture(scope="module")
+def non_sakha_pk(write_conn):
+    """Any active organization that is NOT a Sakha Sangha (e.g. the Kendra)."""
+    cur = write_conn.cursor()
+    cur.execute("""
+        SELECT o.organization_pk
+        FROM nss.organization o
+        JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+        WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE
+        ORDER BY o.created_at
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    if row is None:
+        pytest.skip("No non-Sakha organization exists.")
+    return str(row[0])
+
+
+@pytest.fixture(scope="module")
+def regular_type_pk(write_conn):
+    """A non-Darshaka (non-PROBATIONARY) membership type."""
+    cur = write_conn.cursor()
+    cur.execute("""
+        SELECT md.master_data_pk
+        FROM nss.master_data md
+        JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+        WHERE mc.category_code = 'MEMBERSHIP_TYPE'
+          AND md.value_code <> 'PROBATIONARY' AND md.is_active = TRUE
+        ORDER BY md.value_code
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    if row is None:
+        pytest.skip("No non-Darshaka membership type found.")
+    return str(row[0])
+
+
+def _make_orphan_person(write_conn, label, dob=TEST_DOB, is_active=True):
+    """
+    A throwaway person with a known DOB and NO account / claim / Sangha Sevi —
+    exactly the "registered without membership" state that /register/lookup-existing
+    and /register/claim serve. Built by direct SQL so each test owns its identity.
+    """
+    suffix = uuid4().hex[:10].upper()
+    cur = write_conn.cursor()
+    cur.execute("""
+        INSERT INTO nss.person (person_id, first_name, last_name, email, date_of_birth)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING person_pk, person_id
+    """, (
+        f"TLK{label}{suffix}", f"Lookup{label}", suffix,
+        f"tlk.{label.lower()}.{suffix.lower()}@example.test", dob,
+    ))
+    person_pk, person_id = cur.fetchone()
+    if not is_active:
+        cur.execute(
+            "UPDATE nss.person SET is_active = FALSE, deleted_at = NOW() WHERE person_pk = %s",
+            (str(person_pk),),
+        )
+    return {"person_pk": str(person_pk), "person_id": person_id}
+
+
+# ── POST /register/check-duplicate ──────────────────────────────────────
+
+class TestCheckDuplicate:
+
+    def test_unknown_contact_reports_no_duplicates(self, client, write_conn):
+        # A hard-coded mobile can already belong to a real person on a populated
+        # dev DB; pick one that is genuinely unused.
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT m FROM (SELECT '9' || lpad(g::text, 9, '0') AS m "
+                "FROM generate_series(1, 200000) g) c "
+                "WHERE NOT EXISTS (SELECT 1 FROM nss.person p "
+                "WHERE p.country_phone_code = '+91' AND p.mobile_number = c.m) LIMIT 1"
+            )
+            mobile = cur.fetchone()[0]
+        resp = client.post("/api/v1/register/check-duplicate", json={
+            "email": f"{TEST_EMAIL_PREFIX}nobody@test.example",
+            "country_phone_code": "+91",
+            "mobile_number": mobile,
+        })
+        assert resp.status_code == 200
+        assert resp.json() == {"mobile_exists": False, "email_exists": False}
+
+    def test_empty_body_is_a_noop(self, client):
+        resp = client.post("/api/v1/register/check-duplicate", json={})
+        assert resp.status_code == 200
+        assert resp.json() == {"mobile_exists": False, "email_exists": False}
+
+    def test_existing_email_matches_case_insensitively(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "DUPE")
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT email FROM nss.person WHERE person_pk = %s", (person["person_pk"],))
+            email = cur.fetchone()[0]
+        resp = client.post("/api/v1/register/check-duplicate", json={"email": email.upper()})
+        assert resp.status_code == 200
+        assert resp.json()["email_exists"] is True
+        assert resp.json()["mobile_exists"] is False
+
+    def test_existing_mobile_needs_phone_code(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "DUPM")
+        mobile = f"9{uuid4().int % 10**9:09d}"
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE nss.person SET country_phone_code = '+91', mobile_number = %s "
+                "WHERE person_pk = %s", (mobile, person["person_pk"]),
+            )
+        hit = client.post("/api/v1/register/check-duplicate", json={
+            "country_phone_code": "+91", "mobile_number": mobile,
+        })
+        assert hit.json()["mobile_exists"] is True
+
+        # The check is keyed on (code, number): a number alone is not looked up.
+        bare = client.post("/api/v1/register/check-duplicate", json={"mobile_number": mobile})
+        assert bare.status_code == 200
+        assert bare.json()["mobile_exists"] is False
+
+    def test_soft_deleted_person_is_not_a_duplicate(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "DUPX", is_active=False)
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT email FROM nss.person WHERE person_pk = %s", (person["person_pk"],))
+            email = cur.fetchone()[0]
+        resp = client.post("/api/v1/register/check-duplicate", json={"email": email})
+        assert resp.json()["email_exists"] is False
+
+    def test_non_object_body_is_422(self, client):
+        resp = client.post("/api/v1/register/check-duplicate", json=["x"])
+        assert resp.status_code == 422
+
+
+# ── POST /register/lookup-existing ──────────────────────────────────────
+
+class TestLookupExisting:
+
+    URL = "/api/v1/register/lookup-existing"
+
+    def test_lookup_success(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "OK")
+        resp = client.post(self.URL, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 200, resp.json()
+        data = resp.json()
+        assert data["person_pk"] == person["person_pk"]
+        assert data["person_id"] == person["person_id"]
+        assert data["person_name"].startswith("LookupOK")
+
+    def test_person_id_is_whitespace_trimmed(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "TRIM")
+        resp = client.post(self.URL, json={
+            "person_id": f"  {person['person_id']}  ", "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 200
+
+    def test_wrong_dob_is_404(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "DOB")
+        resp = client.post(self.URL, json={
+            "person_id": person["person_id"], "date_of_birth": "1999-12-31",
+        })
+        assert resp.status_code == 404
+
+    def test_unknown_person_id_is_404(self, client):
+        resp = client.post(self.URL, json={
+            "person_id": f"NOPE{uuid4().hex[:8]}", "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 404
+
+    def test_inactive_person_is_404(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "GONE", is_active=False)
+        resp = client.post(self.URL, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 404
+
+    @pytest.mark.parametrize("body", [
+        {"date_of_birth": TEST_DOB},
+        {"person_id": "P1"},
+        {"person_id": "", "date_of_birth": TEST_DOB},
+        {"person_id": "P1", "date_of_birth": "not-a-date"},
+    ])
+    def test_invalid_body_is_422(self, client, body):
+        assert client.post(self.URL, json=body).status_code == 422
+
+    def test_person_with_account_is_409(self, client, write_conn):
+        person = _make_orphan_person(write_conn, "HASACC")
+        add_user_account(write_conn, person["person_pk"], CLAIM_PASSWORD)
+        resp = client.post(self.URL, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 409
+        assert "already has a registered account" in resp.json()["detail"]
+
+    def test_person_with_pending_claim_is_409(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        """The pending-claim guard only fires when no live account trips the earlier
+        guard first, so build the claim against a soft-deleted account."""
+        person = _make_orphan_person(write_conn, "PENDCL")
+        ua_pk = add_user_account(write_conn, person["person_pk"], CLAIM_PASSWORD, is_active=False)
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO nss.registration_claim (
+                    user_account_pk, person_pk, claimed_organization_pk,
+                    claimed_membership_type_master_data_pk,
+                    claimed_local_sakha_number, claim_status
+                ) VALUES (%s, %s, %s, %s, %s, 'PENDING')
+            """, (ua_pk, person["person_pk"], sakha_pk, regular_type_pk, "L1"))
+        resp = client.post(self.URL, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 409
+        assert "already pending" in resp.json()["detail"]
+
+    def test_person_who_is_already_sangha_sevi_is_409(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "ISSS")
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                SELECT md.master_data_pk FROM nss.master_data md
+                JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+                WHERE mc.category_code = 'STATUS' AND md.value_code = 'ACTIVE'
+                  AND md.is_active = TRUE LIMIT 1
+            """)
+            active_status_pk = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO nss.sangha_sevi (
+                    sangha_sevi_id, person_pk, membership_type_master_data_pk,
+                    membership_status_master_data_pk, organization_pk, joining_date
+                ) VALUES (%s, %s, %s, %s, %s, DATE '2020-04-01')
+            """, (f"TSSLK{uuid4().hex[:8].upper()}", person["person_pk"],
+                  regular_type_pk, str(active_status_pk), sakha_pk))
+        resp = client.post(self.URL, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert resp.status_code == 409
+        assert "already a Sangha Sevi" in resp.json()["detail"]
+
+
+# ── POST /register/claim ────────────────────────────────────────────────
+
+class TestClaimExisting:
+
+    URL = "/api/v1/register/claim"
+
+    def _body(self, person, sakha_pk, type_pk, **overrides):
+        body = {
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": sakha_pk,
+            "claimed_local_sakha_number": "L7",
+            "password": CLAIM_PASSWORD,
+        }
+        body.update(overrides)
+        return body
+
+    def test_darshaka_claim_creates_pending_account_and_claim(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLDK")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, joining_date="2024-04-01",
+        ))
+        assert resp.status_code == 201, resp.json()
+        data = resp.json()
+        assert data["person_pk"] == person["person_pk"]
+        assert data["person_id"] == person["person_id"]
+        assert "pending approval" in data["message"].lower()
+
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT account_status, force_password_change FROM nss.user_account "
+                "WHERE person_pk = %s", (person["person_pk"],),
+            )
+            assert cur.fetchone() == ("PENDING_APPROVAL", False)
+
+            cur.execute("""
+                SELECT claim_status, claimed_organization_pk, claimed_local_sakha_number,
+                       claimed_joining_date
+                FROM nss.registration_claim WHERE person_pk = %s
+            """, (person["person_pk"],))
+            status_val, org_pk, local_no, joining = cur.fetchone()
+            assert status_val == "PENDING"
+            assert str(org_pk) == sakha_pk
+            assert local_no == "L7"
+            assert str(joining) == "2024-04-01"
+
+            # No Sangha Sevi until an admin approves (AUTH-BR-091).
+            cur.execute("SELECT 1 FROM nss.sangha_sevi WHERE person_pk = %s", (person["person_pk"],))
+            assert cur.fetchone() is None
+
+    def test_second_claim_is_refused_after_first(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        """After a successful claim the person has an account, so both lookup and a
+        repeat claim are now 409 — the flow cannot be replayed."""
+        person = _make_orphan_person(write_conn, "CLTWICE")
+        body = self._body(person, sakha_pk, darshaka_type_pk)
+        assert client.post(self.URL, json=body).status_code == 201
+        again = client.post(self.URL, json=body)
+        assert again.status_code == 409
+        look = client.post("/api/v1/register/lookup-existing", json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        assert look.status_code == 409
+
+    def test_non_darshaka_requires_local_sakha_number(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLNL")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk,
+            claimed_local_sakha_number=None,
+            claimed_credential_document_number=non_darshaka_credential_number(),
+        ))
+        assert resp.status_code == 422
+        assert "Local Sakha Number" in resp.json()["detail"]
+
+    def test_non_darshaka_requires_credential_number(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLNC")
+        resp = client.post(self.URL, json=self._body(person, sakha_pk, regular_type_pk))
+        assert resp.status_code == 422
+        assert "claimed_credential_document_number" in resp.json()["detail"]
+
+    def test_non_darshaka_with_both_numbers_succeeds(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLNOK")
+        number = non_darshaka_credential_number()
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, claimed_credential_document_number=number,
+        ))
+        assert resp.status_code == 201, resp.json()
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT claimed_credential_document_number FROM nss.registration_claim "
+                "WHERE person_pk = %s", (person["person_pk"],),
+            )
+            assert cur.fetchone()[0] == number
+
+    def test_weak_password_is_422_and_creates_nothing(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLPW")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, password="weakpassword1",
+        ))
+        assert resp.status_code == 422
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM nss.user_account WHERE person_pk = %s", (person["person_pk"],))
+            assert cur.fetchone() is None
+
+    def test_short_password_is_422(self, client, write_conn, sakha_pk, darshaka_type_pk):
+        person = _make_orphan_person(write_conn, "CLSP")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, password="Ab1",
+        ))
+        assert resp.status_code == 422
+
+    def test_wrong_dob_is_404_and_creates_nothing(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLDOB")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, date_of_birth="1999-12-31",
+        ))
+        assert resp.status_code == 404
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM nss.user_account WHERE person_pk = %s", (person["person_pk"],))
+            assert cur.fetchone() is None
+
+    def test_non_sakha_organization_is_422(
+        self, client, write_conn, non_sakha_pk, darshaka_type_pk
+    ):
+        """MBR-038A: a claim must target a Sakha Sangha."""
+        person = _make_orphan_person(write_conn, "CLNS")
+        resp = client.post(self.URL, json=self._body(person, non_sakha_pk, darshaka_type_pk))
+        assert resp.status_code == 422
+        assert "SAKHA_SANGHA" in resp.json()["detail"]
+
+    def test_unknown_organization_is_422(self, client, write_conn, darshaka_type_pk):
+        person = _make_orphan_person(write_conn, "CLNO")
+        resp = client.post(self.URL, json=self._body(
+            person, "00000000-0000-0000-0000-000000000099", darshaka_type_pk,
+        ))
+        assert resp.status_code == 422
+
+    def test_darshak_attendance_requires_org_and_number(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLDA")
+        no_org = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, is_attending_as_darshak=True,
+        ))
+        assert no_org.status_code == 422
+        assert "darshak_organization_pk" in no_org.json()["detail"]
+
+        no_number = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, is_attending_as_darshak=True,
+            darshak_organization_pk=sakha_pk,
+        ))
+        assert no_number.status_code == 422
+        assert "darshak_local_sakha_number" in no_number.json()["detail"]
+
+    def test_darshak_attendance_fields_are_stored(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLDS")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, is_attending_as_darshak=True,
+            darshak_organization_pk=sakha_pk, darshak_local_sakha_number="DK3",
+        ))
+        assert resp.status_code == 201, resp.json()
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT darshak_organization_pk, darshak_local_sakha_number "
+                "FROM nss.registration_claim WHERE person_pk = %s", (person["person_pk"],),
+            )
+            org_pk, number = cur.fetchone()
+            assert str(org_pk) == sakha_pk
+            assert number == "DK3"
+
+    @pytest.mark.parametrize("missing", [
+        "person_id", "date_of_birth", "membership_type_master_data_pk",
+        "organization_pk", "password",
+    ])
+    def test_missing_required_field_is_422(
+        self, client, write_conn, sakha_pk, darshaka_type_pk, missing
+    ):
+        person = _make_orphan_person(write_conn, "CLMF")
+        body = self._body(person, sakha_pk, darshaka_type_pk)
+        del body[missing]
+        assert client.post(self.URL, json=body).status_code == 422
+
+    def test_claimed_account_cannot_log_in_until_approved(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        """No Sangha Sevi ID exists yet, so the Person ID is not a valid login."""
+        person = _make_orphan_person(write_conn, "CLLG")
+        assert client.post(self.URL, json=self._body(person, sakha_pk, darshaka_type_pk)).status_code == 201
+        login = client.post("/api/v1/auth/login", json={
+            "login_id": person["person_id"], "password": CLAIM_PASSWORD,
+        })
+        assert login.status_code in (401, 403)
+
+
+# ── Public reference-data / location-cascade lookups ────────────────────
+
+class TestPublicRegistrationLookups:
+    """GET /register/{reference-data,countries,states,districts,cities,postal-codes,
+    post-offices,sakhas} — all unauthenticated (the registrant has no JWT)."""
+
+    BASE = "/api/v1/register"
+
+    def test_reference_data_bundle(self, client):
+        resp = client.get(f"{self.BASE}/reference-data")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert set(data) == {
+            "countries", "genders", "marital_statuses", "blood_groups",
+            "membership_types", "sakhas",
+        }
+        assert data["genders"], "GENDER master data should be seeded"
+        assert {m["category_code"] for m in data["genders"]} == {"GENDER"}
+        assert {m["category_code"] for m in data["membership_types"]} == {"MEMBERSHIP_TYPE"}
+        assert all(s["organization_type_code"] == "SAKHA_SANGHA" for s in data["sakhas"])
+
+    def test_countries_are_active_and_public(self, client):
+        resp = client.get(f"{self.BASE}/countries")
+        assert resp.status_code == 200
+        countries = resp.json()
+        assert countries and all(c["is_active"] for c in countries)
+        assert {"country_pk", "country_code", "country_name"} <= countries[0].keys()
+
+    def test_states_filter_by_country(self, client):
+        countries = client.get(f"{self.BASE}/countries").json()
+        country_pk = countries[0]["country_pk"]
+        resp = client.get(f"{self.BASE}/states", params={"country_pk": country_pk})
+        assert resp.status_code == 200
+        assert all(s["country_pk"] == country_pk for s in resp.json())
+
+    def test_states_without_filter_is_superset_of_filtered(self, client):
+        everything = client.get(f"{self.BASE}/states").json()
+        country_pk = client.get(f"{self.BASE}/countries").json()[0]["country_pk"]
+        filtered = client.get(f"{self.BASE}/states", params={"country_pk": country_pk}).json()
+        assert len(everything) >= len(filtered)
+
+    def test_districts_filter_by_state(self, client, reg_address):
+        resp = client.get(f"{self.BASE}/districts", params={"state_pk": reg_address["state_pk"]})
+        assert resp.status_code == 200
+        districts = resp.json()
+        assert reg_address["district_pk"] in {d["district_pk"] for d in districts}
+        assert all(d["state_pk"] == reg_address["state_pk"] for d in districts)
+
+    def test_cities_filter_by_district(self, client, reg_address, write_conn):
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO nss.city_village
+                    (district_pk, city_village_code, city_village_name, city_village_type)
+                VALUES (%s, %s, %s, 'CITY') RETURNING city_village_pk
+            """, (reg_address["district_pk"], f"LKC{uuid4().hex[:8].upper()}",
+                  f"LookupCity{uuid4().hex[:6]}"))
+            cv_pk = str(cur.fetchone()[0])
+        resp = client.get(f"{self.BASE}/cities", params={"district_pk": reg_address["district_pk"]})
+        assert resp.status_code == 200
+        cities = resp.json()
+        assert cv_pk in {c["city_village_pk"] for c in cities}
+        assert all(c["district_pk"] == reg_address["district_pk"] for c in cities)
+
+    def test_cities_hide_pending_entries(self, client, reg_address, write_conn):
+        """A member-typed (PENDING) village is quarantined from the shared dropdown."""
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO nss.city_village
+                    (district_pk, city_village_code, city_village_name, city_village_type,
+                     entry_status)
+                VALUES (%s, %s, %s, 'CITY', 'PENDING') RETURNING city_village_pk
+            """, (reg_address["district_pk"], f"LKP{uuid4().hex[:8].upper()}",
+                  f"PendingCity{uuid4().hex[:6]}"))
+            pending_pk = str(cur.fetchone()[0])
+        cities = client.get(
+            f"{self.BASE}/cities", params={"district_pk": reg_address["district_pk"]},
+        ).json()
+        assert pending_pk not in {c["city_village_pk"] for c in cities}
+
+    def test_postal_codes_filter_by_state(self, client, reg_address, write_conn):
+        pin = str(900000 + uuid4().int % 99999)
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO nss.postal_code (state_pk, postal_code, entry_status)
+                VALUES (%s, %s, 'APPROVED') RETURNING postal_code_pk
+            """, (reg_address["state_pk"], pin))
+            pc_pk = str(cur.fetchone()[0])
+        resp = client.get(f"{self.BASE}/postal-codes", params={"state_pk": reg_address["state_pk"]})
+        assert resp.status_code == 200
+        codes = resp.json()
+        assert pc_pk in {p["postal_code_pk"] for p in codes}
+        assert all(p["state_pk"] == reg_address["state_pk"] for p in codes)
+
+    def test_post_offices_for_pin_list_only_approved(self, client, reg_address, write_conn):
+        pin = str(800000 + uuid4().int % 99999)
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO nss.postal_code (state_pk, postal_code, entry_status)
+                VALUES (%s, %s, 'APPROVED') RETURNING postal_code_pk
+            """, (reg_address["state_pk"], pin))
+            pc_pk = str(cur.fetchone()[0])
+            cur.execute("""
+                INSERT INTO nss.post_office (postal_code_pk, post_office_name, entry_status)
+                VALUES (%s, 'Approved PO', 'APPROVED'), (%s, 'Pending PO', 'PENDING')
+            """, (pc_pk, pc_pk))
+        resp = client.get(f"{self.BASE}/post-offices", params={"postal_code_pk": pc_pk})
+        assert resp.status_code == 200
+        names = [p["post_office_name"] for p in resp.json()]
+        assert names == ["Approved PO"]
+
+    def test_post_offices_unknown_pin_is_empty_list(self, client):
+        resp = client.get(
+            f"{self.BASE}/post-offices",
+            params={"postal_code_pk": "00000000-0000-0000-0000-000000000099"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_post_offices_requires_postal_code_pk(self, client):
+        assert client.get(f"{self.BASE}/post-offices").status_code == 422
+
+    def test_sakhas_are_all_sakha_sangha(self, client):
+        resp = client.get(f"{self.BASE}/sakhas")
+        assert resp.status_code == 200
+        sakhas = resp.json()
+        assert sakhas and all(s["organization_type_code"] == "SAKHA_SANGHA" for s in sakhas)
+
+    def test_sakhas_geographic_filter_narrows(self, client):
+        everything = client.get(f"{self.BASE}/sakhas").json()
+        country_pk = next((s["country_pk"] for s in everything if s.get("country_pk")), None)
+        if country_pk is None:
+            pytest.skip("No Sakha carries a country_pk to filter on.")
+        narrowed = client.get(f"{self.BASE}/sakhas", params={"country_pk": country_pk}).json()
+        assert narrowed
+        assert len(narrowed) <= len(everything)
+        assert all(s["country_pk"] == country_pk for s in narrowed)
+
+    def test_sakhas_unmatched_geography_is_empty(self, client):
+        resp = client.get(
+            f"{self.BASE}/sakhas",
+            params={"postal_code_pk": "00000000-0000-0000-0000-000000000099"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.parametrize("path,param", [
+        ("states", "country_pk"), ("districts", "state_pk"), ("cities", "district_pk"),
+        ("postal-codes", "state_pk"), ("post-offices", "postal_code_pk"),
+        ("sakhas", "state_pk"),
+    ])
+    def test_malformed_uuid_filter_is_422(self, client, path, param):
+        assert client.get(f"{self.BASE}/{path}", params={param: "not-a-uuid"}).status_code == 422

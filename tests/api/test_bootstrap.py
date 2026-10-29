@@ -124,3 +124,55 @@ class TestRolePermissions:
         response = client.get("/api/v1/bootstrap/roles/not-a-uuid/permissions")
         assert response.status_code == 422
 
+
+    def test_role_permissions_match_the_seeded_matrix(self, client):
+        """The role -> permission junction is what RBAC enforcement reads: NSS_ERP_ADMIN holds
+        the admin-management permissions, the read-only REPORT_VIEWER role does not."""
+        roles = {r["role_code"]: r["role_master_pk"] for r in client.get("/api/v1/bootstrap/roles").json()}
+        if "NSS_ERP_ADMIN" not in roles or "NSS_ERP_REPORT_VIEWER" not in roles:
+            pytest.skip("Seeded NSS_ERP_ADMIN / NSS_ERP_REPORT_VIEWER roles are missing.")
+
+        def codes(role_code):
+            resp = client.get(f"/api/v1/bootstrap/roles/{roles[role_code]}/permissions")
+            assert resp.status_code == 200
+            return {p["permission_code"] for p in resp.json()}
+
+        admin = codes("NSS_ERP_ADMIN")
+        viewer = codes("NSS_ERP_REPORT_VIEWER")
+        assert {"ADMIN_USER_MANAGE", "ADMIN_ROLE_MANAGE", "AUDIT_VIEW"} <= admin
+        assert "ADMIN_USER_MANAGE" not in viewer
+        assert "ADMIN_ROLE_MANAGE" not in viewer
+
+    def test_every_role_permission_is_a_known_active_permission(self, client):
+        known = {p["permission_code"] for p in client.get("/api/v1/bootstrap/permissions").json()}
+        for role in client.get("/api/v1/bootstrap/roles").json():
+            resp = client.get(f"/api/v1/bootstrap/roles/{role['role_master_pk']}/permissions")
+            assert resp.status_code == 200
+            assert {p["permission_code"] for p in resp.json()} <= known
+
+
+class TestPermissionShape:
+    """GET /api/v1/bootstrap/permissions — response contract."""
+
+    def test_permissions_have_required_fields_and_unique_codes(self, client):
+        permissions = client.get("/api/v1/bootstrap/permissions").json()
+        if not permissions:
+            pytest.skip("permission_master is empty.")
+        required = {"permission_master_pk", "permission_code", "permission_name",
+                    "module_code", "display_order", "is_active"}
+        assert all(required <= p.keys() for p in permissions)
+        assert all(p["is_active"] for p in permissions)
+        codes = [p["permission_code"] for p in permissions]
+        assert len(codes) == len(set(codes))
+
+    def test_permissions_include_the_gates_the_routers_depend_on(self, client):
+        codes = {p["permission_code"] for p in client.get("/api/v1/bootstrap/permissions").json()}
+        needed = {"ADMIN_USER_VIEW", "ADMIN_USER_MANAGE", "ADMIN_ROLE_MANAGE", "MEMBERSHIP_APPROVE",
+                  "FOUNDATION_MANAGE", "GEO_ENTRY_APPROVE", "AUDIT_VIEW", "PERSON_MANAGE",
+                  "ORGANIZATION_VIEW", "MEMBERSHIP_MANAGE"}
+        assert needed <= codes, f"Routers reference permissions missing from the seed: {needed - codes}"
+
+
+class TestHealthMethods:
+    def test_health_rejects_non_get(self, client):
+        assert client.post("/api/v1/bootstrap/health").status_code == 405

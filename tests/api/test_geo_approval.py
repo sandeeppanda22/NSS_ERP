@@ -31,6 +31,8 @@ import random
 import pytest
 from uuid import uuid4
 
+from tests.registration_support import add_user_account
+
 
 pytestmark = pytest.mark.integration
 
@@ -642,3 +644,233 @@ class TestCorrectGeoEntry:
                 (entry_pk,),
             )
             assert cur.fetchone()[0] == "PENDING", "Denied correction must not mutate status."
+
+
+# ── Remaining endpoint x edge-case matrix ────────────────────────────────
+
+UNKNOWN_PK = "00000000-0000-0000-0000-0000000000dd"
+
+
+class TestGeoEntryListEdges:
+
+    URL = "/api/v1/admin/geo-entries/{}"
+
+    @pytest.mark.parametrize("params", [
+        {"status": "BOGUS"}, {"status": "pending"}, {"page": 0},
+        {"page_size": 0}, {"page_size": 101},
+    ])
+    def test_invalid_query_is_422(self, client, foundation_admin_tokens, params):
+        resp = client.get(self.URL.format("district"), headers=_auth(foundation_admin_tokens),
+                          params=params)
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize("entry_status", ["PENDING", "APPROVED", "CORRECTED"])
+    def test_status_filter_only_returns_that_status(
+        self, client, foundation_admin_tokens, entry_status
+    ):
+        resp = client.get(self.URL.format("district"), headers=_auth(foundation_admin_tokens),
+                          params={"status": entry_status, "page_size": 5})
+        assert resp.status_code == 200
+        assert all(r["entry_status"] == entry_status for r in resp.json()["entries"])
+
+    def test_approved_entry_leaves_pending_queue(
+        self, client, foundation_admin_tokens, submitters, anchors, write_conn
+    ):
+        entry_pk = _insert_pending(write_conn, "district", submitters["org_a"], anchors)
+        url = self.URL.format("district")
+
+        def queue(status_value):
+            body = client.get(url, headers=_auth(foundation_admin_tokens),
+                              params={"status": status_value, "page_size": 100}).json()
+            return {r["entry_pk"] for r in body["entries"]}
+
+        before = queue("PENDING")
+        assert client.post(f"{url}/{entry_pk}/approve", headers=_auth(foundation_admin_tokens),
+                           json={}).status_code == 200
+        assert entry_pk in before or len(before) >= 100
+        assert entry_pk not in queue("PENDING")
+
+
+class TestGeoEntryNotFoundAndValidation:
+
+    BASE = "/api/v1/admin/geo-entries"
+
+    def test_unknown_entity_is_404_on_every_verb(self, client, foundation_admin_tokens):
+        h = _auth(foundation_admin_tokens)
+        assert client.get(f"{self.BASE}/nope/{UNKNOWN_PK}", headers=h).status_code == 404
+        assert client.post(f"{self.BASE}/nope/{UNKNOWN_PK}/approve", headers=h, json={}).status_code == 404
+        assert client.post(f"{self.BASE}/nope/{UNKNOWN_PK}/correct", headers=h, json={
+            "corrected_value": {}, "admin_remarks": "x"}).status_code == 404
+
+    @pytest.mark.parametrize("entity", ENTITIES)
+    def test_unknown_entry_pk_is_404(self, client, foundation_admin_tokens, entity):
+        h = _auth(foundation_admin_tokens)
+        assert client.get(f"{self.BASE}/{entity}/{UNKNOWN_PK}", headers=h).status_code == 404
+        assert client.post(f"{self.BASE}/{entity}/{UNKNOWN_PK}/approve", headers=h, json={}).status_code == 404
+        corrected = client.post(f"{self.BASE}/{entity}/{UNKNOWN_PK}/correct", headers=h, json={
+            "corrected_value": _correction_value(entity), "admin_remarks": "x"})
+        assert corrected.status_code == 404
+
+    def test_malformed_entry_pk_is_422(self, client, foundation_admin_tokens):
+        h = _auth(foundation_admin_tokens)
+        assert client.get(f"{self.BASE}/district/not-a-uuid", headers=h).status_code == 422
+        assert client.post(f"{self.BASE}/district/not-a-uuid/approve", headers=h, json={}).status_code == 422
+
+    @pytest.mark.parametrize("body", [
+        {"corrected_value": {"district_name": "X"}},                        # no remarks
+        {"corrected_value": {"district_name": "X"}, "admin_remarks": ""},   # blank remarks
+        {"admin_remarks": "no value"},                                      # no corrected_value
+        {"corrected_value": "not-an-object", "admin_remarks": "x"},
+        {"corrected_value": {"district_name": "X"}, "admin_remarks": "r" * 501},
+    ])
+    def test_correct_body_validation_is_422(
+        self, client, foundation_admin_tokens, submitters, anchors, write_conn, body
+    ):
+        entry_pk = _insert_pending(write_conn, "district", submitters["org_a"], anchors)
+        resp = client.post(f"{self.BASE}/district/{entry_pk}/correct",
+                           headers=_auth(foundation_admin_tokens), json=body)
+        assert resp.status_code == 422
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT entry_status FROM nss.district WHERE district_pk = %s", (entry_pk,))
+            assert cur.fetchone()[0] == "PENDING"
+
+    @pytest.mark.parametrize("entity,bad_value,fragment", [
+        ("district", {}, "district_name"),
+        ("district", {"district_name": "   "}, "district_name"),
+        ("postal-code", {"postal_code": "12AB"}, "6-digit"),
+        ("postal-code", {}, "6-digit"),
+        ("post-office", {}, "post_office_name"),
+        ("city-village", {}, "city_village_name"),
+        ("city-village", {"city_village_name": "Valid Name", "city_village_type": "HAMLET"},
+         "CITY, TOWN, or VILLAGE"),
+    ])
+    def test_correct_rejects_unusable_corrected_value(
+        self, client, foundation_admin_tokens, submitters, anchors, write_conn,
+        entity, bad_value, fragment
+    ):
+        entry_pk = _insert_pending(write_conn, entity, submitters["org_a"], anchors)
+        resp = client.post(f"{self.BASE}/{entity}/{entry_pk}/correct",
+                           headers=_auth(foundation_admin_tokens),
+                           json={"corrected_value": bad_value, "admin_remarks": "bad value"})
+        assert resp.status_code == 422
+        assert fragment in resp.json()["detail"]
+
+    def test_approve_records_reviewer_and_remarks(
+        self, client, foundation_admin_tokens, submitters, anchors, write_conn
+    ):
+        entry_pk = _insert_pending(write_conn, "district", submitters["org_a"], anchors)
+        resp = client.post(f"{self.BASE}/district/{entry_pk}/approve",
+                           headers=_auth(foundation_admin_tokens),
+                           json={"admin_remarks": "checked against the census list"})
+        assert resp.status_code == 200
+        assert resp.json()["admin_remarks"] == "checked against the census list"
+        assert resp.json()["reviewed_by_sangha_sevi_pk"]
+
+    def test_approve_already_corrected_entry_is_422(
+        self, client, foundation_admin_tokens, submitters, anchors, write_conn
+    ):
+        entry_pk = _insert_pending(write_conn, "district", submitters["org_a"], anchors)
+        assert client.post(
+            f"{self.BASE}/district/{entry_pk}/correct", headers=_auth(foundation_admin_tokens),
+            json={"corrected_value": _correction_value("district"), "admin_remarks": "fix"},
+        ).status_code == 200
+        resp = client.post(f"{self.BASE}/district/{entry_pk}/approve",
+                           headers=_auth(foundation_admin_tokens), json={})
+        assert resp.status_code == 422
+        assert "CORRECTED" in resp.json()["detail"]
+
+    def test_correct_repoints_person_address_at_the_canonical_row(
+        self, client, foundation_admin_tokens, submitters, anchors, write_conn
+    ):
+        """FND-BR-088: addresses that referenced the typed-in value follow the correction."""
+        entry_pk = _insert_pending(write_conn, "city-village", submitters["org_a"], anchors)
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT person_pk FROM nss.sangha_sevi WHERE sangha_sevi_pk = %s",
+                        (submitters["org_a"],))
+            person_pk = cur.fetchone()[0]
+            cur.execute("""
+                SELECT md.master_data_pk FROM nss.master_data md
+                JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+                WHERE mc.category_code = 'ADDRESS_TYPE' AND md.value_code = 'PERMANENT'
+                  AND md.is_active = TRUE LIMIT 1
+            """)
+            address_type_pk = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO nss.person_address (
+                    person_pk, address_type_master_data_pk, address_line_1,
+                    city_village_pk, is_primary
+                ) VALUES (%s, %s, '1 Geo Test Lane', %s, TRUE) RETURNING person_address_pk
+            """, (str(person_pk), str(address_type_pk), entry_pk))
+            address_pk = cur.fetchone()[0]
+
+        resp = client.post(f"{self.BASE}/city-village/{entry_pk}/correct",
+                           headers=_auth(foundation_admin_tokens),
+                           json={"corrected_value": _correction_value("city-village"),
+                                 "admin_remarks": "normalised spelling"})
+        assert resp.status_code == 200, resp.json()
+        canonical_pk = resp.json()["canonical_pk"]
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT city_village_pk FROM nss.person_address WHERE person_address_pk = %s",
+                        (address_pk,))
+            assert str(cur.fetchone()[0]) == canonical_pk
+
+
+class TestRegistrationOriginEntryScope:
+    """
+    Entries auto-created at self-registration carry submitted_by_person_pk and have no
+    sangha_sevi yet; the scope anchor is then the submitter's PENDING claim's Sakha.
+    """
+
+    @pytest.fixture
+    def person_entries(self, write_conn, sakha_orgs, anchors):
+        """(entry in org_a's claim, entry in org_b's claim) — both person-submitted."""
+        from tests.api.test_admin_credentials import _create_person
+        out = {}
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                SELECT md.master_data_pk FROM nss.master_data md
+                JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+                WHERE mc.category_code = 'MEMBERSHIP_TYPE' AND md.value_code = 'PROBATIONARY'
+                  AND md.is_active = TRUE LIMIT 1
+            """)
+            type_pk = str(cur.fetchone()[0])
+        for key in ("org_a", "org_b"):
+            person_pk = str(_create_person(write_conn, "GEOP"))
+            ua_pk = add_user_account(write_conn, person_pk, SCOPED_PASSWORD)
+            sfx = uuid4().hex[:6]
+            with write_conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO nss.registration_claim (
+                        user_account_pk, person_pk, claimed_organization_pk,
+                        claimed_membership_type_master_data_pk,
+                        claimed_local_sakha_number, claim_status
+                    ) VALUES (%s, %s, %s, %s, 'G1', 'PENDING')
+                """, (ua_pk, person_pk, sakha_orgs[key], type_pk))
+                cur.execute("""
+                    INSERT INTO nss.city_village
+                        (district_pk, postal_code_pk, city_village_code, city_village_name,
+                         city_village_type, entry_status, submitted_by_person_pk)
+                    VALUES (%s, %s, %s, %s, 'VILLAGE', 'PENDING', %s)
+                    RETURNING city_village_pk
+                """, (anchors["district_pk"], anchors["postal_code_pk"], f"GP{sfx}",
+                      f"Personvillage {sfx}", person_pk))
+                out[key] = str(cur.fetchone()[0])
+        return out
+
+    def test_scoped_admin_reaches_entry_via_pending_claim_org(
+        self, client, scoped_foundation_admin_tokens, person_entries
+    ):
+        url = f"/api/v1/admin/geo-entries/city-village/{person_entries['org_b']}"
+        assert client.get(url, headers=_auth(scoped_foundation_admin_tokens)).status_code == 200
+
+    def test_scoped_admin_denied_entry_whose_claim_is_elsewhere(
+        self, client, scoped_foundation_admin_tokens, person_entries, write_conn
+    ):
+        pk = person_entries["org_a"]
+        base = f"/api/v1/admin/geo-entries/city-village/{pk}"
+        assert client.get(base, headers=_auth(scoped_foundation_admin_tokens)).status_code == 403
+        denied = client.post(f"{base}/approve", headers=_auth(scoped_foundation_admin_tokens), json={})
+        assert denied.status_code == 403
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT entry_status FROM nss.city_village WHERE city_village_pk = %s", (pk,))
+            assert cur.fetchone()[0] == "PENDING"

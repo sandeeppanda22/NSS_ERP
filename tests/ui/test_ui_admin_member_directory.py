@@ -5,8 +5,8 @@ Covers the per-member detail card (opened by clicking a directory row →
 viewMember → mdSelected) and its membership-change entry points:
 "Sakha Transfer" and "Apply for Darshak". Those are per-person actions —
 they live on the selected member's detail card, not the org-level Quick
-Actions grid — and open a notice that the workflow is handled by the
-(forthcoming) Governance module rather than posting to a missing endpoint.
+Actions grid — and open a notice pointing to where the member files the request (their
+dashboard Membership tab) and where it is reviewed ("Sakha Transfer / Darshak").
 
 Alpine.js app: adminApp()
 Tab: activeTab = 'memberDir'
@@ -67,7 +67,7 @@ def test_selected_member_shows_change_actions(admin_page, base_url):
 
 
 def test_apply_darshak_shows_governance_notice(admin_page, base_url):
-    """Clicking 'Apply for Darshak' on a member opens the Governance notice."""
+    """Clicking 'Apply for Darshak' on a member opens the redirect notice (member files it themself)."""
     _goto_member_directory(admin_page, base_url)
     if not _select_first_member(admin_page):
         pytest.skip("No members seeded in the directory")
@@ -75,13 +75,15 @@ def test_apply_darshak_shows_governance_notice(admin_page, base_url):
     overlay = admin_page.locator("#nss-dialog-overlay")
     expect(overlay).to_be_visible()
     message = admin_page.locator("#nss-dialog-message")
-    assert "Governance" in (message.text_content() or ""), (
-        "Darshak notice should mention the Governance module"
+    text = message.text_content() or ""
+    assert "Sakha Transfer / Darshak" in text and "Apply for Darshak" in text, (
+        "Darshak notice should point to the member dashboard flow and the "
+        "'Sakha Transfer / Darshak' review queue"
     )
 
 
 def test_sakha_transfer_shows_governance_notice(admin_page, base_url):
-    """Clicking 'Sakha Transfer' on a member opens the Governance notice."""
+    """Clicking 'Sakha Transfer' on a member opens the redirect notice (member files it themself)."""
     _goto_member_directory(admin_page, base_url)
     if not _select_first_member(admin_page):
         pytest.skip("No members seeded in the directory")
@@ -89,6 +91,8 @@ def test_sakha_transfer_shows_governance_notice(admin_page, base_url):
     overlay = admin_page.locator("#nss-dialog-overlay")
     expect(overlay).to_be_visible()
     message = admin_page.locator("#nss-dialog-message")
-    assert "Governance" in (message.text_content() or ""), (
-        "Sakha transfer notice should mention the Governance module"
+    text = message.text_content() or ""
+    assert "Sakha Transfer / Darshak" in text and "Request Sakha Transfer" in text, (
+        "Sakha transfer notice should point to the member dashboard flow and "
+        "the 'Sakha Transfer / Darshak' review queue"
     )

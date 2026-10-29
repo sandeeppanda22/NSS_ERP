@@ -22,7 +22,9 @@ tests/
 │   ├── test_correspondence.py # Tier 6 — Correspondence Register API: register/list/detail/documents/finance refs, org scope, dispatch/broadcast/reply/event-driven lifecycle (77 tests)
 │   ├── test_error_messages.py # Human-readable validation/integrity-error messages (15 tests)
 │   ├── test_family.py        # Tier 4 — family list, detail, members (52 tests)
-│   ├── test_family_ownership.py # Tier 5 — role-less-JWT ownership path: graph, add/remove
+│   ├── test_core_read_gaps.py # organization selectable/wings/wing members, membership directory/darshak-summary, person search-selectable (written, NOT yet run against the DB)
+│   ├── test_foundation_writes.py # Foundation POST/PATCH (master-data, settings, sequences, festival calendar), propose endpoints, post-offices/sakha-postal-codes/festivals reads (written, NOT yet run)
+│   ├── test_family_ownership.py # Tier 5 — role-less-JWT ownership path (also membership-summary, create/add/remove/link/admin/transfer rules, FAM-036 majority; new classes written, NOT yet run): graph, add/remove
 │   │                          #   member, admin assign/revoke, transfer-head (20 tests)
 │   ├── test_forgot_password.py  # Tier 5 — forgot/reset password (6 tests)
 │   ├── test_foundation.py    # Tier 1 — master data, config, geographic, propose endpoints (52 tests)
@@ -42,6 +44,7 @@ tests/
 │   │                          #   uniqueness, one-active-per-member, validity CHECK,
 │   │                          #   credential_sequence_counter uniqueness (6 tests)
 │   ├── test_data_integrity.py  # Cross-module entity smoke tests (23 tests)
+│   ├── test_organization_schema.py # ORG-BR-099 premises-address trigger (written, NOT yet run)
 │   └── test_festival_schema.py # festival_master / festival_calendar_date schema + resolver helpers (14 tests)
 │
 ├── security/            # Cross-tier security assertions (added after the api/db/ui split
@@ -54,7 +57,8 @@ tests/
 │   ├── test_forgot_password_security.py # Forgot-password rate-limit/anti-enumeration (6 tests)
 │   ├── test_governance_security.py    # Governance endpoint auth/RBAC/org-scope gating (13 tests)
 │   ├── test_membership_change_request_security.py # Membership-change-request gating (11 tests)
-│   ├── test_organization_stats_security.py # /organizations/{pk}/stats scope enforcement, ADMIN-BR-076 (4 tests)
+│   ├── test_core_modules_security.py  # 401/403 matrix over all 74 foundation/organization/person/membership/family endpoints + self-or-permission (written, NOT yet run)
+│   ├── test_organization_stats_security.py # /organizations/{pk}/stats and /wings scope enforcement, ADMIN-BR-076
 │   ├── test_registration_security.py  # Registration endpoint gating (3 tests)
 │   └── test_security_headers.py       # Headers, CSP, rate limiting, CORS, DEBUG_MODE (33 tests)
 │
@@ -204,7 +208,7 @@ pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok
 - `pytest` and `httpx` installed
 
 ### UI tests (additional)
-- Local server running: `python3 -m uvicorn api.main:app --port 8001`
+- Server: started automatically by the session; log in `ui_test_server.log` (`_ui_server` in `tests/ui/conftest.py`: free port, live reload off, relaxed rate limit, stopped at the end). Use `NSS_UI_BASE_URL=...` to test a server you run yourself, or `NSS_UI_NO_SERVER=1` for the old `http://127.0.0.1:8001` behaviour.
 - Playwright + Chromium installed:
   ```bash
   pip install pytest-playwright
@@ -222,7 +226,10 @@ pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok
   finishes, by finding every `nss.person` row with an `@example.com` email (the
   marker `test_ui_06_register_submit.py`/`test_ui_07_admin_write.py` tag every
   test person with) and walking its dependents down to `person` itself, in FK
-  order (no table in this schema has `ON DELETE CASCADE`). Any **new** UI test
+  order (no table in this schema has `ON DELETE CASCADE`). The deletes need the
+  schema owner: set `DB_OWNER_USER=nss_db_owner` and `DB_OWNER_PASSWORD=...` in
+  `api/.env` (`nss_db_writer` has no DELETE privilege); without them cleanup is
+  skipped with a warning. Any **new** UI test
   that writes through a different table chain (e.g. a future Darshak-attendance
   or governance UI test) must extend `_SANGHA_SEVI_DEPENDENT_TABLES` /
   `_USER_ACCOUNT_DEPENDENT_TABLES` there, or use the same `@example.com` marker
