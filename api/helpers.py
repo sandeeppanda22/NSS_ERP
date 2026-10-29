@@ -288,17 +288,17 @@ def validate_mobile(country_phone_code: str | None, mobile_number: str | None) -
         return
     if not country_phone_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A country phone code (e.g. +91) is required with a mobile number.",
         )
     if not COUNTRY_PHONE_CODE_PATTERN.match(country_phone_code):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Country phone code '{country_phone_code}' is invalid — expected a form like +91.",
         )
     if not mobile_number.isdigit():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Mobile number must contain digits only (no spaces, dashes, or country code).",
         )
 
@@ -307,13 +307,13 @@ def validate_mobile(country_phone_code: str | None, mobile_number: str | None) -
     n = len(mobile_number)
     if n < rule["min"] or n > rule["max"]:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{label} ({country_phone_code}) mobile number must be {rule['hint']} — got {n} digits.",
         )
     pattern = rule.get("pattern")
     if pattern and not re.match(pattern, mobile_number):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"'{mobile_number}' is not a valid {label} ({country_phone_code}) mobile number — expected {rule['hint']}.",
         )
 
@@ -327,7 +327,7 @@ def validate_email(email: str | None) -> None:
         return
     if len(email) > 254 or not EMAIL_PATTERN.match(email):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"'{email}' is not a valid email address.",
         )
 
@@ -480,13 +480,13 @@ def next_correspondence_reference_number(
     row = cur.fetchone()
     if row is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Register organization not found.",
         )
     short_code = row[0]
     if not short_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "This organization has no short code assigned, so a "
                 "correspondence reference number cannot be generated for "
@@ -549,13 +549,17 @@ def next_sakha_local_number(cur, organization_pk: str, *, is_darshak: bool = Fal
     return str(cur.fetchone()[0])
 
 
-def get_master_data_pk(cur, category_code: str, value_code: str) -> str:
+def get_master_data_pk(
+    cur, category_code: str, value_code: str, *, client_supplied: bool = False
+) -> str:
     """
     Resolve a master_data row to its PK by (category_code, value_code) —
     e.g. ("ADDRESS_TYPE", "PERMANENT").
 
     Raises HTTPException 500 when the value is absent, because a missing
     seeded master_data value is a build/seed defect, not a client error.
+    Pass ``client_supplied=True`` when ``value_code`` came from the request:
+    an unknown code is then the caller's mistake and raises 422 instead.
     """
     cur.execute(
         """
@@ -570,6 +574,11 @@ def get_master_data_pk(cur, category_code: str, value_code: str) -> str:
         (category_code, value_code),
     )
     row = cur.fetchone()
+    if row is None and client_supplied:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown {category_code} value '{value_code}'.",
+        )
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -602,7 +611,7 @@ def parse_optional_date(value, field_label: str) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{field_label} must be a valid date in YYYY-MM-DD form.",
         )
 
@@ -658,7 +667,7 @@ def normalize_patra_document_number(
 
     def _reject(detail: str):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail,
         )
 
     parts = [p.strip() for p in supplied.split("/")]
@@ -820,7 +829,7 @@ def dola_purnima_credential_validity_window(
     valid_to = next_festival_date_on_or_after(cur, "DOLA_PURNIMA", search_from)
     if valid_to is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "Cannot determine the credential validity window: no confirmed "
                 f"Dola Purnima date is on file on or after {search_from.isoformat()}. "
@@ -924,7 +933,7 @@ def compose_local_sakha_erp_id(
     short_code, org_name = row[0], row[1]
     if not short_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"Organization '{org_name}' does not have a short_code assigned yet. "
                 "An admin must set the short_code before members can be enrolled."
@@ -933,7 +942,7 @@ def compose_local_sakha_erp_id(
     num = str(local_number).strip()
     if not num:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Local Sakha number is required for non-Darshaka members.",
         )
 
@@ -1473,7 +1482,7 @@ def issue_membership_credential(
                 issue_date = festival_date_for_year(cur, "DOLA_PURNIMA", issue_year)
                 if issue_date is None:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             f"No confirmed Dola Purnima date is on file for {issue_year}. "
                             "An administrator must enter/confirm it in the festival "
@@ -1487,7 +1496,7 @@ def issue_membership_credential(
                 )
                 if issue_date is None:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             "No confirmed Dola Purnima date is on file on or before "
                             f"{date.today().isoformat()}. An administrator must "
@@ -1523,7 +1532,7 @@ def issue_membership_credential(
         prior_valid_to = row[0] if row else None
         if prior_valid_to is not None and prior_valid_to < date.today():
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"This member's Parichaya Patra lapsed on "
                     f"{prior_valid_to.isoformat()} and cannot be renewed late. "
@@ -2210,7 +2219,7 @@ def _validate_master_data_category(cur, master_data_pk, expected_category_code: 
     )
     if cur.fetchone() is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid value for {expected_category_code.lower().replace('_', ' ')}.",
         )
 
@@ -2243,7 +2252,7 @@ def apply_person_profile_update(
         fn = body.first_name.strip()
         if not fn:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="First name cannot be blank.",
             )
         updates["first_name"] = fn.title()

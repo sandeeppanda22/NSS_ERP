@@ -11,8 +11,9 @@ Sakha Admin endpoints for reviewing pending registration claims:
 Flow (approve):
   1. Validate claim is PENDING
   2. Verify admin has scope for the claimed organization
-  3. Require claimed_local_sakha_number (every membership type, incl.
-     Darshaka — MBR-030C namespaces Darshak numbers, doesn't waive them)
+  3. Require claimed_local_sakha_number for non-Darshaka (AUTH-BR-086); a
+     Darshaka claim without one is auto-numbered in the Darshak namespace
+     (MBR-030C / MBR-048)
   4. For Darshaka: generate sangha_sevi_id + create sangha_sevi record
   5. For non-Darshaka: verify claimed_local_sakha_number matches an existing
      sangha_sevi record, or create one with that number
@@ -42,7 +43,7 @@ from api.dependencies.rbac import require_any_permission
 from api.helpers import (
     next_id, get_active_status_pk, compose_local_sakha_erp_id, log_audit,
     build_order_by, natural_sort_key, require_sakha_organization,
-    issue_membership_credential,
+    issue_membership_credential, next_sakha_local_number,
     validate_mobile, validate_email,
     fetch_person_date_of_birth,
 )
@@ -377,6 +378,12 @@ def update_claim(
         claim_params = []
 
         if body.claimed_organization_pk is not None:
+            # ADMIN-BR-076: re-pointing the claim must not hand it to an org
+            # outside the editing admin's scope, and MBR-038A: the claimed org
+            # must be a Sakha — checked now, not only when approve runs.
+            if not org_in_scope(cur, user, body.claimed_organization_pk):
+                raise HTTPException(status_code=403, detail="Not authorized for the new organization.")
+            require_sakha_organization(cur, str(body.claimed_organization_pk))
             claim_sets.append("claimed_organization_pk = %s")
             claim_params.append(str(body.claimed_organization_pk))
         if body.claimed_membership_type_master_data_pk is not None:
@@ -541,15 +548,18 @@ def approve_claim(
         # 3. Determine if Darshaka
         is_darshaka = membership_type_code == "PROBATIONARY"
 
-        # Every claim must carry a Local Sakha Number — Darshaka included.
-        # Darshak members land in a separate short_code+marker namespace
-        # (MBR-030C) at composition below, not exempted from having a
-        # number at all (AUTH-BR-086).
+        # AUTH-BR-086: the Local Sakha Number is REQUIRED for non-Darshaka
+        # claims and OPTIONAL for Darshaka. A Darshaka claim without one gets
+        # the next number in the Sakha's Darshak namespace minted here
+        # (MBR-030C / MBR-048 auto-sequencing) — that is the "system-generated
+        # at admin approval" the registration flow promises.
         if not local_sakha_number:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Claim has no Local Sakha Number. Reject and ask for correction.",
-            )
+            if not is_darshaka:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Claim has no Local Sakha Number. Reject and ask for correction.",
+                )
+            local_sakha_number = next_sakha_local_number(cur, str(org_pk), is_darshak=True)
 
         # Cross-Sakha darshak attendance must carry its own Local Sakha
         # Number at the attending Sakha too — separate namespace from the

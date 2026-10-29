@@ -276,10 +276,20 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
     """
     Shared identity + eligibility check for the lookup and claim endpoints.
 
-    Returns (person_pk, person_id, person_name). Raises HTTPException if the
-    person_id/DOB pair doesn't match, or if this person already has an
-    account, a pending claim, or an active Sangha Sevi — all of which mean
-    this flow no longer applies to them.
+    Returns (person_pk, person_id, person_name, existing_account) where
+    *existing_account* is None, or (user_account_pk, is_active) of a row that
+    claim_existing() must REUSE (uq_user_account_person is a plain UNIQUE, so
+    a second INSERT for the same person always fails):
+      - an active PENDING_APPROVAL account whose claim was REJECTED
+        (AUTH-BR-093: the rejected claimant keeps the person + account and
+        "may submit a new registration_claim"), or
+      - a soft-deleted account (reactivated, like POST /admin/users does).
+
+    Raises HTTPException if the person_id/DOB pair doesn't match, or if this
+    person already has a live account, a pending claim, or an active Sangha
+    Sevi — all of which mean this flow no longer applies to them. The 409s
+    are only reachable AFTER person_id + DOB both match, i.e. they disclose
+    nothing to a caller who has not already proven the pair.
     """
     cur.execute(
         """
@@ -299,16 +309,6 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
     person_pk, resolved_person_id, person_name = row
 
     cur.execute(
-        "SELECT 1 FROM nss.user_account WHERE person_pk = %s AND is_active = TRUE LIMIT 1",
-        (str(person_pk),),
-    )
-    if cur.fetchone() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This Person ID already has a registered account. Use the login page, or Forgot Password.",
-        )
-
-    cur.execute(
         """
         SELECT 1 FROM nss.registration_claim
         WHERE person_pk = %s AND claim_status = 'PENDING' AND is_active = TRUE
@@ -323,6 +323,35 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
         )
 
     cur.execute(
+        "SELECT user_account_pk, is_active, account_status FROM nss.user_account WHERE person_pk = %s",
+        (str(person_pk),),
+    )
+    account = cur.fetchone()
+    existing_account = None
+    if account is not None:
+        ua_pk, ua_active, ua_status = account
+        if not ua_active:
+            existing_account = (ua_pk, False)
+        else:
+            # AUTH-BR-093: only a PENDING_APPROVAL account that has a REJECTED
+            # claim (and, checked above, no pending one) may resubmit.
+            cur.execute(
+                """
+                SELECT 1 FROM nss.registration_claim
+                WHERE user_account_pk = %s AND claim_status = 'REJECTED' AND is_active = TRUE
+                LIMIT 1
+                """,
+                (str(ua_pk),),
+            )
+            if ua_status == "PENDING_APPROVAL" and cur.fetchone() is not None:
+                existing_account = (ua_pk, True)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This Person ID already has a registered account. Use the login page, or Forgot Password.",
+                )
+
+    cur.execute(
         "SELECT 1 FROM nss.sangha_sevi WHERE person_pk = %s AND is_active = TRUE LIMIT 1",
         (str(person_pk),),
     )
@@ -332,7 +361,7 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
             detail="This Person ID is already a Sangha Sevi. Please log in.",
         )
 
-    return person_pk, resolved_person_id, person_name
+    return person_pk, resolved_person_id, person_name, existing_account
 
 
 @router.post("/lookup-existing", response_model=LookupExistingResponse)
@@ -346,7 +375,7 @@ def lookup_existing(
     membership step instead of re-asking for personal details.
     """
     with conn.cursor() as cur:
-        person_pk, person_id, person_name = _verify_existing_person_for_claim(
+        person_pk, person_id, person_name, _ = _verify_existing_person_for_claim(
             cur, body.person_id, body.date_of_birth
         )
     return LookupExistingResponse(
@@ -405,7 +434,7 @@ def claim_existing(
             )
 
     with conn.cursor() as cur:
-        person_pk, person_id, person_name = _verify_existing_person_for_claim(
+        person_pk, person_id, person_name, existing_account = _verify_existing_person_for_claim(
             cur, body.person_id, body.date_of_birth
         )
 
@@ -434,30 +463,64 @@ def claim_existing(
             days=settings.PASSWORD_EXPIRY_DAYS
         )
 
-        cur.execute(
-            """
-            INSERT INTO nss.user_account (
-                person_pk,
-                password_hash,
-                account_status,
-                force_password_change,
-                password_expires_at
-            ) VALUES (%s, %s, 'PENDING_APPROVAL', FALSE, %s)
-            RETURNING user_account_pk
-            """,
-            (str(person_pk), password_hash_val, password_expires_at),
-        )
-        user_account_pk = cur.fetchone()[0]
+        if existing_account is not None:
+            # Reuse the one-and-only account row for this person
+            # (uq_user_account_person): AUTH-BR-093 resubmission after a
+            # rejection, or a soft-deleted account — reactivated in place,
+            # same shape as POST /admin/users' reactivation branch.
+            user_account_pk = existing_account[0]
+            cur.execute(
+                """
+                UPDATE nss.user_account
+                SET is_active = TRUE,
+                    deleted_at = NULL,
+                    account_status = 'PENDING_APPROVAL',
+                    password_hash = %s,
+                    force_password_change = FALSE,
+                    password_changed_at = NOW(),
+                    password_expires_at = %s,
+                    failed_login_attempts = 0,
+                    locked_until = NULL,
+                    last_failed_login_at = NULL,
+                    updated_at = NOW()
+                WHERE user_account_pk = %s
+                """,
+                (password_hash_val, password_expires_at, str(user_account_pk)),
+            )
+            log_audit(
+                cur,
+                action="REACTIVATE" if not existing_account[1] else "UPDATE",
+                table_name="user_account",
+                record_pk=str(user_account_pk),
+                actor_user_account_pk=str(user_account_pk),
+                module="registration",
+                summary="Reused user account for a resubmitted membership claim",
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO nss.user_account (
+                    person_pk,
+                    password_hash,
+                    account_status,
+                    force_password_change,
+                    password_expires_at
+                ) VALUES (%s, %s, 'PENDING_APPROVAL', FALSE, %s)
+                RETURNING user_account_pk
+                """,
+                (str(person_pk), password_hash_val, password_expires_at),
+            )
+            user_account_pk = cur.fetchone()[0]
 
-        log_audit(
-            cur,
-            action="CREATE",
-            table_name="user_account",
-            record_pk=str(user_account_pk),
-            actor_user_account_pk=str(user_account_pk),
-            module="registration",
-            summary="Created user account via previously-registered membership claim",
-        )
+            log_audit(
+                cur,
+                action="CREATE",
+                table_name="user_account",
+                record_pk=str(user_account_pk),
+                actor_user_account_pk=str(user_account_pk),
+                module="registration",
+                summary="Created user account via previously-registered membership claim",
+            )
 
         record_password_history(cur, str(user_account_pk), password_hash_val, "INITIAL")
 
@@ -803,45 +866,6 @@ def register(
         # of the DEFAULT). Ordering is otherwise unchanged.
         person_pk = str(uuid4())
 
-        # ── 6b. Resolve postal code from text value (lookup/create) ────
-        # Resolved BEFORE city_village (2026-10-21): the PIN disambiguates
-        # the village lookup. Village names repeat within a district (e.g.
-        # 18 distinct "Hosahalli" villages in Tumakuru, one per PIN), so
-        # resolving the village on (name, district) alone would bind the
-        # registrant to an arbitrary one — potentially carrying a PIN that
-        # contradicts the one they just typed.
-        resolved_postal_code_pk = body.postal_code_pk or None
-        if body.postal_code_value and body.state_pk and body.country_pk:
-            pc_val = body.postal_code_value.strip()
-            if pc_val:
-                resolved_postal_code_pk = resolve_or_create_postal_code(
-                    cur, pc_val, body.state_pk, body.country_pk,
-                    pending_submitter_person_pk=person_pk,
-                )
-
-        # ── 6c. Resolve city_village_name → city_village_pk ────────────
-        city_village_pk = None
-        if body.city_village_name and body.district_pk:
-            cv_name = body.city_village_name.strip()
-            if cv_name:
-                city_village_pk = resolve_or_create_city_village(
-                    cur, cv_name, body.district_pk,
-                    pending_submitter_person_pk=person_pk,
-                    postal_code_pk=resolved_postal_code_pk,
-                )
-
-        # ── 6d. Resolve post_office_name → post_office_pk (optional) ───
-        # Scoped to the resolved PIN — a post office cannot exist without
-        # one, so this is skipped entirely until postal_code_pk resolves.
-        resolved_post_office_pk = None
-        if body.post_office_name and resolved_postal_code_pk:
-            po_name = body.post_office_name.strip()
-            if po_name:
-                resolved_post_office_pk = resolve_or_create_post_office(
-                    cur, po_name, resolved_postal_code_pk,
-                    pending_submitter_person_pk=person_pk,
-                )
-
         # ── 7. Insert person ────────────────────────────────────────────
         cur.execute(
             """
@@ -882,11 +906,66 @@ def register(
                 body.country_pk or None,
                 body.state_pk or None,
                 body.district_pk or None,
-                city_village_pk,
-                resolved_postal_code_pk,
+                None,  # city_village_pk — set below, once the geo rows exist
+                None,  # postal_code_pk — set below
             ),
         )
         person_pk = cur.fetchone()[0]
+
+        # ── 7a. Resolve geography AFTER the person row exists ──────────
+        # Newly created city_village/postal_code/post_office rows carry
+        # submitted_by_person_pk=<person_pk> with an immediate FK to
+        # nss.person (16_foundation_audit_fk.sql), so the person row must
+        # already be inserted when they are created; the person's own
+        # city_village_pk/postal_code_pk are then filled in by the UPDATE.
+        # ── 6b. Resolve postal code from text value (lookup/create) ────
+        # Resolved BEFORE city_village (2026-10-21): the PIN disambiguates
+        # the village lookup. Village names repeat within a district (e.g.
+        # 18 distinct "Hosahalli" villages in Tumakuru, one per PIN), so
+        # resolving the village on (name, district) alone would bind the
+        # registrant to an arbitrary one — potentially carrying a PIN that
+        # contradicts the one they just typed.
+        resolved_postal_code_pk = body.postal_code_pk or None
+        if body.postal_code_value and body.state_pk and body.country_pk:
+            pc_val = body.postal_code_value.strip()
+            if pc_val:
+                resolved_postal_code_pk = resolve_or_create_postal_code(
+                    cur, pc_val, body.state_pk, body.country_pk,
+                    pending_submitter_person_pk=person_pk,
+                )
+
+        # ── 6c. Resolve city_village_name → city_village_pk ────────────
+        city_village_pk = None
+        if body.city_village_name and body.district_pk:
+            cv_name = body.city_village_name.strip()
+            if cv_name:
+                city_village_pk = resolve_or_create_city_village(
+                    cur, cv_name, body.district_pk,
+                    pending_submitter_person_pk=person_pk,
+                    postal_code_pk=resolved_postal_code_pk,
+                )
+
+        # ── 6d. Resolve post_office_name → post_office_pk (optional) ───
+        # Scoped to the resolved PIN — a post office cannot exist without
+        # one, so this is skipped entirely until postal_code_pk resolves.
+        resolved_post_office_pk = None
+        if body.post_office_name and resolved_postal_code_pk:
+            po_name = body.post_office_name.strip()
+            if po_name:
+                resolved_post_office_pk = resolve_or_create_post_office(
+                    cur, po_name, resolved_postal_code_pk,
+                    pending_submitter_person_pk=person_pk,
+                )
+
+        if city_village_pk or resolved_postal_code_pk:
+            cur.execute(
+                """
+                UPDATE nss.person
+                   SET city_village_pk = %s, postal_code_pk = %s
+                 WHERE person_pk = %s
+                """,
+                (city_village_pk, resolved_postal_code_pk, person_pk),
+            )
 
         log_audit(
             cur,

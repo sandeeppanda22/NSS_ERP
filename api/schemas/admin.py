@@ -136,6 +136,16 @@ class PersonProfileResponse(BaseModel):
     remarks: str | None = None
 
 
+class SanghaSeviBatchCheckRequest(BaseModel):
+    """POST /api/v1/admin/sangha-sevi/check-batch
+
+    person_pks must be a list of UUIDs (non-UUID / non-list -> 422). An
+    omitted or empty list, or more than 100 entries, yields an empty map
+    (unchanged behaviour).
+    """
+    person_pks: list[UUID] = Field(default_factory=list)
+
+
 class AssignRoleRequest(BaseModel):
     """POST /api/v1/admin/users/{user_account_pk}/roles"""
     role_code: str = Field(

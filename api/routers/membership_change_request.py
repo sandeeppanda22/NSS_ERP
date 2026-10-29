@@ -174,6 +174,11 @@ def create_change_request(
             )
         old_organization_pk = str(home_row[0])
 
+        # Filing on a member's behalf is an admin action on that member's
+        # home Sakha: the filer must hold admin scope over it (ADMIN-BR-076).
+        if not is_self:
+            require_org_in_scope(cur, user, old_organization_pk, "file a change request for this member")
+
         if str(body.new_organization_pk) == old_organization_pk:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -181,6 +186,22 @@ def create_change_request(
             )
 
         require_sakha_organization(cur, str(body.new_organization_pk))
+
+        # One open request per member at a time (also enforced by the partial
+        # unique index uq_mem_change_req_one_open) — a clear 409 instead of a
+        # generic integrity-violation message.
+        cur.execute(
+            """
+            SELECT 1 FROM nss.membership_change_request
+            WHERE sangha_sevi_pk = %s AND status = ANY(%s)
+            """,
+            (str(body.sangha_sevi_pk), list(_OPEN_STATUSES)),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This member already has an open change request; it must be decided before another is filed.",
+            )
 
         cur.execute(
             """
@@ -306,7 +327,12 @@ def get_change_request(
     user: UserContext = Depends(get_current_user),
     conn=Depends(get_connection),
 ) -> ChangeRequestResponse:
-    """Detail access: an admin holding MEMBERSHIP_VIEW/MEMBERSHIP_APPROVE, or the requester themself."""
+    """
+    Detail access: the member themself, or an admin holding MEMBERSHIP_VIEW/
+    MEMBERSHIP_APPROVE whose admin scope covers either side (old or new
+    Sakha) of the request — the same visibility rule list_change_requests()
+    applies.
+    """
     with conn.cursor() as cur:
         cur.execute(_DETAIL_SELECT + " WHERE mcr.membership_change_request_pk = %s", (str(change_request_pk),))
         row = cur.fetchone()
@@ -315,6 +341,8 @@ def get_change_request(
 
         is_self = user.sangha_sevi_pk is not None and str(row[1]) == str(user.sangha_sevi_pk)
         if not is_self and not user.has_any_permission("MEMBERSHIP_VIEW", "MEMBERSHIP_APPROVE"):
+            raise HTTPException(status_code=403, detail="You do not have access to this change request.")
+        if not is_self and not (org_in_scope(cur, user, row[5]) or org_in_scope(cur, user, row[7])):
             raise HTTPException(status_code=403, detail="You do not have access to this change request.")
 
     return _row_to_response(row)
@@ -340,13 +368,15 @@ def source_decision(
             raise HTTPException(status_code=404, detail="Change request not found.")
         current_status, old_org_pk = row
 
+        # Authorization before state: an out-of-scope admin gets 403 whatever
+        # the request's status, never a 422 that discloses it.
+        require_org_in_scope(cur, user, old_org_pk, "release this member's affiliation")
+
         if current_status != "PENDING_SOURCE_RELEASE":
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"This request is {current_status}; a source decision is no longer applicable.",
             )
-
-        require_org_in_scope(cur, user, old_org_pk, "release this member's affiliation")
 
         new_status = "PENDING_DESTINATION_ACCEPT" if body.decision == "RELEASE" else "REJECTED_BY_SOURCE"
         cur.execute(
@@ -415,13 +445,13 @@ def destination_decision(
             raise HTTPException(status_code=404, detail="Change request not found.")
         current_status, sangha_sevi_pk, request_type, old_org_pk, new_org_pk = row
 
+        require_org_in_scope(cur, user, new_org_pk, "accept this member into this Sakha")
+
         if current_status != "PENDING_DESTINATION_ACCEPT":
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"This request is {current_status}; a destination decision is no longer applicable.",
             )
-
-        require_org_in_scope(cur, user, new_org_pk, "accept this member into this Sakha")
 
         if body.decision == "REJECT":
             cur.execute(
@@ -552,6 +582,26 @@ def destination_decision(
                 actor_user_account_pk=str(user.user_account_pk),
                 module="membership_change_request",
                 summary="Recorded Sakha transfer history",
+            )
+
+            # The member's HOME Sakha moves with the transfer: attendance,
+            # correspondence and the directory all resolve "home" through
+            # sangha_sevi.organization_pk, so leaving it on the old Sakha
+            # would strand the member there. (DARSHAK deliberately skips
+            # this — the home Sakha stays.)
+            cur.execute(
+                """
+                UPDATE nss.sangha_sevi
+                SET organization_pk = %s, updated_at = NOW(), updated_by_sangha_sevi_pk = %s
+                WHERE sangha_sevi_pk = %s
+                """,
+                (str(new_org_pk), user.actor_pk, str(sangha_sevi_pk)),
+            )
+            log_audit(
+                cur, action="UPDATE", table_name="sangha_sevi", record_pk=str(sangha_sevi_pk),
+                actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
+                module="membership_change_request",
+                summary="Moved member's home Sakha on transfer",
             )
 
             journey_event_type = "TRANSFER"

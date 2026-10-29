@@ -19,8 +19,6 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 BODY_STATUS_PATTERN = r"^(ACTIVE|RECONSTITUTED|HISTORICAL|INACTIVE)$"
-ASSIGNMENT_STATUS_PATTERN = r"^(ASSIGNED|ACTIVE|ENDED|HISTORICAL|RESIGNED)$"
-ACTING_STATUS_PATTERN = r"^(ASSIGNED|ACTIVE|ENDED|HISTORICAL)$"
 ELECTION_STATUS_PATTERN = r"^(SCHEDULED|NOMINATION|VOTING|COMPLETED|CANCELLED)$"
 ELECTION_TYPE_PATTERN = r"^(ELECTION|NOMINATION)$"
 NOMINATION_STATUS_PATTERN = r"^(NOMINATED|ACCEPTED|WITHDRAWN|REJECTED)$"
@@ -472,7 +470,7 @@ class NominationListResponse(BaseModel):
 # election the voter is stored on the choice row (attributable). One member,
 # one vote PER POSITION is enforced in BOTH modes by the participation ledger.
 # Ballots are IMMUTABLE once cast (DB trigger); they are cleared only via the
-# reset flow (hard DELETE). See database/ddl/08_governance/.
+# reset flow (soft delete). See database/ddl/08_governance/.
 
 class CastVoteRequest(BaseModel):
     """Officer-recorded ballot (GOVERNANCE_MANAGE) — the voter is named."""
@@ -494,7 +492,7 @@ class SelfCastVoteRequest(BaseModel):
 
 class ResetBallotsRequest(BaseModel):
     """
-    Clear cast ballots for an election (GOV-BR-045 reset flow). Hard-DELETEs
+    Clear cast ballots for an election (GOV-BR-045 reset flow). Soft-deletes (is_active=FALSE)
     the choice rows and participation records (ballots are immutable; reset is
     the only way to clear them). Two authorities:
       - PRESIDENT_UNILATERAL: the President resets on their own authority.

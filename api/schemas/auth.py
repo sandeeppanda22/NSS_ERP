@@ -4,10 +4,10 @@ NSS ERP — Authentication Pydantic schemas.
 Request/response models for auth endpoints (Tier 5).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Request schemas ──────────────────────────────────────────────────────
@@ -176,6 +176,18 @@ class UpdateProfileRequest(BaseModel):
     country_phone_code: str | None = Field(None, max_length=10)
     email: str | None = Field(None, max_length=255)
     date_of_birth: str | None = Field(None)
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def _date_of_birth_is_iso(cls, v: str | None) -> str | None:
+        """A malformed date is a 422 here, not a 500 from the DB driver later."""
+        if v is not None and v.strip():
+            try:
+                date.fromisoformat(v.strip())
+            except ValueError:
+                raise ValueError("date_of_birth must be a valid date in YYYY-MM-DD form.")
+        return v
+
     # Name
     first_name: str | None = Field(None, max_length=100)
     middle_name: str | None = Field(None, max_length=100)

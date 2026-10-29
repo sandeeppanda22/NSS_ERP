@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
 from api.dependencies.rbac import require_permission
-from api.helpers import MAX_LIMIT, get_master_data_pk, log_audit, require_entity
+from api.helpers import MAX_LIMIT, get_master_data_pk, log_audit, require_entity, require_sakha_organization
 from api.routers.governance import _CURRENT_ASSIGNMENT_SQL, _person_name_sql
 from api.schemas.attendance import (
     AttendanceRecordListResponse,
@@ -69,6 +69,44 @@ router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 # Only ABSENT counts toward consecutive-absence monitoring (ATT-007);
 # EXCUSED_ABSENCE breaks the chain just like PRESENT (ATT-008/025).
 _CONSECUTIVE_ABSENCE_THRESHOLD = 3
+
+# ATT-025: an ABSENT that falls inside one of the member's approved
+# attendance exceptions (from_date <= puja_date AND (to_date IS NULL OR
+# to_date >= puja_date)) is not an ordinary ABSENT — it breaks the
+# consecutive-absence chain exactly like EXCUSED_ABSENCE. Shared by review
+# detection, the watch list and the member streak so the three never
+# disagree. Expects aliases: a = weekly_sangha_puja_attendance,
+# w = weekly_sangha_puja, md = the status master_data row.
+_EFFECTIVE_STATUS_SQL = """(
+    CASE WHEN md.value_code = 'ABSENT' AND EXISTS (
+        SELECT 1 FROM nss.attendance_exception ex
+        WHERE  ex.sangha_sevi_pk = a.sangha_sevi_pk AND ex.is_active = TRUE
+          AND  ex.from_date <= w.puja_date
+          AND  (ex.to_date IS NULL OR ex.to_date >= w.puja_date)
+    ) THEN 'EXCEPTED' ELSE md.value_code END
+)"""
+
+
+# A member with any non-CLOSED Attendance Review (OPEN/DEFERRED/ESCALATED_*)
+# already has one in flight (ATT-014). %s = SQL expression for the member pk.
+_HAS_OPEN_REVIEW_SQL = """EXISTS (
+    SELECT 1 FROM nss.attendance_review r
+    JOIN nss.master_data rmd ON rmd.master_data_pk = r.review_status_master_data_pk
+    WHERE r.sangha_sevi_pk = %s AND r.is_active = TRUE AND rmd.value_code != 'CLOSED'
+)"""
+
+
+def _require_view_or_self(user: UserContext, sangha_sevi_pk) -> None:
+    """
+    A member may always read their own attendance data; anyone else's needs
+    ATTENDANCE_VIEW (plus admin scope, checked by the caller). Used instead
+    of a blanket require_permission so the self-access promised by the
+    endpoint docstrings is real.
+    """
+    if sangha_sevi_pk is not None and user.sangha_sevi_pk and str(sangha_sevi_pk) == str(user.sangha_sevi_pk):
+        return
+    if not user.has_permission("ATTENDANCE_VIEW"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission required: ATTENDANCE_VIEW")
 
 
 def _require_review_authority(
@@ -132,8 +170,8 @@ def _check_and_open_review(cur, sangha_sevi_pk, trigger_date: date, actor_pk) ->
     write-time per the 2026-10-27 lifecycle amendment — no scheduled job).
     """
     cur.execute(
-        """
-        SELECT md.value_code
+        f"""
+        SELECT {_EFFECTIVE_STATUS_SQL}
         FROM   nss.weekly_sangha_puja_attendance a
         JOIN   nss.weekly_sangha_puja w ON w.weekly_sangha_puja_pk = a.weekly_sangha_puja_pk
         JOIN   nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
@@ -150,17 +188,8 @@ def _check_and_open_review(cur, sangha_sevi_pk, trigger_date: date, actor_pk) ->
     # An existing non-terminal review already covers this member — don't
     # open a duplicate (DB can't express this as a constraint; see
     # 05_attendance_table_design.md's 2026-10-27 amendment).
-    cur.execute(
-        """
-        SELECT 1
-        FROM   nss.attendance_review r
-        JOIN   nss.master_data md ON md.master_data_pk = r.review_status_master_data_pk
-        WHERE  r.sangha_sevi_pk = %s AND r.is_active = TRUE
-          AND  md.value_code != 'CLOSED'
-        """,
-        (str(sangha_sevi_pk),),
-    )
-    if cur.fetchone() is not None:
+    cur.execute(f"SELECT {_HAS_OPEN_REVIEW_SQL % '%s'}", (str(sangha_sevi_pk),))
+    if cur.fetchone()[0]:
         return
 
     organization_pk = _member_home_org(cur, sangha_sevi_pk)
@@ -186,9 +215,9 @@ _REVIEW_SELECT_SQL = f"""
     SELECT r.review_pk, r.sangha_sevi_pk, s.sangha_sevi_id, {_person_name_sql('p')},
            r.organization_pk, o.organization_name, r.trigger_date, r.consecutive_absences,
            md.value_code, md.value_name, r.assigned_to_role,
-           r.closed_by_sangha_sevi_pk, {_person_name_sql('cp')},
-           r.deferred_by_sangha_sevi_pk, {_person_name_sql('dp')},
-           r.escalated_by_sangha_sevi_pk, {_person_name_sql('ep')},
+           r.closed_by_sangha_sevi_pk, NULLIF({_person_name_sql('cp')}, ''),
+           r.deferred_by_sangha_sevi_pk, NULLIF({_person_name_sql('dp')}, ''),
+           r.escalated_by_sangha_sevi_pk, NULLIF({_person_name_sql('ep')}, ''),
            r.remarks, r.created_at, r.updated_at
     FROM   nss.attendance_review r
     JOIN   nss.sangha_sevi s ON s.sangha_sevi_pk = r.sangha_sevi_pk
@@ -250,6 +279,7 @@ def create_puja(
     with conn.cursor() as cur:
         require_org_in_scope(cur, user, body.sakha_pk, "create a Weekly Sangha Puja event")
         require_entity(cur, "organization", str(body.sakha_pk), label="Sakha")
+        require_sakha_organization(cur, str(body.sakha_pk))  # ATT-004: a puja is held at a Sakha
         try:
             cur.execute(
                 """
@@ -377,6 +407,11 @@ def mark_attendance(
             raise HTTPException(status_code=404, detail="Weekly Sangha Puja event not found.")
         puja_sakha_pk, puja_date = row
         require_org_in_scope(cur, user, puja_sakha_pk, "mark attendance for this Sakha")
+        if puja_date > date.today():
+            raise HTTPException(
+                status_code=422,
+                detail="Attendance cannot be marked before the puja date (the event is still SCHEDULED).",
+            )
 
         status_pks = {
             code: get_master_data_pk(cur, "ATTENDANCE_STATUS", code)
@@ -390,7 +425,23 @@ def mark_attendance(
                     status_code=422,
                     detail=f"Unknown attendance status: {item.attendance_status_code}",
                 )
+            # Re-marking an already-EXCUSED record to anything else revokes an
+            # approval — same seat requirement as correct_attendance().
+            if item.attendance_status_code != "EXCUSED_ABSENCE":
+                cur.execute(
+                    """
+                    SELECT 1 FROM nss.weekly_sangha_puja_attendance a
+                    JOIN nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
+                    WHERE a.weekly_sangha_puja_pk = %s AND a.sangha_sevi_pk = %s
+                      AND a.is_active = TRUE AND md.value_code = 'EXCUSED_ABSENCE'
+                    """,
+                    (str(weekly_sangha_puja_pk), str(item.sangha_sevi_pk)),
+                )
+                if cur.fetchone() is not None:
+                    _require_review_authority(cur, user, puja_sakha_pk, "approve or revoke an Excused Absence")
             attendance_sakha_pk = str(item.attendance_sakha_pk or puja_sakha_pk)
+            if item.attendance_sakha_pk is not None:
+                require_sakha_organization(cur, attendance_sakha_pk)  # ATT-028
             cur.execute(
                 """
                 INSERT INTO nss.weekly_sangha_puja_attendance
@@ -401,6 +452,7 @@ def mark_attendance(
                     attendance_status_master_data_pk = EXCLUDED.attendance_status_master_data_pk,
                     attendance_sakha_pk = EXCLUDED.attendance_sakha_pk,
                     remarks = EXCLUDED.remarks,
+                    is_active = TRUE, deleted_at = NULL, deleted_by_sangha_sevi_pk = NULL,
                     updated_at = NOW(),
                     updated_by_sangha_sevi_pk = %s
                 RETURNING attendance_pk
@@ -432,15 +484,18 @@ def correct_attendance(
     Correct a previously-marked attendance record (Lifecycle §6, "Status
     Correction"). Setting the new status to EXCUSED_ABSENCE is an
     approval action (ATT-008/025) — gated on the real Secretary/President
-    seat, same as creating an Exception; PRESENT<->ABSENT corrections only
-    need ATTENDANCE_MANAGE in scope. Original row never deleted (ATT-039).
+    seat, same as creating an Exception — and so is changing a record AWAY
+    from EXCUSED_ABSENCE (otherwise a marker could silently undo an
+    approval); PRESENT<->ABSENT corrections only need ATTENDANCE_MANAGE in
+    scope. Original row never deleted (ATT-039).
     """
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT a.sangha_sevi_pk, w.sakha_pk, w.puja_date
+            SELECT a.sangha_sevi_pk, w.sakha_pk, w.puja_date, cmd.value_code
             FROM   nss.weekly_sangha_puja_attendance a
             JOIN   nss.weekly_sangha_puja w ON w.weekly_sangha_puja_pk = a.weekly_sangha_puja_pk
+            JOIN   nss.master_data cmd ON cmd.master_data_pk = a.attendance_status_master_data_pk
             WHERE  a.attendance_pk = %s AND a.is_active = TRUE
             """,
             (str(attendance_pk),),
@@ -448,12 +503,11 @@ def correct_attendance(
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Attendance record not found.")
-        sangha_sevi_pk, sakha_pk, puja_date = row
+        sangha_sevi_pk, sakha_pk, puja_date, current_code = row
         require_org_in_scope(cur, user, sakha_pk, "correct attendance for this Sakha")
-        if body.attendance_status_code == "EXCUSED_ABSENCE":
-            _require_review_authority(cur, user, sakha_pk, "approve an Excused Absence")
-
-        status_pk = get_master_data_pk(cur, "ATTENDANCE_STATUS", body.attendance_status_code)
+        status_pk = get_master_data_pk(cur, "ATTENDANCE_STATUS", body.attendance_status_code, client_supplied=True)
+        if "EXCUSED_ABSENCE" in (body.attendance_status_code, current_code):
+            _require_review_authority(cur, user, sakha_pk, "approve or revoke an Excused Absence")
         cur.execute(
             """
             UPDATE nss.weekly_sangha_puja_attendance
@@ -540,12 +594,18 @@ def _row_to_record(r) -> AttendanceRecordResponse:
 def list_records(
     sangha_sevi_pk: UUID | None = Query(None),
     organization_pk: UUID | None = Query(None),
+    weekly_sangha_puja_pk: UUID | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    user: UserContext = Depends(require_permission("ATTENDANCE_VIEW")),
+    user: UserContext = Depends(get_current_user),
     conn=Depends(get_connection),
 ) -> AttendanceRecordListResponse:
-    """Attendance history — for a member, a Sakha, or (self-access) the caller's own record."""
+    """
+    Attendance history — for a member, a Sakha, or (self-access) the
+    caller's own record. ATTENDANCE_VIEW is required for everything except
+    ``sangha_sevi_pk`` equal to the caller's own.
+    """
+    _require_view_or_self(user, sangha_sevi_pk)
     with conn.cursor() as cur:
         conditions = ["a.is_active = TRUE"]
         params: list = []
@@ -569,6 +629,9 @@ def list_records(
             require_org_in_scope(cur, user, organization_pk, "view this Sakha's attendance")
             conditions.append("a.attendance_sakha_pk = %s")
             params.append(str(organization_pk))
+        if weekly_sangha_puja_pk:
+            conditions.append("a.weekly_sangha_puja_pk = %s")
+            params.append(str(weekly_sangha_puja_pk))
         where = "WHERE " + " AND ".join(conditions)
 
         cur.execute(
@@ -578,7 +641,7 @@ def list_records(
         )
         total = cur.fetchone()[0]
         cur.execute(
-            f"{_RECORD_SELECT_SQL} {where} ORDER BY w.puja_date DESC LIMIT %s OFFSET %s",
+            f"{_RECORD_SELECT_SQL} {where} ORDER BY w.puja_date DESC, a.attendance_pk LIMIT %s OFFSET %s",
             params + [page_size, (page - 1) * page_size],
         )
         records = [_row_to_record(r) for r in cur.fetchall()]
@@ -625,7 +688,7 @@ def create_exception(
     with conn.cursor() as cur:
         home_org = _member_home_org(cur, body.sangha_sevi_pk)
         _require_review_authority(cur, user, home_org, "approve an attendance exception")
-        type_pk = get_master_data_pk(cur, "ATTENDANCE_EXCEPTION_TYPE", body.exception_type_code)
+        type_pk = get_master_data_pk(cur, "ATTENDANCE_EXCEPTION_TYPE", body.exception_type_code, client_supplied=True)
         if not user.sangha_sevi_pk:
             raise HTTPException(status_code=403, detail="Only a seated Secretary/President (with their own Sangha Sevi ID) may approve an exception.")
         cur.execute(
@@ -652,9 +715,11 @@ def list_exceptions(
     sangha_sevi_pk: UUID | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    user: UserContext = Depends(require_permission("ATTENDANCE_VIEW")),
+    user: UserContext = Depends(get_current_user),
     conn=Depends(get_connection),
 ) -> ExceptionListResponse:
+    """Approved exceptions; ATTENDANCE_VIEW required except for the caller's own (``sangha_sevi_pk`` = self)."""
+    _require_view_or_self(user, sangha_sevi_pk)
     with conn.cursor() as cur:
         conditions = ["e.is_active = TRUE"]
         params: list = []
@@ -746,8 +811,8 @@ def get_review(
     return _row_to_review(row)
 
 
-def _load_review_for_action(cur, review_pk) -> tuple[str, str, str]:
-    """Returns (organization_pk, current_status_code, _) or 404s."""
+def _load_review_for_action(cur, review_pk) -> tuple[str, str]:
+    """Returns (organization_pk, current_status_code) or 404s."""
     cur.execute(
         """
         SELECT r.organization_pk, md.value_code
@@ -760,7 +825,7 @@ def _load_review_for_action(cur, review_pk) -> tuple[str, str, str]:
     row = cur.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Attendance Review not found.")
-    return row[0], row[1], ""
+    return row[0], row[1]
 
 
 @router.post("/reviews/{review_pk}/close", response_model=ReviewResponse)
@@ -893,7 +958,7 @@ def override_review(
     with conn.cursor() as cur:
         org_pk, current = _load_review_for_action(cur, review_pk)
         _require_review_authority(cur, user, org_pk, "override this review", president_only=True)
-        status_pk = get_master_data_pk(cur, "ATTENDANCE_REVIEW_STATUS", body.new_status_code)
+        status_pk = get_master_data_pk(cur, "ATTENDANCE_REVIEW_STATUS", body.new_status_code, client_supplied=True)
         cur.execute(
             """
             UPDATE nss.attendance_review
@@ -924,8 +989,11 @@ def watch_list(
     conn=Depends(get_connection),
 ) -> WatchListResponse:
     """
-    Members with >= *threshold* (default 2) consecutive ABSENT records,
-    most recent puja first, not yet at the 3-absence review trigger.
+    Members with >= *threshold* (default 2) consecutive ordinary ABSENT
+    records (absences covered by an approved exception don't count,
+    ATT-025), most recent puja first. Members who already have a
+    non-CLOSED Attendance Review are excluded — they are past the
+    3-absence trigger and tracked in the review queue instead.
     """
     with conn.cursor() as cur:
         allowed = actor_scope_org_pks(cur, user)
@@ -947,7 +1015,7 @@ def watch_list(
         cur.execute(
             f"""
             WITH ranked AS (
-                SELECT a.sangha_sevi_pk, w.puja_date, md.value_code AS status_code,
+                SELECT a.sangha_sevi_pk, w.puja_date, {_EFFECTIVE_STATUS_SQL} AS status_code,
                        ROW_NUMBER() OVER (PARTITION BY a.sangha_sevi_pk ORDER BY w.puja_date DESC) AS rn
                 FROM   nss.weekly_sangha_puja_attendance a
                 JOIN   nss.weekly_sangha_puja w ON w.weekly_sangha_puja_pk = a.weekly_sangha_puja_pk
@@ -955,6 +1023,7 @@ def watch_list(
                 JOIN   nss.sangha_sevi ss ON ss.sangha_sevi_pk = a.sangha_sevi_pk
                 {where}
                 AND a.is_active = TRUE
+                AND NOT {_HAS_OPEN_REVIEW_SQL % 'a.sangha_sevi_pk'}
             ),
             consecutive AS (
                 SELECT sangha_sevi_pk, MAX(puja_date) AS last_puja_date
@@ -1079,7 +1148,7 @@ def _member_recent_statuses(cur, organization_pk: UUID, *, n: int = 3) -> dict:
 @router.get("/stats/organizations/{organization_pk}/members", response_model=OrgMemberAttendanceListResponse)
 def organization_member_attendance(
     organization_pk: UUID,
-    sort: str = Query("desc", description="'desc' (highest % first, the leaderboard default) or 'asc'"),
+    sort: str = Query("desc", pattern="^(asc|desc)$", description="'desc' (highest % first, the leaderboard default) or 'asc'"),
     limit: int = Query(5, ge=1, le=MAX_LIMIT, description="Max rows — 5 for the dashboard card, omit/raise for the full list page"),
     offset: int = Query(0, ge=0),
     user: UserContext = Depends(require_permission("ATTENDANCE_VIEW")),
@@ -1108,7 +1177,7 @@ def organization_member_attendance(
         cur.execute(count_sql, (str(organization_pk),))
         total = cur.fetchone()[0]
 
-        order_dir = "DESC" if sort != "asc" else "ASC"
+        order_dir = "ASC" if sort == "asc" else "DESC"
         cur.execute(
             f"""
             SELECT s.sangha_sevi_pk, s.sangha_sevi_id, {_person_name_sql('p')}, aff.local_sakha_erp_id,
@@ -1167,10 +1236,11 @@ def member_stats(
     sangha_sevi_pk: UUID,
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
-    user: UserContext = Depends(require_permission("ATTENDANCE_VIEW")),
+    user: UserContext = Depends(get_current_user),
     conn=Depends(get_connection),
 ) -> MemberAttendanceStatsResponse:
-    """Attendance percentage for a member (owner ask 2026-10-27, ii)."""
+    """Attendance percentage for a member (owner ask 2026-10-27, ii); a member may read their own."""
+    _require_view_or_self(user, sangha_sevi_pk)
     with conn.cursor() as cur:
         if str(sangha_sevi_pk) != str(user.sangha_sevi_pk):
             home_org = _member_home_org(cur, sangha_sevi_pk)
@@ -1214,8 +1284,8 @@ def member_stats(
 
         # Current consecutive ABSENT streak, most recent first.
         cur.execute(
-            """
-            SELECT md.value_code
+            f"""
+            SELECT {_EFFECTIVE_STATUS_SQL}
             FROM   nss.weekly_sangha_puja_attendance a
             JOIN   nss.weekly_sangha_puja w ON w.weekly_sangha_puja_pk = a.weekly_sangha_puja_pk
             JOIN   nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk

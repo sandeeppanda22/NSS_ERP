@@ -44,7 +44,7 @@ from api.helpers import (
     MEMBER_JOINS_SQL,
     require_self_or_permission,
 )
-from api.services.rbac_service import UserContext, actor_scope_org_pks
+from api.services.rbac_service import UserContext, actor_scope_org_pks, org_in_scope, require_org_in_scope
 from api.routers.governance import _CURRENT_ASSIGNMENT_SQL
 from api.schemas.membership import (
     AnumatiPatraResponse,
@@ -61,16 +61,33 @@ from api.schemas.membership import (
 router = APIRouter(prefix="/api/v1/membership", tags=["membership"])
 
 
-def _require_member_view(sangha_sevi_pk, user: UserContext) -> None:
+def _require_member_view(conn, sangha_sevi_pk, user: UserContext) -> None:
     """
-    Read access to one member record: an administrator holding
-    MEMBERSHIP_VIEW, or the member themself (e.g. their own Member
-    Dashboard).
+    Read access to one member record: the member themself (e.g. their own
+    Member Dashboard), or an administrator holding MEMBERSHIP_VIEW whose
+    admin scope covers the member's home organization (ADMIN-BR-076 — the
+    same rule /members (list) applies). NSS_ERP_ADMIN / NSS-WIDE are
+    unrestricted. An unknown member is passed through so the endpoint's own
+    404 is reported (existence before authorization).
     """
+    if user.sangha_sevi_pk is not None and str(sangha_sevi_pk) == str(user.sangha_sevi_pk):
+        return
     require_self_or_permission(
         sangha_sevi_pk, user.sangha_sevi_pk, "MEMBERSHIP_VIEW", user,
         detail="You do not have access to this member record.",
     )
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT organization_pk FROM nss.sangha_sevi "
+            "WHERE sangha_sevi_pk = %s AND is_active = TRUE",
+            (str(sangha_sevi_pk),),
+        )
+        row = cur.fetchone()
+        if row is not None and not org_in_scope(cur, user, row[0]):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this member record.",
+            )
 
 
 # ── Shared SQL fragments ──────────────────────────────────────────────────
@@ -304,10 +321,11 @@ def get_member(
     """
     Get a single member by PK with full resolved context.
 
-    Access: an administrator holding MEMBERSHIP_VIEW, or the member
+    Access: an administrator holding MEMBERSHIP_VIEW whose admin scope
+    covers the member's home organization (ADMIN-BR-076), or the member
     themself (e.g. their own Member Dashboard).
     """
-    _require_member_view(sangha_sevi_pk, user)
+    _require_member_view(conn, sangha_sevi_pk, user)
     sql = _MEMBER_SELECT + " WHERE ss.sangha_sevi_pk = %s AND ss.is_active = TRUE"
 
     with conn.cursor() as cur:
@@ -589,10 +607,11 @@ def list_member_affiliations(
     List all sakha affiliations for a member (current and historical).
     Returns 404 if the member does not exist.
 
-    Access: an administrator holding MEMBERSHIP_VIEW, or the member
+    Access: an administrator holding MEMBERSHIP_VIEW whose admin scope
+    covers the member's home organization (ADMIN-BR-076), or the member
     themself (e.g. their own Member Dashboard).
     """
-    _require_member_view(sangha_sevi_pk, user)
+    _require_member_view(conn, sangha_sevi_pk, user)
     with conn.cursor() as cur:
         require_entity(cur, "sangha_sevi", str(sangha_sevi_pk), label="Member")
 
@@ -637,10 +656,11 @@ def list_member_parichaya_patra(
     Includes point-in-time snapshot of affiliated Sakha and local number.
     Returns 404 if the member does not exist.
 
-    Access: an administrator holding MEMBERSHIP_VIEW, or the member
+    Access: an administrator holding MEMBERSHIP_VIEW whose admin scope
+    covers the member's home organization (ADMIN-BR-076), or the member
     themself (e.g. their own Member Dashboard).
     """
-    _require_member_view(sangha_sevi_pk, user)
+    _require_member_view(conn, sangha_sevi_pk, user)
     with conn.cursor() as cur:
         require_entity(cur, "sangha_sevi", str(sangha_sevi_pk), label="Member")
 
@@ -686,10 +706,11 @@ def list_member_anumati_patra(
     List all Anumati Patra records for a member.
     Returns 404 if the member does not exist.
 
-    Access: an administrator holding MEMBERSHIP_VIEW, or the member
+    Access: an administrator holding MEMBERSHIP_VIEW whose admin scope
+    covers the member's home organization (ADMIN-BR-076), or the member
     themself (e.g. their own Member Dashboard).
     """
-    _require_member_view(sangha_sevi_pk, user)
+    _require_member_view(conn, sangha_sevi_pk, user)
     with conn.cursor() as cur:
         require_entity(cur, "sangha_sevi", str(sangha_sevi_pk), label="Member")
 
@@ -729,10 +750,11 @@ def list_member_journey(
     List all journey events for a member in chronological order.
     Returns 404 if the member does not exist.
 
-    Access: an administrator holding MEMBERSHIP_VIEW, or the member
+    Access: an administrator holding MEMBERSHIP_VIEW whose admin scope
+    covers the member's home organization (ADMIN-BR-076), or the member
     themself (e.g. their own Member Dashboard).
     """
-    _require_member_view(sangha_sevi_pk, user)
+    _require_member_view(conn, sangha_sevi_pk, user)
     with conn.cursor() as cur:
         require_entity(cur, "sangha_sevi", str(sangha_sevi_pk), label="Member")
 
@@ -783,6 +805,7 @@ def get_org_darshak_summary(
     """
     with conn.cursor() as cur:
         require_entity(cur, "organization", str(organization_pk), label="Organization")
+        require_org_in_scope(cur, user, organization_pk, "view Darshak counts for")
 
         cur.execute(
             """

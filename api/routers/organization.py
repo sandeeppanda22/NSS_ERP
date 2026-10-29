@@ -30,7 +30,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.database import get_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, row_to_model, rows_to_models, FAMILY_MAJORITY_CTE_SQL, ORGANIZATION_ADDRESS_JOINS_SQL
+from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, row_to_model, rows_to_models, ORGANIZATION_ADDRESS_JOINS_SQL
+from api.services.family_majority import FAMILY_MAJORITY_CTE_SQL
 from api.services.rbac_service import UserContext, require_org_in_scope, actor_scope_org_pks
 from api.schemas.organization import (
     OrgChildStatsResponse,
@@ -282,6 +283,23 @@ def list_selectable_organizations(
                                     type_codes=type_code)
 
 
+def _require_org_exists_in_scope(cur, user: UserContext, organization_pk, action: str,
+                                 not_found: str = "Organization not found") -> None:
+    """
+    404 for an unknown/inactive organization, THEN 403 when it lies outside
+    the caller's admin scope (ADMIN-BR-076/077) — existence before scope, so
+    scope membership of unknown orgs is never leaked. NSS_ERP_ADMIN / NSS-WIDE
+    pass the scope check unconditionally.
+    """
+    cur.execute(
+        "SELECT 1 FROM nss.organization WHERE organization_pk = %s AND is_active = TRUE",
+        (str(organization_pk),),
+    )
+    if cur.fetchone() is None:
+        raise HTTPException(status_code=404, detail=not_found)
+    require_org_in_scope(cur, user, organization_pk, action)
+
+
 @router.get(
     "/organizations/{organization_pk}",
     response_model=OrganizationResponse,
@@ -291,10 +309,16 @@ def get_organization(
     conn=Depends(get_connection),
     user: UserContext = Depends(require_permission("ORGANIZATION_VIEW")),
 ) -> OrganizationResponse:
-    """Get a single organization by PK with full resolved context."""
+    """
+    Get a single organization by PK with full resolved context.
+
+    403 when the organization lies outside the caller's admin scope
+    (ADMIN-BR-076); NSS_ERP_ADMIN / NSS-WIDE are unrestricted.
+    """
     sql = _ORG_SELECT + " WHERE o.organization_pk = %s AND o.is_active = TRUE"
 
     with conn.cursor() as cur:
+        _require_org_exists_in_scope(cur, user, organization_pk, "view organizations")
         cur.execute(sql, (str(organization_pk),))
         result = row_to_model(cur, OrganizationResponse)
         if result is None:
@@ -317,16 +341,12 @@ def list_organization_children(
     Returns 404 if the parent organization_pk does not exist.
     Useful for navigating the organizational hierarchy one level at a time.
     """
-    # Verify the parent exists
+    # Verify the parent exists and is inside the caller's admin scope
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT 1 FROM nss.organization
-            WHERE  organization_pk = %s AND is_active = TRUE
-        """, (str(organization_pk),))
-        if cur.fetchone() is None:
-            raise HTTPException(
-                status_code=404, detail="Parent organization not found"
-            )
+        _require_org_exists_in_scope(
+            cur, user, organization_pk, "view children",
+            not_found="Parent organization not found",
+        )
 
     sql = (
         _ORG_SELECT
@@ -380,7 +400,7 @@ _CHILDREN_STATS_SQL = f"""
         WHERE  organization_type_code = 'SAKHA_SANGHA'
     ),
     -- Family majority CTE (dynamic Sakha — FAM-036), shared with
-    -- family.py's _FAMILY_SELECT — see api/helpers.py::FAMILY_MAJORITY_CTE_SQL
+    -- family.py's _FAMILY_SELECT — see api/services/family_majority.py
     {FAMILY_MAJORITY_CTE_SQL},
     -- Each family's effective Sakha
     family_effective AS (
@@ -489,16 +509,12 @@ def list_children_stats(
     Used by the org admin sidebar to display inline counts on each
     drill-down card.
     """
-    # Verify parent exists
+    # Verify parent exists and is inside the caller's admin scope
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT 1 FROM nss.organization
-            WHERE  organization_pk = %s AND is_active = TRUE
-        """, (str(organization_pk),))
-        if cur.fetchone() is None:
-            raise HTTPException(
-                status_code=404, detail="Parent organization not found"
-            )
+        _require_org_exists_in_scope(
+            cur, user, organization_pk, "view child statistics",
+            not_found="Parent organization not found",
+        )
 
     with conn.cursor() as cur:
         cur.execute(_CHILDREN_STATS_SQL, (str(organization_pk),))
@@ -545,7 +561,7 @@ _ORG_STATS_SQL = f"""
     ),
     -- Family majority CTE (dynamic Sakha — FAM-036), shared with
     -- family.py's _FAMILY_SELECT and this file's _CHILDREN_STATS_SQL —
-    -- see api/helpers.py::FAMILY_MAJORITY_CTE_SQL
+    -- see api/services/family_majority.py
     {FAMILY_MAJORITY_CTE_SQL},
     family_effective AS (
         SELECT fg.family_group_pk,
@@ -669,17 +685,7 @@ def get_organization_stats(
     viewer drilled into.
     """
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM nss.organization "
-            "WHERE organization_pk = %s AND is_active = TRUE",
-            (str(organization_pk),),
-        )
-        if cur.fetchone() is None:
-            raise HTTPException(
-                status_code=404, detail="Organization not found"
-            )
-
-        require_org_in_scope(cur, user, organization_pk, "view stats for")
+        _require_org_exists_in_scope(cur, user, organization_pk, "view stats for")
 
         cur.execute(_ORG_STATS_SQL, (str(organization_pk),))
         # Mapped by column name rather than positional unpack: this row is now

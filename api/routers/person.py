@@ -33,6 +33,7 @@ from api.helpers import (
     rows_to_models,
     PERSON_MASTER_DATA_JOINS_SQL,
 )
+from api.services.person_scope import person_in_admin_scope
 from api.services.rbac_service import UserContext, actor_scope_org_pks
 from api.routers.family import _shares_current_family
 from api.schemas.person import (
@@ -55,9 +56,9 @@ def _require_person_view(conn, person_pk, user: UserContext) -> None:
     consistent — a member who may read a relative's membership summary may
     also open that relative's person card.
     """
-    if user.has_permission("PERSON_VIEW"):
-        return
     if str(person_pk) == str(user.person_pk):
+        return
+    if user.has_permission("PERSON_VIEW") and person_in_admin_scope(conn, person_pk, user):
         return
     if _shares_current_family(conn, str(user.person_pk), str(person_pk)):
         return
@@ -312,8 +313,9 @@ def get_person(
     Includes Aadhaar last-4 (masked), emergency contact, and photo
     FK. Never returns aadhaar_encrypted or aadhaar_hash.
 
-    Access: an administrator holding PERSON_VIEW, or the person themself
-    (e.g. their own Member Dashboard).
+    Access: an administrator holding PERSON_VIEW whose admin scope covers
+    the person (ADMIN-BR-076), the person themself (e.g. their own Member
+    Dashboard), or a current relative.
     """
     _require_person_view(conn, person_pk, user)
     sql = _PERSON_DETAIL_SELECT + " WHERE p.person_pk = %s AND p.is_active = TRUE"

@@ -726,7 +726,6 @@ def get_body(
         if r is None:
             raise HTTPException(status_code=404, detail="Governance body not found.")
         if r[6] is not None:
-            require_org_in_scope(cur, user, r[6], "view") if False else None
             # Visibility, not management: an NSS-wide/global admin always
             # passes; an org-scoped admin must have this org in their subtree.
             allowed = actor_scope_org_pks(cur, user)
@@ -812,6 +811,23 @@ def update_body(
         if row is None:
             raise HTTPException(status_code=404, detail="Governance body not found.")
         _require_scope_for_org_or_nss_wide(cur, user, row[0], "update governance bodies")
+
+        if body.effective_from is not None or body.effective_to is not None:
+            # Validate the resulting window (DB CHECK would otherwise 500).
+            cur.execute(
+                "SELECT effective_from, effective_to FROM nss.body_master WHERE body_master_pk = %s",
+                (str(body_master_pk),),
+            )
+            cur_from, cur_to = cur.fetchone()
+            new_from = (parse_optional_date(body.effective_from, "Effective From")
+                        if body.effective_from is not None else cur_from)
+            new_to = (parse_optional_date(body.effective_to, "Effective To")
+                      if body.effective_to is not None else cur_to)
+            if new_from and new_to and new_to < new_from:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Effective To cannot be before Effective From.",
+                )
 
         sets, params = [], []
         if body.body_name is not None:
@@ -1277,6 +1293,20 @@ def _row_to_assignment(r) -> AssignmentResponse:
         resignation_reason=r[13], position_code=r[14],
         sakha_name=r[15], sakha_organization_pk=r[16],
     )
+
+
+def _require_body_active(cur, body_master_pk: UUID) -> None:
+    """409 if the body has been deactivated (soft-deleted); new seats/cover cannot be created on it."""
+    cur.execute(
+        "SELECT is_active FROM nss.body_master WHERE body_master_pk = %s",
+        (str(body_master_pk),),
+    )
+    row = cur.fetchone()
+    if row is not None and not row[0]:
+        raise HTTPException(
+            status_code=409,
+            detail="This governance body is deactivated; it cannot take new assignments.",
+        )
 
 
 def _get_body_org_or_404(cur, body_master_pk: UUID):
@@ -2712,6 +2742,7 @@ def create_assignment(
     """
     with conn.cursor() as cur:
         org_pk = _get_body_org_or_404(cur, body_master_pk)
+        _require_body_active(cur, body_master_pk)
         require_entity(cur, "position_master", str(body.position_master_pk), label="Position")
         require_entity(cur, "person", str(body.person_pk), label="Person")
         cur.execute(
@@ -2776,7 +2807,7 @@ def end_assignment(
         cur.execute(
             """
             SELECT bm.organization_pk, a.effective_from, a.person_pk, bt.body_type_code,
-                   pm.position_code
+                   pm.position_code, a.assignment_status
             FROM nss.body_member_assignment a
             JOIN nss.body_master bm ON bm.body_master_pk = a.body_master_pk
             JOIN nss.body_type_master bt
@@ -2789,7 +2820,8 @@ def end_assignment(
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Assignment not found.")
-        org_pk, effective_from, holder_person_pk, body_type_code, position_code = row
+        (org_pk, effective_from, holder_person_pk, body_type_code, position_code,
+         current_status) = row
         # Only the nominating Sakha may withdraw its Advisory Board MEMBER
         # representative directly — an NSS-wide admin may not (owner-confirmed
         # 2026-10-08). That is the one case left on this endpoint; it is the
@@ -2818,6 +2850,12 @@ def end_assignment(
                     "body's own GB meeting resolution and its President's approval — "
                     "use POST /governance/assignments/{id}/request-removal instead."
                 ),
+            )
+
+        if current_status not in ("ASSIGNED", "ACTIVE"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot end — this assignment is already {current_status}.",
             )
 
         effective_to = parse_optional_date(body.effective_to, "Effective To")
@@ -3219,8 +3257,21 @@ def _close_acting_assignment(
     Shared by the admin POST /acting-assignments/{pk}/end and the
     member-initiated POST /me/acting-delegations/{pk}/end — same write,
     different authorization in front of it. Callers must have loaded the
-    row (404) and validated the date before calling.
+    row (404) and validated the date before calling. Refuses to re-end a
+    row that is already in a terminal state (ENDED/REJECTED/HISTORICAL) so a
+    rejected or historical record cannot be rewritten as ENDED.
     """
+    cur.execute(
+        "SELECT acting_status FROM nss.acting_position_assignment "
+        "WHERE acting_position_assignment_pk = %s",
+        (str(acting_position_assignment_pk),),
+    )
+    current_status = cur.fetchone()[0]
+    if current_status in ("ENDED", "REJECTED", "HISTORICAL"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot end — this acting assignment is already {current_status}.",
+        )
     cur.execute(
         """
         UPDATE nss.acting_position_assignment
@@ -3291,6 +3342,7 @@ def create_acting_assignment(
     with conn.cursor() as cur:
         org_pk = _get_body_org_or_404(cur, body_master_pk)
         _require_scope_for_org_or_nss_wide(cur, user, org_pk, "manage acting position assignments")
+        _require_body_active(cur, body_master_pk)
         require_entity(cur, "position_master", str(body.position_master_pk), label="Position")
         require_entity(cur, "person", str(body.person_pk), label="Person")
 
@@ -3602,6 +3654,7 @@ def _validate_my_acting_delegation(
     if body_row is None:
         raise HTTPException(status_code=404, detail="Governance body not found.")
     body_name = body_row[0]
+    _require_body_active(cur, body_master_pk)
 
     # 2. Self-role gate (owner ask #2) — the core security rule.
     if not _active_office_bearer(
@@ -4046,8 +4099,8 @@ def list_open_elections_for_voting(
 
     Scope: NSS/Kendra-wide elections (body.organization_pk IS NULL) are
     visible to every member; an org-scoped election is visible only to
-    members of that same org (currently: the member's home Sakha Sangha,
-    via _home_sakha — mirrors the public/national-bodies visibility rule).
+    members whose home organization is that org or one of its descendants
+    (the same subtree walk votes/self enforces, GOV-BR-094).
     Bylaw voter eligibility (GOV-BR-043) is enforced again at vote time by
     votes/self; this listing is read-only and does not re-check it, so an
     ineligible member can see the ballot but will still get a 4xx on cast.
@@ -4061,23 +4114,25 @@ def list_open_elections_for_voting(
         return OpenElectionListResponse(items=[])
 
     with conn.cursor() as cur:
-        home_org_pk, _ = _home_sakha(cur, user.person_pk)
-
         cur.execute(
             """
             SELECT e.election_pk, e.election_code, e.election_name,
                    e.body_master_pk, bm.body_name, e.is_secret_ballot,
-                   e.voting_end_date
+                   e.voting_end_date, e.organization_pk
             FROM nss.election e
             JOIN nss.body_master bm ON bm.body_master_pk = e.body_master_pk
             WHERE e.is_active = TRUE
               AND e.election_status = 'VOTING'
-              AND (e.organization_pk IS NULL OR e.organization_pk = %s)
             ORDER BY e.voting_end_date NULLS LAST, e.election_date
             """,
-            (str(home_org_pk) if home_org_pk else None,),
         )
-        election_rows = cur.fetchall()
+        # Same subtree test as _require_voter_eligible (GOV-BR-094): an
+        # org-scoped election is listed when the member's home organization
+        # is the election's org OR any descendant (Anchalika/Zilla ballots).
+        election_rows = [
+            r for r in cur.fetchall()
+            if r[7] is None or _member_org_in_election_subtree(cur, user.person_pk, r[7])[0]
+        ]
 
         items: list[OpenElectionRow] = []
         for r in election_rows:
@@ -4106,7 +4161,7 @@ def list_open_elections_for_voting(
                 """
                 SELECT DISTINCT position_master_pk
                 FROM nss.election_vote_participation
-                WHERE election_pk = %s AND voter_person_pk = %s
+                WHERE election_pk = %s AND voter_person_pk = %s AND is_active = TRUE
                 """,
                 (str(election_pk), str(user.person_pk)),
             )
@@ -4395,6 +4450,9 @@ def create_nomination(
     with conn.cursor() as cur:
         org_pk = _get_election_org_or_404(cur, election_pk)
         _require_scope_for_org_or_nss_wide(cur, user, org_pk, "record nominations")
+        _require_election_status(
+            cur, election_pk, "NOMINATION", "Nominations are not open for this election",
+        )
         require_entity(cur, "position_master", str(body.position_master_pk), label="Position")
         require_entity(cur, "person", str(body.candidate_person_pk), label="Candidate")
         probationary_exception_approver_sangha_sevi_pk = (
@@ -4435,7 +4493,8 @@ def create_nomination(
             cur.execute("ROLLBACK TO SAVEPOINT nomination_insert")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="This candidate already has an active nomination for this position in this election.",
+                detail="This candidate already has a live (nominated/accepted) nomination for this "
+                       "position in this election.",
             )
         cur.execute("RELEASE SAVEPOINT nomination_insert")
         log_audit(cur, action="CREATE", table_name="election_nomination", record_pk=str(pk),
@@ -4458,7 +4517,7 @@ def update_nomination_status(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT e.organization_pk
+            SELECT e.organization_pk, e.election_pk
             FROM nss.election_nomination n
             JOIN nss.election e ON e.election_pk = n.election_pk
             WHERE n.election_nomination_pk = %s
@@ -4469,12 +4528,28 @@ def update_nomination_status(
         if row is None:
             raise HTTPException(status_code=404, detail="Nomination not found.")
         _require_scope_for_org_or_nss_wide(cur, user, row[0], "change nomination status")
-
-        cur.execute(
-            "UPDATE nss.election_nomination SET nomination_status = %s, updated_at = NOW() "
-            "WHERE election_nomination_pk = %s",
-            (body.nomination_status, str(election_nomination_pk)),
+        _require_election_status(
+            cur, row[1], "NOMINATION",
+            "Nomination status can only be changed while nominations are open",
         )
+
+        # Re-activating a WITHDRAWN/REJECTED nomination can collide with a
+        # re-filed one (uq_election_nomination_active_candidate is partial on
+        # live statuses) -> 409 instead of a 500.
+        cur.execute("SAVEPOINT nomination_status")
+        try:
+            cur.execute(
+                "UPDATE nss.election_nomination SET nomination_status = %s, updated_at = NOW() "
+                "WHERE election_nomination_pk = %s",
+                (body.nomination_status, str(election_nomination_pk)),
+            )
+        except psycopg2.errors.UniqueViolation:
+            cur.execute("ROLLBACK TO SAVEPOINT nomination_status")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This candidate already has a live nomination for this position in this election.",
+            )
+        cur.execute("RELEASE SAVEPOINT nomination_status")
         log_audit(cur, action="UPDATE", table_name="election_nomination",
                   record_pk=str(election_nomination_pk), actor_pk=user.actor_pk,
                   actor_user_account_pk=str(user.user_account_pk),
@@ -4500,7 +4575,7 @@ def update_nomination_status(
 #     ballot; for a SECRET ballot it stores NULL, so the choice can never be
 #     traced to a member through this table.
 #   - Ballots are IMMUTABLE (DB trigger blocks UPDATE); the only way to clear
-#     them is reset_ballots (hard DELETE), below.
+#     them is reset_ballots (soft delete via is_active), below.
 #
 #   *** SECRET-BALLOT AUDIT CAVEAT (flagged for owner decision) ***
 #   The global AFTER-write audit trigger (15_audit_trigger.sql) records the
@@ -4515,9 +4590,12 @@ def update_nomination_status(
 
 
 def _resolve_nomination_position(cur, election_pk: UUID, nomination_pk: UUID) -> UUID:
-    """Validate a nomination belongs to this election; return its position_master_pk."""
+    """
+    Validate a nomination belongs to this election and is a standing candidate
+    (ACCEPTED, GOV-BR-043/046); return its position_master_pk.
+    """
     cur.execute(
-        "SELECT election_pk, position_master_pk FROM nss.election_nomination "
+        "SELECT election_pk, position_master_pk, nomination_status FROM nss.election_nomination "
         "WHERE election_nomination_pk = %s AND is_active = TRUE",
         (str(nomination_pk),),
     )
@@ -4528,6 +4606,11 @@ def _resolve_nomination_position(cur, election_pk: UUID, nomination_pk: UUID) ->
         raise HTTPException(
             status_code=422,
             detail="This nomination does not belong to this election.",
+        )
+    if nom[2] != "ACCEPTED":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Votes can only be cast for an ACCEPTED nomination (this one is {nom[2]}).",
         )
     return nom[1]
 
@@ -4541,8 +4624,8 @@ def _election_is_secret(cur, election_pk: UUID) -> bool:
     return bool(row[0]) if row else False
 
 
-def _require_election_voting_open(cur, election_pk: UUID) -> None:
-    """Self-service voting is permitted only while the election is in VOTING."""
+def _require_election_status(cur, election_pk: UUID, required: str, what: str) -> None:
+    """422 unless the election is currently in `required` status (404 if it does not exist)."""
     cur.execute(
         "SELECT election_status FROM nss.election WHERE election_pk = %s",
         (str(election_pk),),
@@ -4550,12 +4633,16 @@ def _require_election_voting_open(cur, election_pk: UUID) -> None:
     row = cur.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Election not found.")
-    if row[0] != "VOTING":
+    if row[0] != required:
         raise HTTPException(
             status_code=422,
-            detail="Voting is not open for this election (its status is "
-                   f"'{row[0]}', not 'VOTING').",
+            detail=f"{what} (its status is '{row[0]}', not '{required}').",
         )
+
+
+def _require_election_voting_open(cur, election_pk: UUID) -> None:
+    """Voting (self-service or officer-recorded) is permitted only while the election is in VOTING."""
+    _require_election_status(cur, election_pk, "VOTING", "Voting is not open for this election")
 
 
 def _cast_ballot(cur, *, election_pk: UUID, nomination_pk: UUID, position_master_pk: UUID,
@@ -4634,6 +4721,7 @@ def cast_vote(
     with conn.cursor() as cur:
         org_pk = _get_election_org_or_404(cur, election_pk)
         _require_scope_for_org_or_nss_wide(cur, user, org_pk, "record votes")
+        _require_election_voting_open(cur, election_pk)
 
         position_master_pk = _resolve_nomination_position(cur, election_pk, body.election_nomination_pk)
         require_entity(cur, "person", str(body.voter_person_pk), label="Voter")
@@ -4712,14 +4800,23 @@ def reset_ballots(
 ) -> ResetBallotsResponse:
     """
     Clear cast ballots for an election (GOV-BR-045 reset flow). Ballots are
-    immutable, so reset hard-DELETEs the choice rows and participation records
-    — this is the only path that may remove them, and the delete is captured
-    by the audit trigger.
+    immutable and history is never hard-deleted (nss_db_writer has no DELETE
+    grant), so reset SOFT-deletes the live choice rows and participation
+    records (is_active -> FALSE, deleted_at set — the only UPDATE the
+    immutability trigger permits); the uq_*_active_voter_position indexes are
+    partial on is_active, so a reset voter may vote again. The change is
+    captured by the audit trigger.
 
-    Two authorities (asserted by reset_mode and recorded for audit):
-      - PRESIDENT_UNILATERAL — the President resets on their own authority.
+    Allowed only while the election is in VOTING: COMPLETED/CANCELLED ballots
+    are the record of a finished election and are never wiped.
+
+    Two authorities (asserted by reset_mode, and verified against the
+    election body's live President seat):
+      - PRESIDENT_UNILATERAL — the caller must BE the sitting President of
+        the election's body; the claim alone is not enough.
       - ADMIN_WITH_PRESIDENT_APPROVAL — an administrator resets with the
-        President's recorded approval (president_person_pk required).
+        President's recorded approval; president_person_pk is required and
+        must be that body's sitting President.
 
     Scope: the whole election, or a single position when position_master_pk is
     supplied.
@@ -4738,21 +4835,53 @@ def reset_ballots(
         if body.president_person_pk is not None:
             require_entity(cur, "person", str(body.president_person_pk), label="Approving President")
 
-        params: list = [str(election_pk)]
+        cur.execute(
+            "SELECT election_status, body_master_pk FROM nss.election WHERE election_pk = %s",
+            (str(election_pk),),
+        )
+        election_status, election_body_pk = cur.fetchone()
+        if election_status != "VOTING":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ballots can only be reset while the election is in VOTING "
+                       f"(its status is '{election_status}'); a finished election's "
+                       "ballots are never wiped.",
+            )
+
+        # Verify the President authority against the live seat — never a bare claim.
+        if body.reset_mode == "PRESIDENT_UNILATERAL":
+            if not _active_office_bearer(
+                cur, election_body_pk, user.person_pk, position_code="PRESIDENT",
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="PRESIDENT_UNILATERAL requires the caller to be this "
+                           "election body's sitting President.",
+                )
+        elif not _active_office_bearer(
+            cur, election_body_pk, body.president_person_pk, position_code="PRESIDENT",
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="president_person_pk is not the sitting President of this "
+                       "election's body.",
+            )
+
+        params: list = [user.actor_pk, user.actor_pk, str(election_pk)]
         pos_clause = ""
         if body.position_master_pk is not None:
             pos_clause = " AND position_master_pk = %s"
             params.append(str(body.position_master_pk))
 
-        cur.execute(
-            f"DELETE FROM nss.election_vote WHERE election_pk = %s{pos_clause}",
-            params,
+        soft_delete_sql = (
+            "UPDATE nss.{table} SET is_active = FALSE, deleted_at = NOW(), "
+            "deleted_by_sangha_sevi_pk = %s, updated_at = NOW(), "
+            "updated_by_sangha_sevi_pk = %s "
+            "WHERE election_pk = %s AND is_active = TRUE" + pos_clause
         )
+        cur.execute(soft_delete_sql.format(table="election_vote"), params)
         votes_deleted = cur.rowcount
-        cur.execute(
-            f"DELETE FROM nss.election_vote_participation WHERE election_pk = %s{pos_clause}",
-            params,
-        )
+        cur.execute(soft_delete_sql.format(table="election_vote_participation"), params)
         participation_deleted = cur.rowcount
 
         scope = (
@@ -4764,7 +4893,7 @@ def reset_ballots(
             if body.president_person_pk else ""
         )
         log_audit(
-            cur, action="DELETE", table_name="election_vote", record_pk=str(election_pk),
+            cur, action="DEACTIVATE", table_name="election_vote", record_pk=str(election_pk),
             actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
             module="governance",
             summary=(f"Reset ballots ({body.reset_mode}) for {scope}: "
@@ -4945,6 +5074,40 @@ def declare_result(
                     detail="A Nomination (consensus/selection) cycle casts no ballots, "
                            "so it cannot carry a vote count.",
                 )
+
+        # ── winning_nomination_pk must be this election+position's own,
+        #    standing (ACCEPTED, active) nomination, and agree with the winner ──
+        if body.winning_nomination_pk:
+            cur.execute(
+                """
+                SELECT n.election_pk, n.position_master_pk, n.candidate_person_pk,
+                       n.nomination_status, n.is_active
+                FROM nss.election_nomination n
+                WHERE n.election_nomination_pk = %s
+                """,
+                (str(body.winning_nomination_pk),),
+            )
+            nom = cur.fetchone()
+            if (nom is None or str(nom[0]) != str(election_pk)
+                    or str(nom[1]) != str(body.position_master_pk)):
+                raise HTTPException(
+                    status_code=422,
+                    detail="winning_nomination_pk is not a nomination for this "
+                           "position in this election.",
+                )
+            if nom[3] != "ACCEPTED" or not nom[4]:
+                raise HTTPException(
+                    status_code=422,
+                    detail="The winning nomination is not an active ACCEPTED "
+                           f"nomination (it is {nom[3] if nom[4] else 'inactive'}) (GOV-BR-046).",
+                )
+            if body.winner_person_pk and str(nom[2]) != str(body.winner_person_pk):
+                raise HTTPException(
+                    status_code=422,
+                    detail="winner_person_pk does not match the candidate of "
+                           "winning_nomination_pk.",
+                )
+            body.winner_person_pk = nom[2]
 
         # ── GOV-BR-046: a winner must be a standing candidate ───────────
         if body.winner_person_pk:

@@ -42,7 +42,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, log_audit, row_to_model, rows_to_models, get_active_status_pk, require_entity, FAMILY_MAJORITY_CTE_SQL
+from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, log_audit, next_id, row_to_model, rows_to_models, get_active_status_pk, require_entity
 from api.schemas.auth import MessageResponse
 from api.schemas.family import (
     AddFamilyMemberRequest,
@@ -63,6 +63,9 @@ from api.schemas.family import (
     TransferHeadRequest,
 )
 from api.services.family_graph import Step, build_family_graph
+from api.services.family_majority import family_majority_cte, sakha_majority_sort_key
+from api.services.family_membership import close_family_membership, next_family_id
+from api.services.person_scope import person_in_admin_scope
 from api.services.rbac_service import UserContext, actor_scope_org_pks
 
 router = APIRouter(prefix="/api/v1/family", tags=["family"])
@@ -70,8 +73,21 @@ router = APIRouter(prefix="/api/v1/family", tags=["family"])
 
 # ── Shared SQL fragments ──────────────────────────────────────────────────
 
-_FAMILY_SELECT = f"""
-    WITH {FAMILY_MAJORITY_CTE_SQL}
+def _family_select(restrict_sql: str = "") -> str:
+    """
+    The family SELECT with its FAM-036 effective-Sakha CTE.
+
+    *restrict_sql* narrows the families the majority CTE evaluates (e.g.
+    ``"AND fr.family_group_pk = %s"``) so single-family reads do not
+    aggregate every family in the database; the caller then passes that
+    bind parameter FIRST (the WITH clause precedes the rest). Without it
+    the CTE covers all families (list endpoint).
+    """
+    return _FAMILY_SELECT_TEMPLATE.replace("__MAJORITY_CTE__", family_majority_cte(restrict_sql))
+
+
+_FAMILY_SELECT_TEMPLATE = """
+    WITH __MAJORITY_CTE__
     SELECT fg.family_group_pk,
            fg.family_id,
            fg.family_name,
@@ -97,6 +113,8 @@ _FAMILY_SELECT = f"""
     LEFT JOIN nss.organization eo
            ON eo.organization_pk = fmj.sakha_pk
 """
+
+_FAMILY_ONE = "AND fr.family_group_pk = %s"
 
 _MEMBER_SELECT = """
     SELECT fr.family_relationship_pk,
@@ -177,13 +195,22 @@ def _is_current_head(conn, family_group_pk: str, person_pk: str) -> bool:
 
 
 def _is_current_admin(conn, family_group_pk: str, person_pk: str) -> bool:
-    """Return True if person_pk is a current admin of family_group_pk."""
+    """
+    Return True if person_pk is a current admin of family_group_pk AND still
+    a current member of it — an admin row that outlived the person's
+    membership (legacy data) must never confer authority.
+    """
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT 1 FROM nss.family_admin
-            WHERE  family_group_pk = %s
-              AND  person_pk = %s
-              AND  effective_to IS NULL
+            SELECT 1
+            FROM   nss.family_admin fa
+            JOIN   nss.family_relationship fr
+                   ON fr.family_group_pk = fa.family_group_pk
+                  AND fr.person_pk = fa.person_pk
+                  AND fr.is_current = TRUE
+            WHERE  fa.family_group_pk = %s
+              AND  fa.person_pk = %s
+              AND  fa.effective_to IS NULL
         """, (family_group_pk, person_pk))
         return cur.fetchone() is not None
 
@@ -220,12 +247,51 @@ def _shares_current_family(conn, person_a_pk: str, person_b_pk: str) -> bool:
         return cur.fetchone() is not None
 
 
+def _require_family_exists(conn, family_group_pk) -> None:
+    """
+    404 for an unknown/inactive family. Every family-scoped guard below runs
+    this FIRST, so the order is uniformly existence (404) before
+    authorization (403) on all family endpoints.
+    """
+    with conn.cursor() as cur:
+        require_entity(cur, "family_group", str(family_group_pk), label="Family")
+
+
+def _family_in_admin_scope(conn, family_group_pk, user: UserContext) -> bool:
+    """
+    ADMIN-BR-076: the FAMILY_VIEW / FAMILY_MANAGE override reaches only
+    families whose EFFECTIVE Sakha (FAM-036) lies inside the admin's scope
+    subtree — the same bound the /families list already applies. NSS_ERP_ADMIN
+    / NSS-WIDE are unrestricted. (The ownership path — head/admin/member — is
+    independent of scope.)
+    """
+    with conn.cursor() as cur:
+        allowed = actor_scope_org_pks(cur, user)
+        if allowed is None:
+            return True
+        cur.execute(
+            _family_select(_FAMILY_ONE) + " WHERE fg.family_group_pk = %s",
+            (str(family_group_pk), str(family_group_pk)),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        sakha_pk = row[[d[0] for d in cur.description].index("sakha_organization_pk")]
+        return str(sakha_pk) in allowed
+
+
+def _has_scoped_family_permission(conn, family_group_pk, user: UserContext, permission: str) -> bool:
+    """The organisational override: *permission* held AND the family in scope."""
+    return user.has_permission(permission) and _family_in_admin_scope(conn, family_group_pk, user)
+
+
 def _require_family_view(conn, family_group_pk, user: UserContext) -> None:
     """
     Read access to one family: any current member of it, or an administrator
     holding FAMILY_VIEW.
     """
-    if user.has_permission("FAMILY_VIEW"):
+    _require_family_exists(conn, family_group_pk)
+    if _has_scoped_family_permission(conn, family_group_pk, user, "FAMILY_VIEW"):
         return
     if _is_current_member(conn, str(family_group_pk), str(user.person_pk)):
         return
@@ -235,12 +301,15 @@ def _require_family_view(conn, family_group_pk, user: UserContext) -> None:
     )
 
 
-def _require_family_manage(conn, family_group_pk, user: UserContext) -> None:
+def _require_family_manage(
+    conn, family_group_pk, user: UserContext, *, detail: str | None = None
+) -> None:
     """
     Membership-changing access to one family: its current head or a current
     family admin, or an administrator holding FAMILY_MANAGE.
     """
-    if user.has_permission("FAMILY_MANAGE"):
+    _require_family_exists(conn, family_group_pk)
+    if _has_scoped_family_permission(conn, family_group_pk, user, "FAMILY_MANAGE"):
         return
     fg = str(family_group_pk)
     person = str(user.person_pk)
@@ -248,11 +317,36 @@ def _require_family_manage(conn, family_group_pk, user: UserContext) -> None:
         return
     raise HTTPException(
         status_code=403,
-        detail=(
+        detail=detail or (
             "Only the family head or a family admin can change this "
             "family's membership."
         ),
     )
+
+
+def _resolve_relationship_type_pk(
+    cur, relationship_type_code: str, *, missing_status: int = 400
+) -> str:
+    """
+    RELATIONSHIP_TYPE value_code -> master_data_pk. *missing_status* is 400
+    for a client-supplied code, 500 for a code the server itself relies on
+    (a missing seed row).
+    """
+    cur.execute("""
+        SELECT md.master_data_pk
+        FROM   nss.master_data md
+        JOIN   nss.master_category mc
+               ON mc.master_category_pk = md.master_category_pk
+        WHERE  mc.category_code = 'RELATIONSHIP_TYPE'
+          AND  md.value_code = %s
+    """, (relationship_type_code,))
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=missing_status,
+            detail=f"Invalid relationship type: {relationship_type_code}",
+        )
+    return str(row[0])
 
 
 def _require_family_head(conn, family_group_pk, user: UserContext) -> None:
@@ -261,7 +355,8 @@ def _require_family_head(conn, family_group_pk, user: UserContext) -> None:
     headship (FAM-046, FAM-050). An administrator holding FAMILY_MANAGE may
     also act, so a family whose head is lost is not permanently stuck.
     """
-    if user.has_permission("FAMILY_MANAGE"):
+    _require_family_exists(conn, family_group_pk)
+    if _has_scoped_family_permission(conn, family_group_pk, user, "FAMILY_MANAGE"):
         return
     if _is_current_head(conn, str(family_group_pk), str(user.person_pk)):
         return
@@ -276,9 +371,9 @@ def _require_person_family_view(conn, person_pk, user: UserContext) -> None:
     Read access to one person's family/membership context: themselves, a
     current relative, or an administrator holding FAMILY_VIEW.
     """
-    if user.has_permission("FAMILY_VIEW"):
-        return
     if str(person_pk) == str(user.person_pk):
+        return
+    if user.has_permission("FAMILY_VIEW") and person_in_admin_scope(conn, person_pk, user):
         return
     if _shares_current_family(conn, str(user.person_pk), str(person_pk)):
         return
@@ -323,7 +418,7 @@ def list_families(
     the scope resolver already used by the Administration/claim write
     guards: what an admin can see now equals what an admin can manage.
     """
-    sql = _FAMILY_SELECT + " WHERE fg.is_active = TRUE"
+    sql = _family_select() + " WHERE fg.is_active = TRUE"
     params: list = []
 
     if sakha_code is not None:
@@ -374,10 +469,10 @@ def get_family(
     """
     _require_family_view(conn, family_group_pk, user)
 
-    sql = _FAMILY_SELECT + " WHERE fg.family_group_pk = %s AND fg.is_active = TRUE"
+    sql = _family_select(_FAMILY_ONE) + " WHERE fg.family_group_pk = %s AND fg.is_active = TRUE"
 
     with conn.cursor() as cur:
-        cur.execute(sql, (str(family_group_pk),))
+        cur.execute(sql, (str(family_group_pk), str(family_group_pk)))
         result = row_to_model(cur, FamilyGroupResponse)
         if result is None:
             raise HTTPException(status_code=404, detail="Family not found")
@@ -409,14 +504,14 @@ def create_family(
 
     Steps:
       1. Validate Sakha exists and is active
-      2. Auto-generate next family_id (F1, F2, F3, ...)
+      2. Atomically allocate the next family_id (id_sequence_master FAMILY)
       3. Resolve ACTIVE status PK and SELF relationship type PK
       4. Create family_group
       5. Create family_relationship (SELF)
       6. Create family_head_history
-      7. If user was in a previous family:
-         - Soft-delete old family_relationship
-         - Soft-delete old family_link edges
+      7. If user was in a previous family (close_family_membership):
+         - Soft-delete old family_relationship, family_link edges, admin row
+         - Head succession if they were its head; dissolve it if memberless
          - Record family_transition_history (NEW_FAMILY_FORMATION)
       8. Return the new family via the standard SELECT
     """
@@ -446,17 +541,9 @@ def create_family(
                 detail="Invalid Sakha: organization not found or not a SAKHA_SANGHA",
             )
 
-    # 2. Auto-generate family_id
+    # 2. Allocate family_id atomically (id_sequence_master 'FAMILY')
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(
-                MAX(CAST(SUBSTRING(family_id FROM 2) AS INTEGER)), 0
-            ) + 1
-            FROM nss.family_group
-            WHERE family_id ~ '^F[0-9]+$'
-        """)
-        next_num = cur.fetchone()[0]
-        family_id = f"F{next_num}"
+        family_id = next_family_id(cur, actor_pk=user.actor_pk)
 
     # 3. Resolve ACTIVE status PK
     with conn.cursor() as cur:
@@ -464,21 +551,7 @@ def create_family(
 
     # 3b. Resolve SELF relationship type PK
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT md.master_data_pk
-            FROM   nss.master_data md
-            JOIN   nss.master_category mc
-                   ON mc.master_category_pk = md.master_category_pk
-            WHERE  mc.category_code = 'RELATIONSHIP_TYPE'
-              AND  md.value_code = 'SELF'
-        """)
-        row = cur.fetchone()
-        if row is None:
-            raise HTTPException(
-                status_code=500,
-                detail="SELF relationship type not found in master_data. Run the seed script.",
-            )
-        self_rel_pk = str(row[0])
+        self_rel_pk = _resolve_relationship_type_pk(cur, "SELF", missing_status=500)
 
     # 4. Create family_group
     with conn.cursor() as cur:
@@ -537,119 +610,17 @@ def create_family(
             "Family founder — created own family",
         ))
 
-    # 8. Handle old family transition (if leaving an existing family)
+    # 8. Leave the old family (relationship + links + admin row closed, head
+    #    succession, dissolve if memberless) and record the transition.
     if old_family_pk:
-        # 8a. Soft-delete old family_relationship
         with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE nss.family_relationship
-                SET    is_current = FALSE,
-                       effective_to = %s,
-                       updated_at = CURRENT_TIMESTAMP
-                WHERE  family_group_pk = %s
-                  AND  person_pk = %s
-                  AND  is_current = TRUE
-            """, (str(today),
-                  old_family_pk, person_pk))
-
-        # 8b. Soft-delete old family_link edges involving the leaving person
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE nss.family_link
-                SET    is_current = FALSE,
-                       effective_to = %s,
-                       updated_at = CURRENT_TIMESTAMP
-                WHERE  family_group_pk = %s
-                  AND  (person_a_pk = %s OR person_b_pk = %s)
-                  AND  is_current = TRUE
-            """, (str(today),
-                  old_family_pk, person_pk, person_pk))
-
-        # 8c. Head succession — if the leaving person was the current head,
-        #     close their head record and assign the spouse (or first remaining member)
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT family_head_history_pk
-                FROM   nss.family_head_history
-                WHERE  family_group_pk = %s
-                  AND  person_pk = %s
-                  AND  effective_to IS NULL
-            """, (old_family_pk, person_pk))
-            old_head_row = cur.fetchone()
-
-        if old_head_row:
-            # Close the old head record
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE nss.family_head_history
-                    SET    effective_to = %s,
-                           reason = COALESCE(reason, '') || ' — left family',
-                           updated_at = CURRENT_TIMESTAMP
-                    WHERE  family_head_history_pk = %s
-                """, (str(today),
-                      str(old_head_row[0])))
-
-            # Find successor: prefer spouse, then first remaining member
-            with conn.cursor() as cur:
-                # Try to find the spouse via active SPOUSE_OF links
-                # (links FROM the leaving person are now soft-deleted,
-                #  so look at the soft-deleted links to find spouse)
-                cur.execute("""
-                    SELECT CASE WHEN fl.person_a_pk = %s THEN fl.person_b_pk
-                                ELSE fl.person_a_pk END AS spouse_pk
-                    FROM   nss.family_link fl
-                    WHERE  fl.family_group_pk = %s
-                      AND  fl.link_type = 'SPOUSE_OF'
-                      AND  (fl.person_a_pk = %s OR fl.person_b_pk = %s)
-                      AND  fl.effective_to = %s
-                    LIMIT 1
-                """, (person_pk, old_family_pk, person_pk, person_pk, str(today)))
-                spouse_row = cur.fetchone()
-
-            successor_pk = None
-            if spouse_row:
-                # Verify spouse is still a current member
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT 1 FROM nss.family_relationship
-                        WHERE  family_group_pk = %s
-                          AND  person_pk = %s
-                          AND  is_current = TRUE
-                    """, (old_family_pk, str(spouse_row[0])))
-                    if cur.fetchone():
-                        successor_pk = str(spouse_row[0])
-
-            if not successor_pk:
-                # Fallback: first remaining member (by person_id)
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT fr.person_pk
-                        FROM   nss.family_relationship fr
-                        JOIN   nss.person p ON p.person_pk = fr.person_pk
-                        WHERE  fr.family_group_pk = %s
-                          AND  fr.is_current = TRUE
-                        ORDER BY p.person_id
-                        LIMIT 1
-                    """, (old_family_pk,))
-                    fallback = cur.fetchone()
-                    if fallback:
-                        successor_pk = str(fallback[0])
-
-            if successor_pk:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO nss.family_head_history
-                            (family_group_pk, person_pk, effective_from, reason)
-                        VALUES (%s, %s, %s, %s)
-                    """, (
-                        old_family_pk,
-                        successor_pk,
-                        str(today),
-                        "Auto-assigned: previous head left the family",
-                    ))
-
-        # 8d. Record transition history
-        with conn.cursor() as cur:
+            close_family_membership(
+                cur, family_group_pk=old_family_pk, person_pk=person_pk,
+                on_date=today, remark="Left to form a new family",
+                head_reason="Auto-assigned: previous head left the family",
+                actor_pk=user.actor_pk,
+                actor_user_account_pk=str(user.user_account_pk),
+            )
             cur.execute("""
                 INSERT INTO nss.family_transition_history
                     (person_pk, old_family_group_pk, new_family_group_pk,
@@ -670,9 +641,9 @@ def create_family(
     # release any enclosing SAVEPOINT the caller established.
 
     # 9. Return the new family via standard SELECT
-    sql = _FAMILY_SELECT + " WHERE fg.family_group_pk = %s"
+    sql = _family_select(_FAMILY_ONE) + " WHERE fg.family_group_pk = %s"
     with conn.cursor() as cur:
-        cur.execute(sql, (new_family_pk,))
+        cur.execute(sql, (new_family_pk, new_family_pk))
         result = row_to_model(cur, FamilyGroupResponse)
         if result is None:
             raise HTTPException(status_code=500, detail="Family created but could not retrieve")
@@ -699,9 +670,6 @@ def list_family_members(
 
     Access: any current member of this family, or FAMILY_VIEW.
     """
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", str(family_group_pk), label="Family")
-
     _require_family_view(conn, family_group_pk, user)
 
     sql = (
@@ -735,9 +703,6 @@ def list_family_head_history(
 
     Access: any current member of this family, or FAMILY_VIEW.
     """
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", str(family_group_pk), label="Family")
-
     _require_family_view(conn, family_group_pk, user)
 
     sql = (
@@ -920,10 +885,6 @@ def get_family_graph(
 
     Access: any current member of this family, or FAMILY_VIEW.
     """
-    # Verify family exists
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", str(family_group_pk), label="Family")
-
     _require_family_view(conn, family_group_pk, user)
 
     # Fetch graph data (active members + links)
@@ -1236,9 +1197,9 @@ def get_family_sakha_alignment(
     _require_family_view(conn, family_group_pk, user)
 
     # 1. Fetch the family with its assigned Sakha
-    sql = _FAMILY_SELECT + " WHERE fg.family_group_pk = %s AND fg.is_active = TRUE"
+    sql = _family_select(_FAMILY_ONE) + " WHERE fg.family_group_pk = %s AND fg.is_active = TRUE"
     with conn.cursor() as cur:
-        cur.execute(sql, (str(family_group_pk),))
+        cur.execute(sql, (str(family_group_pk), str(family_group_pk)))
         family = row_to_model(cur, FamilyGroupResponse)
         if family is None:
             raise HTTPException(status_code=404, detail="Family not found")
@@ -1338,10 +1299,11 @@ def get_family_sakha_alignment(
         ))
 
     # 5. Compute majority Sakha
+    # Same ordering as the SQL family_majority CTE (count desc, lowest
+    # organization_pk on a tie) — see api/services/family_majority.py.
     affiliations = sorted(
         sakha_counts.values(),
-        key=lambda x: x["member_count"],
-        reverse=True,
+        key=lambda x: sakha_majority_sort_key(x["member_count"], x["organization_pk"]),
     )
 
     majority_sakha_pk = None
@@ -1401,17 +1363,18 @@ def get_person_families(
     """
     _require_person_family_view(conn, person_pk, user)
 
-    sql = _FAMILY_SELECT + """
-    WHERE fg.family_group_pk IN (
+    person_families = """
         SELECT fr.family_group_pk
         FROM nss.family_relationship fr
         WHERE fr.person_pk = %s AND fr.is_current = TRUE
-    )
+    """
+    sql = _family_select(f"AND fr.family_group_pk IN ({person_families})") + f"""
+    WHERE fg.family_group_pk IN ({person_families})
     AND fg.is_active = TRUE
     ORDER BY fg.family_name
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (str(person_pk),))
+        cur.execute(sql, (str(person_pk), str(person_pk)))
         return rows_to_models(cur, FamilyGroupResponse)
 
 
@@ -1437,12 +1400,17 @@ def get_person_membership_summary(
     Returns sangha_sevi_id, membership type/status, current sakha
     affiliation, and latest Parichaya Patra number.
 
-    Returns empty fields (not 404) if the person has no membership record.
+    404 if the person does not exist (checked before the access gate, like
+    every other endpoint); empty fields (not 404) if the person exists but
+    has no membership record.
 
     Access: the person themselves, a current relative, or FAMILY_VIEW. The
     relative case is required — the dashboard fetches a summary for every
     member of the viewer's own family tree.
     """
+    with conn.cursor() as cur:
+        require_entity(cur, "person", str(person_pk), label="Person")
+
     _require_person_family_view(conn, person_pk, user)
 
     # Look up sangha_sevi by person_pk
@@ -1680,14 +1648,17 @@ def add_family_member(
       - Requester is the family head or a family admin
       - Target person exists
       - Target person is not already a current member
-      - relationship_type_code is a valid RELATIONSHIP_TYPE master_data
+      - relationship_type_code / link_type / link target are valid (all
+        checked BEFORE any write)
+      - If the target currently belongs to another family, the requester is
+        the target themselves or holds head/admin authority (or
+        FAMILY_MANAGE) over that family; otherwise 403. The old family's
+        relationship, links and admin row are closed, headship passes to a
+        successor if the target was its head, and it is dissolved if
+        nobody remains.
       - If link_type provided, creates a family_link edge
     """
     today = date_type.today()
-
-    # 1. Verify family exists
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", str(family_group_pk), label="Family")
 
     # 2. Verify requester may change this family's membership
     _require_family_manage(conn, family_group_pk, user)
@@ -1702,72 +1673,78 @@ def add_family_member(
             raise HTTPException(status_code=404, detail="Person not found")
 
     # 4. Verify target not already a current member
+    if _is_current_member(conn, str(family_group_pk), str(body.person_pk)):
+        raise HTTPException(
+            status_code=409,
+            detail="This person is already a current member of the family",
+        )
+
+    # 5. Validate EVERYTHING in the request before the first write, so a bad
+    #    relationship_type_code / link_type can never leave the target already
+    #    pulled out of their previous family (the request is atomic per
+    #    transaction, but later checks must not depend on rollback to undo a
+    #    half-applied move).
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT 1 FROM nss.family_relationship
-            WHERE  family_group_pk = %s
-              AND  person_pk = %s
-              AND  is_current = TRUE
-        """, (str(family_group_pk), str(body.person_pk)))
-        if cur.fetchone() is not None:
+        relationship_type_pk = _resolve_relationship_type_pk(cur, body.relationship_type_code)
+
+    if body.link_type:
+        if body.link_type not in ("PARENT_OF", "SPOUSE_OF", "SIBLING_OF"):
             raise HTTPException(
-                status_code=409,
-                detail="This person is already a current member of the family",
+                status_code=400,
+                detail="link_type must be PARENT_OF, SPOUSE_OF or SIBLING_OF",
+            )
+        if not body.link_target_person_pk:
+            raise HTTPException(
+                status_code=400,
+                detail="link_target_person_pk is required when link_type is set",
+            )
+        if not _is_current_member(conn, str(family_group_pk), str(body.link_target_person_pk)):
+            raise HTTPException(
+                status_code=400,
+                detail="link_target_person_pk must be a current family member",
             )
 
-    # 5. Check if target person is in other families — handle transfer
-    #    Soft-delete from old family + record transition history so
-    #    ghost nodes work bidirectionally.
-    old_families: list[tuple] = []
+    # 6. Moving a person out of another family needs consent: the requester
+    #    must be that person themselves, or hold authority over each family
+    #    being left (its head/admin, or FAMILY_MANAGE). A head of THIS family
+    #    alone can never pull someone out of a family they have no say in.
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT fr.family_group_pk, fr.family_relationship_pk
+            SELECT fr.family_group_pk
             FROM   nss.family_relationship fr
             WHERE  fr.person_pk = %s
               AND  fr.is_current = TRUE
               AND  fr.family_group_pk <> %s
         """, (str(body.person_pk), str(family_group_pk)))
-        old_families = cur.fetchall()
+        old_families = [str(r[0]) for r in cur.fetchall()]
 
-    for old_fam_pk, old_rel_pk in old_families:
-        old_fam_str = str(old_fam_pk)
-        # Determine transition type
-        trans_type = (
-            "MARRIAGE"
-            if body.relationship_type_code == "SPOUSE"
-            else "CHANGE_OF_FAMILY_UNIT"
-        )
+    if old_families and str(body.person_pk) != str(user.person_pk):
+        for old_fam_str in old_families:
+            _require_family_manage(
+                conn, old_fam_str, user,
+                detail=(
+                    "This person already belongs to another family. Only that "
+                    "family's head or admin (or the person themselves) can "
+                    "move them into a new one."
+                ),
+            )
 
-        # Soft-delete family_relationship in old family
+    # 7. Leave the old family(ies): relationship, links, admin row closed,
+    #    head succession, dissolve if memberless — then the transition row so
+    #    ghost nodes work bidirectionally.
+    trans_type = (
+        "MARRIAGE" if body.relationship_type_code == "SPOUSE" else "CHANGE_OF_FAMILY_UNIT"
+    )
+    for old_fam_str in old_families:
         with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE nss.family_relationship
-                SET    is_current = FALSE,
-                       effective_to = %s,
-                       remarks = COALESCE(remarks, '') || %s,
-                       updated_at = CURRENT_TIMESTAMP
-                WHERE  family_relationship_pk = %s
-            """, (
-                today,
-                f' [Transferred to {str(family_group_pk)[:8]}]',
-                str(old_rel_pk),
-            ))
-
-        # Soft-delete family_link rows in old family
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE nss.family_link
-                SET    is_current = FALSE,
-                       effective_to = %s,
-                       updated_at = CURRENT_TIMESTAMP
-                WHERE  family_group_pk = %s
-                  AND  (person_a_pk = %s OR person_b_pk = %s)
-                  AND  is_current = TRUE
-            """, (today,
-                  old_fam_str, str(body.person_pk), str(body.person_pk)))
-
-        # Insert family_transition_history
-        with conn.cursor() as cur:
+            close_family_membership(
+                cur, family_group_pk=old_fam_str, person_pk=str(body.person_pk),
+                on_date=today,
+                remark=f"Transferred to {str(family_group_pk)[:8]}",
+                head_reason="Auto-assigned: previous head left the family",
+                actor_pk=user.actor_pk,
+                actor_user_account_pk=str(user.user_account_pk),
+            )
             cur.execute("""
                 INSERT INTO nss.family_transition_history
                     (person_pk, old_family_group_pk, new_family_group_pk,
@@ -1778,29 +1755,11 @@ def add_family_member(
                 old_fam_str,
                 str(family_group_pk),
                 trans_type,
-                f"Member added to new family via Add Member",
+                "Member added to new family via Add Member",
                 today,
             ))
 
-    # 6. Resolve relationship_type_code → master_data_pk
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT md.master_data_pk
-            FROM   nss.master_data md
-            JOIN   nss.master_category mc
-                   ON mc.master_category_pk = md.master_category_pk
-            WHERE  mc.category_code = 'RELATIONSHIP_TYPE'
-              AND  md.value_code = %s
-        """, (body.relationship_type_code,))
-        row = cur.fetchone()
-        if row is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid relationship type: {body.relationship_type_code}",
-            )
-        relationship_type_pk = row[0]
-
-    # 7. Insert family_relationship
+    # 8. Insert family_relationship
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO nss.family_relationship
@@ -1821,31 +1780,8 @@ def add_family_member(
                   actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
                   module="family", summary=f"Added member {body.person_pk} to family {family_group_pk}")
 
-    # 8. Optionally insert family_link edge
+    # 8b. Optionally insert the family_link edge (already validated above)
     if body.link_type:
-        if body.link_type not in ("PARENT_OF", "SPOUSE_OF", "SIBLING_OF"):
-            raise HTTPException(
-                status_code=400,
-                detail="link_type must be PARENT_OF, SPOUSE_OF or SIBLING_OF",
-            )
-        if not body.link_target_person_pk:
-            raise HTTPException(
-                status_code=400,
-                detail="link_target_person_pk is required when link_type is set",
-            )
-        # Verify the link target is a current member
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT 1 FROM nss.family_relationship
-                WHERE  family_group_pk = %s
-                  AND  person_pk = %s
-                  AND  is_current = TRUE
-            """, (str(family_group_pk), str(body.link_target_person_pk)))
-            if cur.fetchone() is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail="link_target_person_pk must be a current family member",
-                )
         with conn.cursor() as cur:
             insert_family_link_edge(
                 cur,
@@ -1907,10 +1843,6 @@ def create_family_link(
             status_code=400,
             detail="link_type must be PARENT_OF, SPOUSE_OF or SIBLING_OF",
         )
-
-    # 1. Verify family exists
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", str(family_group_pk), label="Family")
 
     # 2. Verify requester may change this family's membership
     _require_family_manage(conn, family_group_pk, user)
@@ -1974,14 +1906,12 @@ def remove_family_member(
     FAMILY_MANAGE) can remove members (FAM-048). Neither can remove
     themselves.
 
-    Sets is_current=FALSE, effective_to=today on the family_relationship
-    and all associated family_link rows for this person.
+    Sets is_current=FALSE, effective_to=today on the family_relationship,
+    all associated family_link rows and any current family_admin row. The
+    head cannot be removed by a family admin (403); a FAMILY_MANAGE
+    administrator may, in which case headship passes to a successor.
     """
     today = date_type.today()
-
-    # 1. Verify family exists
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", str(family_group_pk), label="Family")
 
     # 2. Verify requester may change this family's membership
     _require_family_manage(conn, family_group_pk, user)
@@ -1994,59 +1924,43 @@ def remove_family_member(
         )
 
     # 4. Verify target is a current member
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT family_relationship_pk
-            FROM   nss.family_relationship
-            WHERE  family_group_pk = %s
-              AND  person_pk = %s
-              AND  is_current = TRUE
-        """, (str(family_group_pk), str(body.person_pk)))
-        rel_row = cur.fetchone()
-        if rel_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Person is not a current member of this family",
-            )
+    if not _is_current_member(conn, str(family_group_pk), str(body.person_pk)):
+        raise HTTPException(
+            status_code=404,
+            detail="Person is not a current member of this family",
+        )
 
-    # 5. Soft-delete family_relationship
+    # 5. Nobody but a FAMILY_MANAGE administrator may remove the current head
+    #    (a family admin or the head's own authority chain cannot): the head
+    #    must first hand over headship via transfer-head (FAM-050).
+    if (
+        _is_current_head(conn, str(family_group_pk), str(body.person_pk))
+        and not _has_scoped_family_permission(conn, family_group_pk, user, "FAMILY_MANAGE")
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "The family head cannot be removed. Transfer headship to "
+                "another member first."
+            ),
+        )
+
+    # 6. Soft-delete: relationship + links + admin row closed, head succession
+    #    if a FAMILY_MANAGE administrator removed the head, dissolve if the
+    #    family is left memberless (shared with create/add-member moves).
     with conn.cursor() as cur:
-        cur.execute("""
-            UPDATE nss.family_relationship
-            SET    is_current = FALSE,
-                   effective_to = %s,
-                   remarks = COALESCE(remarks || ' | ', '') || %s,
-                   updated_at = CURRENT_TIMESTAMP
-            WHERE  family_group_pk = %s
-              AND  person_pk = %s
-              AND  is_current = TRUE
-        """, (
-            today,
-            body.remarks or "Removed by family head",
-            str(family_group_pk),
-            str(body.person_pk),
-        ))
-        actor = user.actor_pk
-        log_audit(cur, action="DELETE", table_name="family_relationship", record_pk=str(rel_row[0]),
-                  actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
+        res = close_family_membership(
+            cur, family_group_pk=str(family_group_pk),
+            person_pk=str(body.person_pk), on_date=today,
+            remark=body.remarks or "Removed by family head",
+            head_reason="Auto-assigned: previous head was removed",
+            actor_pk=user.actor_pk,
+            actor_user_account_pk=str(user.user_account_pk),
+        )
+        log_audit(cur, action="DELETE", table_name="family_relationship",
+                  record_pk=res["relationship_pk"],
+                  actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
                   module="family", summary="Removed family member")
-
-    # 6. Soft-delete all family_link edges involving this person
-    with conn.cursor() as cur:
-        cur.execute("""
-            UPDATE nss.family_link
-            SET    is_current = FALSE,
-                   effective_to = %s,
-                   updated_at = CURRENT_TIMESTAMP
-            WHERE  family_group_pk = %s
-              AND  (person_a_pk = %s OR person_b_pk = %s)
-              AND  is_current = TRUE
-        """, (
-            today,
-            str(family_group_pk),
-            str(body.person_pk),
-            str(body.person_pk),
-        ))
 
     return MessageResponse(message="Member removed from family successfully")
 
@@ -2126,10 +2040,6 @@ def assign_family_admin(
     """
     fg_str = str(family_group_pk)
     person_str = str(body.person_pk)
-
-    # 1. Verify family exists
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", fg_str, label="Family")
 
     # 2. Requester must be the current Head
     _require_family_head(conn, family_group_pk, user)
@@ -2263,18 +2173,16 @@ def transfer_family_head(
     new_head_str = str(body.person_pk)
     today = date_type.today()
 
-    # 1. Verify family exists
-    with conn.cursor() as cur:
-        require_entity(cur, "family_group", fg_str, label="Family")
-
     # 2. Requester must be the current Head
     _require_family_head(conn, family_group_pk, user)
 
-    # 3. Cannot transfer to yourself
-    if new_head_str == str(user.person_pk):
+    # 3. Cannot transfer to the person who is already head
+    if _is_current_head(conn, fg_str, new_head_str):
         raise HTTPException(
             status_code=400,
-            detail="You are already the family head",
+            detail="You are already the family head"
+            if new_head_str == str(user.person_pk)
+            else "Person is already the family head",
         )
 
     # 4. New head must be a current member
@@ -2284,7 +2192,9 @@ def transfer_family_head(
             detail="Person is not a current member of this family",
         )
 
-    # 5. Close current head record
+    # 5. Close the current head record — whoever holds it (a FAMILY_MANAGE
+    #    administrator acts on a family they are not head of, so closing only
+    #    the caller's own row would leave two current heads, FAM-051).
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE nss.family_head_history
@@ -2292,10 +2202,8 @@ def transfer_family_head(
                    reason = COALESCE(reason, '') || ' — transferred to new head',
                    updated_at = CURRENT_TIMESTAMP
             WHERE  family_group_pk = %s
-              AND  person_pk = %s
               AND  effective_to IS NULL
-        """, (str(today),
-              fg_str, str(user.person_pk)))
+        """, (str(today), fg_str))
 
     # 6. Create new head record
     with conn.cursor() as cur:

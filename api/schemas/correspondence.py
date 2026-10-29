@@ -19,9 +19,11 @@ class CorrespondenceCreate(BaseModel):
 
     reference_number is never supplied by the client — it is minted by
     api/helpers.py::next_correspondence_reference_number() from
-    register_organization_pk + direction (CORR-EXT-001). medium/status are
-    passed as plain value_codes (e.g. "POST", "REGISTERED") and resolved to
-    master_data PKs server-side via get_master_data_pk().
+    register_organization_pk + direction (CORR-EXT-001). medium is passed as
+    a plain value_code (e.g. "POST") and resolved to a master_data PK
+    server-side via get_master_data_pk() (an unknown code is a 422). Status
+    is never supplied: a new record is always REGISTERED (§6.1) and moves
+    only via the transition endpoint (or the event-driven auto-advances).
 
     Sender/recipient conditional integrity mirrors the DB's compound CHECK
     (chk_correspondence_sender/recipient_consistency, §4.6): exactly one of

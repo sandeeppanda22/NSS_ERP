@@ -76,6 +76,7 @@ from api.schemas.admin import (
     CreateUserRequest,
     ResetPasswordRequest,
     RoleAssignmentResponse,
+    SanghaSeviBatchCheckRequest,
     UpdateStatusRequest,
     UpdatePersonProfileRequest,
     PersonProfileResponse,
@@ -408,7 +409,7 @@ class AdminCreatePersonRequest(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     middle_name: str | None = Field(None, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
-    date_of_birth: str = Field(..., description="Date of birth (YYYY-MM-DD)")
+    date_of_birth: date = Field(..., description="Date of birth (YYYY-MM-DD)")
     gender_master_data_pk: str = Field(
         ..., min_length=1, description="UUID of gender master_data row"
     )
@@ -1063,7 +1064,7 @@ def check_sangha_sevi(
 
 @router.post("/sangha-sevi/check-batch")
 def check_sangha_sevi_batch(
-    body: dict,
+    body: SanghaSeviBatchCheckRequest,
     user: UserContext = Depends(
         require_any_permission("ADMIN_USER_VIEW", "ADMIN_USER_MANAGE", "MEMBERSHIP_APPROVE")
     ),
@@ -1083,7 +1084,7 @@ def check_sangha_sevi_batch(
     }
     Only persons with an active SS or a pending claim appear in the map.
     """
-    person_pks = body.get("person_pks", [])
+    person_pks = body.person_pks
     if not person_pks or len(person_pks) > 100:
         return {}
 
@@ -1608,6 +1609,9 @@ def update_person_profile(
     — a reason belongs to the edit event, not the row).
     """
     with conn.cursor() as cur:
+        # 404 before the scope check / empty-update 422: an unknown person
+        # matches zero rows in the UPDATE and used to surface as "No fields".
+        require_entity(cur, "person", str(person_pk), label="Person")
         _require_person_in_scope(cur, user, str(person_pk), "edit profile details")
 
         changed = apply_person_profile_update(
@@ -1618,7 +1622,7 @@ def update_person_profile(
         )
         if not changed:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="No fields to update.",
             )
 
@@ -2567,10 +2571,18 @@ def check_organization_code_availability(
 
 # ── PATCH /organizations/{pk}/short-code ──────────────────────────────────
 
+class UpdateShortCodeRequest(BaseModel):
+    """PATCH /api/v1/admin/organizations/{organization_pk}/short-code"""
+    short_code: str | None = Field(
+        None, max_length=20,
+        description="3-5 uppercase alphanumeric characters, or null to clear",
+    )
+
+
 @router.patch("/organizations/{organization_pk}/short-code")
 def update_short_code(
     organization_pk: UUID,
-    body: dict,
+    body: UpdateShortCodeRequest,
     user: UserContext = Depends(
         require_any_permission("ORGANIZATION_MANAGE", "ORGANIZATION_VIEW")
     ),
@@ -2590,7 +2602,7 @@ def update_short_code(
     """
     import re as _re
 
-    short_code = body.get("short_code")
+    short_code = body.short_code
 
     # Validate format
     if short_code is not None:

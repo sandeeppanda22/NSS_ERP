@@ -362,11 +362,17 @@ def create_correspondence(
                     detail="The correspondence being replied to was not found.",
                 )
             original_status, original_register_pk = original_row
+            # Naming a record is a read of it (the response echoes its
+            # reference number): the caller must have scope over the
+            # ORIGINAL's register too, not just over the reply's own.
+            require_org_in_scope(
+                cur, user, str(original_register_pk), "reply to correspondence in this organization's register",
+            )
 
         reference_number = next_correspondence_reference_number(
-            cur, str(body.register_organization_pk), body.direction,
+            cur, str(body.register_organization_pk), body.direction, as_of=body.correspondence_date,
         )
-        medium_pk = get_master_data_pk(cur, "CORRESPONDENCE_MEDIUM", body.medium)
+        medium_pk = get_master_data_pk(cur, "CORRESPONDENCE_MEDIUM", body.medium, client_supplied=True)
         status_pk = get_master_data_pk(cur, "CORRESPONDENCE_STATUS", "REGISTERED")
         sender_snapshot = _fetch_sender_sakha_snapshot(cur, body.sender_type, body.sender_person_pk)
 
@@ -471,11 +477,10 @@ def create_correspondence(
                     "WHERE correspondence_pk = %s",
                     (str(counterpart_pk), str(corr_pk)),
                 )
-                log_audit(
-                    cur, action="CREATE", table_name="correspondence", record_pk=str(counterpart_pk),
-                    actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
-                    module="correspondence",
-                    summary=f"Auto-dispatched {reference_number} to inward {inward_reference_number}",
+                _log_dispatch(
+                    cur, user, outward_pk=corr_pk, counterpart_pk=counterpart_pk,
+                    reference_number=reference_number, inward_reference_number=inward_reference_number,
+                    verb="Auto-dispatched",
                 )
             except HTTPException as exc:
                 logger.warning(
@@ -566,6 +571,24 @@ def _mint_inward_counterpart(
     )
 
     return counterpart_pk, inward_reference_number
+
+
+def _log_dispatch(cur, user, *, outward_pk, counterpart_pk, reference_number: str,
+                  inward_reference_number: str, verb: str) -> None:
+    """
+    Audit a dispatch on BOTH rows of the pair: CREATE on the new INWARD
+    counterpart, and UPDATE on the OUTWARD row (which gained its
+    counterpart link) so the sender's GET /{pk}/history shows the dispatch
+    too. Shared by create_correspondence()'s auto-dispatch and
+    dispatch_correspondence() ("Auto-dispatched" / "Dispatched").
+    """
+    summary = f"{verb} {reference_number} to inward {inward_reference_number}"
+    for action, record_pk in (("CREATE", counterpart_pk), ("UPDATE", outward_pk)):
+        log_audit(
+            cur, action=action, table_name="correspondence", record_pk=str(record_pk),
+            actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
+            module="correspondence", summary=summary,
+        )
 
 
 # ── POST /api/v1/correspondence/{pk}/dispatch ───────────────────────────
@@ -694,11 +717,10 @@ def dispatch_correspondence(
             (str(counterpart_pk), str(correspondence_pk)),
         )
 
-        log_audit(
-            cur, action="CREATE", table_name="correspondence", record_pk=str(counterpart_pk),
-            actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
-            module="correspondence",
-            summary=f"Dispatched {reference_number} to inward {inward_reference_number}",
+        _log_dispatch(
+            cur, user, outward_pk=correspondence_pk, counterpart_pk=counterpart_pk,
+            reference_number=reference_number, inward_reference_number=inward_reference_number,
+            verb="Dispatched",
         )
 
         cur.execute(_DETAIL_SELECT + " WHERE c.correspondence_pk = %s", (str(correspondence_pk),))
@@ -775,7 +797,7 @@ def broadcast_correspondence(
                 ),
             )
 
-        medium_pk = get_master_data_pk(cur, "CORRESPONDENCE_MEDIUM", body.medium)
+        medium_pk = get_master_data_pk(cur, "CORRESPONDENCE_MEDIUM", body.medium, client_supplied=True)
         status_pk = get_master_data_pk(cur, "CORRESPONDENCE_STATUS", "REGISTERED")
         created_pks: list[str] = []
 
@@ -923,7 +945,9 @@ def get_correspondence(
     conn=Depends(get_connection),
 ) -> CorrespondenceResponse:
     with conn.cursor() as cur:
-        cur.execute(_DETAIL_SELECT + " WHERE c.correspondence_pk = %s", (str(correspondence_pk),))
+        cur.execute(
+            _DETAIL_SELECT + " WHERE c.correspondence_pk = %s AND c.is_active = TRUE", (str(correspondence_pk),),
+        )
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Correspondence record not found.")
@@ -1027,7 +1051,7 @@ def get_correspondence_history(
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s",
+            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s AND is_active = TRUE",
             (str(correspondence_pk),),
         )
         row = cur.fetchone()
@@ -1140,7 +1164,7 @@ def _require_directed_authority(cur, user: UserContext, correspondence_pk: str, 
                responsible_person_pk, responsible_organization_pk
         FROM nss.correspondence c
         JOIN nss.master_data status_md ON status_md.master_data_pk = c.status_master_data_pk
-        WHERE c.correspondence_pk = %s
+        WHERE c.correspondence_pk = %s AND c.is_active = TRUE
         """,
         (str(correspondence_pk),),
     )
@@ -1366,7 +1390,7 @@ def associate_document(
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s",
+            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s AND is_active = TRUE",
             (str(correspondence_pk),),
         )
         row = cur.fetchone()
@@ -1409,7 +1433,7 @@ def list_documents(
 ) -> DocumentAssociationListResponse:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s",
+            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s AND is_active = TRUE",
             (str(correspondence_pk),),
         )
         row = cur.fetchone()
@@ -1468,7 +1492,7 @@ def associate_finance_reference(
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s",
+            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s AND is_active = TRUE",
             (str(correspondence_pk),),
         )
         row = cur.fetchone()
@@ -1477,7 +1501,7 @@ def associate_finance_reference(
         require_org_in_scope(cur, user, row[0], "reference a finance transaction from this correspondence record")
 
         relationship_pk = get_master_data_pk(
-            cur, "CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE", body.relationship_type,
+            cur, "CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE", body.relationship_type, client_supplied=True,
         )
 
         cur.execute(
@@ -1521,7 +1545,7 @@ def list_finance_references(
 ) -> FinanceReferenceListResponse:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s",
+            "SELECT register_organization_pk FROM nss.correspondence WHERE correspondence_pk = %s AND is_active = TRUE",
             (str(correspondence_pk),),
         )
         row = cur.fetchone()

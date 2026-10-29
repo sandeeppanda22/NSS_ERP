@@ -36,7 +36,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import log_audit, row_to_model, rows_to_models
+from api.helpers import log_audit, require_entity, row_to_model, rows_to_models
 from api.services.rbac_service import UserContext
 from api.schemas.foundation import (
     CategoryResponse,
@@ -1492,6 +1492,7 @@ def propose_district(
     district_name = body.district_name.strip()
 
     with conn.cursor() as cur:
+        require_entity(cur, "state", str(body.state_pk), label="State")
         cur.execute(
             """
             SELECT district_pk, state_pk, district_code, district_name,
@@ -1554,6 +1555,22 @@ def propose_postal_code(
         raise HTTPException(status_code=422, detail="postal_code must be exactly 6 digits.")
 
     with conn.cursor() as cur:
+        require_entity(cur, "state", str(body.state_pk), label="State")
+        # The PIN is already a canonical (APPROVED) row: nothing to propose.
+        cur.execute(
+            """
+            SELECT 1 FROM nss.postal_code
+            WHERE  postal_code = %s
+              AND  entry_status = 'APPROVED'
+              AND  is_active = TRUE
+            """,
+            (pin,),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Postal code {pin} already exists.",
+            )
         cur.execute(
             """
             SELECT postal_code_pk, state_pk, postal_code,
@@ -1610,12 +1627,7 @@ def propose_post_office(
     post_office_name = body.post_office_name.strip()
 
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM nss.postal_code WHERE postal_code_pk = %s AND is_active = TRUE",
-            (str(body.postal_code_pk),),
-        )
-        if cur.fetchone() is None:
-            raise HTTPException(status_code=404, detail="Postal code not found.")
+        require_entity(cur, "postal_code", str(body.postal_code_pk), label="Postal code")
 
         cur.execute(
             """
@@ -1689,6 +1701,10 @@ def propose_city_village(
     cv_name = body.city_village_name.strip()
 
     with conn.cursor() as cur:
+        if body.district_pk is not None:
+            require_entity(cur, "district", str(body.district_pk), label="District")
+        if body.postal_code_pk is not None:
+            require_entity(cur, "postal_code", str(body.postal_code_pk), label="Postal code")
         cur.execute(
             """
             SELECT city_village_pk, district_pk, postal_code_pk,
