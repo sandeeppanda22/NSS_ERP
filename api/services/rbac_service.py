@@ -22,6 +22,40 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 
+# ── NULL-organization scope levels (owner decision 2026-10-30) ───────────
+# Scope levels whose admin_scope row carries organization_pk = NULL but which
+# are NOT global. Each is resolved here, in one place, so every router that
+# calls actor_scope_org_pks()/org_in_scope()/require_org_in_scope() inherits
+# the same reach:
+#   KENDRA_MAHILA_SANGHA -> every organization of type MAHILA_SANGHA (the
+#       central Kendra Mahila Sangha AND the Sakha-level Mahila Sanghas) plus
+#       everything beneath them. Nothing above them (Kendra / a Sakha) is
+#       included.
+#   ADVISORY_BOARD       -> the singleton ADVISORY_BOARD organization (owner
+#       decision 2026-10-30, "Advisory Board should be an org type") and
+#       its subtree (none today) — which is what gives the Advisory Board its
+#       own correspondence register. The Advisory Board GOVERNANCE BODY is a
+#       separate thing and stays NULL-org (body_master.organization_pk IS
+#       NULL); it is deliberately NOT linked to this organization. Its
+#       body-management reach is the body-type rule below.
+NULL_ORG_SCOPE_ORG_TYPE: dict[str, str] = {
+    "KENDRA_MAHILA_SANGHA": "MAHILA_SANGHA",
+    "ADVISORY_BOARD": "ADVISORY_BOARD",
+}
+
+# NSS-wide (organization_pk IS NULL) governance body types a NULL-org scope
+# level may manage, and ONLY those. Consumed by governance.py's
+# _require_scope_for_org_or_nss_wide(); any other NSS-wide body (Kendra GB, ...)
+# still needs a global authority.
+NULL_ORG_SCOPE_BODY_TYPES: dict[str, frozenset[str]] = {
+    "ADVISORY_BOARD": frozenset({"ADVISORY_BOARD"}),
+    # The central Mahila Sangha's own Governing Body is NSS-wide
+    # (organization_pk NULL); the Sakha-level Mahila Sangha bodies are
+    # org-scoped and already covered by the Mahila admin's organization reach.
+    "KENDRA_MAHILA_SANGHA": frozenset({"MAHILA_PARICHALANA_MANDALI"}),
+}
+
+
 @dataclass
 class ScopeInfo:
     """
@@ -78,6 +112,12 @@ class UserContext:
         that decision and was never updated — see backlog #12).
         Otherwise, the organization_pk must match one of the user's scopes.
 
+        This is the legacy exact-match probe and has no DB access, so it
+        CANNOT resolve the type-based reach of NULL-organization scope levels
+        (NULL_ORG_SCOPE_ORG_TYPE, e.g. KENDRA_MAHILA_SANGHA) and returns False
+        for them. No router uses it any more; all authorization goes through
+        the subtree-aware org_in_scope()/require_org_in_scope() below.
+
         Compares as strings deliberately: psycopg2 returns admin_scope.
         organization_pk as a plain str (no register_uuid() call in this
         codebase — see api/database.py), while callers commonly pass a
@@ -111,6 +151,18 @@ class UserContext:
         """
         return any(s.scope_level in ("NSS-WIDE", "KENDRA") for s in self.scopes)
 
+    def managed_null_org_body_types(self) -> set[str]:
+        """
+        NSS-wide governance body type codes this user may manage through a
+        NULL-organization scope level (NULL_ORG_SCOPE_BODY_TYPES), e.g. an
+        ADVISORY_BOARD scope -> {"ADVISORY_BOARD"}. Empty for everyone else
+        (global authorities are handled separately by is_nss_wide()).
+        """
+        out: set[str] = set()
+        for s in self.scopes:
+            out |= NULL_ORG_SCOPE_BODY_TYPES.get(s.scope_level, frozenset())
+        return out
+
     def is_super_admin(self) -> bool:
         """
         The sole blanket, all-scope authority (ADMIN-BR-043/077).
@@ -122,6 +174,36 @@ class UserContext:
         permission alone.
         """
         return any(s.role_code == "NSS_ERP_ADMIN" for s in self.scopes)
+
+    def is_kendra_gb_member(self) -> bool:
+        """
+        True for a person with a live seat on the KENDRA_GOVERNING_BODY — the
+        §63 auto-granted NSS_ERP_KENDRA_ADMIN composite scope
+        (load_composite_grants rule 'KENDRA_GOVERNING_BODY', any position, an
+        ACTIVE substantive assignment or a live acting delegate), which is
+        synthetic and therefore carries user_role_pk = None.
+
+        Deliberately NOT is_super_admin()/is_nss_wide(): a real user_role
+        NSS_ERP_ADMIN or a user_role-assigned NSS_ERP_KENDRA_ADMIN is not a
+        governing-body member. One of the two exemptions in the Sakha
+        re-parenting rule (see can_reparent_sakha_directly()).
+        """
+        return any(
+            s.role_code == "NSS_ERP_KENDRA_ADMIN" and s.user_role_pk is None
+            for s in self.scopes
+        )
+
+    def can_reparent_sakha_directly(self) -> bool:
+        """
+        Sakha re-parenting exemption (owner 2026-10-30; GDR-007): a Kendra
+        Governing Body member (is_kendra_gb_member()) OR the NSS_ERP_ADMIN
+        super administrator (is_super_admin() — decided by ROLE, never by a
+        hard-coded login or sangha_sevi_id) may move a Sakha/Sakha Asana under
+        a different parent directly. Everyone else (scoped admins, office
+        bearers, a manually-assigned non-GB Kendra Administrator) goes through
+        the approval chain. Single source of truth for that rule.
+        """
+        return self.is_super_admin() or self.is_kendra_gb_member()
 
     @property
     def actor_pk(self) -> str | None:
@@ -411,6 +493,40 @@ def load_composite_grants(cur, person_pk) -> tuple[list["ScopeInfo"], set[str]]:
 # is retained only for the NSS-WIDE short-circuit inside these helpers.
 
 
+def actor_scope_root_org_pks(cur, user: UserContext) -> set[str] | None:
+    """
+    The organizations the actor's scope is *rooted* at (before descendants
+    are added): each scope's own organization_pk, plus — for a
+    NULL-organization scope level in NULL_ORG_SCOPE_ORG_TYPE — every
+    organization of that type. ``None`` = global authority.
+
+    Shared by actor_scope_org_pks() and organization.py's hierarchy anchor so
+    both define a scope's roots identically. Any NULL-org level not in the
+    map contributes no roots.
+    """
+    if user.is_super_admin() or user.is_nss_wide():
+        return None
+    roots = {str(s.organization_pk) for s in user.scopes if s.organization_pk}
+    type_codes = sorted({
+        NULL_ORG_SCOPE_ORG_TYPE[s.scope_level]
+        for s in user.scopes
+        if not s.organization_pk and s.scope_level in NULL_ORG_SCOPE_ORG_TYPE
+    })
+    if type_codes:
+        cur.execute(
+            """
+            SELECT o.organization_pk
+            FROM nss.organization o
+            JOIN nss.master_data md
+              ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code = ANY(%s)
+            """,
+            (type_codes,),
+        )
+        roots |= {str(r[0]) for r in cur.fetchall()}
+    return roots
+
+
 def actor_scope_org_pks(cur, user: UserContext) -> set[str] | None:
     """
     Set of organization_pks the actor may act within (ADMIN-BR-076).
@@ -418,14 +534,17 @@ def actor_scope_org_pks(cur, user: UserContext) -> set[str] | None:
     Returns ``None`` to mean "all organizations", reserved for the sole
     global authority — the NSS_ERP_ADMIN role or an NSS-WIDE scope
     (ADMIN-BR-077). For a scope-bounded admin the set is the recursive
-    subtree (each scoped organization + all its descendants). An admin with
-    no organization-anchored scope resolves to the empty set.
+    subtree (each root from actor_scope_root_org_pks() + all descendants).
+    An admin with no resolvable root (a NULL-org level absent from
+    NULL_ORG_SCOPE_ORG_TYPE, or a mapped type with no organization row)
+    resolves to the empty set.
     """
-    if user.is_super_admin() or user.is_nss_wide():
+    roots = actor_scope_root_org_pks(cur, user)
+    if roots is None:
         return None
-    roots = [str(s.organization_pk) for s in user.scopes if s.organization_pk]
     if not roots:
         return set()
+    roots = sorted(roots)
     placeholders = ",".join(["%s"] * len(roots))
     cur.execute(
         f"""

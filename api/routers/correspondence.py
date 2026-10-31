@@ -82,6 +82,11 @@ from api.schemas.correspondence import (
     StatusTransitionRequest,
 )
 from api.services.rbac_service import UserContext, actor_scope_org_pks, org_subtree_pks, require_org_in_scope
+from api.services.seat_service import (
+    assignment_person_for_position as _assignment_person_for_position,
+    assignment_position_for_person as _assignment_position_for_person,
+    find_body_master_pk as _find_body_master_pk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1657,103 +1662,6 @@ def list_finance_references(
 # all-orgs dicts shaped for a directory UI; these answer one yes/no
 # question about one specific body+person).
 # ═════════════════════════════════════════════════════════════════════
-
-
-def _find_body_master_pk(cur, body_type_code: str, organization_pk: str | None) -> str | None:
-    """The active body_master row of the given type, NSS-wide (organization_pk
-    is None) or org-scoped. Mirrors the WHERE-shape governance.py already uses
-    for singleton vs. org-scoped bodies (e.g. public_national_bodies)."""
-    if organization_pk is None:
-        cur.execute(
-            """
-            SELECT bm.body_master_pk
-            FROM nss.body_master bm
-            JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk
-            WHERE bt.body_type_code = %s AND bm.organization_pk IS NULL AND bm.is_active = TRUE
-            LIMIT 1
-            """,
-            (body_type_code,),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT bm.body_master_pk
-            FROM nss.body_master bm
-            JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk
-            WHERE bt.body_type_code = %s AND bm.organization_pk = %s AND bm.is_active = TRUE
-            LIMIT 1
-            """,
-            (body_type_code, str(organization_pk)),
-        )
-    row = cur.fetchone()
-    return str(row[0]) if row else None
-
-
-def _assignment_position_for_person(cur, body_master_pk: str, person_pk) -> str | None:
-    """The position_master_pk of person_pk's current, active, non-MEMBER
-    office-bearer seat on body_master_pk — either the substantive seat
-    itself, OR a LIVE acting delegate currently covering that seat (owner
-    request, 2026-10-25: selecting the delegate in the "Send Application"
-    office-bearer dropdown must actually address the application to the
-    delegate, not just display their name next to the absent holder — see
-    NSS.officeBearerDropdownOptions in nss-config.js, which now submits
-    the delegate's OWN person_pk as the option value). Returns the
-    POSITION's pk either way (e.g. PRESIDENT), not a different pk per
-    path — the position being addressed doesn't change, only who is
-    currently standing in it. None if person_pk holds neither."""
-    cur.execute(
-        """
-        SELECT a.position_master_pk
-        FROM nss.body_member_assignment a
-        JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
-        WHERE a.body_master_pk = %s AND a.person_pk = %s
-          AND a.is_active = TRUE AND a.effective_to IS NULL
-          AND a.assignment_status IN ('ASSIGNED', 'ACTIVE')
-          AND pm.position_code != 'MEMBER'
-        LIMIT 1
-        """,
-        (str(body_master_pk), str(person_pk)),
-    )
-    row = cur.fetchone()
-    if row:
-        return str(row[0])
-
-    cur.execute(
-        """
-        SELECT apa.position_master_pk
-        FROM nss.acting_position_assignment apa
-        JOIN nss.position_master pm ON pm.position_master_pk = apa.position_master_pk
-        WHERE apa.body_master_pk = %s AND apa.person_pk = %s
-          AND apa.is_active = TRUE AND apa.acting_status = 'ACTIVE'
-          AND apa.effective_from <= CURRENT_DATE
-          AND (apa.effective_to IS NULL OR apa.effective_to >= CURRENT_DATE)
-          AND pm.position_code != 'MEMBER'
-        LIMIT 1
-        """,
-        (str(body_master_pk), str(person_pk)),
-    )
-    row = cur.fetchone()
-    return str(row[0]) if row else None
-
-
-def _assignment_person_for_position(cur, body_master_pk: str, position_code: str):
-    """(person_pk, position_master_pk) of whoever currently holds
-    position_code on body_master_pk, or None. Used to resolve the Sakha
-    President to route a KENDRA_VIA_SAKHA_PRESIDENT application through."""
-    cur.execute(
-        """
-        SELECT a.person_pk, a.position_master_pk
-        FROM nss.body_member_assignment a
-        JOIN nss.position_master pm ON pm.position_master_pk = a.position_master_pk
-        WHERE a.body_master_pk = %s AND pm.position_code = %s
-          AND a.is_active = TRUE AND a.effective_to IS NULL
-          AND a.assignment_status IN ('ASSIGNED', 'ACTIVE')
-        LIMIT 1
-        """,
-        (str(body_master_pk), position_code),
-    )
-    row = cur.fetchone()
-    return (str(row[0]), str(row[1])) if row else None
 
 
 def _find_sakha_office_bearer_position(

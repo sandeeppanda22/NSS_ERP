@@ -42,7 +42,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, log_audit, next_id, row_to_model, rows_to_models, get_active_status_pk, require_entity
+from api.helpers import SAKHA_LIKE_ORG_TYPES, DEFAULT_LIMIT, MAX_LIMIT, log_audit, next_id, row_to_model, rows_to_models, get_active_status_pk, require_entity
 from api.schemas.auth import MessageResponse
 from api.schemas.family import (
     AddFamilyMemberRequest,
@@ -532,13 +532,13 @@ def create_family(
                        JOIN   nss.master_category mc
                               ON mc.master_category_pk = md.master_category_pk
                        WHERE  mc.category_code = 'ORGANIZATION_TYPE'
-                         AND  md.value_code = 'SAKHA_SANGHA'
+                         AND  md.value_code = ANY(%s)
                    )
-        """, (str(body.sakha_organization_pk),))
+        """, (str(body.sakha_organization_pk), list(SAKHA_LIKE_ORG_TYPES)))
         if cur.fetchone() is None:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid Sakha: organization not found or not a SAKHA_SANGHA",
+                detail="Invalid Sakha: organization not found or not a Sakha (SAKHA_SANGHA/SAKHA_ASANA)",
             )
 
     # 2. Allocate family_id atomically (id_sequence_master 'FAMILY')

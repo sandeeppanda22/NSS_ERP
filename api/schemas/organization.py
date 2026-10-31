@@ -74,7 +74,7 @@ class OrganizationResponse(BaseModel):
     parent_organization_name: str | None
     # The parent's type distinguishes otherwise-identical children, e.g. a
     # central Mahila Sangha (parent = KENDRA) from a local one
-    # (parent = SAKHA_SANGHA).
+    # (parent = a Sakha-like org: SAKHA_SANGHA or SAKHA_ASANA).
     parent_organization_type_code: str | None = None
 
     # Inline address
@@ -270,12 +270,12 @@ class OrgWingSummaryResponse(BaseModel):
     recursive org_tree -> descendant-Sakhas pattern _ORG_STATS_SQL uses,
     so one implementation serves every level the user asked about:
 
-      SAKHA_SANGHA     -> subtree is just itself; its own wings
+      SAKHA_SANGHA/ASANA -> subtree is just itself; its own wings
       ANCHALIKA/ZILLA  -> aggregates its descendant Sakhas' wings
       KENDRA           -> aggregates every Sakha NSS-wide
 
     Anchalika and Zilla can only ever AGGREGATE: the frozen parent-type
-    matrix (ORG-BR-090/091/092) permits wings under SAKHA_SANGHA or (for
+    matrix (ORG-BR-090/091/092) permits wings under SAKHA_SANGHA/SAKHA_ASANA (amended 2026-10-31, GDR-008) or (for
     the single central Mahila Sangha) KENDRA only, and ORG-BR-089 makes
     Sakhas the sole legal children of an Anchalika/Zilla. So neither tier
     can own a wing org row, and aggregation is the only meaningful

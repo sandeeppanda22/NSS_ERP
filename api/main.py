@@ -74,6 +74,7 @@ from api.routers import governance
 from api.routers import membership_change_request
 from api.routers import correspondence
 from api.routers import attendance
+from api.routers import org_reparent
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -324,6 +325,7 @@ app.include_router(governance.router)
 app.include_router(membership_change_request.router)
 app.include_router(correspondence.router)
 app.include_router(attendance.router)
+app.include_router(org_reparent.router)
 
 # ── Frontend ─────────────────────────────────────────────────────────────
 # Serve static assets at /assets/*, index.html at /

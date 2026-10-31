@@ -156,13 +156,13 @@ class AssignRoleRequest(BaseModel):
         ...,
         description=(
             "Scope level: NSS-WIDE, KENDRA, ANCHALIKA, ZILLA, SAKHA, "
-            "PATHA_CHAKRA, KENDRA_MAHILA_SANGHA"
+            "PATHA_CHAKRA, KENDRA_MAHILA_SANGHA, ADVISORY_BOARD"
         ),
         # Must stay in step with chk_admin_scope_level in
         # database/ddl/07_administration/02_admin_scope.sql and with the
         # scope_level values in 00_bootstrap/02_role_master.sql — one value
         # per ORGANIZATIONAL role, or that role cannot be assigned at all.
-        pattern="^(NSS-WIDE|KENDRA|ANCHALIKA|ZILLA|SAKHA|PATHA_CHAKRA|KENDRA_MAHILA_SANGHA)$",
+        pattern="^(NSS-WIDE|KENDRA|ANCHALIKA|ZILLA|SAKHA|PATHA_CHAKRA|KENDRA_MAHILA_SANGHA|ADVISORY_BOARD)$",
     )
     organization_pk: UUID | None = Field(
         default=None,
@@ -256,6 +256,7 @@ class UserAccountResponse(BaseModel):
     credential_document_number: str | None = None
     person_name: str | None = None
     organization_name: str | None = None
+    organization_pk: UUID | None = None  # home Sakha (active SS org, else claimed org)
     local_sakha_erp_id: str | None = None
     darshak_local_number: str | None = None
     darshak_organization_name: str | None = None
@@ -348,6 +349,7 @@ class UserDetailResponse(BaseModel):
     sangha_sevi_id: str | None = None
     person_name: str | None = None
     organization_name: str | None = None
+    organization_pk: UUID | None = None  # home Sakha (active SS org, else claimed org)
     local_sakha_erp_id: str | None = None
     darshak_local_number: str | None = None
     darshak_organization_name: str | None = None

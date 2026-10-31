@@ -31,6 +31,33 @@ import psycopg2.errors
 logger = logging.getLogger(__name__)
 
 
+# ── Sakha-like organization types (single Python definition) ────────────
+#
+# Owner decision 2026-10-31: a Sakha Asana (SAKHA_ASANA) is a Sakha Sangha
+# without its own building — same SAKHA_GOVERNING_BODY, President, members,
+# attendance, correspondence and Advisory Board representation. Every "is this
+# a Sakha?" filter in api/ uses this ONE tuple (as a bind parameter:
+# ``md.value_code = ANY(%s)`` with ``list(SAKHA_LIKE_ORG_TYPES)``), never a
+# hard-coded 'SAKHA_SANGHA'. Deliberately type-specific sites (creation rules,
+# id/code generation) are listed in
+# tests/api/test_sakha_asana_parity.py::ALLOW_LIST. SQL counterpart:
+# nss.fn_is_sakha_like_org_type() (database/ddl/02_organization/10_*.sql);
+# JS counterpart: NSS.SAKHA_LIKE_ORG_TYPES in frontend/assets/js/nss-config.js.
+SAKHA_LIKE_ORG_TYPES: tuple[str, ...] = ("SAKHA_SANGHA", "SAKHA_ASANA")
+
+
+# The same tuple rendered as a SQL ``IN`` list for static SQL fragments where a
+# bind parameter would force positional-parameter plumbing (CTEs spliced into
+# f-strings). Generated from SAKHA_LIKE_ORG_TYPES — never a second literal list.
+# Contains only constant identifiers (no user input), so interpolation is safe.
+SAKHA_LIKE_ORG_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in SAKHA_LIKE_ORG_TYPES) + ")"
+
+
+def is_sakha_like(org_type_code: str | None) -> bool:
+    """True for SAKHA_SANGHA and SAKHA_ASANA."""
+    return org_type_code in SAKHA_LIKE_ORG_TYPES
+
+
 # ── Pagination defaults ──────────────────────────────────────────────────
 
 DEFAULT_LIMIT = 100
@@ -967,7 +994,8 @@ def compose_local_sakha_erp_id(
 def require_sakha_organization(cur, organization_pk: str) -> None:
     """
     Enforce MBR-038A at the API layer: a Member's organizational
-    association must reference an organization of type SAKHA_SANGHA.
+    association must reference an organization of a Sakha-like type
+    (SAKHA_SANGHA or SAKHA_ASANA, owner 2026-10-31).
 
     This mirrors the database triggers in
     05_membership/14_sakha_only_membership_trigger.sql. The DB is the
@@ -979,7 +1007,7 @@ def require_sakha_organization(cur, organization_pk: str) -> None:
     creates the system account, so every member created through these
     endpoints must be tied to a Sakha, with no exception.
 
-    Raises: HTTPException 422 if organization_pk is not a SAKHA_SANGHA.
+    Raises: HTTPException 422 if organization_pk is not Sakha-like.
     """
     if organization_pk is None:
         raise HTTPException(
@@ -1008,13 +1036,13 @@ def require_sakha_organization(cur, organization_pk: str) -> None:
         )
 
     org_type_code, org_name = row
-    if org_type_code != "SAKHA_SANGHA":
+    if not is_sakha_like(org_type_code):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"A member can only be associated with a Sakha Sangha "
+                f"A member can only be associated with a Sakha Sangha or Sakha Asana "
                 f"(MBR-038A). '{org_name}' is of type {org_type_code}, "
-                "not SAKHA_SANGHA."
+                "not a Sakha."
             ),
         )
 
@@ -1028,7 +1056,10 @@ def resolve_kumari_sevak_parent_sakha(
 ) -> str:
     """
     Resolve/validate the parent Sakha for a KUMARI_SANGHA/SEVAK_SANGHA
-    create-or-update (ORG-BR-101/102).
+    create-or-update (ORG-BR-101/102). The "Sakha" may be a SAKHA_SANGHA or
+    a SAKHA_ASANA (owner 2026-10-31, GDR-008) — this helper settles WHICH
+    Sakha by admin scope only; the parent's TYPE is validated by the caller
+    against ALLOWED_PARENT_TYPES.
 
     - NSS-wide NSS_ERP_ADMIN: requested_parent_pk must be supplied by the
       caller (any active Sakha is legal); returned unchanged.
@@ -1134,7 +1165,7 @@ def resolve_scoped_sakha(
     Authorization mirrors UserContext.has_scope_for_org (exact-match, NOT
     hierarchical): the eligible Sakhas are exactly the caller's SAKHA-level
     scopes, plus every Sakha for an NSS-wide caller. The type check
-    (SAKHA_SANGHA) is still the caller's responsibility via
+    (Sakha-like: SAKHA_SANGHA or SAKHA_ASANA) is still the caller's responsibility via
     require_sakha_organization — this helper only settles *which* Sakha.
 
     Returns the resolved organization_pk (str). Raises HTTPException
@@ -1249,7 +1280,7 @@ def insert_sakha_affiliation(
 
     Returns: membership_sakha_affiliation_pk as a string.
     Raises: HTTPException 409 if the number is already taken in that Sakha,
-            HTTPException 422 if organization_pk is not a SAKHA_SANGHA.
+            HTTPException 422 if organization_pk is not Sakha-like.
     """
     require_sakha_organization(cur, organization_pk)
 
@@ -2016,6 +2047,111 @@ def get_kendra_organization_pk(cur) -> str | None:
     )
     row = cur.fetchone()
     return str(row[0]) if row else None
+
+
+# Organization types whose organization_name is fixed for every actor (owner
+# decision 2026-10-30: the Advisory Board's name is not editable; contact
+# fields stay editable). Single source of truth for the PATCH guard.
+IMMUTABLE_NAME_ORG_TYPES = frozenset({"ADVISORY_BOARD"})
+
+
+def require_org_name_mutable(
+    org_type_code: str, current_name: str | None, new_name: str | None
+) -> None:
+    """
+    422 when *new_name* would change the name of an organization of a type in
+    IMMUTABLE_NAME_ORG_TYPES. Re-sending the unchanged name is not a change.
+    """
+    if org_type_code not in IMMUTABLE_NAME_ORG_TYPES or new_name is None:
+        return
+    if (current_name or "").strip() != new_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"The name of a '{org_type_code}' organization is fixed and cannot be changed.",
+        )
+
+
+# Singleton organizations (owner decision 2026-10-30): at most one ACTIVE
+# organization exists for each of these types, and for the central Mahila Sangha
+# (MAHILA_SANGHA whose parent is a KENDRA — MAHILA_SANGHA is also the type of the
+# many local per-Sakha Mahila Sanghas, which stay unrestricted). Mirrors the DB
+# trigger nss.fn_enforce_organization_singleton() (ddl/02_organization/
+# 08_organization_singleton_trigger.sql); this gives a clean 422 before it fires.
+SINGLETON_ORG_TYPES = frozenset({"KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA", "ADVISORY_BOARD"})
+CENTRAL_MAHILA_ORG_TYPE = "MAHILA_SANGHA"
+CENTRAL_MAHILA_PARENT_TYPE = "KENDRA"
+
+
+def find_active_singleton_org_pk(
+    cur, org_type_code: str, parent_organization_pk, exclude_organization_pk=None
+) -> str | None:
+    """
+    pk of an ACTIVE organization that already fills the singleton slot that an
+    organization of *org_type_code* under *parent_organization_pk* would take,
+    or None when that type/parent combination is not a singleton or the slot is
+    free. *exclude_organization_pk* is the row being edited (never a conflict
+    with itself).
+    """
+    exclude = str(exclude_organization_pk) if exclude_organization_pk else None
+    if org_type_code in SINGLETON_ORG_TYPES:
+        cur.execute(
+            """
+            SELECT o.organization_pk
+            FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code = %s AND o.is_active = TRUE
+              AND (%s::uuid IS NULL OR o.organization_pk <> %s::uuid)
+            LIMIT 1
+            """,
+            (org_type_code, exclude, exclude),
+        )
+    elif org_type_code == CENTRAL_MAHILA_ORG_TYPE and parent_organization_pk:
+        cur.execute(
+            """
+            SELECT 1
+            FROM nss.organization p
+            JOIN nss.master_data pmd ON pmd.master_data_pk = p.organization_type_master_data_pk
+            WHERE p.organization_pk = %s AND pmd.value_code = %s
+            """,
+            (str(parent_organization_pk), CENTRAL_MAHILA_PARENT_TYPE),
+        )
+        if cur.fetchone() is None:
+            return None  # a local (per-Sakha etc.) Mahila Sangha — unrestricted
+        cur.execute(
+            """
+            SELECT o.organization_pk
+            FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            JOIN nss.organization p ON p.organization_pk = o.parent_organization_pk
+            JOIN nss.master_data pmd ON pmd.master_data_pk = p.organization_type_master_data_pk
+            WHERE md.value_code = %s AND pmd.value_code = %s AND o.is_active = TRUE
+              AND (%s::uuid IS NULL OR o.organization_pk <> %s::uuid)
+            LIMIT 1
+            """,
+            (CENTRAL_MAHILA_ORG_TYPE, CENTRAL_MAHILA_PARENT_TYPE, exclude, exclude),
+        )
+    else:
+        return None
+    row = cur.fetchone()
+    return str(row[0]) if row else None
+
+
+def require_singleton_slot_free(
+    cur, org_type_code: str, parent_organization_pk, exclude_organization_pk=None
+) -> None:
+    """422 when find_active_singleton_org_pk() finds the slot already taken."""
+    if find_active_singleton_org_pk(
+        cur, org_type_code, parent_organization_pk, exclude_organization_pk
+    ):
+        what = (
+            "the central (Kendra) Mahila Sangha"
+            if org_type_code == CENTRAL_MAHILA_ORG_TYPE
+            else f"organization type '{org_type_code}'"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{what[0].upper() + what[1:]} is unique and already exists. Cannot have another.",
+        )
 
 
 # ── Centralized audit trail ─────────────────────────────────────────────

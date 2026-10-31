@@ -36,7 +36,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import log_audit, require_entity, row_to_model, rows_to_models
+from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, require_entity, row_to_model, rows_to_models
 from api.services.rbac_service import UserContext
 from api.schemas.foundation import (
     CategoryResponse,
@@ -1085,7 +1085,7 @@ def list_sakha_postal_codes(
     List Sakha Sangha branches linked to a postal code.
 
     The link is `organization.postal_code_pk` (set from the branch's
-    address PIN). Only active SAKHA_SANGHA organizations that have a
+    address PIN). Only active Sakha-like (SAKHA_SANGHA/SAKHA_ASANA) organizations that have a
     resolved postal code are returned. Optionally filter by state,
     district (via city_village.district_pk — see fetch_postal_codes), or
     a specific postal code.
@@ -1099,11 +1099,11 @@ def list_sakha_postal_codes(
                ON md.master_data_pk = o.organization_type_master_data_pk
         JOIN   nss.postal_code pc ON pc.postal_code_pk = o.postal_code_pk
         JOIN   nss.state s ON s.state_pk = pc.state_pk
-        WHERE  md.value_code = 'SAKHA_SANGHA'
+        WHERE  md.value_code = ANY(%s)
           AND  o.is_active = TRUE
           AND  o.postal_code_pk IS NOT NULL
     """
-    params: list = []
+    params: list = [list(SAKHA_LIKE_ORG_TYPES)]
 
     if district_pk is not None:
         base_sql += """

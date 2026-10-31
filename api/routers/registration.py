@@ -54,7 +54,7 @@ from pydantic import BaseModel, Field
 from api.config import settings
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
-from api.helpers import log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_mobile, validate_email, get_master_data_pk, is_probationary_membership_type
+from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_mobile, validate_email, get_master_data_pk, is_probationary_membership_type
 from api.services.auth_service import hash_password, validate_password_policy
 from api.routers.foundation import fetch_countries, fetch_states, fetch_districts, fetch_cities, fetch_postal_codes, fetch_post_offices, fetch_master_data
 from api.routers.organization import fetch_organizations
@@ -611,7 +611,7 @@ def get_register_reference_data(
         marital_statuses = fetch_master_data(cur, category_code="MARITAL_STATUS")
         blood_groups = fetch_master_data(cur, category_code="BLOOD_GROUP")
         membership_types = fetch_master_data(cur, category_code="MEMBERSHIP_TYPE")
-        sakhas = fetch_organizations(cur, type_code="SAKHA_SANGHA", limit=500)
+        sakhas = fetch_organizations(cur, type_codes=list(SAKHA_LIKE_ORG_TYPES), limit=500)
     return RegisterReferenceDataResponse(
         countries=countries,
         genders=genders,
@@ -677,11 +677,18 @@ def get_register_cities(
 def get_register_postal_codes(
     state_pk: UUID | None = Query(None, description="Filter by state"),
     country_pk: UUID | None = Query(None, description="Filter by country"),
+    district_pk: UUID | None = Query(None, description="Narrow to PINs seen in this district (via approved city_village rows)"),
+    q: str | None = Query(None, max_length=10, description="PIN prefix"),
     conn=Depends(get_connection),
 ) -> list[PostalCodeResponse]:
-    """Public postal-codes lookup for the registration page's location cascade."""
+    """Public postal-codes lookup for the registration page's location cascade.
+
+    district_pk narrows via nss.city_village (postal_code has no district
+    column), so a district with a sparse city_village seed lists few PINs;
+    clients must still allow typing a new PIN.
+    """
     with conn.cursor() as cur:
-        return fetch_postal_codes(cur, state_pk, country_pk)
+        return fetch_postal_codes(cur, state_pk, country_pk, district_pk, q)
 
 
 @router.get("/post-offices", response_model=list[PostOfficeResponse])
@@ -698,6 +705,19 @@ def get_register_post_offices(
     """
     with conn.cursor() as cur:
         return fetch_post_offices(cur, postal_code_pk)
+
+
+@router.get("/address-types", response_model=list[MasterDataResponse])
+def get_register_address_types(
+    conn=Depends(get_connection),
+) -> list[MasterDataResponse]:
+    """
+    Public ADDRESS_TYPE master-data lookup. Same rationale as /countries:
+    the dashboard's member self-service address form must not require the
+    admin-only FOUNDATION_VIEW permission that /foundation/master-data does.
+    """
+    with conn.cursor() as cur:
+        return fetch_master_data(cur, category_code="ADDRESS_TYPE")
 
 
 @router.get("/sakhas", response_model=list[OrganizationResponse])
@@ -720,7 +740,7 @@ def get_register_sakhas(
     """
     with conn.cursor() as cur:
         return fetch_organizations(
-            cur, type_code="SAKHA_SANGHA", country_pk=country_pk, state_pk=state_pk,
+            cur, type_codes=list(SAKHA_LIKE_ORG_TYPES), country_pk=country_pk, state_pk=state_pk,
             district_pk=district_pk, postal_code_pk=postal_code_pk, limit=500,
         )
 

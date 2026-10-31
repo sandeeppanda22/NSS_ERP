@@ -32,6 +32,7 @@ Unified Body Governance Model (GOV-BR-004, SOL-GOV-002/004). Endpoints:
     POST   /api/v1/governance/acting-assignments/{pk}/approve
     POST   /api/v1/governance/acting-assignments/{pk}/reject
     GET    /api/v1/governance/advisory-board/missing-nominations
+    GET    /api/v1/governance/advisory-board/dashboard
 
   Member-facing "act on my behalf" delegation (login-only, self-role gated):
     GET    /api/v1/governance/me/positions
@@ -70,6 +71,12 @@ the global authority (is_super_admin() or is_nss_wide()); an org-scoped
 body/election is managed through the normal require_org_in_scope() subtree
 check. Visibility (GOVERNANCE_VIEW) is broader: an org-scoped admin sees
 every NSS-wide record plus records anchored inside their own subtree.
+Two NULL-organization scope levels resolve here (2026-10-30): KENDRA_MAHILA_SANGHA
+reaches every MAHILA_SANGHA organization subtree via actor_scope_org_pks();
+ADVISORY_BOARD reaches only the Advisory Board ORGANIZATION (its own correspondence register; the board's governance BODY stays NULL-org) but may manage the seat assignments,
+acting cover and forced-removal requests of ADVISORY_BOARD-type bodies only
+(_require_scope_for_org_or_nss_wide(body_type_code=...)). The Sakha-nominated
+Advisory Board MEMBER seat stays with the nominating Sakha for everyone.
 
 Vote secrecy — OPEN ITEM (GOV-BR-045 / SOL-GOV-004 §12.6): election_vote
 stores voter_person_pk, so a ballot is attributable, not secret. Pending
@@ -92,6 +99,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
 from api.dependencies.rbac import require_any_permission, require_permission
 from api.helpers import (
+    SAKHA_LIKE_ORG_TYPES,
     build_order_by,
     log_audit,
     natural_sort_key,
@@ -161,7 +169,8 @@ router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
 # ── Scope helper (GOV-BR-058/059) ───────────────────────────────────────
 
 def _require_scope_for_org_or_nss_wide(
-    cur, user: UserContext, organization_pk, action: str
+    cur, user: UserContext, organization_pk, action: str,
+    *, body_type_code: str | None = None,
 ) -> None:
     """
     Scope guard for a governance record that may be NSS-wide
@@ -172,8 +181,20 @@ def _require_scope_for_org_or_nss_wide(
     scope subtree, and may NEVER create/manage an NSS-wide record — that is
     reserved to the global authority, same as it would be for the Kendra
     itself.
+
+    Narrow exception (owner decision 2026-10-30): a NULL-organization scope
+    level listed in rbac_service.NULL_ORG_SCOPE_BODY_TYPES (today only
+    ADVISORY_BOARD) may act on an NSS-wide body whose type is in its allowed
+    set. Callers pass *body_type_code* ONLY for the body-level operations that
+    exception covers (seat assignments, acting cover, forced-removal requests)
+    — everything else (creating/editing/deactivating bodies, the body-type and
+    position catalogues, elections) omits it, so such a scope is refused there.
+    The check is server-side and keyed on the body's real type, never on a
+    client-supplied value.
     """
     if organization_pk is None:
+        if body_type_code and body_type_code in user.managed_null_org_body_types():
+            return
         if not (user.is_super_admin() or user.is_nss_wide()):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -568,9 +589,10 @@ def get_body_sakha_scope_options(
                 SELECT o.organization_pk, o.organization_name, o.organization_code
                 FROM nss.organization o
                 JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-                WHERE md.value_code = 'SAKHA_SANGHA' AND o.is_active = TRUE
+                WHERE md.value_code = ANY(%s) AND o.is_active = TRUE
                 ORDER BY o.organization_name
-                """
+                """,
+                (list(SAKHA_LIKE_ORG_TYPES),),
             )
             sakhas = [
                 {"organization_pk": str(r[0]), "organization_name": r[1], "organization_code": r[2]}
@@ -588,11 +610,11 @@ def get_body_sakha_scope_options(
             FROM nss.organization o
             JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
             WHERE o.organization_pk = ANY(%s::uuid[])
-              AND md.value_code = 'SAKHA_SANGHA'
+              AND md.value_code = ANY(%s)
               AND o.is_active = TRUE
             ORDER BY o.organization_name
             """,
-            (scoped_sakha_pks,),
+            (scoped_sakha_pks, list(SAKHA_LIKE_ORG_TYPES)),
         )
         sakhas = [
             {"organization_pk": str(r[0]), "organization_name": r[1], "organization_code": r[2]}
@@ -1460,8 +1482,9 @@ def _resolve_seat_limit(cur, rule: dict | None) -> int | None:
             """
             SELECT COUNT(*) FROM nss.organization o
             JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-            WHERE o.is_active = TRUE AND md.value_code = 'SAKHA_SANGHA'
-            """
+            WHERE o.is_active = TRUE AND md.value_code = ANY(%s)
+            """,
+            (list(SAKHA_LIKE_ORG_TYPES),),
         )
         return cur.fetchone()[0]
     return limit
@@ -1495,10 +1518,10 @@ def _home_sakha(cur, person_pk):
         JOIN nss.master_data md
              ON md.master_data_pk = o.organization_type_master_data_pk
         WHERE ss.person_pk = %s AND ss.is_active = TRUE
-          AND md.value_code = 'SAKHA_SANGHA'
+          AND md.value_code = ANY(%s)
         LIMIT 1
         """,
-        (str(person_pk),),
+        (str(person_pk), list(SAKHA_LIKE_ORG_TYPES)),
     )
     row = cur.fetchone()
     return (row[0], row[1]) if row else (None, None)
@@ -1708,7 +1731,9 @@ def _require_body_president(cur, user, approver_body_master_pk, action) -> None:
     )
 
 
-def _require_removal_initiator(cur, user, org_pk, initiator_body_master_pk, action) -> None:
+def _require_removal_initiator(
+    cur, user, org_pk, initiator_body_master_pk, action, body_type_code=None
+) -> None:
     """
     Who may FILE a forced-removal request (generalized 2026-10-15 beyond the
     original Advisory-Board-only, super-admin break-glass version): either
@@ -1719,7 +1744,7 @@ def _require_removal_initiator(cur, user, org_pk, initiator_body_master_pk, acti
     resolution — not who is allowed to raise the request.
     """
     try:
-        _require_scope_for_org_or_nss_wide(cur, user, org_pk, action)
+        _require_scope_for_org_or_nss_wide(cur, user, org_pk, action, body_type_code=body_type_code)
         return
     except HTTPException:
         pass
@@ -2422,7 +2447,24 @@ def list_allowed_positions(
         # still sees it — that is exactly the nominate flow.
         exclude_position_code = None
         nominated_position_code = _SAKHA_NOMINATED_POSITION_CODES.get(body_type_code)
-        if nominated_position_code and actor_scope_org_pks(cur, user) is None:
+        # An ADVISORY_BOARD-scoped admin with no organization scope of its own
+        # (NULL_ORG_SCOPE_BODY_TYPES) runs this body at the NSS-wide level, so
+        # it is treated like the global authority here — it can never use the
+        # nominate flow. One who ALSO holds a Sakha scope keeps the MEMBER seat
+        # (that is exactly their own Sakha's nominate flow).
+        if nominated_position_code:
+            _allowed = actor_scope_org_pks(cur, user)
+        if nominated_position_code and (
+            _allowed is None
+            or (
+                body_type_code in user.managed_null_org_body_types()
+                # "no Sakha/org-anchored scope of its own": the ADVISORY_BOARD
+                # level now resolves to the Advisory Board ORGANIZATION
+                # (rbac_service.NULL_ORG_SCOPE_ORG_TYPE), so _allowed is no
+                # longer empty for it — test the scope rows instead.
+                and not any(s.organization_pk for s in user.scopes)
+            )
+        ):
             exclude_position_code = nominated_position_code
 
         cur.execute(
@@ -2556,6 +2598,68 @@ def list_inherited_positions(
 # active Sangha Sevi -> organization_pk. A Sakha counts as represented when
 # some currently-active MEMBER assignment on the (single) Advisory Board
 # resolves, via that path, back to it.
+def _require_advisory_board_viewer(cur, user: UserContext, what: str) -> None:
+    """NSS-wide admins and the ADVISORY_BOARD-scoped admin only (403 otherwise).
+    A Sakha-scoped admin only has standing over its own nomination (see
+    _require_nominating_sakha_scope) and no reason to see every Sakha's status."""
+    if actor_scope_org_pks(cur, user) is not None and (
+        "ADVISORY_BOARD" not in user.managed_null_org_body_types()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only an NSS-wide admin may view {what}.",
+        )
+
+
+def _advisory_board_body_pk(cur):
+    """body_master_pk of the (single) active Advisory Board body, or None."""
+    cur.execute(
+        """
+        SELECT bm.body_master_pk FROM nss.body_master bm
+        JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk
+        WHERE bt.body_type_code = 'ADVISORY_BOARD' AND bm.is_active = TRUE
+        ORDER BY bm.effective_from
+        LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _advisory_board_unrepresented_sakhas(cur, body_master_pk) -> list[dict]:
+    """
+    Active Sakha Sanghas with no current seat-holder on the Advisory Board body.
+
+    "Represented" means ANY current seat held by one of this Sakha's members on
+    the Advisory Board — MEMBER, or PRESIDENT/SECRETARY if their MEMBER seat was
+    converted in place on promotion (owner-confirmed 2026-10-24:
+    _write_assignment_convert_or_insert()). Filtering to position_code =
+    'MEMBER' alone would make a promoted representative's Sakha look
+    unrepresented even though the body counts them as seated.
+    """
+    cur.execute(
+        f"""
+        SELECT o.organization_pk, o.organization_name, o.organization_code
+        FROM nss.organization o
+        JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+        WHERE o.is_active = TRUE AND md.value_code = ANY(%s)
+          AND o.organization_pk NOT IN (
+              SELECT ss.organization_pk
+              FROM nss.body_member_assignment a
+              JOIN nss.sangha_sevi ss ON ss.person_pk = a.person_pk AND ss.is_active = TRUE
+              WHERE a.body_master_pk = %s
+                AND {_CURRENT_ASSIGNMENT_SQL} AND ss.organization_pk IS NOT NULL
+          )
+        ORDER BY o.organization_name
+        """,
+        (list(SAKHA_LIKE_ORG_TYPES), str(body_master_pk)),
+    )
+    return [
+        {"organization_pk": r[0], "organization_name": r[1], "organization_code": r[2]}
+        for r in cur.fetchall()
+    ]
+
+
 @router.get("/advisory-board/missing-nominations")
 def list_advisory_board_missing_nominations(
     user: UserContext = Depends(
@@ -2565,68 +2669,73 @@ def list_advisory_board_missing_nominations(
 ) -> dict:
     """
     Active Sakha Sanghas with no current representative on the Advisory
-    Board. NSS-wide admins only — a Sakha-scoped admin only has standing
-    over its own nomination (see _require_nominating_sakha_scope) and has
-    no reason to see every other Sakha's status.
+    Board. NSS-wide admins and the ADVISORY_BOARD-scoped admin only.
     """
     with conn.cursor() as cur:
-        if actor_scope_org_pks(cur, user) is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only an NSS-wide admin may view Advisory Board nomination status across all Sakhas.",
-            )
-
-        cur.execute(
-            """
-            SELECT bm.body_master_pk FROM nss.body_master bm
-            JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk
-            WHERE bt.body_type_code = 'ADVISORY_BOARD' AND bm.is_active = TRUE
-            ORDER BY bm.effective_from
-            LIMIT 1
-            """
-        )
-        body_row = cur.fetchone()
-        if body_row is None:
+        _require_advisory_board_viewer(cur, user, "Advisory Board nomination status across all Sakhas")
+        body_master_pk = _advisory_board_body_pk(cur)
+        if body_master_pk is None:
             return {"items": [], "total": 0, "advisory_board_body_master_pk": None}
-        body_master_pk = body_row[0]
-
-        # "Represented" means ANY current seat held by one of this Sakha's
-        # members on the Advisory Board — MEMBER, or PRESIDENT/SECRETARY if
-        # their MEMBER seat was converted in place on promotion (owner-
-        # confirmed 2026-10-24: "member and president/secretary all
-        # same... just point the president post to a member" —
-        # _write_assignment_convert_or_insert()). Filtering to
-        # pm.position_code = 'MEMBER' alone broke this the moment a
-        # Sakha's rep got promoted — their Sakha looked unrepresented even
-        # though the body correctly counted them as seated (seats_filled
-        # counts DISTINCT person_pk, position-agnostic, and was never
-        # wrong). No position_master join needed now that there is no
-        # position_code filter.
-        cur.execute(
-            f"""
-            SELECT o.organization_pk, o.organization_name, o.organization_code
-            FROM nss.organization o
-            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-            WHERE o.is_active = TRUE AND md.value_code = 'SAKHA_SANGHA'
-              AND o.organization_pk NOT IN (
-                  SELECT ss.organization_pk
-                  FROM nss.body_member_assignment a
-                  JOIN nss.sangha_sevi ss ON ss.person_pk = a.person_pk AND ss.is_active = TRUE
-                  WHERE a.body_master_pk = %s
-                    AND {_CURRENT_ASSIGNMENT_SQL} AND ss.organization_pk IS NOT NULL
-              )
-            ORDER BY o.organization_name
-            """,
-            (str(body_master_pk),),
-        )
-        rows = cur.fetchall()
-    items = [
-        {"organization_pk": r[0], "organization_name": r[1], "organization_code": r[2]}
-        for r in rows
-    ]
+        items = _advisory_board_unrepresented_sakhas(cur, body_master_pk)
     return {
         "items": items, "total": len(items),
         "advisory_board_body_master_pk": body_master_pk,
+    }
+
+
+@router.get("/advisory-board/dashboard")
+def get_advisory_board_dashboard(
+    user: UserContext = Depends(
+        require_any_permission("GOVERNANCE_VIEW", "GOVERNANCE_MANAGE")
+    ),
+    conn=Depends(get_connection),
+) -> dict:
+    """
+    One read for the Advisory Board dashboard (NSS-wide admins and the
+    ADVISORY_BOARD-scoped admin): member roster (name, Sakha, position),
+    seat/vacancy counts, Sakhas without a representative, office bearers
+    (PRESIDENT/SECRETARY) and live acting cover. Meetings/decisions are not
+    modelled yet and are deliberately absent. Reuses the assignment/acting
+    SELECTs and the missing-nominations helper — no second query shape.
+    """
+    with conn.cursor() as cur:
+        _require_advisory_board_viewer(cur, user, "the Advisory Board dashboard")
+        body_master_pk = _advisory_board_body_pk(cur)
+        if body_master_pk is None:
+            return {
+                "advisory_board_body_master_pk": None, "body_name": None,
+                "seat_limit": None, "seats_filled": 0, "vacancies": 0,
+                "members": [], "office_bearers": [], "acting_cover": [],
+                "missing_sakhas": [],
+            }
+        cur.execute("SELECT body_name FROM nss.body_master WHERE body_master_pk = %s",
+                    (str(body_master_pk),))
+        body_name = cur.fetchone()[0]
+        cur.execute(
+            f"{_ASSIGNMENT_SELECT_SQL} WHERE a.body_master_pk = %s AND {_CURRENT_ASSIGNMENT_SQL} "
+            "ORDER BY sorg.organization_name NULLS LAST, 6",
+            (str(body_master_pk),),
+        )
+        members = [_row_to_assignment(r).model_dump(mode="json") for r in cur.fetchall()]
+        cur.execute(
+            f"{_ACTING_SELECT_SQL} WHERE a.body_master_pk = %s AND a.is_active = TRUE "
+            "AND a.acting_status = 'ACTIVE' ORDER BY a.effective_from DESC",
+            (str(body_master_pk),),
+        )
+        acting = [_row_to_acting(r).model_dump(mode="json") for r in cur.fetchall()]
+        seat_limit = _resolve_seat_limit(cur, _COMPOSITION_RULES["ADVISORY_BOARD"])
+        missing = _advisory_board_unrepresented_sakhas(cur, body_master_pk)
+    seats_filled = len({m["person_pk"] for m in members})
+    return {
+        "advisory_board_body_master_pk": body_master_pk,
+        "body_name": body_name,
+        "seat_limit": seat_limit,
+        "seats_filled": seats_filled,
+        "vacancies": max((seat_limit or 0) - seats_filled, 0),
+        "members": members,
+        "office_bearers": [m for m in members if m["position_code"] in ("PRESIDENT", "SECRETARY")],
+        "acting_cover": acting,
+        "missing_sakhas": missing,
     }
 
 
@@ -2756,11 +2865,15 @@ def create_assignment(
         # NSS-wide body. PRESIDENT/SECRETARY are real office-bearer seats
         # elected from among the members and stay under the normal NSS-wide/
         # org-scope guard below (2026-10-14).
+        assign_body_type_code = _body_type_code(cur, body_master_pk)
         if not _require_nominating_sakha_scope(
-            cur, user, _body_type_code(cur, body_master_pk), position_code, body.person_pk,
+            cur, user, assign_body_type_code, position_code, body.person_pk,
             "nominate an Advisory Board representative",
         ):
-            _require_scope_for_org_or_nss_wide(cur, user, org_pk, "manage body member assignments")
+            _require_scope_for_org_or_nss_wide(
+                cur, user, org_pk, "manage body member assignments",
+                body_type_code=assign_body_type_code,
+            )
         _require_active_membership(cur, body.person_pk, body.sangha_sevi_pk)
         _require_valid_composition(cur, body_master_pk, org_pk, body.position_master_pk, body.person_pk)
 
@@ -2842,7 +2955,9 @@ def end_assignment(
         ):
             pass
         else:
-            _require_scope_for_org_or_nss_wide(cur, user, org_pk, "end body member assignments")
+            _require_scope_for_org_or_nss_wide(
+                cur, user, org_pk, "end body member assignments", body_type_code=body_type_code,
+            )
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -3011,7 +3126,9 @@ def request_assignment_removal(
             raise HTTPException(status_code=404, detail="Assignment not found.")
         body_master_pk, body_type_code, holder_person_pk, current_status, position_code, org_pk = row
 
-        _require_removal_initiator(cur, user, org_pk, body_master_pk, "request a forced removal")
+        _require_removal_initiator(
+            cur, user, org_pk, body_master_pk, "request a forced removal", body_type_code,
+        )
         if current_status not in ("ASSIGNED", "ACTIVE"):
             raise HTTPException(
                 status_code=409,
@@ -3341,7 +3458,10 @@ def create_acting_assignment(
     """
     with conn.cursor() as cur:
         org_pk = _get_body_org_or_404(cur, body_master_pk)
-        _require_scope_for_org_or_nss_wide(cur, user, org_pk, "manage acting position assignments")
+        _require_scope_for_org_or_nss_wide(
+            cur, user, org_pk, "manage acting position assignments",
+            body_type_code=_body_type_code(cur, body_master_pk),
+        )
         _require_body_active(cur, body_master_pk)
         require_entity(cur, "position_master", str(body.position_master_pk), label="Position")
         require_entity(cur, "person", str(body.person_pk), label="Person")
@@ -3376,9 +3496,10 @@ def end_acting_assignment(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT bm.organization_pk, a.effective_from
+            SELECT bm.organization_pk, a.effective_from, bt.body_type_code
             FROM nss.acting_position_assignment a
             JOIN nss.body_master bm ON bm.body_master_pk = a.body_master_pk
+            JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk
             WHERE a.acting_position_assignment_pk = %s
             """,
             (str(acting_position_assignment_pk),),
@@ -3386,8 +3507,10 @@ def end_acting_assignment(
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Acting assignment not found.")
-        org_pk, effective_from = row
-        _require_scope_for_org_or_nss_wide(cur, user, org_pk, "end acting position assignments")
+        org_pk, effective_from, acting_body_type_code = row
+        _require_scope_for_org_or_nss_wide(
+            cur, user, org_pk, "end acting position assignments", body_type_code=acting_body_type_code,
+        )
 
         effective_to = parse_optional_date(body.effective_to, "Effective To")
         if effective_from and effective_to and effective_to < effective_from:

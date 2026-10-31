@@ -42,6 +42,7 @@ from uuid import UUID
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.database import get_connection
@@ -50,7 +51,8 @@ from api.dependencies.rbac import require_any_permission, require_permission
 from api.helpers import (
     next_id, peek_next_id, resolve_or_create_city_village, resolve_or_create_postal_code,
     get_active_status_pk, compose_local_sakha_erp_id, log_audit,
-    apply_person_profile_update,
+    SAKHA_LIKE_ORG_TYPES, SAKHA_LIKE_ORG_TYPES_SQL, apply_person_profile_update, SINGLETON_ORG_TYPES, CENTRAL_MAHILA_ORG_TYPE,
+    require_singleton_slot_free,
     insert_sakha_affiliation, is_probationary_membership_type,
     require_entity, check_duplicate_contact, record_password_history,
     validate_and_hash_password,
@@ -64,7 +66,7 @@ from api.helpers import (
     parse_optional_date, normalize_patra_document_number,
     set_membership_credential_status, close_sakha_affiliation,
     get_master_data_pk, previous_festival_date_on_or_before,
-    PROBATIONARY_MEMBERSHIP_TYPE_CODE,
+    PROBATIONARY_MEMBERSHIP_TYPE_CODE, require_org_name_mutable,
 )
 from api.schemas.admin import (
     AccountlessSanghaSeviListResponse,
@@ -85,6 +87,7 @@ from api.schemas.admin import (
     UserListResponse,
 )
 from api.schemas.auth import MessageResponse
+from api.schemas.org_reparent import ReparentRequestResponse
 from api.services.rbac_service import (
     UserContext,
     actor_scope_org_pks as _actor_scope_org_pks,
@@ -95,6 +98,8 @@ from api.services.rbac_service import (
     require_account_in_scope as _require_account_in_scope,
     load_composite_grants as _load_composite_grants,
 )
+from api.services import org_reparent_service
+from api.services.org_reparent_service import ALLOWED_PARENT_TYPES
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -233,7 +238,8 @@ def list_users(
                    ua.last_login_at,
                    ua.password_expires_at,
                    ua.created_at,
-                   ua.is_active
+                   ua.is_active,
+                   COALESCE(o.organization_pk, co.organization_pk) AS organization_pk
             FROM nss.user_account ua
             JOIN nss.person p ON p.person_pk = ua.person_pk
             {USER_ACCOUNT_MEMBERSHIP_JOINS_SQL}
@@ -263,6 +269,7 @@ def list_users(
             password_expires_at=r[13],
             created_at=r[14],
             is_active=r[15],
+            organization_pk=r[16],
         )
         for r in rows
     ]
@@ -1199,7 +1206,8 @@ def get_user(
                    ua.failed_login_attempts,
                    ua.locked_until,
                    ua.created_at,
-                   ua.is_active
+                   ua.is_active,
+                   COALESCE(o.organization_pk, co.organization_pk) AS organization_pk
             FROM nss.user_account ua
             JOIN nss.person p ON p.person_pk = ua.person_pk
             {USER_ACCOUNT_MEMBERSHIP_JOINS_SQL}
@@ -1331,6 +1339,7 @@ def get_user(
         locked_until=row[15],
         created_at=row[16],
         is_active=row[17],
+        organization_pk=row[18],
         roles=roles,
         auto_granted_scopes=auto_granted_scopes,
     )
@@ -1877,11 +1886,25 @@ def assign_role(
 
     Requires: ADMIN_ROLE_MANAGE permission.
     Validates:
+      - Not a self-assignment (unless the caller is a Kendra Administrator)
       - Target user exists and is active
       - Role code exists
       - Organization exists (if scope_level is not NSS-WIDE)
       - No duplicate active assignment for same role
     """
+    # Self-assignment guard: only a Kendra Administrator may grant a role to
+    # themselves (owner decision 2026-10-30); everyone else — including
+    # NSS_ERP_ADMIN — must have another admin assign it. str() comparison:
+    # see revoke_role's identical guard. user.scopes includes the §63
+    # auto-granted Kendra scope, so a Kendra Governing Body member counts.
+    if str(user_account_pk) == str(user.user_account_pk) and not any(
+        s.role_code == "NSS_ERP_KENDRA_ADMIN" for s in user.scopes
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot assign a role to your own account.",
+        )
+
     with conn.cursor() as cur:
         # Validate target user
         cur.execute(
@@ -2143,7 +2166,9 @@ _ORG_SORT_COLUMNS: dict[str, str | list[str]] = {
 
 @router.get("/organizations")
 def list_organizations_admin(
-    type_code: str | None = Query(None, description="Filter by organization type code"),
+    type_code: list[str] | None = Query(
+        None, description="Filter by organization type code (repeat for several types)"
+    ),
     search: str | None = Query(None, description="Search by name or code"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -2169,8 +2194,8 @@ def list_organizations_admin(
     params: list = []
 
     if type_code:
-        conditions.append("ot.value_code = %s")
-        params.append(type_code)
+        conditions.append("ot.value_code = ANY(%s)")
+        params.append(list(type_code))
 
     if search:
         conditions.append(
@@ -2364,9 +2389,10 @@ def get_kumari_sevak_sakha_options(
                 SELECT o.organization_pk, o.organization_name, o.organization_code
                 FROM nss.organization o
                 JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-                WHERE md.value_code = 'SAKHA_SANGHA' AND o.is_active = TRUE
+                WHERE md.value_code = ANY(%s) AND o.is_active = TRUE
                 ORDER BY o.organization_name
-                """
+                """,
+                (list(SAKHA_LIKE_ORG_TYPES),),
             )
             sakhas = [
                 {"organization_pk": str(r[0]), "organization_name": r[1], "organization_code": r[2]}
@@ -2442,9 +2468,10 @@ def get_sakha_scope_options(
                 SELECT o.organization_pk, o.organization_name, o.organization_code
                 FROM nss.organization o
                 JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-                WHERE md.value_code = 'SAKHA_SANGHA' AND o.is_active = TRUE
+                WHERE md.value_code = ANY(%s) AND o.is_active = TRUE
                 ORDER BY o.organization_name
-                """
+                """,
+                (list(SAKHA_LIKE_ORG_TYPES),),
             )
             sakhas = [
                 {"organization_pk": str(r[0]), "organization_name": r[1], "organization_code": r[2]}
@@ -2674,30 +2701,33 @@ def update_short_code(
 #   ANCHALIKA_SANGHA/ZILLA_SANGHA are siblings under KENDRA only,
 #     never nested under each other.
 #   SAKHA_SANGHA/SAKHA_ASANA sit only under ANCHALIKA_SANGHA/ZILLA_SANGHA.
-#   KUMARI_SANGHA/SEVAK_SANGHA sit only under SAKHA_SANGHA.
+#   KUMARI_SANGHA/SEVAK_SANGHA sit only under a Sakha-like parent
+#     (SAKHA_SANGHA or SAKHA_ASANA — owner 2026-10-31, GDR-008).
 #   MAHILA_SANGHA is two-tier by parent, not by a separate type code:
 #     parent=KENDRA is the single Kendra/Central Mahila Sangha;
-#     parent=SAKHA_SANGHA is a local, per-Sakha Mahila Sangha. The
+#     parent=Sakha-like is a local, per-Sakha Mahila Sangha. The
 #     Bye-Law's central-supervises-branches relationship is a
 #     governance relationship, deliberately NOT encoded here.
 #   PARIBARIK_ASANA (Gruhasana) is conceptually attached to a
-#     sangha_sevi, not to an org — parent=SAKHA_SANGHA is a proxy
+#     sangha_sevi, not to an org — parent=Sakha-like is a proxy
 #     for "that sangha_sevi's current Sakha", not a literal org edge.
 # Module-level (not local to create_organization) so update_organization's
 # parent-reassignment (below) enforces the exact same rule rather than
 # duplicating it.
-_ALLOWED_PARENT_TYPES = {
-    "ANCHALIKA_SANGHA": {"KENDRA"},
-    "ZILLA_SANGHA": {"KENDRA"},
-    "PATHA_CHAKRA": {"KENDRA"},
-    "PARIBARIK_SANGHA": {"KENDRA"},
-    "SAKHA_SANGHA": {"ANCHALIKA_SANGHA", "ZILLA_SANGHA"},
-    "SAKHA_ASANA": {"ANCHALIKA_SANGHA", "ZILLA_SANGHA"},
-    "KUMARI_SANGHA": {"SAKHA_SANGHA"},
-    "SEVAK_SANGHA": {"SAKHA_SANGHA"},
-    "MAHILA_SANGHA": {"KENDRA", "SAKHA_SANGHA"},
-    "PARIBARIK_ASANA": {"SAKHA_SANGHA"},
-}
+# The table itself lives in api/services/org_reparent_service.py (shared with
+# the approved-re-parent apply step); the ADVISORY_BOARD singleton entry
+# (owner decision 2026-10-30) is documented there.
+_ALLOWED_PARENT_TYPES = ALLOWED_PARENT_TYPES
+
+# Singleton organization types: exactly one organization of each exists, it is
+# seeded (not created through the API), and create_organization refuses any
+# attempt to make another. ADVISORY_BOARD (owner decision 2026-10-30, "Advisory
+# Board should be an org type") is the organization that owns the Advisory
+# Board's correspondence register; the Advisory Board GOVERNANCE BODY is a
+# separate, NULL-organization record and is deliberately not linked to it.
+# Single source: api/helpers.py SINGLETON_ORG_TYPES (+ the central Mahila Sangha
+# rule — MAHILA_SANGHA under a KENDRA parent — see require_singleton_slot_free).
+_SINGLETON_ORG_TYPES = SINGLETON_ORG_TYPES
 
 # ORG-BR-099 (narrowed 2026-09-28): these 3 types may never carry a physical
 # premises address. Module-level — used by both update_organization's and
@@ -2742,6 +2772,9 @@ class UpdateOrganizationRequest(BaseModel):
     parent_organization_pk: str | None = Field(
         None, description="UUID of the new parent organization"
     )
+    # Optional note stored on the approval request when a Sakha re-parent is
+    # routed for approval (ignored for direct changes).
+    parent_change_reason: str | None = Field(None, max_length=500)
 
 
 @router.patch("/organizations/{organization_pk}")
@@ -2763,12 +2796,30 @@ def update_organization(
         organizations inside their scope subtree (their org + descendants).
         Permission alone never confers global reach.
 
+    organization_name is immutable for ADVISORY_BOARD organizations (422 for
+    every actor, helpers.require_org_name_mutable).
+
     Editable fields: organization_name, address_line_1, address_line_2,
     phone_number, mobile_number, org_email, org_website_url,
     org_youtube_channel_url, country/state/district/city/postal-code
     location fields, and parent_organization_pk (re-parenting — e.g.
     assigning a Sakha Sangha to its Anchalika/Zilla Sangha, validated
     against _ALLOWED_PARENT_TYPES).
+
+    Sakha re-parenting rule (owner 2026-10-30): moving a SAKHA_SANGHA or
+    SAKHA_ASANA under a different parent is applied DIRECTLY only for Kendra
+    Governing Body members and the NSS_ERP_ADMIN super administrator
+    (UserContext.can_reparent_sakha_directly(), decided by role). For everyone
+    else — scoped admins, office bearers, a non-GB Kendra Administrator — the
+    parent change is deferred: a request + approval chain (Sakha President -> destination
+    Anchalika/Zilla President -> Kendra President) is filed and the response
+    is HTTP 202 with the request payload; the parent is unchanged until the
+    final step approves. All other fields in the same PATCH apply immediately.
+    Non-Sakha organization types are unaffected.
+
+    Singleton rule (owner 2026-10-30): re-parenting a MAHILA_SANGHA under a
+    KENDRA is 422 when another active central Mahila Sangha already exists
+    (mirrors trg_enforce_organization_singleton).
     """
 
     # ── Scope check (subtree-aware; global only for NSS_ERP_ADMIN) ──
@@ -2851,6 +2902,10 @@ def update_organization(
             )
         org_type_code = row[1]
 
+        # Fixed-name types (ADVISORY_BOARD) refuse a name change for every
+        # actor; contact fields below stay editable.
+        require_org_name_mutable(org_type_code, row[0], updates.get("organization_name"))
+
         # ── Physical premises address prohibited for non-physical types
         # (ORG-BR-099, narrowed 2026-09-28) — clean 422 mirror of
         # trg_enforce_organization_address_restriction. country_pk/
@@ -2867,49 +2922,37 @@ def update_organization(
             )
 
         # ── Re-parent (e.g. assigning a Sakha Sangha to its Anchalika/
-        # Zilla Sangha) — same _ALLOWED_PARENT_TYPES rule create_organization
-        # enforces at creation time (ORG-BR-087 onward). ─────────────────
+        # Zilla Sangha) — same ALLOWED_PARENT_TYPES rule create_organization
+        # enforces at creation time (ORG-BR-087 onward), validated by the
+        # shared org_reparent_service.validate_reparent_target. A Sakha
+        # re-parent by anyone but a Kendra GB member / NSS_ERP_ADMIN is DEFERRED to an
+        # approval request (filed after the other fields are applied). ──
+        deferred_reparent_to = None
+        direct_reparent = False
         if body.parent_organization_pk is not None:
-            new_parent_pk = body.parent_organization_pk.strip() or None
-            allowed_parents = _ALLOWED_PARENT_TYPES.get(org_type_code)
-            if not allowed_parents:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f"'{org_type_code}' organizations cannot be re-parented through this endpoint.",
-                )
-            if not new_parent_pk:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f"'{org_type_code}' requires a parent organization of type "
-                           f"{', '.join(sorted(allowed_parents))}.",
-                )
-            if new_parent_pk == str(organization_pk):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="An organization cannot be its own parent.",
-                )
-            cur.execute(
-                """
-                SELECT md.value_code
-                FROM nss.organization o
-                JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-                WHERE o.organization_pk = %s AND o.is_active = TRUE
-                """,
-                (new_parent_pk,),
+            new_parent_pk = org_reparent_service.validate_reparent_target(
+                cur, organization_pk, org_type_code, body.parent_organization_pk,
             )
-            parent_row = cur.fetchone()
-            if parent_row is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Parent organization not found.",
+            cur.execute(
+                "SELECT parent_organization_pk FROM nss.organization WHERE organization_pk = %s",
+                (str(organization_pk),),
+            )
+            current_parent = cur.fetchone()[0]
+            if org_type_code == CENTRAL_MAHILA_ORG_TYPE and (
+                current_parent is None or str(current_parent) != new_parent_pk
+            ):
+                # Only an actual parent CHANGE can take a singleton slot
+                # (a Mahila Sangha moved under a Kendra = the central one).
+                require_singleton_slot_free(
+                    cur, org_type_code, new_parent_pk, exclude_organization_pk=organization_pk,
                 )
-            if parent_row[0] not in allowed_parents:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f"'{org_type_code}' can only have parent of type "
-                           f"{', '.join(sorted(allowed_parents))}. Got '{parent_row[0]}'.",
-                )
-            updates["parent_organization_pk"] = new_parent_pk
+            if org_reparent_service.requires_approval(user, org_type_code):
+                # Naming the current parent again is not a change.
+                if current_parent is None or str(current_parent) != new_parent_pk:
+                    deferred_reparent_to = new_parent_pk
+            else:
+                updates["parent_organization_pk"] = new_parent_pk
+                direct_reparent = org_type_code in SAKHA_LIKE_ORG_TYPES
 
         actor = user.actor_pk
 
@@ -2994,31 +3037,64 @@ def update_organization(
                     postal_code_pk=postal_code_for_cv,
                 )
 
-        if not updates:
+        if not updates and deferred_reparent_to is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="No fields provided to update.",
             )
 
-        # Build SET clause
-        set_parts = ["updated_at = NOW()"]
-        params: list = []
-        for col, val in updates.items():
-            set_parts.append(f"{col} = %s")
-            params.append(val)
-        params.append(str(organization_pk))
+        if updates:
+            # Build SET clause
+            set_parts = ["updated_at = NOW()"]
+            params: list = []
+            for col, val in updates.items():
+                set_parts.append(f"{col} = %s")
+                params.append(val)
+            params.append(str(organization_pk))
 
-        cur.execute(
-            f"UPDATE nss.organization SET {', '.join(set_parts)} WHERE organization_pk = %s",
-            params,
-        )
-        log_audit(cur, action="UPDATE", table_name="organization", record_pk=str(organization_pk),
-                  actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                  module="admin", summary="Updated organization details")
+            cur.execute(
+                f"UPDATE nss.organization SET {', '.join(set_parts)} WHERE organization_pk = %s",
+                params,
+            )
+            log_audit(cur, action="UPDATE", table_name="organization", record_pk=str(organization_pk),
+                      actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
+                      module="admin", summary="Updated organization details")
+
+        if direct_reparent:
+            # A Kendra GB member / NSS_ERP_ADMIN moved the Sakha directly: any open request
+            # for it is now stale and must never overwrite this change.
+            org_reparent_service.supersede_open_request(
+                cur, user, organization_pk,
+                remarks="Superseded by a direct re-parent by a Kendra Governing Body member or the NSS_ERP_ADMIN.",
+            )
+
+        if deferred_reparent_to is not None:
+            request_pk = org_reparent_service.create_reparent_request(
+                cur, user, sakha_pk=organization_pk, to_parent_pk=deferred_reparent_to,
+                reason=body.parent_change_reason,
+            )
+            payload = org_reparent_service.build_request_payload(cur, request_pk, user)
+            applied = list(updates.keys())
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "message": (
+                        "Parent change submitted for approval — the Sakha's parent is unchanged "
+                        "until the approval chain completes."
+                        + (" Other fields were updated immediately." if applied else "")
+                    ),
+                    "updated_fields": applied,
+                    "parent_change_applied": False,
+                    "parent_change_pending_approval": True,
+                    "reparent_request": ReparentRequestResponse.model_validate(payload).model_dump(mode="json"),
+                },
+            )
 
     return {
         "message": f"Organization updated successfully.",
         "updated_fields": list(updates.keys()),
+        "parent_change_applied": "parent_organization_pk" in updates,
+        "parent_change_pending_approval": False,
     }
 
 
@@ -3027,7 +3103,8 @@ def update_organization(
 # ── Organization-type → id_sequence_master mapping ────────────────────────
 # Multi-instance org types each draw their system business ID
 # (organization.organization_id) from a type-specific id_sequence_master
-# row. Unique apex types (KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA) are not
+# row. Singleton types (_SINGLETON_ORG_TYPES: KENDRA, NILACHALA_KUTIRA,
+# SMRUTI_MANDIRA, ADVISORY_BOARD) are not
 # listed — they are singletons and carry no sequence-based ID. Module-level
 # so both create_organization (which mints via next_id) and the read-only
 # next-code preview endpoint (which peeks via peek_next_id) share one map.
@@ -3127,6 +3204,21 @@ def create_organization(
 
     with conn.cursor() as cur:
 
+        # ── Singleton types: never created, never duplicated ────────
+        # Checked BEFORE the creatable-type whitelist so a singleton gets
+        # the specific "unique and already exists" answer instead of the
+        # generic "not creatable" one (_SINGLETON_ORG_TYPES is module-level).
+        if body.organization_type_code in _SINGLETON_ORG_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Organization type '{body.organization_type_code}' is unique and already exists. Cannot create another.",
+            )
+        # The central Mahila Sangha (MAHILA_SANGHA under a KENDRA) is a
+        # singleton too; local per-Sakha Mahila Sanghas are not.
+        require_singleton_slot_free(
+            cur, body.organization_type_code, body.parent_organization_pk,
+        )
+
         # ── Creatable-type whitelist (ORG-BR-096/097/101) ───────────
         # Through the standard Create Organization flow, only these
         # four types may be created directly by NSS_ERP_ADMIN.
@@ -3137,7 +3229,7 @@ def create_organization(
         # resolve_kumari_sevak_parent_sakha, which also resolves/locks
         # the parent Sakha (ORG-BR-102).
         # Everything else (SAKHA_ASANA, MAHILA_SANGHA, PARIBARIK_ASANA,
-        # and the 3 unique apex types) is never created through this
+        # and the 4 singleton types) is never created through this
         # endpoint — auto-created or a pre-existing singleton.
         _STANDARD_CREATABLE_TYPES = {
             "ANCHALIKA_SANGHA", "ZILLA_SANGHA", "PATHA_CHAKRA", "SAKHA_SANGHA",
@@ -3167,14 +3259,6 @@ def create_organization(
                     f"'{body.organization_type_code}' is not creatable through the "
                     f"standard Create Organization flow (ORG-BR-096)."
                 ),
-            )
-
-        # ── Block unique types that already exist ──────────────────
-        _UNIQUE_TYPES = {"KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA"}
-        if body.organization_type_code in _UNIQUE_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Organization type '{body.organization_type_code}' is unique and already exists. Cannot create another.",
             )
 
         # ── Physical premises address prohibited for non-physical types
@@ -3220,7 +3304,7 @@ def create_organization(
         # didn't supply parent_organization_pk, resolve and lock it
         # here rather than making the user pick from a one-item list.
         # Does NOT extend to KUMARI_SANGHA/SEVAK_SANGHA: their parent
-        # type (SAKHA_SANGHA) is singular but multiple Sakha instances
+        # type (Sakha-like) is singular but multiple Sakha instances
         # exist, so the admin must still pick which Sakha manually.
         _AUTO_RESOLVE_SINGLE_INSTANCE_PARENT_TYPES = {
             "ANCHALIKA_SANGHA", "ZILLA_SANGHA", "PATHA_CHAKRA",
@@ -3512,7 +3596,10 @@ def create_organization(
         # manually created for a new Sakha. Mirrors governance.py's
         # create_body() INSERT shape (body_status/effective_from
         # defaults, no end date, description NULL).
-        if body.organization_type_code == "SAKHA_SANGHA":
+        # SAKHA_ASANA (a Sakha without its own building) gets the same shell;
+        # the standard flow never writes it (ORG-BR-096) — kept consistent
+        # with the idempotent patch seed/08_governance/04_sakha_asana_*.sql.
+        if body.organization_type_code in SAKHA_LIKE_ORG_TYPES:
             cur.execute(
                 """
                 SELECT body_type_master_pk FROM nss.body_type_master
@@ -3749,7 +3836,7 @@ def dashboard_stats(
         # an Anchalika/Zilla, not Kendra directly, so it stays the separate
         # sakha_sanghas count that already existed; mahila_sanghas likewise
         # unchanged.
-        org_count_sql = """
+        org_count_sql = f"""
             SELECT COUNT(*) FILTER (WHERE ot.value_code = 'ANCHALIKA_SANGHA'
                                        AND pt.value_code = 'KENDRA'),
                    COUNT(*) FILTER (WHERE ot.value_code = 'ZILLA_SANGHA'
@@ -3758,7 +3845,7 @@ def dashboard_stats(
                                        AND pt.value_code = 'KENDRA'),
                    COUNT(*) FILTER (WHERE ot.value_code = 'PARIBARIK_SANGHA'
                                        AND pt.value_code = 'KENDRA'),
-                   COUNT(*) FILTER (WHERE ot.value_code = 'SAKHA_SANGHA'),
+                   COUNT(*) FILTER (WHERE ot.value_code IN {SAKHA_LIKE_ORG_TYPES_SQL}),
                    COUNT(*) FILTER (WHERE ot.value_code = 'MAHILA_SANGHA')
             FROM   nss.organization o
             JOIN   nss.master_data ot

@@ -30,9 +30,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.database import get_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import DEFAULT_LIMIT, MAX_LIMIT, row_to_model, rows_to_models, ORGANIZATION_ADDRESS_JOINS_SQL
+from api.helpers import SAKHA_LIKE_ORG_TYPES, SAKHA_LIKE_ORG_TYPES_SQL, DEFAULT_LIMIT, MAX_LIMIT, row_to_model, rows_to_models, ORGANIZATION_ADDRESS_JOINS_SQL
 from api.services.family_majority import FAMILY_MAJORITY_CTE_SQL
-from api.services.rbac_service import UserContext, require_org_in_scope, actor_scope_org_pks
+from api.services.rbac_service import (
+    UserContext,
+    actor_scope_org_pks,
+    actor_scope_root_org_pks,
+    require_org_in_scope,
+)
 from api.schemas.organization import (
     OrgChildStatsResponse,
     OrgStatsResponse,
@@ -168,7 +173,9 @@ def fetch_organizations(cur, type_code: str | None = None, status_code: str | No
                          state_pk: UUID | None = None, district_pk: UUID | None = None,
                          postal_code_pk: UUID | None = None,
                          limit: int = DEFAULT_LIMIT, offset: int = 0,
-                         *, type_codes: list[str] | None = None):
+                         *, type_codes: list[str] | None = None,
+                         search: str | None = None,
+                         org_pks: set[str] | None = None):
     """
     Shared query behind list_organizations() — factored out so the public
     self-registration Sakha-list endpoint (api/routers/registration.py) can
@@ -187,9 +194,24 @@ def fetch_organizations(cur, type_code: str | None = None, status_code: str | No
     type_code for "find a Sakha OR Patha Chakra near me" — passing both
     SAKHA_SANGHA and PATHA_CHAKRA in one call instead of two round trips.
     Takes precedence over type_code when given.
+
+    search (keyword-only) is a case-insensitive name/code/short_code substring
+    match; org_pks (keyword-only) restricts the result to those organizations
+    (an admin's resolved scope — an empty set yields no rows). Both are used
+    by list_organizations_in_scope().
     """
     sql = _ORG_SELECT + " WHERE o.is_active = TRUE"
     params: list = []
+
+    if org_pks is not None:
+        if not org_pks:
+            return []
+        sql += " AND o.organization_pk = ANY(%s::uuid[])"
+        params.append(sorted(org_pks))
+    if search:
+        sql += (" AND (o.organization_name ILIKE %s OR o.organization_code ILIKE %s"
+                " OR o.short_code ILIKE %s)")
+        params.extend([f"%{search}%"] * 3)
 
     if type_codes:
         sql += " AND ot.value_code = ANY(%s)"
@@ -223,7 +245,7 @@ def fetch_organizations(cur, type_code: str | None = None, status_code: str | No
 
 @router.get("/organizations", response_model=list[OrganizationResponse])
 def list_organizations(
-    type_code: str | None = Query(None, description="Filter by organization type code"),
+    type_code: list[str] | None = Query(None, description="Filter by organization type code — repeat the param for an OR match across types (e.g. ?type_code=SAKHA_SANGHA&type_code=SAKHA_ASANA)"),
     status_code: str | None = Query(None, description="Filter by status code"),
     country_pk: UUID | None = Query(None, description="Filter by country"),
     state_pk: UUID | None = Query(None, description="Filter by state"),
@@ -242,8 +264,9 @@ def list_organizations(
     via limit/offset (default 100, max 500).
     """
     with conn.cursor() as cur:
-        return fetch_organizations(cur, type_code, status_code, country_pk, state_pk,
-                                    district_pk, postal_code_pk, limit, offset)
+        return fetch_organizations(cur, None, status_code, country_pk, state_pk,
+                                    district_pk, postal_code_pk, limit, offset,
+                                    type_codes=type_code)
 
 
 @router.get("/organizations/selectable", response_model=list[OrganizationResponse])
@@ -281,6 +304,32 @@ def list_selectable_organizations(
                                     postal_code_pk=postal_code_pk,
                                     limit=limit, offset=offset,
                                     type_codes=type_code)
+
+
+@router.get("/organizations/in-scope", response_model=list[OrganizationResponse])
+def list_organizations_in_scope(
+    search: str | None = Query(None, min_length=1, max_length=100,
+                               description="Name / code / short code substring"),
+    type_code: list[str] | None = Query(None, description="Repeatable organization type filter"),
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Max rows to return"),
+    offset: int = Query(0, ge=0, description="Number of rows to skip"),
+    conn=Depends(get_connection),
+    user: UserContext = Depends(require_permission("ORGANIZATION_VIEW")),
+) -> list[OrganizationResponse]:
+    """
+    Organizations inside the caller's admin scope (ADMIN-BR-076/077): the
+    global authority (NSS_ERP_ADMIN / NSS-wide) sees all, a scoped admin only
+    its subtree (NULL-organization scope levels resolve through
+    actor_scope_org_pks, e.g. the Advisory Board admin reaches the Advisory
+    Board organization). Backs the admin Correspondence organization
+    pickers, which used /admin/organizations and so returned nothing for
+    roles without ADMIN_USER_VIEW (the Advisory Board admin).
+    """
+    with conn.cursor() as cur:
+        return fetch_organizations(
+            cur, limit=limit, offset=offset, type_codes=type_code, search=search,
+            org_pks=actor_scope_org_pks(cur, user),
+        )
 
 
 def _require_org_exists_in_scope(cur, user: UserContext, organization_pk, action: str,
@@ -397,7 +446,7 @@ _CHILDREN_STATS_SQL = f"""
     sakha_pks AS (
         SELECT root_child_pk, organization_pk AS sakha_pk
         FROM   org_tree
-        WHERE  organization_type_code = 'SAKHA_SANGHA'
+        WHERE  organization_type_code IN {SAKHA_LIKE_ORG_TYPES_SQL}
     ),
     -- Family majority CTE (dynamic Sakha — FAM-036), shared with
     -- family.py's _FAMILY_SELECT — see api/services/family_majority.py
@@ -557,7 +606,7 @@ _ORG_STATS_SQL = f"""
     sakha_pks AS (
         SELECT organization_pk AS sakha_pk
         FROM   org_tree
-        WHERE  organization_type_code = 'SAKHA_SANGHA'
+        WHERE  organization_type_code IN {SAKHA_LIKE_ORG_TYPES_SQL}
     ),
     -- Family majority CTE (dynamic Sakha — FAM-036), shared with
     -- family.py's _FAMILY_SELECT and this file's _CHILDREN_STATS_SQL —
@@ -574,7 +623,7 @@ _ORG_STATS_SQL = f"""
     )
     SELECT
         (SELECT COUNT(*) FROM org_tree
-          WHERE organization_type_code = 'SAKHA_SANGHA')  AS sakha_sanghas,
+          WHERE organization_type_code IN {SAKHA_LIKE_ORG_TYPES_SQL})  AS sakha_sanghas,
         (SELECT COUNT(*) FROM org_tree
           WHERE organization_type_code = 'MAHILA_SANGHA') AS mahila_sanghas,
         -- Remaining ORGANIZATION_TYPE tiers present in this subtree, so a
@@ -752,7 +801,7 @@ def get_organization_stats(
 # A person is never attached to a wing org row in any case: MBR-038A's
 # trigger (05_membership/14_sakha_only_membership_trigger.sql) rejects any
 # sangha_sevi.organization_pk or membership_sakha_affiliation.organization_pk
-# that is not a SAKHA_SANGHA. That is why wing rosters must be computed
+# that is not Sakha-like (SAKHA_SANGHA/SAKHA_ASANA). That is why wing rosters must be computed
 # from the member's Sakha outward, and why no wing-affiliation column is
 # added here.
 
@@ -793,7 +842,7 @@ _WING_NOT_DERIVABLE_NOTE = {
 # Subtree walk shared by both wing endpoints — identical anchor/recursion to
 # _ORG_STATS_SQL so wing figures reconcile with /stats rather than being a
 # second, subtly different definition of "this org's Sakhas".
-_ORG_SUBTREE_CTE = """
+_ORG_SUBTREE_CTE = f"""
     WITH RECURSIVE org_tree AS (
         SELECT o.organization_pk,
                o.parent_organization_pk,
@@ -819,7 +868,7 @@ _ORG_SUBTREE_CTE = """
     sakha_pks AS (
         SELECT organization_pk AS sakha_pk
         FROM   org_tree
-        WHERE  organization_type_code = 'SAKHA_SANGHA'
+        WHERE  organization_type_code IN {SAKHA_LIKE_ORG_TYPES_SQL}
     )
 """
 
@@ -1136,23 +1185,21 @@ def get_organization_hierarchy(
     circular parent references. Supports pagination via limit/offset.
     The UI reconstructs the tree using depth for indentation.
     """
-    # Scope-rooted anchor (ADMIN-BR-076): resolved without a DB round
-    # trip, same scopes actor_scope_org_pks() itself reads to build the
-    # subtree — here we only need the admin's own org(s), not the full
-    # subtree, since the recursive step below expands descendants itself.
+    # Scope-rooted anchor (ADMIN-BR-076): see actor_scope_root_org_pks().
     root_pks: list[str] | None = None
-    if not (user.is_super_admin() or user.is_nss_wide()):
-        root_pks = [str(s.organization_pk) for s in user.scopes if s.organization_pk]
-        if not root_pks:
-            return []
-
-    anchor_filter = (
-        "o.organization_pk = ANY(%s::uuid[])" if root_pks is not None
-        else "o.parent_organization_pk IS NULL"
-    )
-    anchor_params: list = [root_pks] if root_pks is not None else []
-
     with conn.cursor() as cur:
+        # Shared with actor_scope_org_pks() so type-resolved scopes
+        # (KENDRA_MAHILA_SANGHA) root the tree identically.
+        roots = actor_scope_root_org_pks(cur, user)
+        if roots is not None:
+            if not roots:
+                return []
+            root_pks = sorted(roots)
+        anchor_filter = (
+            "o.organization_pk = ANY(%s::uuid[])" if root_pks is not None
+            else "o.parent_organization_pk IS NULL"
+        )
+        anchor_params: list = [root_pks] if root_pks is not None else []
         cur.execute(f"""
             WITH RECURSIVE org_tree AS (
                 -- Anchor: root nodes (no parent) for the global authority,

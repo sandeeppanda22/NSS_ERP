@@ -570,7 +570,7 @@ def approve_claim(
                 detail="Claim has a Darshak Sakha but no Local Sakha Number for it. Reject and ask for correction.",
             )
 
-        # MBR-038A: a sangha_sevi's organization must be a SAKHA_SANGHA.
+        # MBR-038A: a sangha_sevi's organization must be Sakha-like.
         # Mirrors the DB trigger (trg_enforce_sakha_only_sangha_sevi) with a
         # clean 422. Guards both sangha_sevi inserts below, which share org_pk.
         require_sakha_organization(cur, str(org_pk))

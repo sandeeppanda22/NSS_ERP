@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-16 routers (241 endpoints; Tier 6 adds `governance.py` 55 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 20); the endpoint inventory and per-router counts live in
+17 routers (251 endpoints; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 20; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -45,7 +45,7 @@ api/
 │                        outermost, so security headers wrap everything — CSP is emitted by that
 │                        same security-headers middleware, not a separate layer), registers the
 │                        `error_handlers.py` handlers (validation / `psycopg2.IntegrityError` /
-│                        catch-all), includes all 16 routers (the six Tier 0-4 ones plus, Tier 5,
+│                        catch-all), includes all 17 routers (the six Tier 0-4 ones plus, Tier 5,
 │                        `auth`/`admin`/`registration`/`claim_approval`/`audit`/`geo_approval`, then Tier 6
 │                        `governance`/`membership_change_request`/`correspondence`),
 │                        mounts `frontend/assets/` at `/assets`. A `lifespan` hook logs a
@@ -141,7 +141,7 @@ api/
 │                        `validate_and_hash_password()`; audit — `log_audit()` (writes a row to
 │                        `nss.system_event_log` — see Audit trail below). **Also 5 shared SQL
 │                        fragment constants**, each spliced (via an f-string) into 2+ routers'
-│                        queries rather than copy-pasted: `FAMILY_MAJORITY_CTE_SQL` (the FAM-036
+│                        queries rather than copy-pasted: `SAKHA_LIKE_ORG_TYPES`/`SAKHA_LIKE_ORG_TYPES_SQL`/`is_sakha_like()` (Sakha + Sakha Asana, the single Python definition of "is this a Sakha?"; also the wing-parent set in `ALLOWED_PARENT_TYPES`, GDR-008), `FAMILY_MAJORITY_CTE_SQL` (the FAM-036
 │                        majority-rule CTE, shared by `organization.py`'s `/children-stats` +
 │                        `/stats` and `family.py`'s `_FAMILY_SELECT`),
 │                        `ORGANIZATION_ADDRESS_JOINS_SQL` (shared by `organization.py`'s
@@ -161,7 +161,7 @@ api/
 │                        the `-Report-Only` variant when CSP_REPORT_ONLY is set; nothing when
 │                        CSP_ENABLED is false), skipping `CSP_EXEMPT_PATHS` — `/docs`, `/redoc`,
 │                        `/openapi.json` — because Swagger UI embeds an inline script
-├── routers/             16 routers; module docstrings of `foundation.py`,
+├── routers/             17 routers; module docstrings of `foundation.py`,
 │   │                    `membership.py`, `person.py`, `admin.py`, `auth.py`, `registration.py`
 │   │                    and `family.py` still describe their original/partial endpoint set — see
 │   │                    "Known gaps" at the bottom of this file
@@ -178,7 +178,7 @@ api/
 │   │                    `FOUNDATION_CALENDAR_MANAGE`, NSS_ERP_ADMIN only) in Tier 5. Also
 │   │                    exports `fetch_countries()`/`fetch_states()`/`fetch_districts()`/
 │   │                    `fetch_postal_codes()`/`fetch_master_data()`, reused by `registration.py`
-│   ├── organization.py  11 endpoints under /api/v1/organization across 3 tables — reference
+│   ├── organization.py  12 endpoints under /api/v1/organization across 3 tables — reference
 │   │                    data (types, statuses), core organizations (list/detail/children — the
 │   │                    list query is a shared `fetch_organizations()` function, also called by
 │   │                    `registration.py`'s public reference-data endpoints), children-stats
@@ -190,8 +190,10 @@ api/
 │   │                    `/organizations/{pk}/wings` + `/wings/{wing_type_code}/members`
 │   │                    (wing-body summary/roster). All gated by `require_permission("ORGANIZATION_VIEW")`
 │   │                    except `/organizations/selectable` (member-facing dropdown lookup;
-│   │                    `get_current_user` only)
-│   ├── person.py        5 endpoints under /api/v1/person across 2 tables — person list
+│   │                    `get_current_user` only); `/organizations/in-scope` is the
+│   │                    scope-filtered (`actor_scope_org_pks`) searchable list behind the
+│   │                    admin Correspondence organization pickers
+│   ├── person.py        8 endpoints under /api/v1/person across 2 tables — person list
 │   │                    (with gender/marital-status/blood-group filters + pagination) and
 │   │                    trigram-based (`pg_trgm`) search, both gated by
 │   │                    `require_permission("PERSON_VIEW")`; `/search-selectable` (same search,
@@ -215,7 +217,8 @@ api/
 │   │                    override** — a deliberate design choice per the router's own module
 │   │                    docstring, not a gap. `tests/api/test_family_ownership.py` (20 tests)
 │   │                    covers the ownership path for the write endpoints plus `/graph`;
-│   │                    `/person/{pk}/membership-summary` still has no coverage
+│   │                    `/family/person/{pk}/membership-summary` is covered by
+│   │                    `TestPersonMembershipSummary` in that file
 │   ├── membership.py    8 endpoints under /api/v1/membership — member list, search and
 │   │                    `/organizations/{pk}/darshak-summary` (per-org Darshak counts for the
 │   │                    Org Dashboard tab) gated by `require_permission("MEMBERSHIP_VIEW")`;
@@ -257,7 +260,7 @@ api/
 │   ├── geo_approval.py   Tier 5 — 4 endpoints under /api/v1/admin/geo-entries: review queue for
 │   │                     member-proposed district/postal-code/post-office/city-village rows
 │   │                     (list, detail, approve, correct), `FOUNDATION_MANAGE` + admin scope
-│   ├── governance.py     Tier 6 — 55 endpoints under /api/v1/governance: body-type/position
+│   ├── governance.py     Tier 6 — 56 endpoints under /api/v1/governance: body-type/position
 │   │                     catalogues, bodies, member + acting assignments (incl. forced-removal
 │   │                     request/approve/reject), elections, nominations, votes (officer-recorded,
 │   │                     self-service, reset), tally, results and result apply, plus two
@@ -269,6 +272,11 @@ api/
 │   │                     `/approval-steps/pending-for-me` + `/{step_pk}/decision`; `CORRESPONDENCE_VIEW`/
 │   │                     `CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk`;
 │   │                     reference numbers via `helpers.next_correspondence_reference_number()`
+│   ├── org_reparent.py   Tier 6 — 4 endpoints under /api/v1/org-reparent: Sakha re-parent
+│   │                     approvals (list, detail, `/{pk}/steps/{step_pk}/decide`, `/{pk}/cancel`);
+│   │                     login-only, authority to decide = live President seat (no admin override; NSS_ERP_ADMIN and Kendra GB members re-parent directly instead); requests
+│   │                     are filed by `PATCH /admin/organizations/{pk}` (HTTP 202) — logic in
+│   │                     `services/org_reparent_service.py`, seat lookups in `services/seat_service.py`
 │   ├── attendance.py     Tier 6 — 20 endpoints under /api/v1/attendance: Weekly Sangha Puja
 │   │                     (`/pujas`, `/pujas/{pk}/attendance`, `/records`), `/exceptions`, Attendance
 │   │                     Review workflow (`/reviews*`: close/defer/revisit/escalate-to-president/
@@ -368,6 +376,8 @@ api/
     ├── correspondence.py Tier 6 — CorrespondenceCreate/Response/ListResponse,
     │                     StatusTransitionRequest, ResponsiblePartyAssignRequest,
     │                     DocumentAssociation*, FinanceReference*
+    ├── org_reparent.py   Tier 6 — ReparentRequestResponse/ReparentStepResponse, ReparentDecisionRequest
+                          (remarks required on REJECT), ReparentCancelRequest
     ├── attendance.py     Tier 6 — Puja/AttendanceRecord/Exception/Review request + response
     │                     models, WatchList*, Org/Member attendance stats
     ├── membership_change_request.py Tier 6 — ChangeRequestCreate, SourceDecisionRequest,
@@ -434,7 +444,7 @@ exact `require_permission`/`require_any_permission` arguments in each router.
 | POST | `/api/v1/register` | none | Self-registration — creates `person` + `user_account(PENDING_APPROVAL)` + optional `registration_claim` |
 | POST | `/api/v1/register/check-duplicate` | none | JSON body `{mobile_number, country_phone_code, email}` → `{mobile_exists, email_exists}` pre-submit check |
 | GET | `/api/v1/register/reference-data` | none | Countries + gender/marital-status/blood-group/membership-type master-data + the Sakha list, bundled into one call for the public registration page |
-| GET | `/api/v1/register/countries`/`/states`/`/districts`/`/cities`/`/postal-codes`/`/post-offices`/`/sakhas` | none | Public location-cascade and Sakha lookups, thin wrappers over `foundation.py`'s `fetch_*()` functions and `organization.py`'s `fetch_organizations()` |
+| GET | `/api/v1/register/countries`/`/states`/`/districts`/`/cities`/`/postal-codes`/`/post-offices`/`/address-types`/`/sakhas` | none | Public location-cascade and Sakha lookups, thin wrappers over `foundation.py`'s `fetch_*()` functions and `organization.py`'s `fetch_organizations()` |
 | GET | `/api/v1/admin/claims` | any of `MEMBERSHIP_APPROVE`/`ADMIN_USER_MANAGE`, scoped | List registration claims (`claim_status` filter, default `PENDING`; `page`/`page_size` pagination) |
 | GET/PATCH | `/api/v1/admin/claims/{pk}` | same | Claim detail / admin edits before approval |
 | POST | `/api/v1/admin/claims/{pk}/approve` | same | Creates `sangha_sevi` + affiliation (+ mandatory credential for a new Sangha Sevi), activates the account |
@@ -451,7 +461,7 @@ gap list has been separately tracked for Tier 5 yet — see `tests/README.md`.
 See `docs/PROJECT_DOCUMENTATION.md` → Key Workflow #9 for the full registration → approval →
 login → RBAC flow this layer implements.
 
-## Endpoints (Tier 6 — Governance, uncommitted on `feature/tier6-governance`)
+## Endpoints (Tier 6 — Governance, committed on `feature/tier6-governance`)
 
 All write endpoints use the auditing `api/dependencies/auth.py::get_write_connection`; reads use
 `get_connection`. "View" = `require_any_permission("GOVERNANCE_VIEW","GOVERNANCE_MANAGE")`,
@@ -459,7 +469,7 @@ All write endpoints use the auditing `api/dependencies/auth.py::get_write_connec
 election with `organization_pk IS NULL` is NSS-wide and manageable only by `NSS_ERP_ADMIN`/NSS-WIDE;
 org-scoped ones go through the subtree scope check (ADMIN-BR-076/077).
 
-**`/api/v1/governance`** (`routers/governance.py`, 55 endpoints; paths relative to the prefix)
+**`/api/v1/governance`** (`routers/governance.py`, 56 endpoints; paths relative to the prefix)
 
 | Method | Path | Auth | Returns |
 |--------|------|------|---------|
@@ -477,7 +487,8 @@ org-scoped ones go through the subtree scope check (ADMIN-BR-076/077).
 | GET | `/bodies/{body_master_pk}/assignments` | View | Member assignments |
 | GET | `/bodies/{body_master_pk}/allowed-positions` | View | Allowed positions, seat limit, seats filled |
 | GET | `/bodies/{body_master_pk}/inherited-positions` | View | Read-only holders inherited from another body |
-| GET | `/advisory-board/missing-nominations` | View | Active Sakhas with no current Advisory Board MEMBER nomination (NSS-wide admins only) |
+| GET | `/advisory-board/missing-nominations` | View | Active Sakhas with no current Advisory Board MEMBER nomination (NSS-wide admins and the Advisory Board admin) |
+| GET | `/advisory-board/dashboard` | View | One-read Advisory Board dashboard: member roster (name, Sakha, position), seats/vacancies, office bearers, live acting cover, Sakhas without a representative (NSS-wide admins and the Advisory Board admin; no meetings/decisions — not modelled yet) |
 | GET | `/mukhya-pujaka` | View | The NSS-wide Mukhya Pujaka seat and current holder |
 | POST | `/bodies/{body_master_pk}/assignments` | Manage | Assign a member (composition, singleton, membership and seat-limit checks) |
 | POST | `/assignments/{body_member_assignment_pk}/end` | Manage | End an assignment |
@@ -643,7 +654,7 @@ tests (`tests/api/test_foundation.py`, `tests/api/test_geo_approval.py`; some of
 
 ## Endpoints (Tier 2)
 
-11 endpoints under `/api/v1/organization` (table below lists the original 8; `/organizations/selectable`, `/organizations/{pk}/wings`, `/organizations/{pk}/wings/{wing_type_code}/members` are documented in API_CONTRACT.md) — no ORM,
+12 endpoints under `/api/v1/organization` (table below lists the original 8; `/organizations/selectable`, `/organizations/in-scope`, `/organizations/{pk}/wings`, `/organizations/{pk}/wings/{wing_type_code}/members` are documented in API_CONTRACT.md) — no ORM,
 parameterized SQL. **Gated by `require_permission("ORGANIZATION_VIEW")` in Tier 5**
 (read-only/no-auth through Tier 4). Organization type values come from Foundation `master_data`
 (category `ORGANIZATION_TYPE`). Status values come from the unified ERP-wide
@@ -653,7 +664,7 @@ for address resolution, since those FKs are nullable.
 
 | Method | Path | Returns |
 |--------|------|---------|
-| GET | `/api/v1/organization/types` | The 13 frozen organization types from `nss.master_data` (category `ORGANIZATION_TYPE`) |
+| GET | `/api/v1/organization/types` | The 14 organization types (13 frozen + the singleton `ADVISORY_BOARD`, 2026-10-30) from `nss.master_data` (category `ORGANIZATION_TYPE`) |
 | GET | `/api/v1/organization/statuses` | The 7 Organization-applicable statuses out of the unified `STATUS` category's 16 total values from `nss.master_data` |
 | GET | `/api/v1/organization/organizations` | Organizations with resolved type/status/parent/geography context; optional `type_code`/`status_code` filters, `limit`/`offset` pagination (default 100, max 500) |
 | GET | `/api/v1/organization/organizations/{organization_pk}` | Single organization detail; 404 if missing/inactive |
@@ -671,7 +682,7 @@ integration tests (`tests/api/test_organization.py`; some of the original 72 wer
 
 ## Endpoints (Tier 3)
 
-5 endpoints under `/api/v1/person` (plus `/search-selectable`, see API_CONTRACT.md) — no ORM, raw parameterized SQL. **Gated on the Tier 5
+8 endpoints under `/api/v1/person` (5 read incl. `/search-selectable`, see API_CONTRACT.md, plus 3 address writes) — no ORM, raw parameterized SQL. **Gated on the Tier 5
 branch** (read-only/no-auth through Tier 4): `/persons` and `/search` by
 `require_permission("PERSON_VIEW")`; `/persons/{person_pk}` and
 `/persons/{person_pk}/addresses` by `get_current_user` + `require_self_or_permission()` (a
@@ -686,6 +697,9 @@ against Foundation's `master_data`. Trigram search relies on `pg_trgm` (installe
 | GET | `/api/v1/person/persons` | Active persons (compact summary — no Aadhaar/emergency/photo fields); optional `gender_code`/`marital_status_code`/`blood_group_code` filters, `limit`/`offset` pagination (default 100, max 500) |
 | GET | `/api/v1/person/persons/{person_pk}` | Single person detail with full resolved context, incl. masked `aadhaar_last4`; 404 if missing/inactive |
 | GET | `/api/v1/person/persons/{person_pk}/addresses` | Active addresses for a person, with resolved address type + city/village/postal-code/district/state/country chain; 404 if the person doesn't exist |
+| POST | `/api/v1/person/persons/{person_pk}/addresses` | Add an address (201 `PersonAddressResponse`); the person themself or `PERSON_MANAGE` in admin scope. `address_type_master_data_pk` must be an `ADDRESS_TYPE` value; city/village, postal code and post office must be APPROVED, or PENDING and proposed by this person; first address is auto-primary, `is_primary=true` demotes the previous primary |
+| PATCH | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Partial update (only fields sent change; explicit null clears optional ones); same auth/geo rules; un-primarying the primary address is 409 |
+| DELETE | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Soft delete (`is_active=false`, `deleted_at`); 409 on the primary address while other active addresses exist; 404 if the row is not this person's |
 | GET | `/api/v1/person/search` | Trigram similarity search (`pg_trgm`) on first/last name, plus prefix match on `person_id`/`mobile_number`; capped at 50 results |
 
 `aadhaar_encrypted` and `aadhaar_hash` are never returned by any endpoint — only
@@ -715,13 +729,13 @@ authenticated — see above):
 | GET | `/api/v1/family/families/{family_group_pk}/head-history` | Family head history (current member or `FAMILY_VIEW`) |
 | GET | `/api/v1/family/families/{family_group_pk}/graph?viewer_person_pk=` | Dynamic relationship-label computation via BFS traversal over `nss.family_link` edges (`api/services/family_graph.py`); covered by `tests/api/test_family_ownership.py`; current member or `FAMILY_VIEW` |
 | GET | `/api/v1/family/families/{family_group_pk}/sakha-alignment` | FAM-036 majority-rule "effective Sakha" computation — `is_aligned` is hardcoded `True` by design; per-member `is_home_sakha` flags surface real mismatches; current member or `FAMILY_VIEW` |
-| GET | `/api/v1/family/person/{person_pk}/membership-summary` | Bridges family context to membership context for a UI panel; self, a current relative, or `FAMILY_VIEW`; no test coverage yet |
+| GET | `/api/v1/family/person/{person_pk}/membership-summary` | Bridges family context to membership context for a UI panel; self, a current relative, or `FAMILY_VIEW` |
 
 Full contract: `docs/03_Solution/api/API_CONTRACT.md` (documents these 7 only, not yet updated
 for the 9 below). Verified by 52 pytest integration tests
 (`tests/api/test_family.py`, admin-token path; some of the original 67 were extracted into
 `tests/security/`) plus 20 in `tests/api/test_family_ownership.py` (role-less JWT path, incl.
-`/graph`) — `/person/{pk}/membership-summary` is the one endpoint with no coverage.
+`/graph`, `/family/person/{pk}/membership-summary`).
 
 **Family (Tier 5 additions, released in v0.11.0) — 9 more endpoints, all requiring
 `get_current_user` (JWT); the 2 `GET`s use the read pool, the 7 `POST`/`DELETE`s use
