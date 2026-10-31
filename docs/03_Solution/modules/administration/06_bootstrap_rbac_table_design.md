@@ -17,6 +17,9 @@
 > `database/seed/00_bootstrap/02_role_master.sql`). NULL remains valid for any future
 > unscoped role but no frozen role uses it anymore.
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005/GDR-006):** `role_permission` seed: `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` = 18 rows; `NSS_ERP_ADVISORY_BOARD_ADMIN` = 8 rows (`GOVERNANCE_VIEW`, `GOVERNANCE_MANAGE`, `MEMBERSHIP_VIEW`, `CORRESPONDENCE_VIEW`, `CORRESPONDENCE_MANAGE`, `ORGANIZATION_VIEW`, `FOUNDATION_VIEW`, `PERSON_VIEW`). Rows added after first build reach existing databases via the idempotent patch `database/seed/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql`.
+
 ---
 
 # 1. Purpose

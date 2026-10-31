@@ -6,6 +6,9 @@
 **Module:** Governance
 **Parent System:** Nilachala Saraswata Sangha ERP
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005/GDR-006/GDR-007):** (1) The Advisory Board governance body stays NSS-wide (NULL-organization) even though an `ADVISORY_BOARD` organization now exists (GDR-005). (2) Body-level management reach of NULL-organization admin scopes is limited to `NULL_ORG_SCOPE_BODY_TYPES` (`ADVISORY_BOARD` → Advisory Board bodies; `KENDRA_MAHILA_SANGHA` → central Mahila Parichalana Mandali) (GDR-006). (3) §63 composite-grant definition used by GDR-007: a "Kendra Governing Body member" is a person holding the auto-granted `NSS_ERP_KENDRA_ADMIN` scope from a live `KENDRA_GOVERNING_BODY` seat (any position, substantive or acting).
+
 ---
 
 # 1. Purpose

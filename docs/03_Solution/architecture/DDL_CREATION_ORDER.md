@@ -493,11 +493,11 @@ Foundation Vertical Slice → actual CREATE TABLE DDL
 
 # Implementation Note (non-normative)
 
-The frozen sequence above is unchanged. The implemented DDL (`database/ddl/`, 69 tables) has
+The frozen sequence above is unchanged. The implemented DDL (`database/ddl/`, 71 tables) has
 tables that are not in the 89-table sequence: Foundation `post_office`, `festival_master`,
 `festival_calendar_date`, `system_event_log`; Family `family_admin`; Authentication
 `registration_claim`, `password_reset_token`, `user_session`; Membership
 `darshak_attendance_registration`, `credential_sequence_counter`, `sakha_local_number_counter`,
 `membership_change_request`; and Governance `election_vote_participation` (secret-ballot voter
-ledger, Tier 6). Governance is built as Phases 11b/11c of `database/scripts/02_build.sh`, after
+ledger, Tier 6); Organization `organization_reparent_request` and `organization_reparent_step` (Sakha re-parenting approval chain, GDR-007). Governance is built as Phases 11b/11c of `database/scripts/02_build.sh`, after
 Administration.

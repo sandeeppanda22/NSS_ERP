@@ -1741,9 +1741,10 @@ FROZEN (IMPLEMENTATION-TIER-001)
 
 **IMPLEMENTATION STATUS (non-normative; tier order above is unchanged):**  
 TIERS 0-5 IMPLEMENTED AND RELEASED (v0.6.0-v0.11.0) — DDL, API and web UI.  
-TIER 6 IN PROGRESS (on `feature/tier6-governance`, not merged): Governance DDL (10 tables), API
-(`governance.py`, 55 endpoints), the Correspondence Register (5 tables, 19 endpoints) and the Membership change-request workflow are implemented;
-Weekly Sangha Puja Attendance (4 tables, `attendance.py`, 20 endpoints) is implemented but uncommitted; Assets & Property is NOT started. 69 tables, 16 routers, 241
+TIER 6 IN PROGRESS (on `feature/tier6-governance`, not merged or released): Governance DDL (10 tables), API
+(`governance.py`, 56 endpoints), the Correspondence Register (5 tables, 19 endpoints), the Membership change-request workflow,
+Weekly Sangha Puja Attendance (4 tables, `attendance.py`, 20 endpoints) and Sakha re-parent approvals (2 tables, `org_reparent.py`, 4 endpoints) are implemented
+(the 2026-10-30/31 work is not yet committed); Assets & Property is NOT started. 71 tables, 17 routers, 251
 endpoints in total. See the root `README.md` Tier-Wise Implementation Status table.
 
 **NEXT:**  

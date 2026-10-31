@@ -14,10 +14,10 @@ that once implemented a handful of these modules as simple placeholder models ha
 from the codebase entirely** (archived in Git history only — see `CLAUDE.md`); the current
 implementation is FastAPI (`api/`) + hand-written PostgreSQL DDL (`database/ddl/`), and these
 areas have real implemented code: `00_bootstrap/` (RBAC, owned by `administration/`),
-`01_foundation/` (15 tables), `02_organization/` (1 table), `03_person/` (`person`, 28 columns,
+`01_foundation/` (15 tables), `02_organization/` (3 tables incl. the Sakha re-parent approval pair), `03_person/` (`person`, 28 columns,
 and `person_address`), `04_family/` (6 tables), `05_membership/` (16 tables),
 `06_authentication/` (5 tables), `07_administration/` (`user_role`, `admin_scope`) and — Tier 6,
-committed on `feature/tier6-governance` — `08_governance/` (10 tables) and `09_correspondence/` (5 tables), plus Tier 6 Attendance (uncommitted) `10_attendance/` (4 tables). Every other module below (`heritage`, `kumari`, `kishor`, `mahila`, `sevak`, etc.) is design-only with no implemented code —
+committed on `feature/tier6-governance` — `08_governance/` (10 tables) and `09_correspondence/` (5 tables), plus Tier 6 Attendance `10_attendance/` (4 tables). Every other module below (`heritage`, `kumari`, `kishor`, `mahila`, `sevak`, etc.) is design-only with no implemented code —
 see `docs/PROJECT_DOCUMENTATION.md` → Conventions & gotchas / Open questions before assuming any of
 it is built. **`finance/` (20th module)** follows the same
 design-only pattern. **`programmes_events/` (21st module — Module #21)**
@@ -36,11 +36,11 @@ Administration — both reflected in the rows below.
 
 | Module | Design status | Implementation reality |
 |---|---|---|
-| `organization/` | v1.1.0, GOVERNANCE ALIGNED — type-to-type parent matrix explicitly OPEN | `database/ddl/02_organization/` implemented, 1 table (`organization`; type/status masters retired into Foundation `master_data`) |
-| `person/` | v2.0.0, FROZEN — **2 tables** (`person`, `person_address` — `document_master` reassigned to Foundation, `DOC-ARCH-001`), 5 files | `database/ddl/03_person/02_person.sql` (28 columns) + `03_person_address.sql` implemented; API (`api/routers/person.py`, 5 endpoints), UI (originally `frontend/person.html`, retired — now `frontend/admin.html`'s Person Directory tab), and tests (`tests/api/test_person.py`) all implemented — `01_person_master_tables.sql` remains a superseded prototype file, not run |
-| `membership/` | v1.0.0, DRAFT — 5-file, ~10 tables designed | `database/ddl/05_membership/` implemented, 16 tables (design doc not yet reconciled); API `api/routers/membership.py` (8 endpoints) + `membership_change_request.py` (5, Tier 6) |
+| `organization/` | v1.1.0, GOVERNANCE ALIGNED — type-to-type parent matrix explicitly OPEN | `database/ddl/02_organization/` implemented, 3 tables (`organization` plus the Tier 6 `organization_reparent_request`/`_step`; type/status masters retired into Foundation `master_data`) Org types: 13 frozen + the singleton `ADVISORY_BOARD` (2026-10-30, seeded by `seed/02_organization/07_advisory_board_organization_patch.sql`) |
+| `person/` | v2.0.0, FROZEN — **2 tables** (`person`, `person_address` — `document_master` reassigned to Foundation, `DOC-ARCH-001`), 5 files | `database/ddl/03_person/02_person.sql` (28 columns) + `03_person_address.sql` implemented; API (`api/routers/person.py`, 8 endpoints incl. address writes), UI (originally `frontend/person.html`, retired — now `frontend/admin.html`'s Person Directory tab), and tests (`tests/api/test_person.py`) all implemented — `01_person_master_tables.sql` remains a superseded prototype file, not run |
+| `membership/` | v1.0.0, DRAFT — 5-file, ~10 tables designed | `database/ddl/05_membership/` implemented, 16 tables (design doc not yet reconciled); API `api/routers/membership.py` (9 endpoints) + `membership_change_request.py` (5, Tier 6) |
 | `family/` | v1.0.0, DRAFT — 5-file (includes lifecycle doc SOL-FAM-005), frozen 4-table design | `database/ddl/04_family/` implemented, 6 tables; API `api/routers/family.py` (16 endpoints) |
-| `attendance/` | v1.0.0, DRAFT — 6-file (includes lifecycle doc SOL-ATT-006; Review Workflow FROZEN) + `DARSHAK_BUSINESS_RULE.md` | Tier 6 implemented, uncommitted (`ddl/10_attendance/`, `api/routers/attendance.py`) |
+| `attendance/` | v1.0.0, DRAFT — 6-file (includes lifecycle doc SOL-ATT-006; Review Workflow FROZEN) + `DARSHAK_BUSINESS_RULE.md` | Tier 6 implemented, committed on `feature/tier6-governance` (`ddl/10_attendance/`, `api/routers/attendance.py`) |
 | `heritage/` | v1.0.0, SOURCE ALIGNED — 8 tables | no implementation |
 | `kumari/` | v1.0.0, SOURCE ALIGNED — 5 tables | no implementation |
 | `kishor/` | v1.0.0, SOURCE ALIGNED — Guardian Model v2.1 frozen | no implementation |

@@ -1,9 +1,9 @@
 # NSS ERP Governance Module
 
 Status: DRAFT — SOURCE ALIGNED, v1.0.0/v0.1.0 (lifecycle doc). Full Solution design now 5 files.
-**Tier 6 implementation is in progress (uncommitted on `feature/tier6-governance`)**:
+**Tier 6 implementation is committed on `feature/tier6-governance` (unmerged, unreleased)**:
 `database/ddl/08_governance/` (10 tables), `database/seed/08_governance/`, `api/routers/governance.py`
-(55 endpoints), `api/schemas/governance.py`, `tests/api/test_governance.py`. The design docs below
+(56 endpoints), `api/schemas/governance.py`, `tests/api/test_governance.py`. The design docs below
 have not all been reconciled to it (see "Implementation drift"). (The Django prototype, which never had more than an empty
 `governance` app stub, was removed from the repository entirely — see
 `docs/03_Solution/architecture/TECH_STACK_DECISIONS.md`).
@@ -83,7 +83,7 @@ Recorded here, not redesigned. The design docs are unchanged; the implementation
   `SEVAK_SANGHA_EXECUTIVE` and the Anchalika/Zilla/Patha Chakra governing bodies).
 - **RBAC:** `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE` permissions and the
   `NSS_ERP_ADVISORY_BOARD_ADMIN` role (auto-granted from body/position holdings by
-  `rbac_service.load_composite_grants`; `ADVISORY_BOARD` admin-scope level).
+  `rbac_service.load_composite_grants`; `ADVISORY_BOARD` admin-scope level). Since 2026-10-30 the Advisory Board is also a singleton **organization** (org type `ADVISORY_BOARD`, parent Kendra) that owns its correspondence register; the governance body stays NULL-organization and is deliberately not linked to it, and the role holds 7 permissions (adds `CORRESPONDENCE_VIEW`/`_MANAGE`, `ORGANIZATION_VIEW`, `FOUNDATION_VIEW`).
 - `database/ddl/08_governance/README.md` is the code-verified reference for the DDL.
 
 ## Cross-reference gap
@@ -101,4 +101,4 @@ authentication, administration) — see `docs/PROJECT_DOCUMENTATION.md` → "Ope
 
 Design Complete · ERD Complete · Lifecycle Documented (SOL-GOV-005, cross-reference gap above)
 · Business Rules Drafted (SOURCE ALIGNED) · Table Design
-Drafted (SOURCE ALIGNED) · SQL + API implementation in progress (Tier 6, uncommitted) · UI/tests per `tests/README.md`
+Drafted (SOURCE ALIGNED) · SQL + API implementation committed (Tier 6, `feature/tier6-governance`) · UI/tests per `tests/README.md`

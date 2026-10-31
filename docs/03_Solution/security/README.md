@@ -58,8 +58,8 @@ model).
   place), and a table of potential improvements. Consolidates, rather than replaces, the
   per-tier audits above.
 
-**Tier 6 (Governance, in progress/uncommitted) has not been audited yet** — there is no
-`TIER6_SECURITY_AUDIT.md`; the new `governance.py` (55 endpoints) and
+**Tier 6 (Governance/Correspondence/Attendance, committed on `feature/tier6-governance`, unreleased) has not been audited yet** — there is no
+`TIER6_SECURITY_AUDIT.md`; the new `governance.py` (56 endpoints) and
 `membership_change_request.py` (5 endpoints) routers, the ballot-immutability triggers and the
 secret-ballot split (`election_vote` / `election_vote_participation`) are outside the audits above.
 

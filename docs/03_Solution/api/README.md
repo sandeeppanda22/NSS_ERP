@@ -1,7 +1,7 @@
 # docs/03_Solution/api/
 
 API design documentation: request/response contracts for the FastAPI service implemented at
-the root-level `api/` folder (raw psycopg2, no ORM; 16 routers, 241 endpoints — see
+the root-level `api/` folder (raw psycopg2, no ORM; 17 routers, 251 endpoints — see
 `api/README.md` for the running code). Each contract is written per-tier, as its vertical slice
 lands, and stays DRAFT until the tier's implementation is frozen. The four per-tier contracts
 were written when Tiers 0-3 were read-only and unauthenticated; in Tier 5
@@ -44,7 +44,7 @@ Tier 5 catalogue.
   router with permission gates, frontend routes, and the full endpoint-count summary. It does **not** replace the per-tier contract docs above for Tiers 0–3 —
   those remain the source of full request/response detail, example payloads, and file maps. For
   Tier 4 (Family, Membership), Tier 5 (Auth/Admin/Registration/Claims/Audit) and Tier 6
-  (Governance, Membership Change Requests; uncommitted on `feature/tier6-governance`),
+  (Governance, Membership Change Requests, Correspondence, Attendance, Sakha re-parent approvals; on `feature/tier6-governance`, unmerged),
   `API_CONTRACT.md` is currently the **only** contract document — there is no dedicated
   `FAMILY_API_CONTRACT.md`, `MEMBERSHIP_API_CONTRACT.md`, Tier 5 or Tier 6 contract; request/response
   detail for those lives in the routers' module docstrings and Pydantic schemas.

@@ -1,7 +1,7 @@
 # NSS ERP — Organization Business Rules
 
 **Document ID:** SOL-ORG-004  
-**Version:** 1.9.0  
+**Version:** 1.10.0  
 **Status:** DRAFT — GOVERNANCE ALIGNED  
 **Amendment:** §28 (v1.2.0) — Type-to-Type Parent Hierarchy frozen (ORG-BR-087–095): resolves
 the previously-OPEN parent compatibility matrix per an explicit governance decision
@@ -30,6 +30,7 @@ administrative jurisdiction, not a physical premises, and are now allowed/displa
 organization type; only premises-specific columns (address_line_1/2, city_village_pk,
 postal_code_pk, latitude, longitude) remain prohibited for these three types, per governance
 decision (2026-09-28).  
+**Amendment:** §36 (v1.10.0) — ORG-BR-106..109 and notes on ORG-BR-087/088/095: Advisory Board as a 14th singleton organization type, immutable name, DB singleton trigger (generalised to KENDRA/NILACHALA_KUTIRA/SMRUTI_MANDIRA/ADVISORY_BOARD and the central Mahila Sangha), Sakha/Sakha Asana re-parenting approval chain (Kendra GB members and NSS_ERP_ADMIN exempt), per owner-directed decisions (2026-10-30) recorded as GDR-005, GDR-006, GDR-007.  
 **Module:** Organization  
 **Parent System:** Nilachala Saraswata Sangha ERP
 
@@ -1238,10 +1239,16 @@ standalone institutions recognized by the Bye-Law that do not participate in tha
 all — consistent with ORG-BR-064's existing note that these two "don't participate in the
 parent hierarchy."
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005):** a fourth apex-level singleton exists: `ADVISORY_BOARD` — but unlike `NILACHALA_KUTIRA`/`SMRUTI_MANDIRA` it carries `parent_organization_pk = KENDRA` (ORG-BR-106).
+
 ## ORG-BR-088 — Kendra's Direct Children
 
 `KENDRA` is a valid parent only for: `ANCHALIKA_SANGHA`, `ZILLA_SANGHA`, `PATHA_CHAKRA`,
 `PARIBARIK_SANGHA`, and the single Kendra/Central instance of `MAHILA_SANGHA` (ORG-BR-091).
+
+
+> **Amendment (2026-10-30, owner-directed, GDR-005):** `KENDRA` is additionally a valid parent for the singleton `ADVISORY_BOARD` organization (ORG-BR-106).
 
 ## ORG-BR-089 — Anchalika and Zilla Are Siblings, Never Nested
 
@@ -1264,6 +1271,10 @@ parent = KENDRA        → the Kendra / Central Mahila Sangha (exactly one such 
 parent = SAKHA_SANGHA   → a local, per-Sakha Mahila Sangha
 ```
 
+> **Amendment (2026-10-31, owner-directed, GDR-008):** a local, per-Sakha Mahila Sangha may equally
+> be parented by a `SAKHA_ASANA` (the shared Sakha-like set, `SAKHA_SANGHA` or `SAKHA_ASANA`). The
+> `KENDRA` tier and its single-row singleton rule are unchanged.
+
 The Bye-Law's central-body-supervises-branches relationship (the central Mahila Parichalana
 Mandali overseeing branch Mahila Sanghas) is a **governance relationship**, not an
 organizational-hierarchy parent-child relationship, and is deliberately **not** encoded via
@@ -1279,6 +1290,11 @@ frozen here.
 ## ORG-BR-092 — Kumari Sangha and Sevak Sangha Parenting
 
 `KUMARI_SANGHA` and `SEVAK_SANGHA` may only be parented by `SAKHA_SANGHA`.
+
+> **Amendment (2026-10-31, owner-directed, GDR-008):** `KUMARI_SANGHA` and `SEVAK_SANGHA` may be
+> parented by `SAKHA_SANGHA` **or `SAKHA_ASANA`** (a Sakha Asana is a Sakha for all organizational
+> purposes). ORG-BR-101/102 apply unchanged to an Asana as the parent Sakha: its own
+> `NSS_ERP_SAKHA_ADMIN` may create them, and one active Kumari and one active Sevak per Sakha-like parent.
 
 ## ORG-BR-093 — Paribarik Sangha Parenting
 
@@ -1298,6 +1314,10 @@ exactly one `SAKHA_SANGHA`.
 **implementation proxy** — this is a technical workaround, not a frozen claim that
 `PARIBARIK_ASANA` is truly "under" that Sakha Sangha org. `SAKHA_SANGHA` is the only
 type-compatible parent allowed for `PARIBARIK_ASANA` regardless.
+
+> **Amendment (2026-10-31, owner-directed, GDR-008):** `SAKHA_ASANA` is likewise a type-compatible
+> parent (proxy for the attached `sangha_sevi`'s current Sakha, which may be an Asana — MBR-038A);
+> the allowed parents are `SAKHA_SANGHA` or `SAKHA_ASANA`.
 
 **Addendum (governance decision, 2026-09-26):** a `PARIBARIK_ASANA` organization's
 existence tracks its attached `sangha_sevi`'s Parichaya Patra lifecycle. It comes into
@@ -1321,6 +1341,9 @@ role is scoped to those levels today. `KENDRA_MAHILA_SANGHA` refers to the singl
 `MAHILA_SANGHA` row whose parent is `KENDRA` (ORG-BR-091), not to `MAHILA_SANGHA` as a whole
 — local, per-Sakha Mahila Sanghas fall under their own Sakha's `SAKHA` scope for
 administrative purposes, not a distinct scope level of their own.
+
+
+> **Amendment (2026-10-30, owner-directed, GDR-006):** the scope levels `KENDRA_MAHILA_SANGHA` and `ADVISORY_BOARD` carry no `organization_pk`; they resolve by organization type — `KENDRA_MAHILA_SANGHA` reaches every `MAHILA_SANGHA` organization (central and per-Sakha) plus subtrees, `ADVISORY_BOARD` reaches the Advisory Board organization. The earlier reading of `KENDRA_MAHILA_SANGHA` as "the single Kendra-parented row only" is superseded. Neither level is global (ADMIN-BR-076/077).
 
 ---
 
@@ -1528,7 +1551,7 @@ A local `KUMARI_SANGHA`, `SEVAK_SANGHA`, or the per-Sakha (local) `MAHILA_SANGHA
 `MAHILA_SANGHA` whose parent is a `SAKHA_SANGHA` (ORG-BR-091), **not** the single Kendra/Central
 Mahila Sangha whose parent is `KENDRA` — is a wing of its Sakha, not an independently-identified
 organization. It operates from the Sakha's premises and shares the Sakha's identity (consistent
-with ORG-BR-092's Sakha-only parenting and the wing-membership-shares-the-Sakha's-IDs convention,
+with ORG-BR-092's Sakha-only parenting (SAKHA_SANGHA or SAKHA_ASANA — GDR-008 amendment) and the wing-membership-shares-the-Sakha's-IDs convention,
 MBR-046). Accordingly, when such a wing is created:
 
 1. **It carries no `organization_code` and no `short_code` of its own — both are `NULL`.** The
@@ -1593,6 +1616,64 @@ where Sakha codes are `SKH1`, `SKH2`, … This is the visible "org code".
 **Scope.** Applies to the four standard creatable types. Wings (`KUMARI_SANGHA`/`SEVAK_SANGHA`,
 future local `MAHILA_SANGHA`) carry no code at all (ORG-BR-104). Unique apex types (`KENDRA`,
 `NILACHALA_KUTIRA`, `SMRUTI_MANDIRA`) are singletons, not created through this flow.
+
+---
+
+# 36. Advisory Board Organization, and Sakha Re-Parenting Approval (owner-directed, 2026-10-30)
+
+> Recorded as GDR-005, GDR-006, GDR-007 (status `Proposed` — NSS Governing Body ratification not verified).
+
+## ORG-BR-106 — Advisory Board Is a Singleton Organization
+
+`ADVISORY_BOARD` is the 14th organization type. Exactly one organization of this type exists
+("Advisory Board", `organization_code` `ADB`, `short_code` `NSSAB`), parent `KENDRA`, seeded and
+never user-created. It owns the Advisory Board's correspondence register. The Advisory Board
+governance body stays NSS-wide (`organization_pk IS NULL`) and is not linked to it (GDR-005).
+
+## ORG-BR-107 — Advisory Board Name Is Immutable
+
+`organization_name` of an `ADVISORY_BOARD` organization cannot be changed by any actor
+(including `NSS_ERP_ADMIN`); the attempt is refused with HTTP 422. Contact fields remain editable
+by scope-allowed holders.
+
+## ORG-BR-108 — Singleton Organizations Are Database-Enforced
+
+Trigger `nss.fn_enforce_organization_singleton` (`08_organization_singleton_trigger.sql`)
+refuses a second **active** organization for each singleton rule, on INSERT or on UPDATE OF
+type / `is_active` / parent (checked only when a relevant column actually changed):
+
+- type `KENDRA`, type `NILACHALA_KUTIRA`, type `SMRUTI_MANDIRA`, type `ADVISORY_BOARD`;
+- the central (NSS/Kendra) Mahila Sangha: an active `MAHILA_SANGHA` whose parent is a
+  `KENDRA`-type organization. Local per-Sakha Mahila Sanghas (parent = a Sakha) are
+  unrestricted.
+
+Owner amendment 2026-10-30 (GDR-005): originally only `ADVISORY_BOARD` was enforced
+(`fn_enforce_advisory_board_singleton`, now dropped). `create_organization` and
+`update_organization` mirror the rule with a clean 422 (`require_singleton_slot_free`). The
+trigger never scans existing rows, so a database that already holds a duplicate still builds;
+only new offending writes are refused.
+
+## ORG-BR-109 — Sakha Re-Parenting Requires President-Chain Approval
+
+Changing the parent of a `SAKHA_SANGHA` or `SAKHA_ASANA` (ORG-BR-090; the owner treats the
+two as the same in current practice, and a Sakha Asana has its own Governing Body and President)
+is applied directly only for a Kendra Governing Body member (holder of the §63 auto-granted
+composite `NSS_ERP_KENDRA_ADMIN` scope) or the `NSS_ERP_ADMIN` super administrator (by role,
+owner amendment 2026-10-30).
+For every other actor — scoped admins, office bearers and a manually-assigned (non-Governing-Body)
+Kendra Administrator — a request is filed and approved
+by the Sakha President, then the leaving Anchalika/Zilla President, then the destination
+Anchalika/Zilla President, then the Kendra President (owner amendment 2026-10-31); a step without a
+seated President (or held by the requester) falls back to the Kendra President, and when the
+Sakha's current parent is the Kendra there is no leaving step at all. The parent is unchanged until
+the final approval (GDR-007).
+
+> **Amendment (2026-10-31, owner-directed, GDR-007):** `SAKHA_ASANA` counts as a full Sakha for every
+> Sakha-ness check (members MBR-038A, Advisory Board representation, attendance, correspondence,
+> pickers, stats) via one shared definition per layer. This does **not** touch ORG-BR-096 (an Asana is
+> never created through the standard flow), ORG-BR-098 (premises is an attribute of `SAKHA_SANGHA`),
+> id-sequence/code generation. (The earlier carve-out for the wing parenting rules ORG-BR-091/092/094 is
+> superseded by GDR-008 — see the amendment notes on those rules.)
 
 ---
 

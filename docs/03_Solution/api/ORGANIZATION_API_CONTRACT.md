@@ -26,6 +26,11 @@
 > `docs/03_Solution/modules/family/04_family_business_rules.md` § FAM-036). New response
 > model `OrgChildStatsResponse`.
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005/GDR-007):** `GET /organization/types` now returns 14 types (adds `ADVISORY_BOARD`). The `ADVISORY_BOARD` organization's `organization_name` is immutable (422 on change). Re-parenting a `SAKHA_SANGHA` or `SAKHA_ASANA` through `PATCH /admin/organizations/{pk}` returns HTTP 202 with an approval request unless the actor is a Kendra Governing Body member or the `NSS_ERP_ADMIN` super administrator (GDR-007). A second active `KENDRA`/`NILACHALA_KUTIRA`/`SMRUTI_MANDIRA`/`ADVISORY_BOARD`, or a second central (Kendra-parented) `MAHILA_SANGHA`, is refused with 422 on create and on re-parenting (GDR-005 item 7).
+
+> **Amendment (2026-10-31, owner-directed, GDR-008):** the type-to-type parent matrix (ORG-BR-091/092/094) is widened: `KUMARI_SANGHA`, `SEVAK_SANGHA`, the local per-Sakha `MAHILA_SANGHA` and `PARIBARIK_ASANA` may be parented by a Sakha-like organization — `SAKHA_SANGHA` **or** `SAKHA_ASANA` (the `MAHILA_SANGHA` `KENDRA` tier and its singleton rule are unchanged). No schema change: the self-FK `parent_organization_pk` is type-agnostic. See `docs/00_Project_Governance/GDR/GDR-008_Sakha_Asana_Is_a_Sakha_for_All_Organizational_Purposes.md`.
+
 ---
 
 ## 1. Purpose

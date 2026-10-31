@@ -1,9 +1,9 @@
 # NSS ERP Attendance Module
 
-Status: DRAFT design complete (Review Workflow FROZEN). **Implemented (Tier 6, uncommitted, 2026-10-27/28):**
+Status: DRAFT design complete (Review Workflow FROZEN). **Implemented (Tier 6, committed on `feature/tier6-governance`, 2026-10-27/28):**
 DDL `database/ddl/10_attendance/` (4 tables, build Phase 11e), API `api/routers/attendance.py`
 (20 endpoints under `/api/v1/attendance`) and the shared UI mixin `frontend/assets/js/attendance-register.js`
-(admin Attendance group + Sakha dashboard register). API/security tests exist (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`, `tests/attendance_support.py`; 156 collected, not yet run against the DB); no UI test.
+(admin Attendance group + Sakha dashboard register). API/security tests exist (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`, `tests/attendance_support.py`; 238 collected, not yet run against the DB); UI tests `tests/ui/test_ui_attendance.py` (132 collected) also never run.
 
 ---
 

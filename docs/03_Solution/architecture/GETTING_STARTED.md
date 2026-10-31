@@ -165,14 +165,14 @@ python3 -m pytest tests/ -v
 py -m pytest tests/ -v
 ```
 
-**1335 test functions (1638 collected items, `pytest --collect-only -qq`, 2026-10-28)**, split across four directories: 842 in `tests/api/` (22 files — routers +
-integration coverage), 57 in `tests/db/` (4 files; cross-module data integrity, credential-schema and festival-schema
-invariants), 136 in `tests/security/` (11 files; auth-gating/401/403/RBAC + CSP/rate-limit/CORS
-assertions), and 300 in `tests/ui/` (25 Playwright browser-test files — needs Playwright
-browsers installed and a running app).
+**3718 collected items (`pytest --collect-only -qq`, 2026-10-31; 2548 `test_*` functions)**, split across four directories: 2111 collected in `tests/api/` (31 files — routers +
+integration coverage), 185 in `tests/db/` (6 files; cross-module data integrity, credential-schema, festival-schema, organization and singleton-trigger
+invariants), 836 in `tests/security/` (16 files; auth-gating/401/403/RBAC + CSP/rate-limit/CORS
+assertions), and 586 in `tests/ui/` (31 files; Playwright browser tests plus source-parsing tests — needs Playwright
+browsers installed; the session starts its own server).
 `test_kumari_transition_has_event` and `TestChildrenStats` gracefully `pytest.skip()` against
 the seed-less database rather than fail. See `tests/README.md` for the full per-file test
-inventory. The Attendance tests (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`) are written but not yet run against the DB.
+inventory. The Attendance suites and everything written 2026-10-30/31 have never been run against a DB.
 
 ---
 

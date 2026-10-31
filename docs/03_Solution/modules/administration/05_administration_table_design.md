@@ -14,6 +14,9 @@ type-to-type parent hierarchy this role's scope depends on
 **Module:** Administration
 **Parent System:** Nilachala Saraswata Sangha ERP
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005/GDR-006):** a 10th frozen role, `NSS_ERP_ADVISORY_BOARD_ADMIN` (scope `ADVISORY_BOARD`), is part of the catalogue; `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` reaches every `MAHILA_SANGHA` organization (not only the Kendra-parented one) with Kendra's 18 operational permissions. §8.8's "never automatic" assignment statement is qualified by the §63 composite auto-grant (live governing-body seats grant the corresponding admin scope without a `user_role` row). Final permission lists: GDR-005 §2.6 (8 permissions) and GDR-006 §2.3 (18 permissions).
+
 ---
 
 # 1. Purpose

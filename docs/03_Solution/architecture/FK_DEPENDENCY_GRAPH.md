@@ -11,6 +11,9 @@
 
 **Parent System:** Nilachala Saraswata Sangha ERP
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-007):** Organization gains two tables, `organization_reparent_request` (FKs: organization x3, user_account, person x2, sangha_sevi) and `organization_reparent_step` (FKs: organization_reparent_request, organization, body_master, position_master, person x2), bringing the implemented schema to 71 tables. The depth table below predates them (both sit at depth 5, after organization/body_master/position_master/person).
+
 ---
 
 # 1. Purpose
@@ -618,6 +621,8 @@ PHASE 6: Deferred FK constraints (audit-actor + correspondence_finance_reference
 | Table | Column | Notes |
 |-------|--------|-------|
 | `organization` | `parent_organization_pk` → `organization.organization_pk` | Create table first, add self-FK in same DDL or immediately after |
+
+> **Amendment (2026-10-31, owner-directed, GDR-008):** the type-to-type parent matrix (ORG-BR-091/092/094) is widened: `KUMARI_SANGHA`, `SEVAK_SANGHA`, the local per-Sakha `MAHILA_SANGHA` and `PARIBARIK_ASANA` may be parented by a Sakha-like organization — `SAKHA_SANGHA` **or** `SAKHA_ASANA` (the `MAHILA_SANGHA` `KENDRA` tier and its singleton rule are unchanged). No schema change: the self-FK `parent_organization_pk` is type-agnostic. See `docs/00_Project_Governance/GDR/GDR-008_Sakha_Asana_Is_a_Sakha_for_All_Organizational_Purposes.md`.
 | `sangha_sevi` | `created_by_sangha_sevi_pk` → `sangha_sevi.sangha_sevi_pk` | Handled by audit-FK deferral (Phase 6) |
 
 ---
