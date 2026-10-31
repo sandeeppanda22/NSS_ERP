@@ -253,7 +253,7 @@ def asana_world(client, write_conn):
     parent = create_org(client, admin_h, loc, "ANCHALIKA_SANGHA", kendra_pk, "AsnParent")
     asana = create_test_organization(
         write_conn, name_prefix="AsnParity", type_code="SAKHA_ASANA", parent_pk=parent,
-        short_code="AP" + uuid4().hex[:6].upper(),
+        short_code="AP" + uuid4().hex[:3].upper(),
     )
     member = _create_person_with_login(write_conn, "AsanaMember", organization_pk=asana)
     return {"admin_h": admin_h, "parent": parent, "asana": asana, "member": member,

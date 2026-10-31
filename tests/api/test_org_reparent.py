@@ -249,11 +249,16 @@ class TestRuleMatrix:
         sakha, _, _ = _new_sakha(client, world, write_conn)
         assert patch_parent(client, world["req_h"], sakha, FAKE_UUID).status_code == 404
 
-    def test_second_open_request_is_409_and_rolls_back_other_fields(self, client, write_conn, world):
+    def test_second_open_request_is_409_and_rolls_back_other_fields(
+        self, client, write_conn, world, isolated_savepoint
+    ):
         sakha, _, _ = _new_sakha(client, world, write_conn)
         assert patch_parent(client, world["req_h"], sakha, world["dest"]).status_code == 202
-        r = patch_parent(client, world["req_h"], sakha, world["other_dest"], organization_name="Should Roll Back")
-        assert r.status_code == 409, r.text
+        # The real app rolls the failed request's transaction back; the test connection
+        # override does not, so wrap the failing request in its own SAVEPOINT (undone on exit).
+        with isolated_savepoint():
+            r = patch_parent(client, world["req_h"], sakha, world["other_dest"], organization_name="Should Roll Back")
+            assert r.status_code == 409, r.text
         cur = write_conn.cursor()
         cur.execute("SELECT organization_name FROM nss.organization WHERE organization_pk = %s", (sakha,))
         assert cur.fetchone()[0] != "Should Roll Back"
@@ -269,7 +274,7 @@ def _new_asana(write_conn, w, *, president=False, parent=None):
     real one); optionally seat an Asana President."""
     asana = create_test_organization(
         write_conn, name_prefix="RptAsana", type_code="SAKHA_ASANA", parent_pk=parent or w["src"],
-        short_code="AS" + uuid4().hex[:6].upper(),
+        short_code="AS" + uuid4().hex[:3].upper(),
     )
     body = ensure_gb_body(write_conn, asana, "SAKHA_GOVERNING_BODY")
     if not president:
@@ -312,7 +317,7 @@ class TestSakhaAsana:
         """Defensive: an Asana row the idempotent patch has not reached yet."""
         asana = create_test_organization(
             write_conn, name_prefix="RptAsanaNoGb", type_code="SAKHA_ASANA", parent_pk=world["src"],
-            short_code="AN" + uuid4().hex[:6].upper(),
+            short_code="AN" + uuid4().hex[:3].upper(),
         )
         req = patch_parent(client, world["req_h"], asana, world["dest"]).json()["reparent_request"]
         assert req["steps"][0]["assigned_person_pk"] == world["kpres_person"]["person_pk"]
@@ -322,7 +327,7 @@ class TestSakhaAsana:
         asana, _ = _new_asana(write_conn, world)
         sakha, _, _ = _new_sakha(client, world, write_conn)
         r = client.get(
-            "/api/v1/admin/organizations?type_code=SAKHA_SANGHA&type_code=SAKHA_ASANA&page_size=200",
+            "/api/v1/admin/organizations?type_code=SAKHA_SANGHA&type_code=SAKHA_ASANA&search=Rpt&page_size=200",
             headers=world["admin_h"],
         )
         assert r.status_code == 200, r.text
@@ -429,7 +434,7 @@ class TestChain:
         Anchalika/Zilla: step 2 does not exist (not a fallback)."""
         sakha = create_test_organization(
             write_conn, name_prefix="RptFlat", type_code="SAKHA_SANGHA", parent_pk=world["kendra_pk"],
-            short_code="FL" + uuid4().hex[:6].upper(),
+            short_code="FL" + uuid4().hex[:3].upper(),
         )
         body = ensure_gb_body(write_conn, sakha, "SAKHA_GOVERNING_BODY")
         pres = _create_person_with_login(write_conn, "FlatPres", organization_pk=sakha)

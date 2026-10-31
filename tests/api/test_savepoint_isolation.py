@@ -12,7 +12,11 @@ What is proven here, without depending on any other module or on run order:
     savepoint of THIS module is never touched);
   - the connection is non-autocommit;
   - the API reads through the same connection, so uncommitted test rows are
-    visible to it and vanish after the rollback.
+    visible to it and vanish after the rollback;
+  - the autouse per-test savepoint (`_test_savepoint`): a test that leaves the
+    transaction ABORTED is rolled back to its own savepoint (its writes vanish,
+    the connection works again for the next test), while a test that passes
+    keeps its rows for later tests/fixtures of the module.
 
 NOTE: nothing here commits. Cleanup is the very mechanism under test.
 """
@@ -98,15 +102,15 @@ class TestSavepointRollback:
             cur.execute("ROLLBACK TO SAVEPOINT iso_rollback_sp")
         assert _count_persons(write_conn, person_id) == 0
 
-    def test_module_savepoint_rollback_statement_undoes_writes(self, write_conn):
-        """The exact statement the module fixture runs at teardown. Valid mid-module
-        because ROLLBACK TO keeps the savepoint alive; every test here cleans up
-        after itself, so nothing else in the module depends on rows it discards."""
+    def test_per_test_savepoint_rollback_statement_undoes_writes(self, write_conn):
+        """The exact statement the per-test fixture runs for a failed test. It is valid
+        mid-test because ROLLBACK TO keeps the savepoint alive (the fixture RELEASEs it
+        afterwards). The module savepoint itself is deliberately not touched here."""
         person_id = f"TISO{uuid4().hex[:12].upper()}"
         _insert_person(write_conn, person_id)
         assert _count_persons(write_conn, person_id) == 1
         with write_conn.cursor() as cur:
-            cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+            cur.execute("ROLLBACK TO SAVEPOINT test_fn_sp")
         assert _count_persons(write_conn, person_id) == 0
 
     def test_released_savepoint_keeps_the_row_until_an_outer_rollback(self, write_conn):
@@ -153,3 +157,31 @@ class TestApiSeesTestWrites:
                 cur.execute("ROLLBACK TO SAVEPOINT iso_api_sp")
         gone = client.post("/api/v1/register/check-duplicate", json={"email": email})
         assert gone.json()["email_exists"] is False
+
+
+_CONTAINMENT = {}
+
+
+class TestPerTestSavepointContainsDbErrors:
+    """tests/conftest.py::_test_savepoint — run in order (the 2nd/4th depend on the 1st/3rd)."""
+
+    def test_1_a_db_error_leaves_the_transaction_aborted_inside_this_test(self, write_conn):
+        person_id = f"TISOERR{uuid4().hex[:9].upper()}"
+        _CONTAINMENT["aborted_person"] = person_id
+        _insert_person(write_conn, person_id)
+        with pytest.raises(Exception):
+            _insert_person(write_conn, person_id)  # duplicate person_id/email -> unique violation
+        # Deliberately NOT cleaned up: the fixture must recover the connection.
+
+    def test_2_the_next_test_gets_a_working_connection_and_the_aborted_tests_rows_are_gone(self, write_conn):
+        assert _CONTAINMENT.get("aborted_person"), "test 1 did not run before this one"
+        assert _count_persons(write_conn, _CONTAINMENT["aborted_person"]) == 0
+
+    def test_3_a_passing_test_keeps_its_rows(self, write_conn):
+        person_id = f"TISOKEEP{uuid4().hex[:8].upper()}"
+        _CONTAINMENT["kept_person"] = person_id
+        _insert_person(write_conn, person_id)
+
+    def test_4_rows_of_an_earlier_passing_test_survive_until_the_module_ends(self, write_conn):
+        assert _CONTAINMENT.get("kept_person"), "test 3 did not run before this one"
+        assert _count_persons(write_conn, _CONTAINMENT["kept_person"]) == 1

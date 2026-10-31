@@ -14,7 +14,7 @@ TestRbac class (which only asserts anonymous-401 on bodies/body-types):
    assignment for a body anchored to a DIFFERENT organization, or for an
    NSS-wide (organization_pk IS NULL) body.
 
-3. The full endpoint authentication / permission matrix: every one of the 55
+3. The full endpoint authentication / permission matrix: every one of the 56
    governance endpoints is exercised anonymously (401), as a member with no
    governance role (403 on the permissioned ones), and as a view-only auditor
    (403 on every write); Sakha-scoped admins are then checked against bodies,
@@ -514,7 +514,7 @@ class TestResignAssignment:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Endpoint authentication / permission matrix (all 55 governance endpoints)
+# Endpoint authentication / permission matrix (all 56 governance endpoints)
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Path ids are the nil UUID: the auth dependencies run (and raise 401/403)
@@ -614,7 +614,7 @@ ALL_ENDPOINTS = (
 )
 
 
-def test_endpoint_matrix_covers_all_fifty_five_governance_routes():
+def test_endpoint_matrix_covers_all_fifty_six_governance_routes():
     """Guard: a new governance route must be added to the matrix above."""
     from api.routers.governance import router
 
@@ -624,7 +624,7 @@ def test_endpoint_matrix_covers_all_fifty_five_governance_routes():
         for method in route.methods
         if method not in ("HEAD", "OPTIONS")
     }
-    assert len(registered) == len(ALL_ENDPOINTS) == 55
+    assert len(registered) == len(ALL_ENDPOINTS) == 56
 
     def normalise(path):
         # {anything} -> the nil UUID, query string dropped.

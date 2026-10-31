@@ -24,7 +24,9 @@ import pytest
 pytestmark = [pytest.mark.db, pytest.mark.integration]
 
 RESTRICTED = ["ANCHALIKA_SANGHA", "ZILLA_SANGHA", "PATHA_CHAKRA"]
-UNRESTRICTED = ["SAKHA_SANGHA", "KENDRA"]
+# KENDRA is a singleton (trg_enforce_organization_singleton), so a second one cannot be
+# inserted; its premises address is covered by the UPDATE test below instead.
+UNRESTRICTED = ["SAKHA_SANGHA"]
 
 # column -> value factory (FK columns resolved from live rows by `refs`)
 PREMISES_COLUMNS = [
@@ -38,7 +40,8 @@ def refs(write_conn):
     """Master-data PKs and one row of each referenced geography table."""
     out = {}
     with write_conn.cursor() as cur:
-        for code in RESTRICTED + UNRESTRICTED:
+        # KENDRA is a singleton (not parametrized) but test_kendra_keeps_its_premises_address needs its type pk.
+        for code in RESTRICTED + UNRESTRICTED + ["KENDRA"]:
             cur.execute(
                 """
                 SELECT md.master_data_pk FROM nss.master_data md
@@ -195,6 +198,29 @@ def test_unrestricted_types_keep_their_premises_address(write_conn, refs, type_c
     pk, error = _insert(write_conn, refs, type_code, **cols)
     assert error is None, error
     assert pk
+
+
+def test_kendra_keeps_its_premises_address(write_conn, refs):
+    """KENDRA is unrestricted; it is a singleton, so update the existing row (rolled back)."""
+    cols = {c: _value(c, refs) for c in PREMISES_COLUMNS}
+    with write_conn.cursor() as cur:
+        cur.execute(
+            "SELECT organization_pk FROM nss.organization "
+            "WHERE organization_type_master_data_pk = %s AND is_active LIMIT 1",
+            (refs["KENDRA"],),
+        )
+        row = cur.fetchone()
+    if row is None:
+        pk, error = _insert(write_conn, refs, "KENDRA", **cols)
+        assert error is None, error
+        return
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT sp_kendra_addr")
+    try:
+        assert _update(write_conn, str(row[0]), **cols) is None
+    finally:
+        cur.execute("ROLLBACK TO SAVEPOINT sp_kendra_addr")
+        cur.close()
 
 
 @pytest.mark.parametrize("restricted", RESTRICTED)

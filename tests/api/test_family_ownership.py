@@ -918,7 +918,7 @@ class TestCreateFamily:
                 SELECT o.organization_pk FROM nss.organization o
                 JOIN nss.master_data md
                   ON md.master_data_pk = o.organization_type_master_data_pk
-                WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE
+                WHERE md.value_code NOT IN ('SAKHA_SANGHA', 'SAKHA_ASANA') AND o.is_active = TRUE
                 LIMIT 1
                 """
             )

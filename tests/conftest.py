@@ -28,6 +28,8 @@ Usage:
 from contextlib import contextmanager
 from uuid import uuid4
 
+import psycopg2
+import psycopg2.extensions
 import pytest
 from fastapi.testclient import TestClient
 
@@ -74,8 +76,66 @@ def _module_savepoint(_db_conn):
         cur.execute("SAVEPOINT test_module_sp")
     yield
     if not _db_conn.closed:
+        try:
+            with _db_conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+        except psycopg2.Error:
+            # A test fully rolled the transaction back (conn.rollback()); nothing
+            # left to undo, but the connection must be usable for the next module.
+            _db_conn.rollback()
+
+
+# ── Per-test SAVEPOINT: contain a DB error to the test that caused it ───
+
+@pytest.fixture(autouse=True)
+def _test_savepoint(_db_conn):
+    """
+    Stop one DB error from cascading through the rest of the module.
+
+    All tests of a module share ONE connection/transaction, so a single
+    constraint/trigger violation leaves it aborted and every later test then
+    fails with InFailedSqlTransaction. Each test therefore runs inside its own
+    nested SAVEPOINT:
+
+      * test passed (transaction healthy)  -> RELEASE: its rows are KEPT, so
+        module-scoped fixtures and tests that build on earlier tests' data keep
+        working exactly as before;
+      * test left the transaction aborted  -> ROLLBACK TO the savepoint: only
+        that test's own writes are undone and the connection is usable again.
+
+    Module-scoped fixtures are instantiated before this function-scoped one, so
+    their data is never inside a per-test savepoint. The module-level SAVEPOINT
+    (`_module_savepoint`) still discards everything at module teardown.
+    """
+    name = "test_fn_sp"
+    armed = False
+    if not _db_conn.closed:
+        try:
+            with _db_conn.cursor() as cur:
+                cur.execute(f"SAVEPOINT {name}")
+            armed = True
+        except psycopg2.Error:
+            armed = False  # already aborted by a failing module fixture: leave as is
+    yield
+    if not armed or _db_conn.closed:
+        return
+    try:
+        aborted = (
+            _db_conn.get_transaction_status()
+            == psycopg2.extensions.TRANSACTION_STATUS_INERROR
+        )
         with _db_conn.cursor() as cur:
-            cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+            if aborted:
+                cur.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            cur.execute(f"RELEASE SAVEPOINT {name}")
+    except psycopg2.Error:
+        # The test itself rolled back past the savepoint (ROLLBACK TO the module
+        # savepoint, or a full conn.rollback()): make the connection usable again.
+        try:
+            with _db_conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+        except psycopg2.Error:
+            _db_conn.rollback()
 
 
 # ── FastAPI dependency overrides ───────────────────────────────────────

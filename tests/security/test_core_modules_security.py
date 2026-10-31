@@ -1,6 +1,6 @@
 """
 NSS ERP — Auth/RBAC gating matrix for the five core read/write modules:
-foundation (33 endpoints), organization (11), person (5), membership (9)
+foundation (33 endpoints), organization (12), person (8), membership (9)
 and family (16).
 
 Until now only a handful of these endpoints had a 401/403 assertion
@@ -97,11 +97,18 @@ PERMISSION_GATED = [
     ("GET", f"{O}/organizations/{U}/wings", None),
     ("GET", f"{O}/organizations/{U}/wings/MAHILA_SANGHA/members", None),
     ("GET", f"{O}/hierarchy", None),
+    ("GET", f"{O}/organizations/in-scope", None),
     # person — PERSON_VIEW (collection endpoints) or self/relative (detail)
     ("GET", f"{P}/persons", None),
     ("GET", f"{P}/search?q=abc", None),
     ("GET", f"{P}/persons/{U}", None),
     ("GET", f"{P}/persons/{U}/addresses", None),
+    # person address writes — get_current_user + self-or-PERSON_MANAGE-in-scope (handler-level,
+    # runs before the person/address lookup, so a role-less caller gets 403 for a placeholder pk)
+    ("POST", f"{P}/persons/{U}/addresses",
+     {"address_type_master_data_pk": U, "address_line_1": "1 Gate Street"}),
+    ("PATCH", f"{P}/persons/{U}/addresses/{U}", {"landmark": "x"}),
+    ("DELETE", f"{P}/persons/{U}/addresses/{U}", None),
     # membership — MEMBERSHIP_VIEW or self (detail/sub-resources)
     ("GET", f"{M}/members", None),
     ("GET", f"{M}/search?q=abc", None),
@@ -161,7 +168,7 @@ def _ids(cases):
 
 def test_matrix_covers_every_endpoint():
     """Guard: the three tables together must list every route of the five
-    routers (33 + 11 + 5 + 9 + 16 = 74), so a new endpoint cannot ship
+    routers (33 + 12 + 8 + 9 + 16 = 78), so a new endpoint cannot ship
     without a gate assertion."""
     from api.main import app
 
@@ -175,7 +182,7 @@ def test_matrix_covers_every_endpoint():
         for m in r.methods
         if m != "HEAD"
     }
-    assert len(registered) == 74, f"router endpoint count changed: {len(registered)}"
+    assert len(registered) == 78, f"router endpoint count changed: {len(registered)}"
 
     def templ(path):
         return path.split("?")[0]

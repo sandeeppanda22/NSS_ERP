@@ -68,7 +68,20 @@ def _create_admin_with_scope(write_conn, *, role_code: str, scope_level: str, or
     """)
     membership_status_pk = cur.fetchone()[0]
 
-    if organization_pk is None:
+    # MBR-038A: sangha_sevi.organization_pk must be a Sakha-like org. The SCOPE org
+    # (admin_scope below) may be anything (Anchalika, Zilla, ...), so only use it as
+    # the member's home when it is a Sakha/Asana; otherwise fall back to any Sakha.
+    home_organization_pk = None
+    if organization_pk is not None:
+        cur.execute("""
+            SELECT o.organization_pk FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE o.organization_pk = %s AND md.value_code IN ('SAKHA_SANGHA', 'SAKHA_ASANA')
+        """, (str(organization_pk),))
+        row = cur.fetchone()
+        if row:
+            home_organization_pk = row[0]
+    if home_organization_pk is None:
         cur.execute("""
             SELECT o.organization_pk FROM nss.organization o
             JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
@@ -77,8 +90,6 @@ def _create_admin_with_scope(write_conn, *, role_code: str, scope_level: str, or
         row = cur.fetchone()
         assert row, "No active SAKHA_SANGHA organization exists."
         home_organization_pk = row[0]
-    else:
-        home_organization_pk = organization_pk
 
     cur.execute("""
         INSERT INTO nss.person (person_id, first_name, last_name, email)

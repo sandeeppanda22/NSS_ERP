@@ -313,7 +313,7 @@ class TestRegistrationPage:
         itself since /reference-data takes no limit argument from the caller."""
         from pathlib import Path
         src = Path("api/routers/registration.py").read_text()
-        assert 'type_code="SAKHA_SANGHA"' in src
+        assert "type_codes=list(SAKHA_LIKE_ORG_TYPES)" in src
         assert "limit=500" in src, (
             "GET /api/v1/register/reference-data should request enough rows "
             "(limit=500) to cover all 175 Sakha branches"

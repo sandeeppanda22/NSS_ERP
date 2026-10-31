@@ -35,7 +35,7 @@ def admin_h(client, write_conn):
 
 
 def _sc():
-    return "SG" + uuid4().hex[:6].upper()
+    return "S" + uuid4().hex[:4].upper()
 
 
 def _ensure_central_mahila(write_conn, kendra_pk):

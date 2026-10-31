@@ -915,7 +915,7 @@ def non_sakha_pk(write_conn):
         SELECT o.organization_pk
         FROM nss.organization o
         JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-        WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE
+        WHERE md.value_code NOT IN ('SAKHA_SANGHA', 'SAKHA_ASANA') AND o.is_active = TRUE
         ORDER BY o.created_at
         LIMIT 1
     """)
@@ -1289,7 +1289,7 @@ class TestClaimExisting:
         person = _make_orphan_person(write_conn, "CLNS")
         resp = client.post(self.URL, json=self._body(person, non_sakha_pk, darshaka_type_pk))
         assert resp.status_code == 422
-        assert "SAKHA_SANGHA" in resp.json()["detail"]
+        assert "Sakha Sangha or Sakha Asana" in resp.json()["detail"]
 
     def test_unknown_organization_is_422(self, client, write_conn, darshaka_type_pk):
         person = _make_orphan_person(write_conn, "CLNO")

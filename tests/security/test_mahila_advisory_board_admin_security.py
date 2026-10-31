@@ -89,6 +89,16 @@ def ab_admin_headers(write_conn, client, home_sakha_pk):
     return _login_headers(client, data["sangha_sevi_id"], AB_PASSWORD)
 
 
+@pytest.fixture(scope="module")
+def nss_admin_headers(write_conn, client):
+    from tests.api.test_correspondence import _create_admin_with_scope
+    from tests.attendance_support import _with_sevi_pk
+
+    admin = _with_sevi_pk(write_conn, _create_admin_with_scope(
+        write_conn, role_code="NSS_ERP_ADMIN", scope_level="NSS-WIDE", organization_pk=None))
+    return _login_headers(client, admin["sangha_sevi_id"], admin["password"])
+
+
 def _body_pk(write_conn, body_code):
     cur = write_conn.cursor()
     cur.execute("SELECT body_master_pk FROM nss.body_master WHERE body_code = %s", (body_code,))
@@ -448,10 +458,13 @@ class TestAdvisoryBoardAdminCorrespondenceRegister:
         r = client.post("/api/v1/correspondence", json=self._payload(str(row[0])), headers=ab_admin_headers)
         assert r.status_code == 403, r.text
 
-    def test_second_advisory_board_organization_cannot_be_created(self, client, write_conn, ab_admin_headers):
-        # create_organization is NSS_ERP_ADMIN-only; the AB admin is refused first (403),
-        # the singleton rule itself is asserted in tests/api/test_admin.py.
-        r = client.post("/api/v1/admin/organizations",
-                        json={"organization_name": "Second AB", "organization_type_code": "ADVISORY_BOARD"},
-                        headers=ab_admin_headers)
+    def test_second_advisory_board_organization_cannot_be_created(
+            self, client, nss_admin_headers, ab_admin_headers):
+        payload = {"organization_name": "Second AB", "organization_type_code": "ADVISORY_BOARD"}
+        # The AB admin cannot create organizations at all (not an ORGANIZATION_MANAGE holder) -> 403.
+        r = client.post("/api/v1/admin/organizations", json=payload, headers=ab_admin_headers)
+        assert r.status_code == 403, r.text
+        # The singleton rule itself (owner 2026-10-30): even NSS_ERP_ADMIN gets a clean 422.
+        r = client.post("/api/v1/admin/organizations", json=payload, headers=nss_admin_headers)
         assert r.status_code == 422, r.text
+        assert "unique and already exists" in r.text

@@ -862,7 +862,7 @@ class TestClaimRepointAndResubmit:
             cur.execute("""
                 SELECT o.organization_pk FROM nss.organization o
                 JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-                WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+                WHERE md.value_code NOT IN ('SAKHA_SANGHA', 'SAKHA_ASANA') AND o.is_active = TRUE LIMIT 1
             """)
             non_sakha = str(cur.fetchone()[0])
         resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=_auth(admin_tokens),

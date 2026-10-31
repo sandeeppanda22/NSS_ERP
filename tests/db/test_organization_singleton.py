@@ -47,6 +47,7 @@ def refs(write_conn):
 
 
 def _insert(conn, refs, type_code, *, parent=None, is_active=True):
+    # chk_organization_soft_delete: an inactive row must carry deleted_at.
     cur = conn.cursor()
     cur.execute("SAVEPOINT sp_org")
     try:
@@ -54,10 +55,12 @@ def _insert(conn, refs, type_code, *, parent=None, is_active=True):
             """
             INSERT INTO nss.organization
                 (organization_name, organization_type_master_data_pk, status_master_data_pk,
-                 parent_organization_pk, is_active)
-            VALUES (%s, %s, %s, %s, %s) RETURNING organization_pk
+                 parent_organization_pk, is_active, deleted_at)
+            VALUES (%s, %s, %s, %s, %s, CASE WHEN %s THEN NULL ELSE NOW() END)
+            RETURNING organization_pk
             """,
-            (f"ORGSINGLETON {uuid4().hex[:8]}", refs[type_code], refs["status"], parent, is_active),
+            (f"ORGSINGLETON {uuid4().hex[:8]}", refs[type_code], refs["status"], parent,
+             is_active, is_active),
         )
         pk = str(cur.fetchone()[0])
         cur.execute("RELEASE SAVEPOINT sp_org")
@@ -151,7 +154,7 @@ def test_inactive_second_row_is_allowed_but_cannot_be_activated(write_conn, refs
     _ensure_one_active(write_conn, refs, type_code, parent=_kendra(write_conn, refs) if type_code != "KENDRA" else None)
     pk, error = _insert(write_conn, refs, type_code, is_active=False)
     assert error is None, error
-    err = _update(write_conn, "UPDATE nss.organization SET is_active = TRUE WHERE organization_pk = %s", (pk,))
+    err = _update(write_conn, "UPDATE nss.organization SET is_active = TRUE, deleted_at = NULL WHERE organization_pk = %s", (pk,))
     assert isinstance(err, psycopg2.errors.UniqueViolation), repr(err)
 
 

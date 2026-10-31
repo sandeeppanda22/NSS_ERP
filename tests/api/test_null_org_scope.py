@@ -218,7 +218,9 @@ class TestAdvisoryBoardScopeResolution:
         assert user.is_nss_wide() is False and user.is_super_admin() is False
 
     def test_other_roles_manage_no_null_org_body_types(self):
-        assert _ctx(_mahila_scope()).managed_null_org_body_types() == set()
+        # The Mahila admin manages exactly the central Mandali (NULL_ORG_SCOPE_BODY_TYPES) ...
+        assert _ctx(_mahila_scope()).managed_null_org_body_types() == {"MAHILA_PARICHALANA_MANDALI"}
+        # ... and every OTHER role manages none.
         assert _ctx(ScopeInfo(None, "NSS_ERP_SAKHA_ADMIN", "SAKHA", uuid4())).managed_null_org_body_types() == set()
         assert _ctx(ScopeInfo(None, "NSS_ERP_KENDRA_ADMIN", "KENDRA", None)).managed_null_org_body_types() == set()
 
@@ -279,6 +281,7 @@ class TestSeededPermissions:
         assert self._perms(write_conn, AB_ROLE) == {
             "GOVERNANCE_VIEW", "GOVERNANCE_MANAGE", "MEMBERSHIP_VIEW",
             "CORRESPONDENCE_VIEW", "CORRESPONDENCE_MANAGE", "ORGANIZATION_VIEW", "FOUNDATION_VIEW",
+            "PERSON_VIEW",  # owner decision 2026-10-30 (03_role_permission.sql + 04_*_patch.sql)
         }
 
     @pytest.mark.parametrize("role", [MAHILA_ROLE, AB_ROLE])

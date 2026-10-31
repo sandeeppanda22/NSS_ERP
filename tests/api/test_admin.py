@@ -992,7 +992,7 @@ class TestSelfProtection:
         )
         assert r.status_code == 403
         assert "own account" in r.json()["detail"].lower()
-        assert "own role" in r.json()["detail"].lower()
+        assert "assign a role" in r.json()["detail"].lower()
 
 
 # ── Organization listing tests ────────────────────────────────────────

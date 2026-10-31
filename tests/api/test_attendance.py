@@ -875,13 +875,13 @@ class TestMarkingEdgeCases:
         cur.execute("""
             SELECT o.organization_pk FROM nss.organization o
             JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-            WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+            WHERE md.value_code NOT IN ('SAKHA_SANGHA', 'SAKHA_ASANA') AND o.is_active = TRUE LIMIT 1
         """)
         row = cur.fetchone()
         if row is None:
             pytest.skip("No non-Sakha organization available.")
         r = client.post(f"{BASE}/pujas", json={"sakha_pk": str(row[0]), "puja_date": "2002-02-03"}, headers=admin_h)
-        assert r.status_code == 422 and "SAKHA_SANGHA" in r.json()["detail"], r.text
+        assert r.status_code == 422 and "Sakha Asana" in r.json()["detail"], r.text
 
 
 class TestCorrectionEdgeCases:
@@ -1181,7 +1181,7 @@ class TestSelfAccessAndValidation:
         cur.execute("""
             SELECT o.organization_pk FROM nss.organization o
             JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
-            WHERE md.value_code <> 'SAKHA_SANGHA' AND o.is_active = TRUE LIMIT 1
+            WHERE md.value_code NOT IN ('SAKHA_SANGHA', 'SAKHA_ASANA') AND o.is_active = TRUE LIMIT 1
         """)
         row = cur.fetchone()
         if row is None:
@@ -1192,7 +1192,7 @@ class TestSelfAccessAndValidation:
             json={"records": [{"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT",
                                "attendance_sakha_pk": str(row[0])}]},
             headers=sakha_admin_h)
-        assert r.status_code == 422 and "SAKHA_SANGHA" in r.json()["detail"], r.text
+        assert r.status_code == 422 and "Sakha Asana" in r.json()["detail"], r.text
 
     @pytest.mark.parametrize("sort", ["sideways", "DESC", ""])
     def test_leaderboard_sort_must_be_asc_or_desc(self, sort, client, sakha_admin_h, register_org_pk):
