@@ -193,3 +193,119 @@ class TestClaimApproval:
         """Unauthenticated request to claims endpoint returns 401."""
         response = client.get("/api/v1/admin/claims")
         assert response.status_code == 401
+
+
+# ── Previously-registered lookup / claim: public, non-enumerating ───────
+
+def _orphan_person(write_conn, label):
+    """Throwaway person with TEST_DOB and no account / claim / Sangha Sevi."""
+    suffix = uuid4().hex[:10].upper()
+    with write_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO nss.person (person_id, first_name, last_name, email, date_of_birth) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING person_pk, person_id",
+            (f"TSL{label}{suffix}", f"Sec{label}", suffix,
+             f"tsl.{label.lower()}.{suffix.lower()}@example.test", TEST_DOB),
+        )
+        person_pk, person_id = cur.fetchone()
+    return {"person_pk": str(person_pk), "person_id": person_id}
+
+
+class TestLookupAndClaimPublicSurface:
+    """POST /register/lookup-existing and /register/claim are unauthenticated by design."""
+
+    LOOKUP = "/api/v1/register/lookup-existing"
+    CLAIM = "/api/v1/register/claim"
+
+    def test_lookup_needs_no_token_and_ignores_a_bad_one(self, anon_client, write_conn):
+        person = _orphan_person(write_conn, "PUB")
+        body = {"person_id": person["person_id"], "date_of_birth": TEST_DOB}
+        assert anon_client.post(self.LOOKUP, json=body).status_code == 200
+        # A garbage Authorization header must not turn a public endpoint into a 401.
+        resp = anon_client.post(
+            self.LOOKUP, json=body, headers={"Authorization": "Bearer not.a.jwt"}
+        )
+        assert resp.status_code == 200, resp.text
+
+    def test_claim_needs_no_token(self, anon_client, write_conn, membership_claim_pks):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "CLM")
+        resp = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 201, resp.text
+
+    def test_wrong_dob_and_unknown_person_are_indistinguishable(
+        self, anon_client, write_conn
+    ):
+        """No person-id enumeration: both failures return the same 404 and detail."""
+        person = _orphan_person(write_conn, "ENUM")
+        wrong_dob = anon_client.post(self.LOOKUP, json={
+            "person_id": person["person_id"], "date_of_birth": "1990-12-31",
+        })
+        unknown = anon_client.post(self.LOOKUP, json={
+            "person_id": f"NOSUCH{uuid4().hex[:10].upper()}", "date_of_birth": TEST_DOB,
+        })
+        assert wrong_dob.status_code == unknown.status_code == 404
+        assert wrong_dob.json() == unknown.json()
+
+    def test_claim_re_verifies_dob_and_creates_nothing(
+        self, anon_client, write_conn, membership_claim_pks
+    ):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "BADDOB")
+        resp = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": "1990-12-31",
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 404, resp.text
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM nss.user_account WHERE person_pk = %s", (person["person_pk"],)
+            )
+            assert cur.fetchone() is None
+
+    def test_responses_never_leak_credentials(
+        self, anon_client, write_conn, membership_claim_pks
+    ):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "LEAK")
+        look = anon_client.post(self.LOOKUP, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        claim = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        for resp in (look, claim):
+            text = resp.text.lower()
+            assert "password" not in text and "argon2" not in text
+            assert "access_token" not in text
+
+    def test_claimant_cannot_login_until_approved(
+        self, anon_client, write_conn, membership_claim_pks
+    ):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "NOLOGIN")
+        resp = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 201, resp.text
+        login = anon_client.post("/api/v1/auth/login", json={
+            "login_id": person["person_id"], "password": TEST_PASSWORD,
+        })
+        assert login.status_code == 401

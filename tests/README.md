@@ -3,116 +3,141 @@
 Structured test suite for the NSS ERP application. Tests are organised into
 four categories under separate subdirectories.
 
+**Run status (2026-10-31):** this tree was re-counted by `pytest --collect-only` only. Nothing below
+was executed in the session that refreshed these docs, and every file marked **NOT yet run** (all
+Attendance suites and everything written 2026-10-30/31: person-address, Sakha re-parent, org
+singleton, null-org scope, Sakha Asana parity, SAVEPOINT isolation, CORS-configured, Mahila/Advisory
+Board security, and the new UI source-parsing files) has **never been run against a DB** — do not
+treat them as passing until a run confirms it.
+
 ## Directory Structure
+
+Per-file figures are `(N test functions; M collected)` — see the counting note below the tree.
 
 ```
 tests/
 ├── conftest.py          # Shared fixtures: DB connection, SAVEPOINT rollback, TestClient, authed/anon clients
-├── attendance_support.py # Shared fixtures/builders for the two Attendance modules (not a test file; imports builders from tests/api/test_correspondence.py)
+├── attendance_support.py     # Shared builders for the Attendance modules (not a test file; imports builders from tests/api/test_correspondence.py)
+├── change_request_support.py # Shared builders for test_membership_change_request*.py (not a test file)
+├── forgot_password_support.py # Shared builders for the forgot-password tests (not a test file)
+├── registration_support.py   # Shared builders for the registration tests (not a test file)
+├── reparent_support.py       # Shared builders for the Sakha re-parent tests (fresh Anchalika/Sakha via the admin API, Kendra/GB/Anchalika seat helpers, patch/decide shortcuts; builds on test_correspondence.py/attendance_support.py helpers; not a test file)
 ├── README.md            # This file
 │
-├── api/                 # API integration tests (FastAPI TestClient, no browser)
-│   ├── test_admin.py         # Tier 5 — admin CRUD, roles, orgs (78 tests; 105 collected)
-│   ├── test_admin_credentials.py # Tier 6 — member credential list/timeline/issue/promote (16 tests)
-│   ├── test_attendance.py    # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, 3-consecutive-ABSENT review trigger, watch list, review workflow, stats/leaderboard (60 tests; 75 collected). Written, NOT yet run against the DB
-│   ├── test_audit.py         # Tier 5 — field-change-log viewer (4 tests)
-│   ├── test_auth.py          # Tier 5 — login, refresh, logout, change-password, sessions (23 tests; 21 collected)
-│   ├── test_bootstrap.py     # Tier 0 — health, roles, permissions (9 tests)
-│   ├── test_claim_approval.py # Tier 5 — claim detail/edit/scope enforcement (13 tests)
-│   ├── test_correspondence.py # Tier 6 — Correspondence Register API: register/list/detail/documents/finance refs, org scope, dispatch/broadcast/reply/event-driven lifecycle (77 tests)
-│   ├── test_error_messages.py # Human-readable validation/integrity-error messages (15 tests)
-│   ├── test_family.py        # Tier 4 — family list, detail, members (52 tests)
-│   ├── test_core_read_gaps.py # organization selectable/wings/wing members, membership directory/darshak-summary, person search-selectable (written, NOT yet run against the DB)
-│   ├── test_foundation_writes.py # Foundation POST/PATCH (master-data, settings, sequences, festival calendar), propose endpoints, post-offices/sakha-postal-codes/festivals reads (written, NOT yet run)
-│   ├── test_family_ownership.py # Tier 5 — role-less-JWT ownership path (also membership-summary, create/add/remove/link/admin/transfer rules, FAM-036 majority; new classes written, NOT yet run): graph, add/remove
-│   │                          #   member, admin assign/revoke, transfer-head (20 tests)
-│   ├── test_forgot_password.py  # Tier 5 — forgot/reset password (6 tests)
-│   ├── test_foundation.py    # Tier 1 — master data, config, geographic, propose endpoints (52 tests)
-│   ├── test_geo_approval.py  # Tier 5 — member-proposed geography review queue: list/detail/approve/correct, scope (15 tests; 39 collected)
-│   ├── test_governance.py    # Tier 6 — bodies, assignments, elections, votes, results, Sakha scoping (94 tests)
-│   ├── test_membership_change_request.py # Tier 6 — Sakha Transfer / Apply for Darshak workflow (28 tests)
-│   ├── test_membership.py    # Tier 4 — membership list, search, affiliations (94 tests)
-│   ├── test_organization.py  # Tier 2 — org types, hierarchy, children, children-stats, stats (67 tests)
-│   ├── test_person.py        # Tier 3 — person list, detail, search (55 tests)
-│   ├── test_registration.py  # Tier 5 — self-registration, claim approval (17 tests)
-│   ├── test_sakha_branches.py # Tier 2 — 175 Sakha branch seed data (33 tests)
-│   └── test_sorting.py       # Shared column-sort-whitelist helper (14 tests)
+├── api/                 # API integration tests (FastAPI TestClient, no browser) — 31 files
+│   ├── test_admin.py              # Tier 5 — admin CRUD, roles (incl. Assign-Role self-assign guard), orgs (87; 119)
+│   ├── test_admin_credentials.py  # Tier 6 — member credential list/timeline/issue/promote (16; 16)
+│   ├── test_admin_scope.py        # ADMIN-BR-076/077 admin-scope subtree enforcement across admin/claim endpoints (85; 99)
+│   ├── test_attendance.py         # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, review trigger/workflow, stats (109; 155). NOT yet run
+│   ├── test_audit.py              # Tier 5 — field-change-log viewer (13; 23)
+│   ├── test_auth.py               # Tier 5 — login, refresh, logout, change-password, sessions (39; 43)
+│   ├── test_bootstrap.py          # Tier 0 — health, roles, permissions (14; 14)
+│   ├── test_claim_approval.py     # Tier 5 — claim detail/edit/scope enforcement (36; 45)
+│   ├── test_core_read_gaps.py     # organization selectable/wings/wing members, membership directory/darshak-summary, person search-selectable (43; 61). NOT yet run
+│   ├── test_correspondence.py     # Tier 6 — Correspondence Register: register/list/detail/documents/finance refs, org scope, dispatch/broadcast/reply/event-driven lifecycle (182; 250)
+│   ├── test_error_messages.py     # Human-readable validation/integrity-error messages (15; 20)
+│   ├── test_family.py             # Tier 4 — family list, detail, members (52; 52)
+│   ├── test_family_ownership.py   # Tier 5 — role-less-JWT ownership path: graph, add/remove, admin assign/revoke, transfer-head, FAM-036 majority (100; 104). New classes NOT yet run
+│   ├── test_forgot_password.py    # Tier 5 — forgot/reset password (6; 6)
+│   ├── test_foundation.py         # Tier 1 — master data, config, geographic, propose endpoints (52; 52)
+│   ├── test_foundation_writes.py  # Foundation POST/PATCH (master-data, settings, sequences, festival calendar), propose endpoints, post-offices/sakha-postal-codes/festivals reads (64; 87). NOT yet run
+│   ├── test_geo_approval.py       # Tier 5 — member-proposed geography review queue: list/detail/approve/correct, scope (28; 71)
+│   ├── test_governance.py         # Tier 6 — bodies, assignments, elections, votes, results, Sakha scoping (248; 249)
+│   ├── test_membership.py         # Tier 4 — membership list, search, affiliations (94; 117)
+│   ├── test_membership_change_request.py # Tier 6 — Sakha Transfer / Apply for Darshak workflow (59; 76)
+│   ├── test_null_org_scope.py     # KENDRA_MAHILA_SANGHA / ADVISORY_BOARD scope resolution + seeded footprints of both roles (18; 20). NOT yet run
+│   ├── test_org_reparent.py       # Tier 6 — Sakha re-parent approval: direct-vs-request matrix, Sakha Asana, 4-step chain + fallback/collapse, live-seat-only authority, reject/cancel/supersede, apply + re-validation (60; 60). NOT yet run
+│   ├── test_org_singleton.py      # API singleton rules (KENDRA/NILACHALA_KUTIRA/SMRUTI_MANDIRA/ADVISORY_BOARD create 422; central Mahila Sangha create/re-parent 422; local Mahila unrestricted) (5; 8). NOT yet run
+│   ├── test_organization.py       # Tier 2 — org types, hierarchy, children, children-stats, stats (67; 67)
+│   ├── test_person.py             # Tier 3 — person list, detail, search (55; 74)
+│   ├── test_person_address.py     # Person address POST/PATCH/DELETE: self-service + PERSON_MANAGE-in-scope, ADDRESS_TYPE validation, APPROVED-or-own-PENDING geography, single-primary invariant, soft delete (25; 25). NOT yet run
+│   ├── test_registration.py       # Tier 5 — self-registration, claim approval, /register/address-types (63; 79)
+│   ├── test_sakha_asana_parity.py # Sakha Asana == Sakha: stray-'SAKHA_SANGHA'-literal scan, SAKHA_LIKE_ORG_TYPES cross-layer consistency, behavioural parity (37; 48). NOT yet run
+│   ├── test_sakha_branches.py     # Tier 2 — 175 Sakha branch seed data (33; 33)
+│   ├── test_savepoint_isolation.py # tests/conftest.py SAVEPOINT architecture itself (11; 11). NOT yet run
+│   └── test_sorting.py            # Shared column-sort-whitelist helper (14; 27)
 │
-├── db/                  # Database integrity tests (direct SQL via write_conn)
-│   ├── test_correspondence_schema.py # Tier 6 — Correspondence Register table invariants (14 tests)
-│   ├── test_credential_schema.py # Credential-table schema invariants — document_number
-│   │                          #   uniqueness, one-active-per-member, validity CHECK,
-│   │                          #   credential_sequence_counter uniqueness (6 tests)
-│   ├── test_data_integrity.py  # Cross-module entity smoke tests (23 tests)
-│   ├── test_organization_schema.py # ORG-BR-099 premises-address trigger (written, NOT yet run)
-│   └── test_festival_schema.py # festival_master / festival_calendar_date schema + resolver helpers (14 tests)
+├── db/                  # Database integrity tests (direct SQL via write_conn) — 6 files
+│   ├── test_correspondence_schema.py # Tier 6 — Correspondence Register table invariants (32; 76)
+│   ├── test_credential_schema.py  # Credential-table schema invariants — document_number uniqueness, one-active-per-member, validity CHECK, counter uniqueness (6; 13)
+│   ├── test_data_integrity.py     # Cross-module entity smoke tests (23; 23)
+│   ├── test_festival_schema.py    # festival_master / festival_calendar_date schema + resolver helpers (14; 20)
+│   ├── test_organization_schema.py # ORG-BR-099 premises-address trigger (9; 40). NOT yet run
+│   └── test_organization_singleton.py # trg_enforce_organization_singleton: KENDRA/NILACHALA_KUTIRA/SMRUTI_MANDIRA/ADVISORY_BOARD + central Mahila Sangha (7; 13). NOT yet run
 │
-├── security/            # Cross-tier security assertions (added after the api/db/ui split
-│   │                     above; not a rename of anything)
-│   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17 tests)
-│   ├── test_attendance_security.py    # Attendance endpoint auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat, not a permission (17 tests; 81 collected). Written, NOT yet run against the DB
-│   ├── test_audit_security.py         # Audit endpoint auth/RBAC gating (4 tests)
-│   ├── test_auth_security.py          # Auth endpoint auth gating (4 tests)
-│   ├── test_correspondence_security.py # Correspondence endpoint auth/RBAC/org-scope gating (24 tests)
-│   ├── test_forgot_password_security.py # Forgot-password rate-limit/anti-enumeration (6 tests)
-│   ├── test_governance_security.py    # Governance endpoint auth/RBAC/org-scope gating (13 tests)
-│   ├── test_membership_change_request_security.py # Membership-change-request gating (11 tests)
-│   ├── test_core_modules_security.py  # 401/403 matrix over all 74 foundation/organization/person/membership/family endpoints + self-or-permission (written, NOT yet run)
-│   ├── test_organization_stats_security.py # /organizations/{pk}/stats and /wings scope enforcement, ADMIN-BR-076
-│   ├── test_registration_security.py  # Registration endpoint gating (3 tests)
-│   └── test_security_headers.py       # Headers, CSP, rate limiting, CORS, DEBUG_MODE (33 tests)
+├── security/            # Cross-tier security assertions — 16 files
+│   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17; 17)
+│   ├── test_admin_surface_security.py # Admin-surface 401/403 matrix, parametrized over endpoints (7; 97)
+│   ├── test_attendance_security.py    # Attendance auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat (19; 83). NOT yet run
+│   ├── test_audit_security.py         # Audit endpoint auth/RBAC gating (4; 4)
+│   ├── test_auth_security.py          # Auth endpoint auth gating (4; 3)
+│   ├── test_core_modules_security.py  # 401/403 matrix over foundation/organization/person/membership/family endpoints + self-or-permission (23; 168). NOT yet run
+│   ├── test_correspondence_security.py # Correspondence auth/RBAC/org-scope gating (43; 96)
+│   ├── test_cors_configured.py        # CORS with configured origins (fresh-subprocess imports of api.main) (11; 16). NOT yet run
+│   ├── test_forgot_password_security.py # Forgot-password rate-limit/anti-enumeration (6; 6)
+│   ├── test_governance_security.py    # Governance auth/RBAC/org-scope gating (58; 215)
+│   ├── test_mahila_advisory_board_admin_security.py # Mahila admin reach/refusals; Advisory Board admin body-type rule (29; 36). NOT yet run
+│   ├── test_membership_change_request_security.py # Membership-change-request gating (26; 30)
+│   ├── test_organization_stats_security.py # /organizations/{pk}/stats and /wings scope enforcement, ADMIN-BR-076 (7; 10)
+│   ├── test_person_address_security.py # Person address writes: 401 anon, 403 other member, PERSON_MANAGE scope in/out (10; 10). NOT yet run
+│   ├── test_registration_security.py  # Registration endpoint gating incl. public surface (11; 11)
+│   └── test_security_headers.py       # Headers, CSP, rate limiting, CORS, DEBUG_MODE (34; 34)
 │
-└── ui/                  # Browser UI tests (Playwright + Chromium, headless)
-    ├── conftest.py              # Browser/page fixtures (page, admin_page, member_page), login helpers
-    ├── _csp_probe.py            # Throwaway script (not a test, not collected) — loads pages in
-    │                            #   Chromium and reports CSP violations/console errors; run by hand
+└── ui/                  # Browser UI tests (Playwright + Chromium, headless) — 31 files. Several are
+    │                    # source-parsing tests that need no browser/server (marked "source-level")
+    ├── conftest.py              # Browser/page fixtures (page, admin_page, member_page), login helpers, session-owned server (_ui_server)
+    ├── register_support.py      # Shared register-form helpers (not a test file)
+    ├── _csp_probe.py            # Throwaway script (not collected) — loads pages in Chromium and reports CSP violations/console errors; run by hand
     │
     │   ── Numbered files run sequentially (DB state cascades) ──
-    ├── test_ui_06_register_submit.py # Registration: membership claim, address, full submission (9 tests)
-    ├── test_ui_07_admin_write.py    # Admin: claim approve, status change, role assign, password (11 tests)
+    ├── test_ui_06_register_submit.py # Registration: membership claim, address, full submission (9; 9)
+    ├── test_ui_07_admin_write.py    # Admin: claim approve, status change, role assign, password (11; 11)
     │
     │   ── Unnumbered files (independent, any order) ──
-    ├── test_ui_login.py             # Login form, validation, force-password-change, redirect (8 tests)
-    ├── test_ui_register.py          # Registration 3-step navigation, field validation (9 tests)
-    ├── test_ui_dashboard.py         # Dashboard: all tabs, content rendering, edit profile,
-    │                                #   admin tabs, family state, documents, logout (62 tests)
-    ├── test_ui_forgot_password.py   # Forgot/reset password flow (5 tests)
-    ├── test_ui_shared_datepicker.py # Shared nssDatePicker: no hand-written markup left in
-    │                                #   any page, markup injection on every callsite, calendar
-    │                                #   grid vs month/year, day selection, validation (22 tests)
-    ├── test_ui_admin_users.py       # User list, search, filters, detail, INACTIVE styling (11 tests)
-    ├── test_ui_admin_persons.py     # Create person form, mandatory fields (8 tests)
-    ├── test_ui_admin_create_user.py # Create user account, reactivation (3 tests)
-    ├── test_ui_admin_roles.py       # Role assignment modal, dropdowns (6 tests)
-    ├── test_ui_admin_claims.py      # Registration claims tabs, detail view (6 tests)
-    ├── test_ui_admin_status.py      # Status change modal (ACTIVE/LOCKED/INACTIVE) (5 tests)
-    ├── test_ui_admin_orgs.py        # Organizations tab, table (3 tests)
-    ├── test_ui_admin_correspondence.py # Admin Correspondence tab: register switcher, send/dispatch/broadcast/reply, detail view (46 tests)
-    ├── test_ui_governance_card.py   # Governance card on the dashboard (5 tests)
-    ├── test_ui_admin_member_directory.py # Member Directory tab, search, detail panel (4 tests)
-    ├── test_ui_admin_modals.py      # Admin write-path modals and confirm dialogs (4 tests)
-    ├── test_ui_admin_tabs.py        # Admin sidebar tab switching / activeTab panels (2 tests)
-    ├── test_ui_auth_refresh.py      # auth.js NSSAuth.apiFetch refresh/401-retry logic, fetch stubbed (18 tests)
-    ├── test_ui_location_cascade.py  # nss-location.js country/state/district/PIN cascade and resets (11 tests)
-    ├── test_ui_topbar.py            # nss-layout.js role-badge collapsing + topbar layout rules (11 tests)
-    ├── test_ui_badges.py            # Shared badge system (badges.css) source-level checks (7 tests)
-    ├── test_ui_family_management.py # dashboard.html Family tab management (3 tests)
-    └── test_ui_org_dashboard.py     # Org Dashboard tab (org-dashboard.js), six layouts (21 tests)
+    ├── test_ui_admin_claims.py      # Registration claims tabs, detail view (6; 6)
+    ├── test_ui_admin_correspondence.py # Admin Correspondence tab: register switcher, send/dispatch/broadcast/reply, detail view (50; 70)
+    ├── test_ui_admin_create_user.py # Create user account, reactivation (3; 3)
+    ├── test_ui_admin_dropdown_resets.py # source-level: child dropdowns reset on parent change, PIN narrowed by district, stale-response guards (12; 16). NOT yet run
+    ├── test_ui_admin_member_directory.py # Member Directory tab, search, detail panel (4; 4)
+    ├── test_ui_admin_modals.py      # Admin write-path modals and confirm dialogs (4; 4)
+    ├── test_ui_admin_orgs.py        # Organizations tab, table (3; 3)
+    ├── test_ui_admin_persons.py     # Create person form, mandatory fields (8; 8)
+    ├── test_ui_admin_roles.py       # Role assignment modal, dropdowns (6; 6)
+    ├── test_ui_admin_status.py      # Status change modal (ACTIVE/LOCKED/INACTIVE) (5; 5)
+    ├── test_ui_admin_tabs.py        # Admin sidebar tab switching / activeTab panels (2; 9)
+    ├── test_ui_admin_users.py       # User list, search, filters, detail, INACTIVE styling (11; 11)
+    ├── test_ui_advisory_board_dashboard.py # source-level: Advisory Board dashboard tab wiring (3; 3). NOT yet run
+    ├── test_ui_attendance.py        # Attendance register UI (admin.html / org dashboard; attendance-register.js) (58; 132). NOT yet run
+    ├── test_ui_auth_refresh.py      # auth.js NSSAuth.apiFetch refresh/401-retry logic, fetch stubbed (18; 24)
+    ├── test_ui_badges.py            # Shared badge system (badges.css) source-level checks (7; 13)
+    ├── test_ui_dashboard.py         # Dashboard: all tabs, content rendering, edit profile, admin tabs, family state, documents, logout (62; 62)
+    ├── test_ui_dashboard_address.py # source-level: member address editor (add/edit/remove/primary) with nssCombobox + NSSLocation (11; 22). NOT yet run
+    ├── test_ui_family_management.py # dashboard.html Family tab management (3; 6)
+    ├── test_ui_forgot_password.py   # Forgot/reset password flow (5; 5)
+    ├── test_ui_governance_card.py   # Governance card on the dashboard (5; 10)
+    ├── test_ui_location_cascade.py  # nss-location.js country/state/district/PIN cascade and resets (14; 16)
+    ├── test_ui_login.py             # Login form, validation, force-password-change, redirect (8; 8)
+    ├── test_ui_org_dashboard.py     # Org Dashboard tab (org-dashboard.js), six layouts + Advisory Board (22; 44)
+    ├── test_ui_org_reparent.py      # source-level: Assign Sakha 202 handling/request panel (admin.js/html), President approvals panel (dashboard.js/html), shared chain helpers in nss-config.js (13; 13). NOT yet run
+    ├── test_ui_register.py          # Registration 3-step navigation, field validation (9; 9)
+    ├── test_ui_scoped_role_tabs.py  # source-level: ADMIN_TAB_MAP/guard for the Mahila + Advisory Board admin roles (13; 13). NOT yet run
+    ├── test_ui_shared_datepicker.py # Shared nssDatePicker: no hand-written markup left, injection on every callsite, calendar, validation (22; 29)
+    └── test_ui_topbar.py            # nss-layout.js role-badge collapsing + topbar layout rules (11; 12)
 ```
 
-**Current grand total: 1335 test functions** (AST-counted `test_*` defs, re-verified) — `tests/api/`
-(842, across 22 files), `tests/db/` (57, across 4 files), `tests/security/` (136, across 11 files),
-`tests/ui/` (300, across 25 test files — `conftest.py` and `_csp_probe.py` hold no tests).
-Playwright coverage exists for the admin Correspondence tab and the dashboard governance card; there is no test file for the Governance admin tabs, and **no UI test for Tier 6 Attendance** (`frontend/assets/js/attendance-register.js`). API and security coverage for `attendance.py` lives in `tests/api/test_attendance.py` and `tests/security/test_attendance_security.py` (156 collected items together; shared identities in `tests/attendance_support.py`). These two modules were written but **have not yet been run against the DB** — do not treat them as passing until a run confirms it.
+**Current totals** (re-counted 2026-10-31): **3718 collected items** (`pytest --collect-only -qq`) —
+`tests/api/` 2111 (31 files), `tests/db/` 185 (6 files), `tests/security/` 836 (16 files),
+`tests/ui/` 586 (31 test files). Integration (api + db + security) = 3132; UI = 586. AST count of
+`def test_*` functions: 2548 (api 1730, db 91, security 309, ui 418). Not executed in the refresh
+session; the 2026-10-30/31 additions and all Attendance suites have never been run against a DB.
+There is no Playwright test file for the Governance admin tabs.
 
-**AST count vs. what pytest actually collects** (`pytest --collect-only -qq`, verified 2026-10-28): the
-per-file "(N tests)" figures in this README are counts of `def test_*` functions, which differs
-from pytest's collected-item count in two ways. (1) Fixtures named `test_*` (e.g. `test_user` in
-`tests/api/test_auth.py` and `tests/security/test_auth_security.py`, `test_org_pk` in
-`tests/api/test_registration.py`) are over-counted by an AST scan. (2) `@pytest.mark.parametrize`
-expands one function into many items — used in `test_admin.py`, `test_membership.py`,
-`test_person.py`, `test_sorting.py`, `test_error_messages.py`, `test_credential_schema.py`,
-`test_festival_schema.py`, `test_attendance_security.py` and several UI files. Collected-item totals (collection only, tests themselves not executed): `tests/api/` 965, `tests/db/` 98, `tests/security/` 199, `tests/ui/` 376 — **1638 items** for a bare `pytest`.
+**AST count vs. what pytest actually collects:** the per-file "N test functions" figures are counts of
+`def test_*` functions, which differs from pytest's collected-item count in two ways. (1) Fixtures
+named `test_*` (e.g. `test_user` in `tests/api/test_auth.py` and `tests/security/test_auth_security.py`)
+are over-counted by an AST scan. (2) `@pytest.mark.parametrize` expands one function into many items —
+heavy in `test_governance_security.py`, `test_core_modules_security.py`, `test_admin_surface_security.py`,
+`test_attendance_security.py`, `test_ui_attendance.py` and several others.
 `pytest.ini` declares `integration`/`ui`/`db` markers only — `tests/security/` files use
 `pytest.mark.integration`, same as `tests/api/`, so there's no separate `security` marker.
 
@@ -143,7 +168,7 @@ connection.
 `tests/ui/conftest.py` is separate: it is **not** SAVEPOINT-wrapped (UI tests drive a real running
 server), defines `page`/`admin_page`/`member_page` fixtures plus helpers (`wait_for_alpine`,
 `wait_for_toast`, `get_table_rows`, `click_nav_item`), logs in as `SS1`/`Admin@123` against
-`http://127.0.0.1:8001` (override with `NSS_UI_BASE_URL`), caches/restores login sessions across tests, and auto-applies the `ui` marker. `member_page` currently logs in as
+a free local port when the session starts its own server (`NSS_UI_BASE_URL` points at an external one; `NSS_UI_NO_SERVER=1` uses `http://127.0.0.1:8001`), caches/restores login sessions across tests, and auto-applies the `ui` marker. `member_page` currently logs in as
 the **same** `SS1` admin account (no separate member account is bootstrapped yet).
 
 **Implication for anyone adding a test:** don't assume any row already exists — either create
@@ -205,7 +230,7 @@ pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok
 - Local PostgreSQL running with nss schema bootstrapped
 - `api/.env` configured with DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT,
   DB_WRITE_USER, DB_WRITE_PASSWORD, JWT_SECRET_KEY
-- `pytest` and `httpx` installed
+- `pytest`, `httpx` and `httpx2` installed (Starlette's TestClient prefers `httpx2`; both pinned in `requirements.txt`)
 
 ### UI tests (additional)
 - Server: started automatically by the session; log in `ui_test_server.log` (`_ui_server` in `tests/ui/conftest.py`: free port, live reload off, relaxed rate limit, stopped at the end). Use `NSS_UI_BASE_URL=...` to test a server you run yourself, or `NSS_UI_NO_SERVER=1` for the old `http://127.0.0.1:8001` behaviour.

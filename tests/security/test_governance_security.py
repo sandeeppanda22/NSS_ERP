@@ -563,6 +563,7 @@ VIEW_ENDPOINTS = [
     (f"/bodies/{U}/allowed-positions", 404),
     (f"/bodies/{U}/inherited-positions", 404),
     ("/advisory-board/missing-nominations", 200),
+    ("/advisory-board/dashboard", 200),
     ("/mukhya-pujaka", 200),
     (f"/bodies/{U}/acting-assignments", 404),
     ("/elections", 200),

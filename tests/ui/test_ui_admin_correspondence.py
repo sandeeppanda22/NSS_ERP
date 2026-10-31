@@ -390,8 +390,10 @@ def test_recipient_candidates_allow_sakha_patha_chakra_anchalika_zilla_to_addres
     getter = re.search(r"get corrRecipientOrgCandidates\(\)\s*\{.*?\n        \},", admin_js, re.DOTALL)
     assert getter, "corrRecipientOrgCandidates getter not found."
     body = getter.group(0)
-    assert '["SAKHA_SANGHA", "PATHA_CHAKRA", "ANCHALIKA_SANGHA", "ZILLA_SANGHA"].includes(t)' in body, (
-        "Must special-case exactly these four register types for the upward "
+    assert 'NSS.isSakhaLike(t) || ["PATHA_CHAKRA", "ANCHALIKA_SANGHA", "ZILLA_SANGHA", "ADVISORY_BOARD"].includes(t)' in body, (
+        "Must special-case exactly these register types (Sakha-like types via "
+        "NSS.isSakhaLike, plus the three tiers and the Advisory Board "
+        "organization, 2026-10-30) for the upward "
         "Kendra exception."
     )
     assert "this.kendraOrg" in body, "Must add the real Kendra org (this.kendraOrg), not a synthetic stand-in."
@@ -993,3 +995,38 @@ def test_create_correspondence_honours_split_dates(admin_js: str):
     body = fn.group(0)
     assert "const correspondence_date = f.splitDates ? f.correspondence_date : f.date;" in body
     assert "const received_or_sent_date = f.splitDates ? f.received_or_sent_date : f.date;" in body
+
+
+def test_register_tab_groups_include_the_advisory_board_tab(admin_js: str):
+    """Owner 2026-10-30: "Advisory Board needs a correspondence register" — the
+    singleton ADVISORY_BOARD organization gets its own register tab group."""
+    body = re.search(r"const CORR_REGISTER_TAB_GROUPS = \[(.*?)\];", admin_js, re.DOTALL).group(1)
+    assert re.search(
+        r"""\{\s*key:\s*"ADVISORY_BOARD",\s*label:\s*"Advisory Board",\s*typeCodes:\s*\["ADVISORY_BOARD"\]""", body,
+    ), "No Advisory Board tab group."
+
+
+def test_advisory_board_scope_resolves_to_its_own_register(admin_js: str):
+    """The ADVISORY_BOARD scope level carries no organization_pk, so its register
+    is resolved by TYPE through the shared NULL_ORG_SCOPE_ORG_TYPE map."""
+    assert re.search(r"const NULL_ORG_SCOPE_ORG_TYPE = \{[^}]*ADVISORY_BOARD:\s*\"ADVISORY_BOARD\"", admin_js, re.DOTALL)
+    resolve = admin_js.split("corrResolveDefaultOrg() {")[1].split("// Group the candidates")[0]
+    assert "NULL_ORG_SCOPE_ORG_TYPE[s.scope_level]" in resolve
+
+
+def test_broadcast_type_options_never_offer_the_singleton_advisory_board(admin_js: str):
+    getter = re.search(r"get corrBroadcastTypeOptions\(\)\s*\{.*?\n        \},", admin_js, re.DOTALL).group(0)
+    assert 'typeCodes.delete("ADVISORY_BOARD")' in getter
+    assert '"ADVISORY_BOARD"' not in re.search(r"get corrCanBroadcast\(\)\s*\{.*?\n        \},", admin_js, re.DOTALL).group(0)
+
+
+def test_org_picker_search_uses_the_scope_aware_in_scope_endpoint(admin_js: str):
+    """The Correspondence organization-filter / sender / responsible pickers
+    used /admin/organizations (ADMIN_USER_VIEW), which 403'd -- silently empty
+    -- for the Advisory Board admin. They now call the scoped
+    /organization/organizations/in-scope (ORGANIZATION_VIEW)."""
+    body = re.search(r"async corrSearchOrg\(picker\) \{.*?\n        \},", admin_js, re.DOTALL).group(0)
+    assert "/api/v1/organization/organizations/in-scope" in body
+    assert "/api/v1/admin/organizations" not in body
+    # results are normalised to the type_name / type_code shape the markup reads
+    assert "type_name: o.organization_type_name" in body

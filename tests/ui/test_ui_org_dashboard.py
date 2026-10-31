@@ -461,6 +461,23 @@ class TestSakhaTierArithmetic:
         )
 
 
+class TestSakhaAsanaTier:
+    """Owner 2026-10-31: a Sakha Asana is a full Sakha (NSS.SAKHA_LIKE_ORG_TYPES)."""
+
+    @pytest.mark.parametrize("type_code,expected", [
+        ("SAKHA_SANGHA", True),
+        ("SAKHA_ASANA", True),
+        ("ANCHALIKA_SANGHA", False),
+        ("MAHILA_SANGHA", False),
+    ])
+    def test_is_sakha_covers_both_sakha_like_types(self, tier_component, type_code, expected):
+        got = tier_component.evaluate("""(code) => {
+            const c = orgDashboardTab();
+            c.org = { organization_type_code: code };
+            return c.isSakha;
+        }""", type_code)
+        assert got is expected
+
 class TestMahilaTier:
 
     @pytest.mark.parametrize("type_code,expected", [

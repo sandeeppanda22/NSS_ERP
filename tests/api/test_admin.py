@@ -973,6 +973,25 @@ class TestSelfProtection:
             headers=admin_headers,
         )
         assert r.status_code == 422
+
+    def test_cannot_assign_role_to_self_unless_kendra_admin(
+        self, client, admin_headers, admin_user
+    ):
+        """A non-Kendra admin cannot grant a role to their own account (403)."""
+        own_pk = admin_user["user_account_pk"]
+        roles = client.get(
+            f"/api/v1/admin/users/{own_pk}/roles", headers=admin_headers,
+        ).json()
+        if any(r.get("is_active", True) and r["role_code"] == "NSS_ERP_KENDRA_ADMIN"
+               for r in roles):
+            pytest.skip("Test admin is a Kendra Administrator, who may self-assign.")
+        r = client.post(
+            f"/api/v1/admin/users/{own_pk}/roles",
+            headers=admin_headers,
+            json={"role_code": "NSS_ERP_AUDITOR", "scope_level": "NSS-WIDE"},
+        )
+        assert r.status_code == 403
+        assert "own account" in r.json()["detail"].lower()
         assert "own role" in r.json()["detail"].lower()
 
 
@@ -1047,10 +1066,13 @@ class TestUpdateOrganization:
     def _get_first_org_pk(self, client, admin_headers):
         """Helper: get the PK of the first organization."""
         resp = client.get(
-            "/api/v1/admin/organizations?page_size=1",
+            "/api/v1/admin/organizations?page_size=10",
             headers=admin_headers,
         )
-        orgs = resp.json().get("organizations", [])
+        # The Advisory Board's name is immutable, so never pick it for the
+        # name-edit test (it sorts first by code: ADB).
+        orgs = [o for o in resp.json().get("organizations", [])
+                if o.get("type_code") != "ADVISORY_BOARD"]
         if not orgs:
             pytest.skip("No organizations in database.")
         return orgs[0]["organization_pk"]
@@ -1093,6 +1115,37 @@ class TestUpdateOrganization:
             json={},
         )
         assert response.status_code == 422
+
+    def _advisory_board_pk(self, client, admin_headers):
+        resp = client.get(
+            "/api/v1/admin/organizations?type_code=ADVISORY_BOARD&page_size=1",
+            headers=admin_headers,
+        )
+        orgs = resp.json().get("organizations", [])
+        if not orgs:
+            pytest.skip("Advisory Board organization not seeded.")
+        return orgs[0]["organization_pk"], orgs[0]["organization_name"]
+
+    def test_advisory_board_name_is_immutable_even_for_nss_erp_admin(self, client, admin_headers):
+        """ADVISORY_BOARD organization_name cannot change for any actor (422)."""
+        org_pk, name = self._advisory_board_pk(client, admin_headers)
+        response = client.patch(
+            f"/api/v1/admin/organizations/{org_pk}",
+            headers=admin_headers,
+            json={"organization_name": f"{name} Renamed"},
+        )
+        assert response.status_code == 422, response.text
+        assert "fixed" in response.text
+
+    def test_advisory_board_contact_fields_and_same_name_stay_editable(self, client, admin_headers):
+        org_pk, name = self._advisory_board_pk(client, admin_headers)
+        response = client.patch(
+            f"/api/v1/admin/organizations/{org_pk}",
+            headers=admin_headers,
+            json={"organization_name": name, "phone_number": "0674-7654321"},
+        )
+        assert response.status_code == 200, response.text
+        assert "phone_number" in response.json()["updated_fields"]
 
     def test_update_org_not_found(self, client, admin_headers):
         """Updating a non-existent org returns 404."""
@@ -1384,6 +1437,19 @@ class TestCreateOrganization:
         )
         assert response.status_code == 422
 
+    @pytest.mark.parametrize("type_code", [
+        "ADVISORY_BOARD", "KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA",
+    ])
+    def test_create_org_refuses_singleton_types(self, client, admin_headers, type_code):
+        """Singleton org types (incl. the Advisory Board, 2026-10-30) are seeded, never created."""
+        response = client.post(
+            "/api/v1/admin/organizations",
+            headers=admin_headers,
+            json={"organization_name": f"Second {type_code}", "organization_type_code": type_code},
+        )
+        assert response.status_code == 422, response.text
+        assert "unique and already exists" in response.json()["detail"]
+
     def test_create_org_missing_name_fails(self, client, admin_headers):
         """Missing organization_name returns 422."""
         response = client.post(
@@ -1590,10 +1656,13 @@ class TestUpdateShortCode:
     def _get_first_org_pk(self, client, admin_headers):
         """Helper: get the PK of the first organization."""
         resp = client.get(
-            "/api/v1/admin/organizations?page_size=1",
+            "/api/v1/admin/organizations?page_size=10",
             headers=admin_headers,
         )
-        orgs = resp.json().get("organizations", [])
+        # The Advisory Board's name is immutable, so never pick it for the
+        # name-edit test (it sorts first by code: ADB).
+        orgs = [o for o in resp.json().get("organizations", [])
+                if o.get("type_code") != "ADVISORY_BOARD"]
         if not orgs:
             pytest.skip("No organizations in database.")
         return orgs[0]["organization_pk"]

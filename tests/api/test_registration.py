@@ -1450,6 +1450,38 @@ class TestPublicRegistrationLookups:
         assert pc_pk in {p["postal_code_pk"] for p in codes}
         assert all(p["state_pk"] == reg_address["state_pk"] for p in codes)
 
+    def test_postal_codes_narrowed_by_district(self, client, reg_address, write_conn):
+        """district_pk lists only PINs linked to that district via an approved
+        city_village; a PIN in the same state but no village there is excluded."""
+        pin_in = str(700000 + uuid4().int % 99999)
+        pin_out = str(600000 + uuid4().int % 99999)
+        with write_conn.cursor() as cur:
+            pks = {}
+            for key, pin in (("in", pin_in), ("out", pin_out)):
+                cur.execute("""
+                    INSERT INTO nss.postal_code (state_pk, postal_code, entry_status)
+                    VALUES (%s, %s, 'APPROVED') RETURNING postal_code_pk
+                """, (reg_address["state_pk"], pin))
+                pks[key] = str(cur.fetchone()[0])
+            cur.execute("""
+                INSERT INTO nss.city_village
+                    (district_pk, city_village_code, city_village_name, city_village_type,
+                     postal_code_pk, entry_status)
+                VALUES (%s, %s, %s, 'CITY', %s, 'APPROVED')
+            """, (reg_address["district_pk"], f"PDC{uuid4().hex[:8].upper()}",
+                  f"PinDistrictCity{uuid4().hex[:6]}", pks["in"]))
+        resp = client.get(f"{self.BASE}/postal-codes",
+                          params={"district_pk": reg_address["district_pk"]})
+        assert resp.status_code == 200
+        got = {p["postal_code_pk"] for p in resp.json()}
+        assert pks["in"] in got and pks["out"] not in got
+        by_state = {p["postal_code_pk"] for p in client.get(
+            f"{self.BASE}/postal-codes", params={"state_pk": reg_address["state_pk"]}).json()}
+        assert pks["out"] in by_state, "state-only filter must keep working"
+        by_q = client.get(f"{self.BASE}/postal-codes", params={
+            "district_pk": reg_address["district_pk"], "q": pin_in[:4]}).json()
+        assert pks["in"] in {p["postal_code_pk"] for p in by_q}
+
     def test_post_offices_for_pin_list_only_approved(self, client, reg_address, write_conn):
         pin = str(800000 + uuid4().int % 99999)
         with write_conn.cursor() as cur:
