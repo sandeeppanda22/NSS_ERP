@@ -20,6 +20,7 @@
     <script src="/assets/js/nss-dialog.js"></script>
     <script src="/assets/js/auth.js"></script>
     <script src="/assets/js/nss-layout.js"></script>
+    <script src="/assets/js/nss-password.js"></script>
     <script src="/assets/js/nss-datepicker.js"></script>
     <script src="/assets/js/nss-combobox.js"></script>
     <script src="/assets/js/attendance-register.js"></script>
@@ -458,6 +459,11 @@
                 </div>
             </template>
 
+            <!-- General admin groups (People / Organizations / Directories / Settings):
+                 hidden for a governance-only admin (NSS_ERP_ADVISORY_BOARD_ADMIN holds no
+                 ADMIN_* / MEMBERSHIP_APPROVE) — every endpoint behind them would 403. -->
+            <template x-if="hasGeneralAdminAccess">
+            <div>
             <div class="nav-divider"></div>
 
             <!-- ── People group (collapsible) ─────────────────── -->
@@ -679,6 +685,9 @@
                 </div>
             </template>
 
+            </div>
+            </template>
+
             <div class="nav-divider"></div>
 
             <!-- ── Governance group (collapsible) ───────────────
@@ -753,7 +762,8 @@
                             </a>
 
                             <a class="nav-item" :class="{ active: activeTab === 'govElections' }"
-                               @click="activeTab = 'govElections'; loadGovElections()">
+                               @click="activeTab = 'govElections'; loadGovElections()"
+                               x-show="!isAdvisoryBoardOnlyAdmin">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                                 </svg>
@@ -772,7 +782,7 @@
                  governance seat (ATT-042), enforced server-side, so these
                  action buttons are visible to any canViewAttendance admin
                  and a non-office-holder simply gets a 403 on click. -->
-            <template x-if="canViewAttendance">
+            <template x-if="canViewAttendance && hasSakhaReach">
                 <div>
                     <button type="button" class="nav-section-label collapsible" @click="toggleNavGroup('attendance')">
                         <span>Attendance</span>
@@ -1149,7 +1159,7 @@
                                                 <div style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap;">
                                                     <div class="form-group" style="margin: 0;">
                                                         <label class="form-label">New Password</label>
-                                                        <input type="password" class="form-input" x-model="reactivateForm.password"
+                                                        <input type="password" class="form-input" x-pw-reveal x-model="reactivateForm.password"
                                                                placeholder="Min 8 characters" minlength="8">
                                                     </div>
                                                     <button class="btn-action primary" :disabled="reactivateLoading"
@@ -1381,7 +1391,7 @@
                                                          screen reorders the complete set. -->
                                                     <thead>
                                                         <tr>
-                                                            <th class="sortable" @click="sortUserRoles('role_code')" :aria-sort="NSS.sortAria(rolesSortBy, rolesSortDir, 'role_code')">Role<span class="sort-ind" x-text="NSS.sortIcon(rolesSortBy, rolesSortDir, 'role_code')"></span></th>
+                                                            <th class="sortable" @click="sortUserRoles('role_name')" :aria-sort="NSS.sortAria(rolesSortBy, rolesSortDir, 'role_name')">Role<span class="sort-ind" x-text="NSS.sortIcon(rolesSortBy, rolesSortDir, 'role_name')"></span></th>
                                                             <th class="sortable" @click="sortUserRoles('scope_level')" :aria-sort="NSS.sortAria(rolesSortBy, rolesSortDir, 'scope_level')">Scope<span class="sort-ind" x-text="NSS.sortIcon(rolesSortBy, rolesSortDir, 'scope_level')"></span></th>
                                                             <th class="sortable" @click="sortUserRoles('organization_name')" :aria-sort="NSS.sortAria(rolesSortBy, rolesSortDir, 'organization_name')">Organization<span class="sort-ind" x-text="NSS.sortIcon(rolesSortBy, rolesSortDir, 'organization_name')"></span></th>
                                                             <th class="sortable" @click="sortUserRoles('is_active')" :aria-sort="NSS.sortAria(rolesSortBy, rolesSortDir, 'is_active')">Active<span class="sort-ind" x-text="NSS.sortIcon(rolesSortBy, rolesSortDir, 'is_active')"></span></th>
@@ -1393,8 +1403,7 @@
                                                         <template x-for="r in sortedUserRoles()" :key="r.user_role_pk">
                                                             <tr :style="!r.is_active ? 'opacity: 0.4;' : ''">
                                                                 <td>
-                                                                    <div style="font-family: monospace; font-size: 0.75rem;" x-text="r.role_code"></div>
-                                                                    <div style="font-size: 0.7rem; color: #9ca3af;" x-text="r.role_name"></div>
+                                                                    <div style="font-size: 0.8rem; font-weight: 500;" x-text="r.role_name"></div>
                                                                 </td>
                                                                 <td style="font-size: 0.75rem;" x-text="r.scope_level || '—'"></td>
                                                                 <td style="font-size: 0.75rem;" x-text="r.organization_name || '—'"></td>
@@ -1451,8 +1460,7 @@
                                                     <template x-for="s in (selectedUser.auto_granted_scopes || [])" :key="s.role_code + (s.organization_pk || '')">
                                                         <tr>
                                                             <td>
-                                                                <div style="font-family: monospace; font-size: 0.75rem;" x-text="s.role_code"></div>
-                                                                <div style="font-size: 0.7rem; color: #9ca3af;" x-text="s.role_name"></div>
+                                                                <div style="font-size: 0.8rem; font-weight: 500;" x-text="s.role_name"></div>
                                                             </td>
                                                             <td style="font-size: 0.75rem;" x-text="s.scope_level || '—'"></td>
                                                             <td style="font-size: 0.75rem;" x-text="s.organization_name || '—'"></td>
@@ -1745,7 +1753,7 @@
 
                                         <div class="form-group">
                                             <label class="form-label">Initial Password</label>
-                                            <input type="password" class="form-input" x-model="createForm.password"
+                                            <input type="password" class="form-input" x-pw-reveal x-model="createForm.password"
                                                    placeholder="Min 8 chars, 1 uppercase, 1 digit"
                                                    autocomplete="new-password">
                                         </div>
@@ -1991,7 +1999,7 @@
                                                     <div>
                                                         <div class="form-group">
                                                             <label class="form-label">Initial Password *</label>
-                                                            <input type="password" class="form-input" x-model="ssForm.password"
+                                                            <input type="password" class="form-input" x-pw-reveal x-model="ssForm.password"
                                                                    placeholder="Min 8 chars, 1 uppercase, 1 digit"
                                                                    autocomplete="new-password">
                                                         </div>
@@ -2038,20 +2046,20 @@
 
                                 <div class="form-group">
                                     <label class="form-label">Current Password</label>
-                                    <input type="password" class="form-input" x-model="pwForm.current_password"
+                                    <input type="password" class="form-input" x-pw-reveal x-model="pwForm.current_password"
                                            autocomplete="current-password">
                                 </div>
 
                                 <div class="form-group">
                                     <label class="form-label">New Password</label>
-                                    <input type="password" class="form-input" x-model="pwForm.new_password"
+                                    <input type="password" class="form-input" x-pw-reveal x-model="pwForm.new_password"
                                            placeholder="Min 8 chars, 1 uppercase, 1 digit"
                                            autocomplete="new-password">
                                 </div>
 
                                 <div class="form-group">
                                     <label class="form-label">Confirm New Password</label>
-                                    <input type="password" class="form-input" x-model="pwForm.confirm_password"
+                                    <input type="password" class="form-input" x-pw-reveal x-model="pwForm.confirm_password"
                                            autocomplete="new-password">
                                 </div>
 
@@ -2133,7 +2141,7 @@
                                             </div>
                                         </template>
 
-                                        <!-- Default: generic parent dropdown (SAKHA_SANGHA, etc.) -->
+                                        <!-- Default: generic parent dropdown (Sakha-like parents, etc.) -->
                                         <template x-if="!isParentAutoResolved && !isKumariSevakType">
                                             <select class="nss-select" x-model="createOrgForm.parent_organization_pk">
                                                 <option value="">— None (Top Level) —</option>
@@ -2169,7 +2177,7 @@
                                             This
                                             <span x-text="createOrgForm.organization_type_code === 'KUMARI_SANGHA' ? 'Kumari Sangha' : 'Sevak Sangha'"></span>
                                             has no organization code or short code of its own — it is a
-                                            wing of the selected Sakha Sangha, which already holds those.
+                                            wing of the selected Sakha (Sangha or Asana), which already holds those.
                                             Its address, location and contact details are taken
                                             automatically from that Sakha. Just choose the parent Sakha
                                             above; there is nothing else to enter here.
@@ -2278,8 +2286,13 @@
                                 <div class="form-group">
                                     <label class="form-label">PIN Code</label>
                                     <input type="text" class="form-input" x-model="createOrgForm.postal_code_value"
-                                           placeholder="e.g. 751024" maxlength="20"
-                                           :disabled="!createOrgForm.state_pk">
+                                           placeholder="e.g. 751024" maxlength="20" list="createOrgPostalCodeOptions"
+                                           :disabled="!createOrgForm.district_pk">
+                                    <datalist id="createOrgPostalCodeOptions">
+                                        <template x-for="pc in createOrgPostalCodes" :key="pc.postal_code_pk">
+                                            <option :value="pc.postal_code"></option>
+                                        </template>
+                                    </datalist>
                                 </div>
                                 </div>
                                 </template>
@@ -2558,8 +2571,13 @@
                                                         <div class="form-group">
                                                             <label class="form-label">PIN Code</label>
                                                             <input type="text" class="form-input" x-model="editOrgForm.postal_code_value"
-                                                                   placeholder="e.g. 751024" maxlength="20"
-                                                                   :disabled="!editOrgForm.state_pk">
+                                                                   placeholder="e.g. 751024" maxlength="20" list="editOrgPostalCodeOptions"
+                                                                   :disabled="!editOrgForm.district_pk">
+                                                            <datalist id="editOrgPostalCodeOptions">
+                                                                <template x-for="pc in locationPostalCodes" :key="pc.postal_code_pk">
+                                                                    <option :value="pc.postal_code"></option>
+                                                                </template>
+                                                            </datalist>
                                                         </div>
                                                         </div>
                                                         </template>
@@ -3776,18 +3794,25 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Assign Sakhas to Anchalika/Zilla Sangha</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="assignSakhaList.length + ' Sakha Sangha(s)'"></span>
+                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="assignSakhaList.length + ' Sakha Sangha / Sakha Asana(s)'"></span>
                             </div>
                             <div class="data-card-body">
                                 <p class="form-hint" style="margin-bottom: 1rem;">
                                     Sakha Sanghas are seeded directly under Nilachala Saraswata Sangha (Kendra).
                                     Use this screen to assign each one to its actual Anchalika Sangha or Zilla Sangha.
+                                    Only Kendra Governing Body members and the NSS_ERP_ADMIN super administrator change a
+                                    Sakha's (or Sakha Asana's) parent directly; for everyone
+                                    else the change is submitted for approval (Sakha President, then the leaving
+                                    Anchalika/Zilla President, then the destination Anchalika/Zilla President,
+                                    then the Kendra President) and applies only once the
+                                    final approval is given.
                                 </p>
                                 <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="assignSakhaLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="assignSakhaError" x-text="assignSakhaError"></div>
                                 <div class="alert-msg alert-success" x-show="assignSakhaSuccess" x-text="assignSakhaSuccess"></div>
+                                <div class="alert-msg alert-warning" x-show="assignSakhaNotice" x-text="assignSakhaNotice"></div>
 
                                 <template x-if="!assignSakhaLoading">
                                 <div>
@@ -3819,11 +3844,33 @@
                                                     </template>
                                                 </select>
                                                 <button class="btn-action primary" style="font-size: 0.75rem;"
-                                                        :disabled="!assignSakhaTarget[s.organization_pk] || assignSakhaTarget[s.organization_pk] === s.parent_organization_pk || assignSakhaSaving === s.organization_pk"
+                                                        :disabled="!assignSakhaTarget[s.organization_pk] || assignSakhaTarget[s.organization_pk] === s.parent_organization_pk || assignSakhaSaving === s.organization_pk || assignSakhaIsPending(s)"
                                                         @click="assignSakhaToParent(s)">
                                                     <span x-text="assignSakhaSaving === s.organization_pk ? 'Saving…' : 'Assign'"></span>
                                                 </button>
                                             </div>
+                                            <!-- Re-parent approval request (latest visible one for this Sakha) -->
+                                            <template x-if="assignSakhaRequestFor(s)">
+                                                <div style="flex-basis: 100%; font-size: 0.75rem; color: #374151;">
+                                                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                                        <span class="badge badge-xs" :class="NSS.reparentStatusBadgeClass(assignSakhaRequestFor(s).request_status)" x-text="assignSakhaRequestFor(s).request_status"></span>
+                                                        <span x-text="'Re-parent to ' + assignSakhaRequestFor(s).to_parent_organization_name + ' - requested by ' + (assignSakhaRequestFor(s).requested_by_person_name || '—')"></span>
+                                                        <button class="btn-action" style="font-size: 0.7rem;"
+                                                                x-show="assignSakhaRequestFor(s).viewer_can_cancel"
+                                                                :disabled="assignSakhaSaving === s.organization_pk"
+                                                                @click="cancelAssignSakhaRequest(s)">Cancel request</button>
+                                                    </div>
+                                                    <template x-for="st in assignSakhaRequestFor(s).steps" :key="st.organization_reparent_step_pk">
+                                                        <div style="margin-top: 0.15rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                                                            <span class="badge badge-xs" :class="NSS.correspondenceStepBadgeClass(st.step_status)" x-text="st.step_status"></span>
+                                                            <span x-text="NSS.reparentStepLabel(st)"></span>
+                                                        </div>
+                                                    </template>
+                                                    <div style="margin-top: 0.15rem; color: #6b7280;"
+                                                         x-show="assignSakhaRequestFor(s).decision_remarks"
+                                                         x-text="'Remarks: ' + assignSakhaRequestFor(s).decision_remarks"></div>
+                                                </div>
+                                            </template>
                                         </div>
                                     </template>
                                 </div>
@@ -3943,7 +3990,7 @@
                                         <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
                                             <div class="form-group" style="margin: 0; min-width: 200px;">
                                                 <label class="form-label">Country</label>
-                                                <select class="nss-select" @change="geoSelectCountry($event.target.value)">
+                                                <select class="nss-select" x-model="geoCountryPk" @change="geoSelectCountry($event.target.value)">
                                                     <option value="">Select…</option>
                                                     <template x-for="c in geoCountries" :key="c.country_pk">
                                                         <option :value="c.country_pk" x-text="c.country_name"></option>
@@ -3952,7 +3999,7 @@
                                             </div>
                                             <div class="form-group" style="margin: 0; min-width: 200px;" x-show="geoStates.length">
                                                 <label class="form-label">State</label>
-                                                <select class="nss-select" @change="geoSelectState($event.target.value)">
+                                                <select class="nss-select" x-model="geoStatePk" @change="geoSelectState($event.target.value)" :disabled="!geoCountryPk">
                                                     <option value="">Select…</option>
                                                     <template x-for="s in geoStates" :key="s.state_pk">
                                                         <option :value="s.state_pk" x-text="s.state_name"></option>
@@ -3961,7 +4008,7 @@
                                             </div>
                                             <div class="form-group" style="margin: 0; min-width: 200px;" x-show="geoDistricts.length">
                                                 <label class="form-label">District</label>
-                                                <select class="nss-select" @change="geoSelectDistrict($event.target.value)">
+                                                <select class="nss-select" x-model="geoDistrictPk" @change="geoSelectDistrict($event.target.value)" :disabled="!geoStatePk">
                                                     <option value="">Select…</option>
                                                     <template x-for="d in geoDistricts" :key="d.district_pk">
                                                         <option :value="d.district_pk" x-text="d.district_name"></option>
@@ -4540,7 +4587,7 @@
                                             <option :value="bt.body_type_master_pk" x-text="bt.body_type_name"></option>
                                         </template>
                                     </select>
-                                    <button class="btn-action primary" style="white-space:nowrap;" x-show="canManageGovernance"
+                                    <button class="btn-action primary" style="white-space:nowrap;" x-show="canManageGovBodies"
                                             @click="govBodyForm.show = !govBodyForm.show">
                                         <span x-text="govBodyForm.show ? 'Cancel' : '+ Add Body'"></span>
                                     </button>
@@ -4648,7 +4695,7 @@
                                                     </span>
                                                 </template>
                                                 <span class="data-value" style="text-align:right;" x-show="govBodyEdit.pk !== b.body_master_pk">
-                                                    <button class="btn-action" style="padding: 0.15rem 0.6rem; font-size: 0.72rem;" x-show="canManageGovernance" @click="startEditGovBody(b)">Edit</button>
+                                                    <button class="btn-action" style="padding: 0.15rem 0.6rem; font-size: 0.72rem;" x-show="canManageGovBodies" @click="startEditGovBody(b)">Edit</button>
                                                 </span>
                                             </div>
                                         </template>
@@ -4749,7 +4796,7 @@
                                 <div x-show="govAssignForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem; position:relative;">
                                     <div>
                                         <label class="form-label">Position</label>
-                                        <select class="form-input" style="max-width:14rem;" x-model="govAssignForm.position_master_pk">
+                                        <select class="form-input" style="max-width:14rem;" x-model="govAssignForm.position_master_pk" @change="onGovPositionChange('govAssignForm')">
                                             <option value="">Select…</option>
                                             <template x-for="p in govAllowedPositions" :key="p.position_master_pk">
                                                 <option :value="p.position_master_pk" x-text="p.position_name"></option>
@@ -4902,7 +4949,7 @@
                                         <div x-show="govActingForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-top:0.85rem; margin-bottom:0.25rem; padding:0.85rem; background:#fff; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                             <div>
                                                 <label class="form-label">Position</label>
-                                                <select class="form-input" style="max-width:14rem;" x-model="govActingForm.position_master_pk">
+                                                <select class="form-input" style="max-width:14rem;" x-model="govActingForm.position_master_pk" @change="onGovPositionChange('govActingForm')">
                                                     <option value="">Select…</option>
                                                     <template x-for="p in govActingPositions" :key="p.position_master_pk">
                                                         <option :value="p.position_master_pk" x-text="p.position_name"></option>
@@ -8063,7 +8110,7 @@
 
                     <div class="form-group">
                         <label class="form-label">New Password</label>
-                        <input type="password" class="form-input" x-model="resetForm.new_password"
+                        <input type="password" class="form-input" x-pw-reveal x-model="resetForm.new_password"
                                placeholder="Min 8 chars, 1 uppercase, 1 digit"
                                autocomplete="new-password">
                     </div>
@@ -8161,7 +8208,7 @@
 
                             <div class="form-group">
                                 <label class="form-label">Initial Password</label>
-                                <input type="password" class="form-input" x-model="cazForm.password"
+                                <input type="password" class="form-input" x-pw-reveal x-model="cazForm.password"
                                        placeholder="Min 8 chars, 1 uppercase, 1 digit"
                                        autocomplete="new-password">
                             </div>
@@ -8457,7 +8504,7 @@
                         <select class="nss-select" x-model="roleForm.role_code" @change="onRoleFormRoleChange()">
                             <option value="">Select a role...</option>
                             <template x-for="role in assignableRoles" :key="role.role_code">
-                                <option :value="role.role_code" x-text="role.role_code + ' — ' + role.role_name"></option>
+                                <option :value="role.role_code" x-text="role.role_name"></option>
                             </template>
                         </select>
                     </div>
@@ -8475,24 +8522,48 @@
                             <option value="SAKHA">SAKHA</option>
                             <option value="PATHA_CHAKRA">PATHA_CHAKRA</option>
                             <option value="KENDRA_MAHILA_SANGHA">KENDRA MAHILA SANGHA</option>
+                            <option value="ADVISORY_BOARD">ADVISORY BOARD</option>
                         </select>
                     </div>
 
-                    <div class="form-group" x-show="roleForm.scope_level !== 'NSS-WIDE'">
+                    <div class="form-group" x-show="roleForm.role_code && roleScopeNeedsOrg">
                         <label class="form-label">Organization</label>
                         <select class="nss-select" x-model="roleForm.organization_pk">
                             <option value="">Select organization...</option>
                             <template x-for="org in scopeFilteredOrgs" :key="org.organization_pk">
                                 <option :value="org.organization_pk"
-                                        x-text="org.organization_name + ' (' + (org.organization_type_code || '') + ')'"></option>
+                                        x-text="org.organization_name"></option>
                             </template>
                         </select>
+                        <!-- Suggestion: the member's own Sakha, for a Sakha-level role -->
+                        <template x-if="roleSuggestedOrg">
+                            <p class="text-sm mt-2" style="color: var(--text-muted, #6b7280);">
+                                Suggested: Member's Sakha
+                                <button type="button" class="btn-action" style="margin-left: 0.25rem;"
+                                        @click="roleForm.organization_pk = roleSuggestedOrg.organization_pk"
+                                        x-text="roleSuggestedOrg.organization_name"></button>
+                            </p>
+                        </template>
+                    </div>
+
+                    <!-- Roles the member already holds -->
+                    <div class="form-group" x-show="roleTargetActiveRoles.length">
+                        <label class="form-label">Current roles</label>
+                        <ul class="text-sm" style="list-style: disc; padding-left: 1.25rem; margin: 0;">
+                            <template x-for="r in roleTargetActiveRoles" :key="r.user_role_pk">
+                                <li style="padding: 0.15rem 0;">
+                                    <span x-text="r.role_name"></span>
+                                    <span x-show="r.organization_name" style="color: #6b7280;"
+                                          x-text="'— ' + r.organization_name"></span>
+                                </li>
+                            </template>
+                        </ul>
                     </div>
                 </div>
                 <div class="modal-card-footer">
                     <button class="btn-action" @click="showRoleModal = false">Cancel</button>
                     <button class="btn-action primary" @click="submitAssignRole()"
-                            :disabled="roleLoading || !roleForm.role_code">
+                            :disabled="roleLoading || !roleForm.role_code || (roleScopeNeedsOrg && !roleForm.organization_pk)">
                         <div class="spinner-sm" x-show="roleLoading"></div>
                         Assign
                     </button>

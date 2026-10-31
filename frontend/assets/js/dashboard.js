@@ -46,6 +46,23 @@ const ADMIN_TAB_MAP = {
         description: "Manage Patha Chakra sessions and curriculum",
         adminUrl: "/admin",
     },
+    // Reaches every MAHILA_SANGHA organization (central + Sakha-level) and
+    // nothing else — the scope is resolved server-side (rbac_service.
+    // actor_scope_org_pks), so this tab carries no organization_pk of its own.
+    NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN: {
+        label: "Mahila Sangha Management",
+        description: "Manage Mahila Sangha members, families, correspondence and governance",
+        adminUrl: "/admin",
+    },
+    // Governance BODY side: the Advisory Board's own office-bearers/acting cover
+    // (GOVERNANCE_*). Since 2026-10-30 the Advisory Board is also a singleton
+    // organization whose own correspondence register this role reaches (no org
+    // dashboard — there are no members/stats to show).
+    NSS_ERP_ADVISORY_BOARD_ADMIN: {
+        label: "Advisory Board Management",
+        description: "Manage Advisory Board office-bearers, acting cover and correspondence",
+        adminUrl: "/admin#govAssignments",
+    },
     NSS_ERP_AUDITOR: {
         label: "Audit & Compliance",
         description: "View audit trails, compliance reports",
@@ -123,14 +140,15 @@ const FAMILY_BROWSER_ROLES = new Set([
     "NSS_ERP_SAKHA_ADMIN",
 ]);
 
-/* ── The five organizational admin-tab roles (Kendra/Anchalika/Zilla/
- * Sakha/Patha Chakra Management) — distinct from the three fixed SYSTEM
+/* ── The six organizational admin-tab roles (Kendra/Anchalika/Zilla/
+ * Sakha/Patha Chakra/Mahila Sangha Management) — distinct from the three fixed SYSTEM
  * roles (NSS_ERP_ADMIN/NSS_ERP_AUDITOR/NSS_ERP_REPORT_VIEWER). Used to
  * gate the "pending approvals in your org" panel, which only makes sense
  * for a role anchored to one organization's subtree. */
 const ORG_LEVEL_ADMIN_ROLES = new Set([
     "NSS_ERP_KENDRA_ADMIN", "NSS_ERP_ANCHALIKA_ADMIN", "NSS_ERP_ZILLA_ADMIN",
     "NSS_ERP_SAKHA_ADMIN", "NSS_ERP_PATHA_CHAKRA_ADMIN",
+    "NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN",
 ]);
 
 /* ── Family tree constants (ported from family.js) ──────────── */
@@ -288,6 +306,22 @@ function dashboardApp() {
         member: {},     // from /membership/search
         addresses: [],  // from /person/persons/{pk}/addresses
 
+        // Member self-service address form (add / edit / remove). Geography
+        // options come from the shared NSSLocation cascade (see
+        // _addrLoc below); `addrForm` doubles as the cascade's form object
+        // and the nssCombobox model root.
+        addrForm: {
+            show: false, editPk: null,
+            address_type_master_data_pk: "", address_line_1: "", address_line_2: "", landmark: "",
+            country_pk: "", state_pk: "", district_pk: "", city_village_pk: "",
+            postal_code_pk: "", post_office_pk: "", is_primary: false, remarks: "",
+        },
+        addrSaving: false,
+        addrError: "",
+        addrTypes: [], addrCountries: [], addrStates: [], addrDistricts: [],
+        addrCities: [], addrPostalCodes: [], addrPostOffices: [],
+        _addrCitiesFor: "", _addrPostOfficesFor: "",
+
         // Membership sub-data
         affiliations: [],
         parichayaPatras: [],
@@ -330,6 +364,7 @@ function dashboardApp() {
         addMemberRelType: "",
         addMemberLinkType: "",
         addMemberLinkTarget: "",
+        _addrPrefilling: false,
         addMemberRemarks: "",
         addMemberSaving: false,
         addMemberError: "",
@@ -414,6 +449,14 @@ function dashboardApp() {
             decisionRemarks: {},
             deciding: false,
         },
+
+        // Sakha re-parent approvals awaiting THIS member's decision (owner
+        // rule 2026-10-30; api/routers/org_reparent.py). Authority is the
+        // live President seat only — the list endpoint already filters to
+        // steps this member can decide right now (viewer_can_decide).
+        reparentApprovals: [],
+        reparentRemarks: {},
+        reparentDeciding: false,
 
 
         // Find a Sakha / Patha Chakra directory (member dashboard).
@@ -528,11 +571,45 @@ function dashboardApp() {
         attRegPujas: [], attRegPujasLoading: false, attRegPujasError: "",
         attRegForm: { show: false, saving: false, error: "", puja_date: "", remarks: "" },
 
+        // An NSS-wide / Kendra admin holds no SAKHA-typed admin_scope row
+        // (their scope is the Kendra / NSS-WIDE), so scopes alone yield an
+        // empty list for them — they may mark for any Sakha, so the list is
+        // fetched instead (attRegAllSakhas, via the scoped /admin/organizations).
+        attRegAllSakhas: [],
         get attRegSakhaOptions() {
-            return this.dashboardOrgsFor("SAKHA_SANGHA");
+            return this.isGovNssWideAdmin
+                ? this.attRegAllSakhas
+                : this.dashboardOrgsFor("SAKHA_SANGHA");
         },
 
-        _initAttendanceRegister() {
+        async _loadAttRegAllSakhas() {
+            if (this.attRegAllSakhas.length) return;
+            const all = [];
+            for (let page = 1; ; page++) {
+                const params = NSS.appendSakhaLikeTypeCodes(new URLSearchParams({
+                    page: String(page), page_size: "200",
+                }));
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/organizations?${params}`);
+                if (!res.ok) throw new Error("Failed to load Sakha list.");
+                const data = await res.json();
+                const batch = data.organizations || [];
+                all.push(...batch);
+                if (all.length >= data.total || !batch.length) break;
+            }
+            this.attRegAllSakhas = all
+                .map(o => ({
+                    organization_pk: o.organization_pk,
+                    organization_name: o.organization_name || "(unnamed)",
+                    organization_code: "",
+                }))
+                .sort((a, b) => a.organization_name.localeCompare(b.organization_name));
+        },
+
+        async _initAttendanceRegister() {
+            if (this.isGovNssWideAdmin) {
+                try { await this._loadAttRegAllSakhas(); }
+                catch (e) { this.attRegPujasError = e.message || "Failed to load Sakha list."; }
+            }
             const options = this.attRegSakhaOptions;
             // Keep the current selection if it is still valid (e.g.
             // revisiting the tab); otherwise default to the only option,
@@ -613,6 +690,12 @@ function dashboardApp() {
         govError: "",
         govLoaded: false,
         govMemberCap: 9,             // item 9 — inline banners show at most 9 members
+
+        // ── Advisory Board dashboard (NSS-wide admins + NSS_ERP_ADVISORY_BOARD_ADMIN) ──
+        // One read: GET /governance/advisory-board/dashboard. Meetings and
+        // decisions are not modelled yet (owner has not specified them) — no
+        // placeholder UI for them here.
+        adbDash: { loading: false, error: "", loaded: false, data: null },
         // item 9 — Advisory "show all" modal: full member list + Sakha-name filter
         govAllMembers: { open: false, body: null, filter: "" },
 
@@ -801,6 +884,11 @@ function dashboardApp() {
         // _loadOrgPendingApprovals().
         adminApprovals: {},
         myOrgDashboardPk: null,
+        // Organizations a KENDRA_MAHILA_SANGHA admin reaches (every
+        // MAHILA_SANGHA org). Its scope row carries no organization_pk, so
+        // dashboardOrgsFor() cannot find them in /auth/me's scopes — they are
+        // fetched once by _resolveMyOrgDashboardPk(). Empty for everyone else.
+        mahilaScopeOrgs: [],
         // Restored from sessionStorage like `tab` above — otherwise a
         // refresh landing back on the orgDashboard tab (tab alone is
         // enough to pick the tab) still rendered nothing, because the
@@ -811,6 +899,11 @@ function dashboardApp() {
         // ── Init ──────────────────────────────────────────
         async init() {
             if (!NSSAuth.requireAuth()) return;
+
+            // The address comboboxes write their PK straight into addrForm
+            // (no change event), so dependent option lists follow via watch.
+            this.$watch("addrForm.district_pk", (pk) => this._onAddrDistrictChanged(pk));
+            this.$watch("addrForm.postal_code_pk", (pk) => this._loadAddrPostOffices(pk));
 
             this.loading = true;
             this.error = "";
@@ -845,6 +938,10 @@ function dashboardApp() {
                 if (typeof this.tab === "string" && this.tab.startsWith("admin_")
                     && !this.adminTabs.some(t => t.key === this.tab)) {
                     this.switchTab(this.adminTabs.length ? this.adminTabs[0].key : "personal");
+                }
+                // Same for the Advisory Board dashboard tab (not an admin_* key).
+                if (this.tab === "advisoryBoard" && !this.canViewAdvisoryBoardDashboard) {
+                    this.switchTab("personal");
                 }
 
                 // Own org dashboard link (sidebar) — non-blocking, same
@@ -884,6 +981,7 @@ function dashboardApp() {
                 // count, internally gated on canApproveRegistrations.
                 this._loadMyPendingActingApprovals();
                 this._loadPendingApprovals();
+                this._loadReparentApprovals();
                 this._loadOpenElectionsForVoting();
                 this._loadPendingClaimsCount();
 
@@ -944,6 +1042,11 @@ function dashboardApp() {
             // the same way findOrg is covered above.
             if (this.tab === "personal") {
                 this.loadSessions();
+            }
+
+            // Same direct-load coverage for the Advisory Board dashboard tab.
+            if (this.tab === "advisoryBoard") {
+                this._loadAdvisoryBoardDashboard();
             }
 
             // Same direct-load coverage for the Governance tab.
@@ -2336,10 +2439,9 @@ function dashboardApp() {
         async _loadChangeRequestSakhaList() {
             this.changeRequestSakhaLoading = true;
             try {
-                const params = new URLSearchParams({
-                    type_code: "SAKHA_SANGHA",
+                const params = NSS.appendSakhaLikeTypeCodes(new URLSearchParams({
                     limit: NSS.MAX_PAGE_SIZE,
-                });
+                }));
                 const res = await NSSAuth.apiFetch(
                     `/api/v1/organization/organizations/selectable?${params.toString()}`
                 );
@@ -2662,6 +2764,65 @@ function dashboardApp() {
             }
         },
 
+        // Sakha re-parent approvals ("Sakha re-approvals" panel on Pending
+        // Items). page_size caps at 100 server-side.
+        async _loadReparentApprovals() {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    "/api/v1/org-reparent?awaiting_my_decision=true&request_status=PENDING&page_size=100"
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    this.reparentApprovals = data.items || [];
+                }
+            } catch (e) {
+                console.error("Failed to load Sakha re-parent approvals", e);
+            }
+        },
+
+        // The step of this request the viewer can decide right now.
+        reparentMyStepFor(req) {
+            return (req.steps || []).find(st => st.viewer_can_decide) || null;
+        },
+
+        async decideReparentStep(req, decision) {
+            const step = this.reparentMyStepFor(req);
+            if (!step) return;
+            const remarks = (this.reparentRemarks[req.organization_reparent_request_pk] || "").trim();
+            if (decision === "REJECT" && !remarks) {
+                await NSSDialog.alert("Remarks are required when rejecting.", "Sakha re-parent");
+                return;
+            }
+            this.reparentDeciding = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/org-reparent/${req.organization_reparent_request_pk}/steps/${step.organization_reparent_step_pk}/decide`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ decision, remarks: remarks || null }),
+                    }
+                );
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    delete this.reparentRemarks[req.organization_reparent_request_pk];
+                    if (decision === "APPROVE" && data.request_status === "CANCELLED") {
+                        await NSSDialog.alert(
+                            data.decision_remarks || "The final approval could not be applied.", "Sakha re-parent"
+                        );
+                    }
+                    await this._loadReparentApprovals();
+                } else {
+                    await NSSDialog.alert(NSS.errorMessage(data, res.status), "Sakha re-parent");
+                }
+            } catch (e) {
+                console.error("Failed to record re-parent decision", e);
+                await NSSDialog.alert("Unable to connect to server.", "Sakha re-parent");
+            } finally {
+                this.reparentDeciding = false;
+            }
+        },
+
         async decideSendApplication(item, decision) {
             // Generalized 2026-10-23 (owner item: step-2 decisions) — finds
             // WHICHEVER step (1 or 2) is this viewer's own pending decision
@@ -2714,6 +2875,268 @@ function dashboardApp() {
             this.editingProfile = false;
             this.profileError = "";
             this.profileSuccess = "";
+        },
+
+        // ── Member address self-service ─────────────────
+        // Public /register/* lookups, not /foundation/*: a plain member lacks
+        // FOUNDATION_VIEW (same reason the Create-Family pickers use them).
+        // Typing a new value goes through the authenticated propose endpoints
+        // (wired in dashboard.html via nssCombobox).
+        _addrLoc: NSSLocation.create({
+            fetchFn: (...args) => NSSAuth.apiFetch(...args),
+            basePath: "/api/v1/register",
+            arrays: {
+                countries: "addrCountries", states: "addrStates", districts: "addrDistricts",
+                cities: "addrCities", postalCodes: "addrPostalCodes",
+            },
+            form: "addrForm",
+        }),
+
+        // The district combobox writes addrForm.district_pk directly (no
+        // change event), so this runs from a $watch. A real district change
+        // clears city, PIN and post office (they belong to the old district)
+        // and reloads cities + PINs for the new one. PINs are narrowed by
+        // district via approved city_village rows, so a sparsely seeded
+        // district lists few PINs — a new one is proposed through the PIN
+        // combobox. During edit-prefill (_addrPrefilling) nothing is cleared
+        // and startEditAddress loads the lists itself.
+        async _onAddrDistrictChanged(pk) {
+            if (pk === this._addrCitiesFor) return;
+            this._addrCitiesFor = pk || "";
+            if (this._addrPrefilling) return;
+            this.addrForm.city_village_pk = "";
+            this.addrForm.postal_code_pk = "";
+            this.addrForm.post_office_pk = "";
+            this.addrPostOffices = [];
+            this._addrPostOfficesFor = "";
+            await Promise.all([
+                this._addrLoc.loadCities(this, pk),
+                this._addrLoc.loadPostalCodes(this, pk),
+            ]);
+        },
+
+        async _loadAddrPostOffices(pk) {
+            if (pk === this._addrPostOfficesFor) return;
+            this._addrPostOfficesFor = pk || "";
+            this.addrPostOffices = [];
+            if (!pk) return;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/register/post-offices?postal_code_pk=${pk}`);
+                if (res.ok) this.addrPostOffices = await res.json();
+            } catch (_) {}
+        },
+
+        // Clear everything below the changed level; the cascade already
+        // clears district/PIN, but not city, post office or their lists.
+        _clearAddrBelow() {
+            this.addrForm.city_village_pk = "";
+            this.addrForm.post_office_pk = "";
+            this.addrPostOffices = [];
+            this._addrCitiesFor = "";
+            this._addrPostOfficesFor = "";
+        },
+        onAddrCountryChange() { this._addrLoc.onCountryChange(this); this._clearAddrBelow(); },
+        onAddrStateChange()   { this._addrLoc.onStateChange(this); this._clearAddrBelow(); },
+
+        // True when the selected value of the named combobox model is a
+        // member-proposed (PENDING) row, so the form can show the review note.
+        addrIsPending(model) {
+            const map = {
+                district_pk: ["addrDistricts", "district_pk"],
+                city_village_pk: ["addrCities", "city_village_pk"],
+                postal_code_pk: ["addrPostalCodes", "postal_code_pk"],
+                post_office_pk: ["addrPostOffices", "post_office_pk"],
+            }[model];
+            const pk = this.addrForm[model];
+            if (!map || !pk) return false;
+            const row = (this[map[0]] || []).find(o => o[map[1]] === pk);
+            return !!row && row.entry_status === "PENDING";
+        },
+
+        async _loadAddrRefData() {
+            if (!this.addrTypes.length) {
+                try {
+                    const res = await NSSAuth.apiFetch("/api/v1/register/address-types");
+                    if (res.ok) this.addrTypes = await res.json();
+                } catch (_) {}
+            }
+            if (!this.addrCountries.length) await this._addrLoc.loadCountries(this);
+        },
+
+        _resetAddrForm() {
+            Object.assign(this.addrForm, {
+                show: false, editPk: null,
+                address_type_master_data_pk: "", address_line_1: "", address_line_2: "", landmark: "",
+                country_pk: "", state_pk: "", district_pk: "", city_village_pk: "",
+                postal_code_pk: "", post_office_pk: "", is_primary: false, remarks: "",
+            });
+            this.addrError = "";
+            this.addrStates = []; this.addrDistricts = []; this.addrCities = [];
+            this.addrPostalCodes = []; this.addrPostOffices = [];
+            this._addrCitiesFor = ""; this._addrPostOfficesFor = "";
+        },
+
+        async startAddAddress() {
+            this._resetAddrForm();
+            this.addrForm.show = true;
+            this.addrForm.is_primary = this.addresses.length === 0;
+            await this._loadAddrRefData();
+        },
+
+        cancelAddressForm() { this._resetAddrForm(); },
+
+        // Pre-fill from an existing address. PersonAddressResponse carries
+        // resolved names (and, when the API provides them, the parent pks);
+        // any pk missing is recovered by matching the name down the cascade.
+        async startEditAddress(addr) {
+            this._addrPrefilling = true;
+            try {
+                await this._prefillAddress(addr);
+                // Let the model watchers (district/PIN) flush while the flag
+                // is still set, so prefill never triggers their clears.
+                await this.$nextTick();
+            } finally {
+                this._addrPrefilling = false;
+            }
+        },
+
+        async _prefillAddress(addr) {
+            this._resetAddrForm();
+            this.addrForm.show = true;
+            this.addrForm.editPk = addr.person_address_pk;
+            this.addrForm.address_type_master_data_pk = addr.address_type_master_data_pk || "";
+            this.addrForm.address_line_1 = addr.address_line_1 || "";
+            this.addrForm.address_line_2 = addr.address_line_2 || "";
+            this.addrForm.landmark = addr.landmark || "";
+            this.addrForm.is_primary = !!addr.is_primary;
+            this.addrForm.remarks = addr.remarks || "";
+            await this._loadAddrRefData();
+
+            const byName = (list, key, name) =>
+                name ? ((list.find(o => (o[key] || "").toLowerCase() === name.toLowerCase()) || {}))
+                     : {};
+            const f = this.addrForm;
+            f.country_pk = addr.country_pk || byName(this.addrCountries, "country_name", addr.country_name).country_pk || "";
+            if (f.country_pk) await this._addrLoc.loadStates(this, f.country_pk);
+            f.state_pk = addr.state_pk || byName(this.addrStates, "state_name", addr.state_name).state_pk || "";
+            if (f.state_pk) await this._addrLoc.loadDistricts(this, f.state_pk);
+            f.district_pk = addr.district_pk || byName(this.addrDistricts, "district_name", addr.district_name).district_pk || "";
+            this._addrCitiesFor = f.district_pk;
+            if (f.district_pk) {
+                await Promise.all([
+                    this._addrLoc.loadCities(this, f.district_pk),
+                    this._addrLoc.loadPostalCodes(this, f.district_pk),
+                ]);
+            }
+
+            // Existing city/PIN/post office may be PENDING or outside the
+            // fetched lists — seed them so the comboboxes can show a label.
+            if (addr.city_village_pk) {
+                if (!this.addrCities.some(o => o.city_village_pk === addr.city_village_pk))
+                    this.addrCities.push({ city_village_pk: addr.city_village_pk, city_village_name: addr.city_village_name });
+                f.city_village_pk = addr.city_village_pk;
+            }
+            if (addr.postal_code_pk) {
+                if (!this.addrPostalCodes.some(o => o.postal_code_pk === addr.postal_code_pk))
+                    this.addrPostalCodes.push({ postal_code_pk: addr.postal_code_pk, postal_code: addr.postal_code });
+                f.postal_code_pk = addr.postal_code_pk;
+                this._addrPostOfficesFor = addr.postal_code_pk;
+                try {
+                    const res = await NSSAuth.apiFetch(`/api/v1/register/post-offices?postal_code_pk=${addr.postal_code_pk}`);
+                    if (res.ok) this.addrPostOffices = await res.json();
+                } catch (_) {}
+                if (addr.post_office_pk) {
+                    if (!this.addrPostOffices.some(o => o.post_office_pk === addr.post_office_pk))
+                        this.addrPostOffices.push({ post_office_pk: addr.post_office_pk, post_office_name: addr.post_office_name });
+                    f.post_office_pk = addr.post_office_pk;
+                }
+            }
+        },
+
+        async _refreshAddresses() {
+            const res = await NSSAuth.apiFetch(`/api/v1/person/persons/${this.user.person_pk}/addresses`);
+            if (res.ok) {
+                const data = await res.json();
+                this.addresses = Array.isArray(data) ? data : [];
+            }
+        },
+
+        async saveAddress() {
+            const f = this.addrForm;
+            this.addrError = "";
+            if (!f.address_type_master_data_pk) { this.addrError = "Please choose an address type."; return; }
+            if (!(f.address_line_1 || "").trim()) { this.addrError = "Address line 1 is required."; return; }
+            // Dependents are only meaningful under their parent; refuse a
+            // payload the cascade would normally have prevented.
+            if ((f.city_village_pk || f.postal_code_pk) && !f.district_pk) {
+                this.addrError = "Choose a district before the city / village or PIN."; return;
+            }
+            if (f.post_office_pk && !f.postal_code_pk) {
+                this.addrError = "Choose a PIN before the post office."; return;
+            }
+            const orNull = (v) => (typeof v === "string" ? v.trim() : v) || null;
+            const payload = {
+                address_type_master_data_pk: f.address_type_master_data_pk,
+                address_line_1: f.address_line_1.trim(),
+                address_line_2: orNull(f.address_line_2),
+                landmark: orNull(f.landmark),
+                city_village_pk: orNull(f.city_village_pk),
+                postal_code_pk: orNull(f.postal_code_pk),
+                post_office_pk: orNull(f.post_office_pk),
+                is_primary: !!f.is_primary,
+                remarks: orNull(f.remarks),
+            };
+            const base = `/api/v1/person/persons/${this.user.person_pk}/addresses`;
+            this.addrSaving = true;
+            try {
+                const res = await NSSAuth.apiFetch(f.editPk ? `${base}/${f.editPk}` : base, {
+                    method: f.editPk ? "PATCH" : "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { this.addrError = NSS.errorMessage(data, res.status); return; }
+                this._resetAddrForm();
+                await this._refreshAddresses();
+            } catch (err) {
+                this.addrError = err.message || "Unable to connect to server.";
+            } finally {
+                this.addrSaving = false;
+            }
+        },
+
+        async makeAddressPrimary(addr) {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/person/persons/${this.user.person_pk}/addresses/${addr.person_address_pk}`,
+                    { method: "PATCH", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ is_primary: true }) }
+                );
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { await NSSDialog.alert(NSS.errorMessage(data, res.status), "Address"); return; }
+                await this._refreshAddresses();
+            } catch (err) {
+                await NSSDialog.alert(err.message || "Unable to connect to server.", "Address");
+            }
+        },
+
+        async removeAddress(addr) {
+            const ok = await NSSDialog.confirm(
+                "Remove this address?",
+                { title: "Remove Address", confirmText: "Remove", confirmClass: "btn-error" }
+            );
+            if (!ok) return;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/person/persons/${this.user.person_pk}/addresses/${addr.person_address_pk}`,
+                    { method: "DELETE" }
+                );
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { await NSSDialog.alert(NSS.errorMessage(data, res.status), "Address"); return; }
+                await this._refreshAddresses();
+            } catch (err) {
+                await NSSDialog.alert(err.message || "Unable to connect to server.", "Address");
+            }
         },
 
         async saveProfile() {
@@ -2812,6 +3235,22 @@ function dashboardApp() {
 
         // ── Create Family ───────────────────────────────
 
+        // Shared by the Create Family and Find Organization location
+        // cascades: fetch a geo list into `prop`, but discard the response
+        // if the parent selection (`parentProp`) changed while it was in
+        // flight (stale-response guard).
+        async _loadGeoList(prop, url, parentProp) {
+            const parent = this[parentProp];
+            try {
+                const res = await NSSAuth.apiFetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (this[parentProp] === parent) this[prop] = data;
+            } catch (e) {
+                console.error(`Failed to load ${prop}`, e);
+            }
+        },
+
         async _loadSakhaList() {
             if (this.createFamilyCountries.length === 0) {
                 try {
@@ -2834,11 +3273,11 @@ function dashboardApp() {
         // backfill in 05_sakha_branches.sql.
         async _loadFilteredSakhas() {
             this.createFamilySakhaLoading = true;
+            const filterKey = [this.createFamilyCountryPk, this.createFamilyStatePk, this.createFamilyDistrictPk].join("|");
             try {
-                const params = new URLSearchParams({
-                    type_code: "SAKHA_SANGHA",
+                const params = NSS.appendSakhaLikeTypeCodes(new URLSearchParams({
                     limit: NSS.MAX_PAGE_SIZE,
-                });
+                }));
                 if (this.createFamilyCountryPk) params.set("country_pk", this.createFamilyCountryPk);
                 if (this.createFamilyStatePk) params.set("state_pk", this.createFamilyStatePk);
                 if (this.createFamilyDistrictPk) params.set("district_pk", this.createFamilyDistrictPk);
@@ -2847,7 +3286,8 @@ function dashboardApp() {
                 );
                 if (res.ok) {
                     const data = await res.json();
-                    this.createFamilySakhaList = data;
+                    const nowKey = [this.createFamilyCountryPk, this.createFamilyStatePk, this.createFamilyDistrictPk].join("|");
+                    if (nowKey === filterKey) this.createFamilySakhaList = data;
                 }
             } catch (e) {
                 console.error("Failed to load Sakha list", e);
@@ -2863,12 +3303,8 @@ function dashboardApp() {
             this.createFamilyDistricts = [];
             this.createFamilySakhaPk = "";
             if (this.createFamilyCountryPk) {
-                try {
-                    const res = await NSSAuth.apiFetch(`/api/v1/register/states?country_pk=${this.createFamilyCountryPk}`);
-                    if (res.ok) this.createFamilyStates = await res.json();
-                } catch (e) {
-                    console.error("Failed to load states", e);
-                }
+                await this._loadGeoList("createFamilyStates",
+                    `/api/v1/register/states?country_pk=${this.createFamilyCountryPk}`, "createFamilyCountryPk");
             }
             await this._loadFilteredSakhas();
         },
@@ -2878,12 +3314,8 @@ function dashboardApp() {
             this.createFamilyDistricts = [];
             this.createFamilySakhaPk = "";
             if (this.createFamilyStatePk) {
-                try {
-                    const res = await NSSAuth.apiFetch(`/api/v1/register/districts?state_pk=${this.createFamilyStatePk}`);
-                    if (res.ok) this.createFamilyDistricts = await res.json();
-                } catch (e) {
-                    console.error("Failed to load districts", e);
-                }
+                await this._loadGeoList("createFamilyDistricts",
+                    `/api/v1/register/districts?state_pk=${this.createFamilyStatePk}`, "createFamilyStatePk");
             }
             await this._loadFilteredSakhas();
         },
@@ -3409,8 +3841,12 @@ function dashboardApp() {
         myPendingElectionsCount() {
             return this.myPendingElectionsToVote().length;
         },
+        myPendingReparentApprovalsCount() {
+            return (this.reparentApprovals || []).length;
+        },
         myTotalPendingItemsCount() {
             return this.myPendingActingApprovalsCount() + this.myPendingApplicationApprovalsCount()
+                + this.myPendingReparentApprovalsCount()
                 + this.myPendingElectionsCount() + (this.pendingClaimsCount || 0);
         },
 
@@ -3661,9 +4097,11 @@ function dashboardApp() {
             }
             this.findOrgLoading = true;
             this.findOrgError = "";
+            const filterKey = [this.findOrgCountryPk, this.findOrgStatePk, this.findOrgDistrictPk,
+                               this.findOrgIncludeSakha, this.findOrgIncludePathaChakra].join("|");
             try {
                 const params = new URLSearchParams({ limit: NSS.MAX_PAGE_SIZE });
-                if (this.findOrgIncludeSakha) params.append("type_code", "SAKHA_SANGHA");
+                if (this.findOrgIncludeSakha) NSS.appendSakhaLikeTypeCodes(params);
                 if (this.findOrgIncludePathaChakra) params.append("type_code", "PATHA_CHAKRA");
                 if (this.findOrgCountryPk) params.set("country_pk", this.findOrgCountryPk);
                 if (this.findOrgStatePk) params.set("state_pk", this.findOrgStatePk);
@@ -3672,7 +4110,10 @@ function dashboardApp() {
                     `/api/v1/organization/organizations/selectable?${params.toString()}`
                 );
                 if (res.ok) {
-                    this.findOrgResults = await res.json();
+                    const data = await res.json();
+                    const nowKey = [this.findOrgCountryPk, this.findOrgStatePk, this.findOrgDistrictPk,
+                                    this.findOrgIncludeSakha, this.findOrgIncludePathaChakra].join("|");
+                    if (nowKey === filterKey) this.findOrgResults = data;
                 } else {
                     this.findOrgError = "Failed to load the directory.";
                 }
@@ -3694,12 +4135,8 @@ function dashboardApp() {
             this.findOrgStates = [];
             this.findOrgDistricts = [];
             if (this.findOrgCountryPk) {
-                try {
-                    const res = await NSSAuth.apiFetch(`/api/v1/register/states?country_pk=${this.findOrgCountryPk}`);
-                    if (res.ok) this.findOrgStates = await res.json();
-                } catch (e) {
-                    console.error("Failed to load states", e);
-                }
+                await this._loadGeoList("findOrgStates",
+                    `/api/v1/register/states?country_pk=${this.findOrgCountryPk}`, "findOrgCountryPk");
             }
             await this._loadFindOrgResults();
         },
@@ -3708,12 +4145,8 @@ function dashboardApp() {
             this.findOrgDistrictPk = "";
             this.findOrgDistricts = [];
             if (this.findOrgStatePk) {
-                try {
-                    const res = await NSSAuth.apiFetch(`/api/v1/register/districts?state_pk=${this.findOrgStatePk}`);
-                    if (res.ok) this.findOrgDistricts = await res.json();
-                } catch (e) {
-                    console.error("Failed to load districts", e);
-                }
+                await this._loadGeoList("findOrgDistricts",
+                    `/api/v1/register/districts?state_pk=${this.findOrgStatePk}`, "findOrgStatePk");
             }
             await this._loadFindOrgResults();
         },
@@ -3740,7 +4173,7 @@ function dashboardApp() {
             if (this.memberDirSakhas.length === 0) {
                 try {
                     const res = await NSSAuth.apiFetch(
-                        "/api/v1/organization/organizations/selectable?type_code=SAKHA_SANGHA&limit=" + NSS.MAX_PAGE_SIZE
+                        "/api/v1/organization/organizations/selectable?" + NSS.appendSakhaLikeTypeCodes(new URLSearchParams({ limit: NSS.MAX_PAGE_SIZE })).toString()
                     );
                     if (res.ok) {
                         const orgs = await res.json();
@@ -4175,7 +4608,7 @@ function dashboardApp() {
                 SAKHA_SANGHA:      { bg: 'linear-gradient(135deg,#059669,#34d399)', icon: 'users', color: '#059669' },
                 FAMILY:            { bg: 'linear-gradient(135deg,#c2410c,#ea580c)', icon: 'family', color: '#c2410c' },
             };
-            return MAP[typeCode] || MAP.KENDRA;
+            return MAP[NSS.isSakhaLike(typeCode) ? "SAKHA_SANGHA" : typeCode] || MAP.KENDRA;
         },
 
         /** Returns inline SVG HTML for an org icon type */
@@ -4196,7 +4629,7 @@ function dashboardApp() {
             this._resetOrgFamilyDetail();
 
             // If Sakha → load families
-            if (org.organization_type_code === "SAKHA_SANGHA") {
+            if (NSS.isSakhaLike(org.organization_type_code)) {
                 this.orgBreadcrumb.push({
                     organization_pk: org.organization_pk,
                     organization_name: org.organization_name,
@@ -4240,7 +4673,7 @@ function dashboardApp() {
             }
 
             // If navigating back to a Sakha, re-fetch families (not children)
-            if (crumb.organization_type_code === "SAKHA_SANGHA") {
+            if (NSS.isSakhaLike(crumb.organization_type_code)) {
                 this.orgSelectedSakhaCode = crumb.organization_code || crumb.organization_pk;
                 this.orgChildren = [];
                 await this._fetchOrgFamilies(crumb.organization_pk);
@@ -4672,6 +5105,8 @@ function dashboardApp() {
                     // request), so a normal tab revisit doesn't re-fetch
                     // data that's already there.
                     if (!this.person) this._fetchPersonalDetail();
+                } else if (tab === "advisoryBoard") {
+                    this._loadAdvisoryBoardDashboard();
                 } else if (tab === "governance") {
                     this._loadGovernanceBodies();
                     this._loadMySakhaBodies();
@@ -4692,6 +5127,7 @@ function dashboardApp() {
                     // them for a fresh acting delegation in the meantime).
                     this._loadMyPendingActingApprovals();
                     this._loadPendingApprovals();
+                    this._loadReparentApprovals();
                     this._loadOpenElectionsForVoting();
                     this._loadPendingClaimsCount();
                 }
@@ -4753,8 +5189,17 @@ function dashboardApp() {
         dashboardOrgsFor(typeCode) {
             if (!typeCode) return [];
             const seen = new Set();
-            return (this.user?.scopes || [])
-                .filter(s => s.organization_pk && s.organization_type_code === typeCode)
+            // Type-resolved reach (KENDRA_MAHILA_SANGHA): the orgs come from
+            // mahilaScopeOrgs, shaped like scope rows so one pipeline serves both.
+            const typeResolved = typeCode === "MAHILA_SANGHA"
+                ? this.mahilaScopeOrgs.map(o => ({
+                    organization_pk: o.organization_pk,
+                    organization_name: o.organization_name,
+                    organization_type_code: "MAHILA_SANGHA",
+                }))
+                : [];
+            return [...(this.user?.scopes || []), ...typeResolved]
+                .filter(s => s.organization_pk && NSS.orgLevelTypes(typeCode).includes(s.organization_type_code))
                 .filter(s => {
                     if (seen.has(s.organization_pk)) return false;
                     seen.add(s.organization_pk);
@@ -4813,13 +5258,14 @@ function dashboardApp() {
                 s => s.organization_pk === this.viewingOrgPk
             );
             const lvl = scope && DASHBOARD_LEVELS.find(
-                l => l.typeCode === scope.organization_type_code
+                l => NSS.orgLevelTypes(l.typeCode).includes(scope.organization_type_code)
             );
             return lvl ? `${lvl.label} Dashboard` : this.myOrgDashboardLabel;
         },
 
         get currentTabLabel() {
             if (this.tab === "orgDashboard") return this.viewingOrgDashboardLabel;
+            if (this.tab === "advisoryBoard") return "Advisory Board Dashboard";
             if (TAB_LABELS[this.tab]) return TAB_LABELS[this.tab];
             const at = this.adminTabs.find(t => t.key === this.tab);
             return at ? at.label : "Dashboard";
@@ -4890,7 +5336,34 @@ function dashboardApp() {
             }
 
             const scoped = scopes.find(s => s.organization_pk);
-            this.myOrgDashboardPk = scoped ? scoped.organization_pk : null;
+            if (scoped) {
+                this.myOrgDashboardPk = scoped.organization_pk;
+                return;
+            }
+
+            // No organization-anchored scope: a KENDRA_MAHILA_SANGHA admin reaches
+            // every MAHILA_SANGHA org by type. The list endpoint returns the
+            // parent's type, so the central Kendra Mahila Sangha (parent =
+            // Kendra) is the default landing org, ahead of Sakha-level ones.
+            if (scopes.some(s => s.role_code === "NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN")) {
+                try {
+                    const res = await NSSAuth.apiFetch(
+                        "/api/v1/organization/organizations?type_code=MAHILA_SANGHA&limit=500");
+                    if (res.ok) {
+                        const orgs = await res.json();
+                        this.mahilaScopeOrgs = orgs.map(o => ({
+                            organization_pk: o.organization_pk,
+                            organization_name: o.organization_name,
+                            isCentral: o.parent_organization_type_code === "KENDRA",
+                        }));
+                        const central = this.mahilaScopeOrgs.find(o => o.isCentral);
+                        this.myOrgDashboardPk =
+                            (central || this.mahilaScopeOrgs[0])?.organization_pk || null;
+                    }
+                } catch (_) {
+                    // Non-blocking — the Mahila dashboard link just stays hidden.
+                }
+            }
         },
 
         _buildAdminTabs() {
@@ -5047,6 +5520,31 @@ function dashboardApp() {
          * VIEW/MANAGE) is held by every scoped admin too and is no longer
          * the right gate for this link.
          */
+        // The Advisory Board dashboard entry: the NSS-wide admins and the
+        // Advisory Board admin (mirrors the server gate in
+        // governance.py::_require_advisory_board_viewer).
+        get canViewAdvisoryBoardDashboard() {
+            const scopes = this.user?.scopes || [];
+            return this.isGovNssWideAdmin
+                || scopes.some(s => s.role_code === "NSS_ERP_ADVISORY_BOARD_ADMIN");
+        },
+
+        async _loadAdvisoryBoardDashboard() {
+            if (!this.canViewAdvisoryBoardDashboard) return;
+            this.adbDash.loading = true;
+            this.adbDash.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/advisory-board/dashboard");
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.adbDash.data = await res.json();
+            } catch (e) {
+                this.adbDash.error = e.message || "Failed to load the Advisory Board dashboard.";
+            } finally {
+                this.adbDash.loading = false;
+                this.adbDash.loaded = true;
+            }
+        },
+
         get isGovNssWideAdmin() {
             // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22:
             // "NSS = KENDRA = NSS_WIDE") — mirrors
@@ -5093,6 +5591,12 @@ function dashboardApp() {
                 NSS_ERP_ZILLA_ADMIN:        { members: "—", families: "—", orgs: "—", orgsLabel: "Sakha Sanghas", extra: "—", extraLabel: "Renewals Due", moreTiles: [] },
                 NSS_ERP_SAKHA_ADMIN:        { members: "—", families: "—", orgs: "—", orgsLabel: "Renewals Due",  extra: "—", extraLabel: "Attendance %", moreTiles: [] },
                 NSS_ERP_PATHA_CHAKRA_ADMIN: { members: "—", families: "—", orgs: "—", orgsLabel: "Sessions",      extra: "—", extraLabel: "Curriculum Items", moreTiles: [] },
+                // Stats come from /admin/dashboard-stats, which the server scopes to
+                // the actor's reach (every MAHILA_SANGHA org for this role).
+                // NSS_ERP_ADVISORY_BOARD_ADMIN deliberately has NO entry: it holds
+                // neither ADMIN_* nor MEMBERSHIP_APPROVE (the stats gate), so its tab
+                // hides the stat grid instead of showing permanent placeholders.
+                NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN: { members: "—", families: "—", orgs: "—", orgsLabel: "Mahila Sanghas", extra: "—", extraLabel: "Renewals Due", moreTiles: [] },
                 NSS_ERP_AUDITOR:            { members: "—", families: "—", orgs: "—", orgsLabel: "Audit Trails",   extra: "—", extraLabel: "Compliance Items", moreTiles: [] },
                 NSS_ERP_REPORT_VIEWER:      { members: "—", families: "—", orgs: "—", orgsLabel: "Reports Available", extra: "—", extraLabel: "Exports", moreTiles: [] },
             };

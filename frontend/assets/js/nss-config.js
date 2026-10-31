@@ -23,6 +23,34 @@ const NSS = {
     PASSWORD_MIN_LENGTH: 8,
     REDIRECT_DELAY_MS: 1500,
 
+    /* ── Sakha-like organization types (single JS definition) ──
+     * Owner decision 2026-10-31: a Sakha Asana (SAKHA_ASANA) is a Sakha
+     * Sangha without its own building and counts as a full Sakha
+     * everywhere. Every "is this a Sakha?" check/filter in the frontend
+     * uses this array / NSS.isSakhaLike(), never a hard-coded
+     * "SAKHA_SANGHA". Python: api/helpers.py::SAKHA_LIKE_ORG_TYPES;
+     * SQL: nss.fn_is_sakha_like_org_type().
+     */
+    SAKHA_LIKE_ORG_TYPES: ["SAKHA_SANGHA", "SAKHA_ASANA"],
+
+    /** True for SAKHA_SANGHA and SAKHA_ASANA. */
+    isSakhaLike(typeCode) {
+        return this.SAKHA_LIKE_ORG_TYPES.includes(typeCode);
+    },
+
+    /** Append every Sakha-like type as a repeated ?type_code= on *params*
+     *  (URLSearchParams) and return it — for the OR-matching org list endpoints. */
+    appendSakhaLikeTypeCodes(params) {
+        for (const t of this.SAKHA_LIKE_ORG_TYPES) params.append("type_code", t);
+        return params;
+    },
+
+    /** Org types sharing one dashboard/tab "level": every Sakha-like type is
+     *  the Sakha level; any other type is its own level. */
+    orgLevelTypes(typeCode) {
+        return this.isSakhaLike(typeCode) ? this.SAKHA_LIKE_ORG_TYPES : [typeCode];
+    },
+
     /* ── Membership type display name overrides ──────────────
      * DB stores value_name from master_data.
      * These overrides map value_code → portal display label
@@ -385,6 +413,32 @@ const NSS = {
      */
     correspondenceStepIconClass(status) {
         return this.CORRESPONDENCE_STEP_ICON_MAP[status] || "badge-corr-step-pending";
+    },
+
+    // Sakha re-parent approval workflow (organization_reparent_request /
+    // organization_reparent_step; owner rule 2026-10-30). Request status is
+    // PENDING/APPROVED/REJECTED/CANCELLED; step status PENDING/APPROVED/
+    // REJECTED reuses correspondenceStepBadgeClass. Shared by admin.js
+    // (Assign Sakha) and dashboard.js (President approvals) so the chain
+    // reads identically in both.
+    REPARENT_ROLE_LABELS: {
+        SAKHA_PRESIDENT: "Sakha President",
+        SOURCE_PARENT_PRESIDENT: "Leaving Anchalika/Zilla President",
+        DEST_PARENT_PRESIDENT: "Destination Anchalika/Zilla President",
+        KENDRA_PRESIDENT: "Kendra President",
+    },
+
+    /** Request status → badge class (CANCELLED has no step equivalent). */
+    reparentStatusBadgeClass(status) {
+        return status === "CANCELLED" ? "badge-muted" : this.correspondenceStepBadgeClass(status);
+    },
+
+    /** "Step 2 - Destination Anchalika/Zilla President: <name> (fallback note)". */
+    reparentStepLabel(step) {
+        const role = this.REPARENT_ROLE_LABELS[step.step_role] || step.step_role;
+        const who = step.assigned_person_name ? ": " + step.assigned_person_name : "";
+        const note = step.fallback_reason ? " (routed to Kendra President - " + step.fallback_reason + ")" : "";
+        return "Step " + step.step_order + " - " + role + who + note;
     },
 
     // Governance position (position_master.position_code) → badge CSS

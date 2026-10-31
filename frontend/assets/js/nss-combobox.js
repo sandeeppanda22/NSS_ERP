@@ -240,7 +240,10 @@ function nssCombobox(modelPath, opts) {
             for (var key in params) {
                 if (!Object.prototype.hasOwnProperty.call(params, key)) continue;
                 var m = this._resolve(params[key]);
-                body[key] = m.obj && m.key ? m.obj[m.key] : null;
+                var pv = m.obj && m.key ? m.obj[m.key] : null;
+                // An unset scope value ("") must reach the API as null,
+                // not an empty string that fails UUID validation.
+                body[key] = pv === "" ? null : pv;
             }
             body[this._opts.proposeField] = text;
 

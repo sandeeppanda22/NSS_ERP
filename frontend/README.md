@@ -77,6 +77,7 @@ frontend/
 │       ├── nss-combobox.js  `nssCombobox()` Alpine component + markup injector (select-existing-or-propose-new dropdown for geographic fields)
 │       ├── nss-dialog.js    `NSSDialog` — styled replacement for native alert()/confirm()
 │       ├── nss-location.js  `NSSLocation` — shared country/state/district/postal-code cascade helper
+│       ├── nss-password.js  Alpine directive `x-pw-reveal` — the one show/hide eye toggle for password inputs (login, register, admin; styles `.pw-reveal-*` in nss-layout.css)
 │       ├── attendance-register.js  Tier 6 shared attendance-marking mixin (roster, search, toggle, submit) installed into both `adminPanel()` (admin.js) and `orgDashboardTab()` (org-dashboard.js); loaded by admin.html and dashboard.html
 │       ├── dev-reload.js    Dev-only 1s polling auto-reload client; injected by `api/main.py` only when `DEV_LIVE_RELOAD` is truthy (polls `GET /__dev/frontend-version`), never referenced from the HTML sources
 │       ├── org-dashboard.js `orgDashboardTab()` — Org Dashboard tab component embedded in admin.html/dashboard.html
@@ -91,10 +92,10 @@ for its base resets. Which shared assets each page loads (verified against each 
 
 | Page | CSS (in order) | Shared JS (in order, before the page's own JS) |
 |---|---|---|
-| `login.html` | `tailwind.min.css`, `style.css`, `nss-layout.css` | `nss-config.js`, `nss-dialog.js`, `auth.js` → `login.js` |
-| `register.html` | `tailwind.min.css`, `style.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `auth.js`, `nss-datepicker.js`, `nss-combobox.js` → `register.js` |
-| `dashboard.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-combobox.js`, `attendance-register.js`, `org-dashboard.js` → `dashboard.js` |
-| `admin.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-combobox.js`, `attendance-register.js`, `org-dashboard.js` → `admin.js` |
+| `login.html` | `tailwind.min.css`, `style.css`, `nss-layout.css` | `nss-config.js`, `nss-dialog.js`, `auth.js`, `nss-password.js` → `login.js` |
+| `register.html` | `tailwind.min.css`, `style.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `auth.js`, `nss-password.js`, `nss-datepicker.js`, `nss-combobox.js` → `register.js` |
+| `dashboard.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-combobox.js`, `attendance-register.js`, `org-dashboard.js` → `dashboard.js` |
+| `admin.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-password.js`, `nss-datepicker.js`, `nss-combobox.js`, `attendance-register.js`, `org-dashboard.js` → `admin.js` |
 
 All four pages load Alpine.js 3.14.8 from the jsDelivr CDN (`defer`). Only `admin.html` and
 `dashboard.html` load `badges.css` — `login.html`/`register.html` don't render any status/type/
@@ -298,7 +299,7 @@ with 3 tabs, each lazily loaded on first visit (driven by `activeTab` / `switchT
 | Tab | Contents |
 |-----|----------|
 | **Reference Data** | Two side-by-side tables: "Organization Types" (code/name/description/sort order, 8 rows) and "Lifecycle Statuses" (code/name/description/sort order, 6 rows) |
-| **Organizations** | Filterable list (2-column layout): left/wide panel is the organization table (code/name/type badge/status badge/parent/location) with `<select>` filters for type and status (`selectedTypeFilter`/`selectedStatusFilter`, `filterOrganizations()` — status filter auto-disables for the 3 singleton institutional types; auto-selects the sole result when a filter narrows to exactly one org); right panel is a detail view — key fields, Address, Contact (phone/mobile), Online Presence (NSS + org-specific email/website/YouTube links), Geographic (district/state/country), Coordinates, and a Children sub-table (hidden entirely for types that can't have children — the 2 institutional singletons plus `PATHA_CHAKRA`/`SAKHA_ASANA`) that lazy-loads on row click (`selectOrganization()`, toggle-deselect on repeat click). Status badges use 6 dedicated `.badge-status-*` CSS classes (one per lifecycle status) rather than DaisyUI's generic semantic badges |
+| **Organizations** | Filterable list (2-column layout): left/wide panel is the organization table (code/name/type badge/status badge/parent/location) with `<select>` filters for type and status (`selectedTypeFilter`/`selectedStatusFilter`, `filterOrganizations()` — status filter auto-disables for the 3 singleton institutional types; auto-selects the sole result when a filter narrows to exactly one org); right panel is a detail view — key fields, Address, Contact (phone/mobile), Online Presence (NSS + org-specific email/website/YouTube links), Geographic (district/state/country), Coordinates, and a Children sub-table (hidden entirely for types that can't have children — the 2 institutional singletons plus `PATHA_CHAKRA`; a `SAKHA_ASANA` can now host wings, GDR-008) that lazy-loads on row click (`selectOrganization()`, toggle-deselect on repeat click). Status badges use 6 dedicated `.badge-status-*` CSS classes (one per lifecycle status) rather than DaisyUI's generic semantic badges |
 | **Hierarchy** | Flat recursive-CTE result rendered client-side as an indented tree using a `depthIndent(node.depth)` inline-style helper, with type badge, name, code, and a status badge per node |
 
 Loads `<script src="/assets/js/organization.js">` at the bottom.
@@ -765,9 +766,13 @@ fills), `valueKey`/`labelKey`, `allowNew` (default true), `proposeUrl`/`proposeF
 (`POST /api/v1/foundation/districts|postal-codes|post-offices/propose` in `api/routers/foundation.py`),
 which creates a PENDING row; the returned row is appended to the options and selected. Reviewed in
 the **Geo Approvals** tab of `admin.html` (`geoApprovals`, `loadGeoEntries()`).
-**Wiring note:** the script/stylesheet are loaded by `register.html`, `dashboard.html` and
-`admin.html`, but no page currently instantiates `x-data="nssCombobox(...)"` (only the doc comment
-in `nss-combobox.js` does) — it is loaded but not yet used.
+**Wiring note:** `dashboard.html`'s personal-tab Address card is the one page that instantiates
+`x-data="nssCombobox(...)"` (district, city/village, PIN, post office, bound to `addrForm.*` in
+`dashboard.js`; options in `addrDistricts`/`addrCities`/`addrPostalCodes`/`addrPostOffices`).
+Country/state and the option lists come from `NSSLocation` (`_addrLoc`, `basePath: '/api/v1/register'`
+because members lack `FOUNDATION_VIEW`); proposals go to the authenticated `/api/v1/foundation/*/propose`
+endpoints and the returned PENDING row is selected. Unset scope values are sent as `null` in the
+propose body. Address CRUD: `POST/PATCH/DELETE /api/v1/person/persons/{pk}/addresses[/{address_pk}]`.
 
 ---
 
@@ -795,8 +800,12 @@ Global `NSSLocation` object (153 lines) — the shared country → state → dis
 cascade, replacing three near-identical copies in `register.js` and `admin.js` (org edit + org
 create). `NSSLocation.create({ fetchFn, basePath, arrays, form })` returns a stateless set of
 methods that each take the Alpine component (`ctx`) as their first argument: `loadCountries`,
-`loadStates`, `loadDistricts`, `loadPostalCodes` (keyed on state), `onCountryChange`,
-`onStateChange`, `onDistrictChange`. `fetchFn` is plain `fetch` or `NSSAuth.apiFetch`;
+`loadStates`, `loadDistricts`, `loadCities`, `loadPostalCodes(ctx, districtPk)` (PINs are narrowed by
+**district**, not state — owner decision 2026-10-30; the district link comes from approved `city_village`
+rows, so a sparsely seeded district lists few PINs and a new PIN must stay enterable: register.html
+free-text + datalist, dashboard address editor propose), `onCountryChange`, `onStateChange` (clears
+district/city/PIN, loads districts only), `onDistrictChange` (clears city + PIN/post office, loads cities +
+PINs). Every `load*` discards stale responses. `fetchFn` is plain `fetch` or `NSSAuth.apiFetch`;
 `basePath` defaults to `/api/v1/foundation` (authenticated — `admin.js`) and `register.js` passes
 `/api/v1/register` to hit the public reference-data endpoints instead. Form field names are fixed
 (`country_pk`, `state_pk`, `district_pk`, `city_village_name`, `postal_code_pk`/
@@ -814,7 +823,7 @@ layouts by the viewed org's `organization_type_code` (`isSakha`/`isAnchalika`/`i
 `isKendra`/`isPathaChakra`/`isMahila`) — the six ORGANIZATIONAL roles in `role_master`
 (SOL-ADMIN-004 §8.7). Sakha/Anchalika/Zilla/Kendra follow
 `docs/03_Solution/ui/mockups/0{3,5,6,2}_*_dashboard.html`; Patha Chakra and Mahila Sangha have no
-mockup and reuse the same card idiom.
+mockup and reuse the same card idiom. The singleton `ADVISORY_BOARD` organization (2026-10-30) has no org dashboard (no members/stats); the Advisory Board admin gets only the Correspondence register (own `CORR_REGISTER_TAB_GROUPS` tab, resolved by type via `NULL_ORG_SCOPE_ORG_TYPE`, which mirrors `rbac_service.NULL_ORG_SCOPE_ORG_TYPE`) plus the governance-only panel, whose `init()` branch now also loads the org tree + org types and honours `#correspondence`.
 
 Endpoints consumed (all via `NSSAuth.apiFetch`): `GET /api/v1/organization/organizations/{pk}`;
 Sakha tier — `GET /api/v1/membership/members` (counts + 5 most recent by `joining_date`),
@@ -1108,7 +1117,16 @@ Sangha-Sevi creation for that person and shows a "View Claim" jump-link).
 "Assign Sakhas to Anchalika/Zilla Sangha"):** lets an admin search/filter Sakha Sanghas
 (`assignSakhaSearch`, `assignSakhaOnlyUnassigned` to show only Sakhas still on the wrong
 parent) and re-parent one at a time (`assignSakhaToParent()`) via the new `PATCH
-/api/v1/admin/organizations/{pk}` `parent_organization_pk` field.
+/api/v1/admin/organizations/{pk}` `parent_organization_pk` field. Owner rule 2026-10-30: only Kendra
+Governing Body members and the NSS_ERP_ADMIN super administrator change a Sakha's (or Sakha Asana's — the tab lists both types) parent directly; for everyone else the PATCH answers HTTP 202
+with a `reparent_request` — `assignSakhaToParent()` then shows an `assignSakhaNotice` (the approval
+chain, NOT applied yet) instead of success, keeps the row on its current parent, and each row shows
+the latest visible request with its steps (`assignSakhaRequests`, loaded from `GET
+/api/v1/org-reparent`; `cancelAssignSakhaRequest()` for the requester/Kendra GB/NSS_ERP_ADMIN). Presidents decide
+steps from the member dashboard's Pending Items tab ("Sakha Re-parent Approvals", `reparentApprovals`,
+`decideReparentStep()` -> `POST /api/v1/org-reparent/{pk}/steps/{step_pk}/decide`). Shared chain
+labels/badges: `NSS.REPARENT_ROLE_LABELS`/`reparentStepLabel()`/`reparentStatusBadgeClass()` in
+`nss-config.js`.
 
 **"Create Person" tab restructured into a real 3-step flow:** Step 1
 Person (find-or-create, unchanged) → **Step 2 Sangha Sevi**, now its own step

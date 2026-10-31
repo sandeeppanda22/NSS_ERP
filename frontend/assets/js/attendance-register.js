@@ -35,8 +35,14 @@
     function attendanceRegisterMixin() {
         return {
             // ── Permissions ────────────────────────────────────────────
+            // Reads the component's live currentUser (set from /auth/me on
+            // every page load; reactive, so getters like canManageAttendance
+            // re-evaluate once it arrives), falling back to the localStorage
+            // cache only before that. The cache alone is a login-time
+            // snapshot: a role granted after login (e.g. Attendance Marker)
+            // never showed, and a revoked one lingered, until re-login.
             _attPerms() {
-                return (NSSAuth.getCachedUser() || {}).permissions || [];
+                return (this.currentUser || NSSAuth.getCachedUser() || {}).permissions || [];
             },
             get canViewAttendance() {
                 const p = this._attPerms();

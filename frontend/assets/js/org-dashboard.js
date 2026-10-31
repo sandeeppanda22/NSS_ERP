@@ -143,7 +143,7 @@ function orgDashboardTab() {
         get orgTypeCode() {
             return this.org?.organization_type_code || "";
         },
-        get isSakha() { return this.orgTypeCode === "SAKHA_SANGHA"; },
+        get isSakha() { return NSS.isSakhaLike(this.orgTypeCode); },
         get isAnchalika() { return this.orgTypeCode === "ANCHALIKA_SANGHA"; },
         get isZilla() { return this.orgTypeCode === "ZILLA_SANGHA"; },
         get isKendra() { return this.orgTypeCode === "KENDRA"; },

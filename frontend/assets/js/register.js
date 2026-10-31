@@ -23,7 +23,6 @@ function registerApp() {
         step: 1,
         loading: false,
         error: "",
-        showPassword: false,
         confirmPassword: "",
 
         // "Previously registered? Add membership" flow — mode stays 'new'
@@ -156,13 +155,15 @@ function registerApp() {
                 await this._locCascade.loadStates(this, this.form.country_pk);
             }
             if (this.form.state_pk) {
-                await Promise.all([
-                    this._locCascade.loadDistricts(this, this.form.state_pk),
-                    this._locCascade.loadPostalCodes(this, this.form.state_pk),
-                ]);
+                await this._locCascade.loadDistricts(this, this.form.state_pk);
             }
             if (this.form.district_pk) {
-                await this._locCascade.loadCities(this, this.form.district_pk);
+                // PIN suggestions are narrowed by district (owner 2026-10-30);
+                // sparse city_village seed => few suggestions, free text still OK.
+                await Promise.all([
+                    this._locCascade.loadCities(this, this.form.district_pk),
+                    this._locCascade.loadPostalCodes(this, this.form.district_pk),
+                ]);
             }
 
             // Re-resolve the matched PIN against the just-reloaded list and
@@ -232,7 +233,7 @@ function registerApp() {
 
         onRegCountryChange()     { this._locCascade.onCountryChange(this); this.onRegPostalCodeChange(); },
         onRegStateChange()       { this._locCascade.onStateChange(this); this.onRegPostalCodeChange(); },
-        onRegDistrictChange()    { this._locCascade.onDistrictChange(this); },
+        onRegDistrictChange()    { this._locCascade.onDistrictChange(this); this.onRegPostalCodeChange(); },
 
         // When the registrant picks (or types an exact match of) a known
         // city/village, auto-fill the PIN from the city_village→postal_code

@@ -15,6 +15,7 @@
     <script src="/assets/js/nss-config.js"></script>
     <script src="/assets/js/nss-dialog.js"></script>
     <script src="/assets/js/auth.js"></script>
+    <script src="/assets/js/nss-password.js"></script>
     <style>
         /* ── NSS Logo Palette ──────────────────────────────
          * Navy blue:   #1B2A4A  (logo band)
@@ -132,35 +133,6 @@
             cursor: not-allowed;
         }
 
-        .password-wrapper {
-            position: relative;
-        }
-
-        .password-wrapper .login-input {
-            padding-right: 2.75rem;
-        }
-
-        .eye-btn {
-            position: absolute;
-            right: 0.75rem;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 0;
-            line-height: 0;
-            color: #9ca3af;
-        }
-
-        .eye-btn:hover {
-            color: #374151;
-        }
-
-        .eye-btn svg {
-            width: 1.2rem;
-            height: 1.2rem;
-        }
 
         .row-between {
             display: flex;
@@ -378,27 +350,12 @@
             <!-- Password -->
             <div class="form-group">
                 <label class="login-label">Password</label>
-                <div class="password-wrapper">
-                    <input :type="showPassword ? 'text' : 'password'"
+                <input type="password" x-pw-reveal
                            x-model="password"
                            placeholder="Enter your password"
                            class="login-input"
                            :disabled="loading"
                            autocomplete="current-password">
-                    <button type="button" class="eye-btn"
-                            @click="showPassword = !showPassword"
-                            tabindex="-1">
-                        <!-- Eye open -->
-                        <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        <!-- Eye slash -->
-                        <svg x-show="showPassword" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
             </div>
 
             <!-- Remember me + Forgot password -->
@@ -455,49 +412,23 @@
             <!-- New password -->
             <div class="form-group">
                 <label class="login-label">New Password</label>
-                <div class="password-wrapper">
-                    <input :type="showChangePw ? 'text' : 'password'"
+                <input type="password" x-pw-reveal
                            x-model="newPassword"
                            placeholder="Min 8 chars, 1 uppercase, 1 digit"
                            class="login-input"
                            :disabled="changeLoading"
                            autocomplete="new-password">
-                    <button type="button" class="eye-btn"
-                            @click="showChangePw = !showChangePw"
-                            tabindex="-1">
-                        <svg x-show="!showChangePw" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        <svg x-show="showChangePw" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
             </div>
 
             <!-- Confirm password -->
             <div class="form-group">
                 <label class="login-label">Confirm Password</label>
-                <div class="password-wrapper">
-                    <input :type="showChangeConfirmPw ? 'text' : 'password'"
+                <input type="password" x-pw-reveal
                            x-model="confirmPassword"
                            placeholder="Re-enter new password"
                            class="login-input"
                            :disabled="changeLoading"
                            autocomplete="new-password">
-                    <button type="button" class="eye-btn"
-                            @click="showChangeConfirmPw = !showChangeConfirmPw"
-                            tabindex="-1">
-                        <svg x-show="!showChangeConfirmPw" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        <svg x-show="showChangeConfirmPw" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
             </div>
 
             <p class="pw-requirements">
@@ -618,49 +549,23 @@
             <!-- New Password -->
             <div class="form-group">
                 <label class="login-label">New Password</label>
-                <div class="password-wrapper">
-                    <input :type="showResetPw ? 'text' : 'password'"
+                <input type="password" x-pw-reveal
                            x-model="resetNewPassword"
                            placeholder="Min 8 chars, 1 uppercase, 1 digit"
                            class="login-input"
                            :disabled="resetLoading"
                            autocomplete="new-password">
-                    <button type="button" class="eye-btn"
-                            @click="showResetPw = !showResetPw"
-                            tabindex="-1">
-                        <svg x-show="!showResetPw" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        <svg x-show="showResetPw" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
             </div>
 
             <!-- Confirm Password -->
             <div class="form-group">
                 <label class="login-label">Confirm New Password</label>
-                <div class="password-wrapper">
-                    <input :type="showResetConfirmPw ? 'text' : 'password'"
+                <input type="password" x-pw-reveal
                            x-model="resetConfirmPassword"
                            placeholder="Re-enter new password"
                            class="login-input"
                            :disabled="resetLoading"
                            autocomplete="new-password">
-                    <button type="button" class="eye-btn"
-                            @click="showResetConfirmPw = !showResetConfirmPw"
-                            tabindex="-1">
-                        <svg x-show="!showResetConfirmPw" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        <svg x-show="showResetConfirmPw" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
             </div>
 
             <p class="pw-requirements">

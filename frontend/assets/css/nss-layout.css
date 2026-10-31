@@ -978,3 +978,34 @@ tr.row-inactive:hover { opacity: 0.75; }
 
 
 
+
+/* ── Password reveal toggle (nss-password.js, x-pw-reveal) ───────────── */
+.pw-reveal-wrap {
+    position: relative;
+}
+
+.pw-reveal-wrap > input {
+    padding-right: 2.75rem;
+}
+
+.pw-reveal-btn {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    line-height: 0;
+    color: #9ca3af;
+}
+
+.pw-reveal-btn:hover {
+    color: #374151;
+}
+
+.pw-reveal-btn svg {
+    width: 1.2rem;
+    height: 1.2rem;
+}

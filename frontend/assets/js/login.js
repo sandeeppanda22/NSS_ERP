@@ -13,12 +13,9 @@ function loginApp() {
         password: "",
         loading: false,
         error: "",
-        showPassword: false,
 
         // Force password change state
         showChangePassword: false,
-        showChangePw: false,
-        showChangeConfirmPw: false,
         currentPassword: "",
         newPassword: "",
         confirmPassword: "",
@@ -42,8 +39,6 @@ function loginApp() {
         resetLoading: false,
         resetError: "",
         resetSuccess: "",
-        showResetPw: false,
-        showResetConfirmPw: false,
 
         // Debug OTP (development only — shown until email/SMS is integrated)
         debugOtp: "",
