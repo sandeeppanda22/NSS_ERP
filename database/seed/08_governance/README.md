@@ -1,6 +1,6 @@
 # database/seed/08_governance/
 
-Governance seed data (Tier 6, committed on `feature/tier6-governance`) — starter catalogues for
+Governance seed data (Tier 6) — starter catalogues for
 the two Depth-0 masters plus the 3 NSS-wide singleton bodies. Mirrors `database/ddl/08_governance/`.
 
 Authority: GOV-BR-010/011/023/024/025/031/032, SOL-GOV-002 §4-5,
@@ -19,6 +19,7 @@ seed is skipped — see `database/scripts/README.md`). Order matters: `01` and `
 | `01_body_type_master.sql` (v1.1) | 8 body types: `KENDRA_GOVERNING_BODY`, `SAKHA_GOVERNING_BODY`, `ADVISORY_BOARD`, `MAHILA_PARICHALANA_MANDALI`, `SEVAK_SANGHA_EXECUTIVE`, plus `ANCHALIKA_GOVERNING_BODY`, `ZILLA_GOVERNING_BODY`, `PATHA_CHAKRA_GOVERNING_BODY` (added 2026-10-09 for the §63 composite auto-grant rule) |
 | `02_position_master.sql` | 10 positions: `PRESIDENT`, `VICE_PRESIDENT`, `PARICHALAK`, `SECRETARY`, `ASSISTANT_SECRETARY`, `JOINT_SECRETARY`, `TREASURER`, `CASHIER`, `MUKHYA_PUJAKA`, `MEMBER` |
 | `03_body_master.sql` | 3 NSS-wide singleton bodies with `organization_pk = NULL`: `KENDRA_GB` (Kendra Governing Body), `ADVISORY_BOARD`, `KENDRA_MAHILA_PM` (central Mahila Parichalana Mandali) |
+| `04_sakha_asana_governing_body_patch.sql` | Idempotent patch (`run_sql`, 2026-10-30): one empty `SAKHA_GOVERNING_BODY` shell per ACTIVE `SAKHA_ASANA` organization that has none — a Sakha Asana has its own Governing Body and President like a Sakha Sangha (the seed above shells `SAKHA_SANGHA` only and is existence-gated) |
 
 ## Notes
 

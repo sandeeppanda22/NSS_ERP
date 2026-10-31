@@ -280,6 +280,9 @@ echo "--- Phase 0: Bootstrap RBAC — Seed ---"
 run_seed "permission_master (seed)" "permission_master" "${SEED_BASE}/00_bootstrap/01_permission_master.sql"
 run_seed "role_master (seed)"       "role_master"       "${SEED_BASE}/00_bootstrap/02_role_master.sql"
 run_seed "role_permission (seed)"   "role_permission"   "${SEED_BASE}/00_bootstrap/03_role_permission.sql"
+# Idempotent patch: the seed above is existence-gated, so rows added to it later
+# (Mahila admin 15->18, Advisory Board admin 0->7, 2026-10-30) reach existing DBs here.
+run_sql "role_permission mahila/advisory-board patch" "${SEED_BASE}/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -319,6 +322,9 @@ echo "--- Phase 3: Organization — DDL (1 table + address-restriction trigger +
 run_ddl "organization"               "organization" "${DDL_BASE}/02_organization/03_organization.sql"
 run_sql "organization_address_restriction_trigger" "${DDL_BASE}/02_organization/04_organization_address_restriction_trigger.sql"
 run_sql "organization_kumari_sevak_uniqueness_trigger" "${DDL_BASE}/02_organization/05_organization_kumari_sevak_uniqueness_trigger.sql"
+run_sql "organization_singleton_trigger" "${DDL_BASE}/02_organization/08_organization_singleton_trigger.sql"
+# Idempotent patch (owner 2026-10-31): the single SQL definition of Sakha-like org types (SAKHA_SANGHA + SAKHA_ASANA); the MBR-038A membership triggers and the Advisory Board one-seat-per-Sakha trigger call it, so it must exist before them.
+run_sql "sakha_like_org_type_function" "${DDL_BASE}/02_organization/10_sakha_like_org_type_function.sql"
 
 echo ""
 echo "--- Phase 4: Organization — Seed ---"
@@ -326,6 +332,9 @@ run_seed "organization (seed)"               "organization"       "${SEED_BASE}/
 run_seed "sakha postal codes (seed)"         "postal_code"        "${SEED_BASE}/01_foundation/09_sakha_postal_codes.sql"
 run_seed "sakha branches (seed)"             "organization"       "${SEED_BASE}/02_organization/05_sakha_branches.sql"
 run_seed "id_sequence_master (org sync)"     "id_sequence_master" "${SEED_BASE}/02_organization/06_id_sequence_org_sync.sql"
+# Idempotent patch: the ORGANIZATION_TYPE value ADVISORY_BOARD + the singleton 'Advisory Board'
+# organization (owner decision 2026-10-30). Existence-gated seeds above never reach existing DBs.
+run_sql "advisory_board organization patch"  "${SEED_BASE}/02_organization/07_advisory_board_organization_patch.sql"
 
 echo ""
 echo "--- Phase 5: Person — DDL (2 tables) ---"
@@ -456,6 +465,8 @@ echo "--- Phase 11c: Governance — Seed Data ---"
 run_seed "body_type_master (seed)" "body_type_master" "${SEED_BASE}/08_governance/01_body_type_master.sql"
 run_seed "position_master (seed)"  "position_master"  "${SEED_BASE}/08_governance/02_position_master.sql"
 run_seed "body_master (seed)"      "body_master"       "${SEED_BASE}/08_governance/03_body_master.sql"
+# Idempotent patch: a Sakha Asana has its own Governing Body shell like a Sakha Sangha (owner 2026-10-30); the seed above covers SAKHA_SANGHA only and is existence-gated.
+run_sql "sakha_asana governing body patch" "${SEED_BASE}/08_governance/04_sakha_asana_governing_body_patch.sql"
 
 echo ""
 echo "--- Phase 11d: Correspondence — DDL (5 tables, Tier 6: correspondence, correspondence_document, correspondence_finance_reference, correspondence_sequence_counter, correspondence_approval_step) ---"
@@ -471,6 +482,13 @@ run_ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "${DDL_B
 run_ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "${DDL_BASE}/10_attendance/02_weekly_sangha_puja_attendance.sql"
 run_ddl "attendance_exception"          "attendance_exception"          "${DDL_BASE}/10_attendance/03_attendance_exception.sql"
 run_ddl "attendance_review"             "attendance_review"             "${DDL_BASE}/10_attendance/04_attendance_review.sql"
+
+echo ""
+echo "--- Phase 11f: Organization re-parent approval — DDL (2 tables: organization_reparent_request, organization_reparent_step) ---"
+run_ddl "organization_reparent_request" "organization_reparent_request" "${DDL_BASE}/02_organization/06_organization_reparent_request.sql"
+run_ddl "organization_reparent_step"    "organization_reparent_step"    "${DDL_BASE}/02_organization/07_organization_reparent_step.sql"
+# Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
+run_sql "organization_reparent_step source-role patch" "${DDL_BASE}/02_organization/09_organization_reparent_step_source_role_patch.sql"
 
 echo ""
 echo "--- Phase 12: Grant nss_db_writer write access ---"

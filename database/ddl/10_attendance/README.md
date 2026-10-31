@@ -1,6 +1,6 @@
 # database/ddl/10_attendance/
 
-Attendance module DDL — 4 tables (Tier 6, uncommitted). Weekly Sangha Puja attendance, attendance
+Attendance module DDL — 4 tables (Tier 6, committed on `feature/tier6-governance`). Weekly Sangha Puja attendance, attendance
 exceptions and the Attendance Review workflow. Built as Phase 11e of `02_build.sh`/`.ps1` and
 `render_build.sh` (after Governance/Correspondence, before the Phase 12 writer grant and Phase 14
 audit trigger, so both cover these tables). Design authority: `docs/03_Solution/modules/attendance/`

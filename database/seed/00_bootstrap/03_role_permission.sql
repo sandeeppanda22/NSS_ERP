@@ -2,7 +2,31 @@
 -- NSS ERP
 -- Module: Bootstrap RBAC
 -- File: 03_role_permission.sql (seed)
--- Seed: Role-to-permission mappings (~111 rows)
+-- Seed: Role-to-permission mappings (~130 rows)
+-- Version: 1.8 — owner decisions 2026-10-30 (existing databases receive the
+--          same rows through the idempotent 04_role_permission_mahila_advisory_board_patch.sql,
+--          because this file is existence-gated and never re-runs):
+--          (a) NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN is "similar to
+--          NSS_ERP_KENDRA_ADMIN but only related to Mahila Sangha": Kendra's
+--          operational set = its 26 permissions minus the 8 system/admin ones
+--          (ADMIN_PERMISSION_VIEW, ADMIN_ROLE_MANAGE, ADMIN_SCOPE_MANAGE,
+--          ADMIN_USER_MANAGE, ADMIN_USER_VIEW, AUDIT_VIEW, FOUNDATION_MANAGE,
+--          PERSON_VIEW_SENSITIVE) = 18; i.e. the old 15 plus ORGANIZATION_MANAGE,
+--          GOVERNANCE_MANAGE and ATTENDANCE_MANAGE. Reach is NOT global: the
+--          role's scope resolves (rbac_service.actor_scope_org_pks) to every
+--          MAHILA_SANGHA organization + subtree, so each *_MANAGE grant is
+--          bounded to Mahila Sanghas server-side.
+--          (b) NSS_ERP_ADVISORY_BOARD_ADMIN (previously zero rows) gets
+--          GOVERNANCE_VIEW, GOVERNANCE_MANAGE and MEMBERSHIP_VIEW (3 rows).
+--          GOVERNANCE_MANAGE is confined server-side to ADVISORY_BOARD-type
+--          bodies (seat assignments, acting cover, removal requests) by
+--          governance.py _require_scope_for_org_or_nss_wide(body_type_code=);
+--          MEMBERSHIP_VIEW is the member search used to seat officers.
+--          (c) The Advisory Board also became an organization type with its
+--          own correspondence register (same day): NSS_ERP_ADVISORY_BOARD_ADMIN
+--          additionally gets CORRESPONDENCE_VIEW, CORRESPONDENCE_MANAGE,
+--          ORGANIZATION_VIEW and FOUNDATION_VIEW (3 -> 7 rows), all bounded to
+--          the Advisory Board organization by admin scope.
 -- Version: 1.7 — added ATTENDANCE_VIEW / ATTENDANCE_MANAGE (Tier 6,
 --          2026-10-27) and the new NSS_ERP_ATTENDANCE_MARKER role. See the
 --          inline block near the end of the mappings list for the exact
@@ -47,11 +71,13 @@
 -- DEPENDS ON: 01_permission_master.sql (seed),
 --             02_role_master.sql (seed)
 --
--- Matrix: 26 permissions x 9 roles (FOUNDATION_CALENDAR_MANAGE granted to
+-- Matrix: 28 permissions x 12 roles (FOUNDATION_CALENDAR_MANAGE granted to
 -- NSS_ERP_ADMIN only; GOVERNANCE_MANAGE to NSS_ERP_ADMIN /
--- NSS_ERP_KENDRA_ADMIN / NSS_ERP_SAKHA_ADMIN; CORRESPONDENCE_MANAGE to
--- every org-scoped admin role, same footprint as MEMBERSHIP_MANAGE;
--- GEO_ENTRY_APPROVE to NSS_ERP_SAKHA_ADMIN only).
+-- NSS_ERP_KENDRA_ADMIN / NSS_ERP_SAKHA_ADMIN / NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN
+-- / NSS_ERP_ADVISORY_BOARD_ADMIN (the last confined to Advisory Board bodies);
+-- CORRESPONDENCE_MANAGE to every org-scoped admin role, same footprint as
+-- MEMBERSHIP_MANAGE; GEO_ENTRY_APPROVE to NSS_ERP_SAKHA_ADMIN only;
+-- ORGANIZATION_MANAGE to ADMIN / KENDRA_ADMIN / KENDRA_MAHILA_SANGHA_ADMIN).
 -- Idempotent: ON CONFLICT ... DO NOTHING (mapping is
 -- immutable once created; deactivate via is_active).
 -- =====================================================
@@ -207,7 +233,12 @@ mappings (role_code, permission_code) AS (
     ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'CORRESPONDENCE_VIEW'),
     ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'CORRESPONDENCE_MANAGE'),
 
-    -- ── NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN (12 — same as SAKHA)
+    -- ── NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN (18 — Kendra's operational set
+    --    minus the 8 ADMIN_*/AUDIT_VIEW/FOUNDATION_MANAGE/PERSON_VIEW_SENSITIVE
+    --    system permissions; owner decision 2026-10-30. Reach = every
+    --    MAHILA_SANGHA org + subtree only. The 15 rows below were seeded
+    --    earlier; ORGANIZATION_MANAGE / GOVERNANCE_MANAGE / ATTENDANCE_MANAGE
+    --    are the 2026-10-30 additions.) ──
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'BOOTSTRAP_VIEW'),
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'FOUNDATION_VIEW'),
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'ORGANIZATION_VIEW'),
@@ -222,6 +253,38 @@ mappings (role_code, permission_code) AS (
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'GOVERNANCE_VIEW'),
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'CORRESPONDENCE_VIEW'),
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'CORRESPONDENCE_MANAGE'),
+    ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'ORGANIZATION_MANAGE'),
+    ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'GOVERNANCE_MANAGE'),
+
+    -- ── NSS_ERP_ADVISORY_BOARD_ADMIN (8 — owner decisions 2026-10-30) ──
+    -- Least-privilege footprint. Governance BODY side (3): GOVERNANCE_MANAGE is
+    -- confined server-side to ADVISORY_BOARD-type bodies' seat assignments,
+    -- acting cover and forced-removal requests; the Sakha-nominated MEMBER
+    -- seat stays with the nominating Sakha. MEMBERSHIP_VIEW is the member
+    -- search used to seat officers.
+    -- Organization/correspondence side (4) — "Advisory Board should be an org
+    -- type / needs a correspondence register": the ADVISORY_BOARD scope level
+    -- now resolves to the singleton ADVISORY_BOARD organization
+    -- (rbac_service.NULL_ORG_SCOPE_ORG_TYPE), so these are bounded to that
+    -- organization's own register by admin scope.
+    --   CORRESPONDENCE_VIEW / CORRESPONDENCE_MANAGE — read/file/transition its
+    --     own register; ORGANIZATION_VIEW — the org list the register switcher
+    --     and recipient picker are built from; FOUNDATION_VIEW — the
+    --     CORRESPONDENCE_MEDIUM / ORGANIZATION_TYPE catalogues the create form
+    --     needs (Medium is mandatory).
+    -- PERSON_VIEW (owner decision, 2026-10-30, the 8th): person search for the
+    -- correspondence person pickers / seating officers. NOT scope-narrowed by
+    -- the endpoints themselves (see docs: PERSON_VIEW exposure note).
+    -- Deliberately NOT granted: BOOTSTRAP_VIEW, REPORT_VIEW, ORGANIZATION_MANAGE, every ADMIN_* / AUDIT_VIEW /
+    -- FOUNDATION_MANAGE / PERSON_VIEW_SENSITIVE, and the other org-scoped *_MANAGE.
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'GOVERNANCE_VIEW'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'GOVERNANCE_MANAGE'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'MEMBERSHIP_VIEW'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'CORRESPONDENCE_VIEW'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'CORRESPONDENCE_MANAGE'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'ORGANIZATION_VIEW'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'FOUNDATION_VIEW'),
+    ('NSS_ERP_ADVISORY_BOARD_ADMIN', 'PERSON_VIEW'),
 
     -- ── NSS_ERP_AUDITOR (8 permissions — read + sensitive + audit)
     ('NSS_ERP_AUDITOR', 'BOOTSTRAP_VIEW'),
@@ -250,7 +313,9 @@ mappings (role_code, permission_code) AS (
     -- ── Attendance (Tier 6, 2026-10-27, owner-confirmed) ──
     -- ATTENDANCE_MANAGE (mark PRESENT/ABSENT/EXCUSED_ABSENCE, create puja
     -- events) goes ONLY to roles that actually run a Sakha's own puja:
-    -- ADMIN/KENDRA (global), SAKHA_ADMIN, and the new per-Sakha
+    -- ADMIN/KENDRA (global), SAKHA_ADMIN, KENDRA_MAHILA_SANGHA_ADMIN (added
+-- 2026-10-30 as part of Kendra's operational set; its scope covers only
+-- MAHILA_SANGHA orgs, so in practice it cannot mark a Sakha's puja), and the new per-Sakha
     -- ATTENDANCE_MARKER (owner: "sakha admin, designated members by
     -- sakha (multiple members)"). ATTENDANCE_VIEW is broader — every
     -- org-scoped admin role down the hierarchy plus AUDITOR/REPORT_VIEWER,
@@ -272,6 +337,7 @@ mappings (role_code, permission_code) AS (
     ('NSS_ERP_SAKHA_ADMIN', 'ATTENDANCE_MANAGE'),
     ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'ATTENDANCE_VIEW'),
     ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'ATTENDANCE_VIEW'),
+    ('NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN', 'ATTENDANCE_MANAGE'),
     ('NSS_ERP_AUDITOR', 'ATTENDANCE_VIEW'),
     ('NSS_ERP_REPORT_VIEWER', 'ATTENDANCE_VIEW'),
     ('NSS_ERP_ATTENDANCE_MARKER', 'ATTENDANCE_VIEW'),

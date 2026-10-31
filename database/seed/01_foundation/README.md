@@ -119,9 +119,10 @@ in Tier 5, with the addition of `SELF`):
   against; `display_order = 0`, sorts before every other value)
 - Other: OTHER
 
-**ORGANIZATION_TYPE** (13 values, per NSS Bye-Law hierarchy + preamble): KENDRA,
+**ORGANIZATION_TYPE** (14 values: 13 per NSS Bye-Law hierarchy + preamble, plus the singleton `ADVISORY_BOARD` added 2026-10-30 — its organization row is created by `02_organization/07_advisory_board_organization_patch.sql`): KENDRA,
 NILACHALA_KUTIRA, SMRUTI_MANDIRA, ANCHALIKA_SANGHA, ZILLA_SANGHA, SAKHA_SANGHA, SAKHA_ASANA,
-PARIBARIK_ASANA, PARIBARIK_SANGHA, PATHA_CHAKRA, KUMARI_SANGHA, SEVAK_SANGHA, MAHILA_SANGHA
+PARIBARIK_ASANA, PARIBARIK_SANGHA, PATHA_CHAKRA, KUMARI_SANGHA, SEVAK_SANGHA, MAHILA_SANGHA,
+ADVISORY_BOARD
 
 **BLOOD_GROUP** (8 values, added for the Person module): A_POSITIVE, A_NEGATIVE, B_POSITIVE,
 B_NEGATIVE, AB_POSITIVE, AB_NEGATIVE, O_POSITIVE, O_NEGATIVE

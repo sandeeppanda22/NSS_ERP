@@ -13,7 +13,7 @@
 -- Owner: NSS_ERP_ADMIN
 -- Note: One Weekly Sangha Puja attendance event per Sakha per date.
 --       sakha_pk is a generic FK to nss.organization (not CHECK-restricted
---       to SAKHA_SANGHA at the DDL level, matching the project convention
+--       to a Sakha type at the DDL level, matching the project convention
 --       of validating org-type constraints in the API, not the schema —
 --       see ORG-BR-099's own precedent); the business rule (ATT-004: the
 --       event is Sakha-level only) is enforced in api/routers/attendance.py.

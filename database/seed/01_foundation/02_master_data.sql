@@ -184,7 +184,9 @@ ON CONFLICT (master_category_pk, value_code) DO NOTHING;
 
 -- -------------------------------------------------
 -- ORGANIZATION_TYPE values
--- (13 types per NSS Bye-Law hierarchy + preamble)
+-- (14 types: 13 per NSS Bye-Law hierarchy + preamble, plus the singleton
+-- ADVISORY_BOARD — owner decision 2026-10-30; its organization row is seeded
+-- by 02_organization/07_advisory_board_organization_patch.sql)
 -- -------------------------------------------------
 
 INSERT INTO nss.master_data (master_category_pk, value_code, value_name, description, display_order)
@@ -203,7 +205,8 @@ CROSS JOIN (VALUES
     ('PATHA_CHAKRA',     'Patha Chakra',       'Study Circle',                                                        10),
     ('KUMARI_SANGHA',    'Kumari Sangha',      'Kumari Sangha — unmarried female participants organization (Kumari Module §24)', 11),
     ('SEVAK_SANGHA',     'Sevak Sangha',       'Sevak Sangha — service-oriented wing organization',                     12),
-    ('MAHILA_SANGHA',    'Mahila Sangha',      'Mahila Sangha — women''s wing organization (NSS Mahila Sangha Bye-Law)', 13)
+    ('MAHILA_SANGHA',    'Mahila Sangha',      'Mahila Sangha — women''s wing organization (NSS Mahila Sangha Bye-Law)', 13),
+    ('ADVISORY_BOARD',   'Advisory Board',     'Advisory Board — singleton organization under the Kendra that owns the Advisory Board''s correspondence register (the governance body of the same name is a separate NULL-organization record)', 14)
 ) AS v(value_code, value_name, description, display_order)
 WHERE mc.category_code = 'ORGANIZATION_TYPE'
 ON CONFLICT (master_category_pk, value_code) DO NOTHING;

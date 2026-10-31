@@ -90,7 +90,7 @@
 --      the new row's Sakha via person_pk -> that person's own
 --      active nss.sangha_sevi -> sangha_sevi.organization_pk
 --      (filtered to organization_type MASTER_DATA value_code
---      'SAKHA_SANGHA', same anchor _home_sakha uses), then
+--      Sakha-like via nss.fn_is_sakha_like_org_type: SAKHA_SANGHA or SAKHA_ASANA, same anchor _home_sakha uses), then
 --      rejects the write if another PERSON already holds a
 --      current seat on the same Advisory Board body whose own
 --      home Sakha is identical. Mirrors the API precisely: the
@@ -208,7 +208,7 @@ BEGIN
     JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
     WHERE ss.person_pk = NEW.person_pk
       AND ss.is_active = TRUE
-      AND md.value_code = 'SAKHA_SANGHA'
+      AND nss.fn_is_sakha_like_org_type(md.value_code)
     LIMIT 1;
 
     IF v_sakha_org_pk IS NULL THEN

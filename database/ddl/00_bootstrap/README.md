@@ -44,6 +44,6 @@ frozen in `docs/03_Solution/modules/administration/06_bootstrap_rbac_table_desig
 
 ## Status
 
-DDL is complete for all 3 tables, and all three are seeded (11 roles, 28 permissions, 155
+DDL is complete for all 3 tables, and all three are seeded (11 roles, 28 permissions, 166
 role-permission mappings) — see `database/seed/00_bootstrap/README.md`. Build phase: Phase 0 of
 `database/scripts/02_build.sh`/`.ps1`.

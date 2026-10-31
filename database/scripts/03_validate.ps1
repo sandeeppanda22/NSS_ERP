@@ -111,7 +111,7 @@ Check-TableExists "role_permission"
 Write-Host "  Row counts:"
 Check-RowCount "role_master" 11
 Check-RowCount "permission_master" 28
-Check-RowCount "role_permission" 155
+Check-RowCount "role_permission" 166
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "role_master" "role_code"
@@ -119,17 +119,22 @@ Check-NoDuplicates "role_master" "role_code"
 Write-Host "  FK integrity:"
 Check-FkIntegrity "role_permission -> role_master" "SELECT COUNT(*) FROM nss.role_permission rp LEFT JOIN nss.role_master rm ON rp.role_master_pk = rm.role_master_pk WHERE rm.role_master_pk IS NULL;"
 Check-FkIntegrity "role_permission -> permission_master" "SELECT COUNT(*) FROM nss.role_permission rp LEFT JOIN nss.permission_master pm ON rp.permission_master_pk = pm.permission_master_pk WHERE pm.permission_master_pk IS NULL;"
+Write-Host "  Per-role permission minimums (a skipped patch would leave a role short):"
+Check-FkIntegrity "role_permission: NSS_ERP_ADVISORY_BOARD_ADMIN has >= 8 rows" "SELECT GREATEST(8 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk WHERE rm.role_code = 'NSS_ERP_ADVISORY_BOARD_ADMIN';"
+Check-FkIntegrity "role_permission: NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN has >= 18 rows" "SELECT GREATEST(18 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk WHERE rm.role_code = 'NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN';"
+Check-FkIntegrity "role_permission: NSS_ERP_ATTENDANCE_MARKER has >= 2 rows" "SELECT GREATEST(2 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk WHERE rm.role_code = 'NSS_ERP_ATTENDANCE_MARKER';"
+Check-FkIntegrity "role_permission: NSS_ERP_SAKHA_ADMIN has >= 18 rows" "SELECT GREATEST(18 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk WHERE rm.role_code = 'NSS_ERP_SAKHA_ADMIN';"
 Write-Host ""
 
 # Foundation
 Write-Host "--- Foundation ---" -ForegroundColor Cyan
 Write-Host "  Tables:"
-$foundationTables = @("master_category","system_setting","id_sequence_master","country","document_master","field_change_log","master_data","state","district","city_village","postal_code")
+$foundationTables = @("master_category","system_setting","id_sequence_master","country","document_master","field_change_log","master_data","state","district","city_village","postal_code","festival_master","festival_calendar_date")
 foreach ($t in $foundationTables) { Check-TableExists $t }
 
 Write-Host "  Row counts:"
 Check-RowCount "master_category" 13
-Check-RowCount "master_data" 89
+Check-RowCount "master_data" 90
 Check-RowCount "id_sequence_master" 14
 Check-RowCount "country" 5
 Check-RowCount "state" 112
@@ -173,7 +178,7 @@ Write-Host "  Tables:"
 Check-TableExists "organization"
 
 Write-Host "  Row counts:"
-Check-RowCount "organization" 178
+Check-RowCount "organization" 179
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "organization" "organization_code"
@@ -184,6 +189,11 @@ Check-FkIntegrity "organization -> master_data (status)" "SELECT COUNT(*) FROM n
 Check-FkIntegrity "organization -> country" "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.country c ON o.country_pk = c.country_pk WHERE o.country_pk IS NOT NULL AND c.country_pk IS NULL;"
 Check-FkIntegrity "organization -> city_village" "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.city_village cv ON o.city_village_pk = cv.city_village_pk WHERE o.city_village_pk IS NOT NULL AND cv.city_village_pk IS NULL;"
 Check-FkIntegrity "organization -> postal_code" "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.postal_code pc ON o.postal_code_pk = pc.postal_code_pk WHERE o.postal_code_pk IS NOT NULL AND pc.postal_code_pk IS NULL;"
+Check-FkIntegrity "organization: exactly one active ADVISORY_BOARD organization (patch 07_advisory_board_organization_patch.sql ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE md.value_code = 'ADVISORY_BOARD' AND o.is_active = TRUE) = 1 THEN 0 ELSE 1 END;"
+Check-FkIntegrity "organization: fn_is_sakha_like_org_type() present" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_is_sakha_like_org_type') THEN 0 ELSE 1 END;"
+Check-FkIntegrity "organization: every active SAKHA_ASANA has a SAKHA_GOVERNING_BODY (patch 04_sakha_asana_governing_body_patch.sql ran)" "SELECT COUNT(*) FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE md.value_code = 'SAKHA_ASANA' AND o.is_active = TRUE AND NOT EXISTS (SELECT 1 FROM nss.body_master bm JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk WHERE bm.organization_pk = o.organization_pk AND bt.body_type_code = 'SAKHA_GOVERNING_BODY');"
+Check-FkIntegrity "organization: singleton trigger present" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_enforce_organization_singleton' AND NOT tgisinternal) THEN 0 ELSE 1 END;"
+Check-FkIntegrity "organization: at most one active row per singleton rule (KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA, ADVISORY_BOARD, central Mahila Sangha)" "SELECT COALESCE(SUM(GREATEST(g.n - 1, 0)), 0) FROM (SELECT COUNT(*) AS n FROM (SELECT md.value_code AS rule FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE o.is_active = TRUE AND md.value_code IN ('KENDRA', 'NILACHALA_KUTIRA', 'SMRUTI_MANDIRA', 'ADVISORY_BOARD') UNION ALL SELECT 'CENTRAL_MAHILA_SANGHA' FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk JOIN nss.organization p ON p.organization_pk = o.parent_organization_pk JOIN nss.master_data pmd ON pmd.master_data_pk = p.organization_type_master_data_pk WHERE o.is_active = TRUE AND md.value_code = 'MAHILA_SANGHA' AND pmd.value_code = 'KENDRA') r GROUP BY r.rule) g;"
 Write-Host ""
 
 # Person (2 tables - no seed data)
@@ -405,6 +415,28 @@ Check-FkIntegrity "attendance_review -> organization" "SELECT COUNT(*) FROM nss.
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "weekly_sangha_puja" "sakha_pk, puja_date"
+Write-Host ""
+
+# Organization re-parent approval (2 tables - existence only, no seed;
+# Sakha re-parenting approval chain, owner rule 2026-10-30)
+Write-Host "--- Organization re-parent approval ---" -ForegroundColor Cyan
+Write-Host "  Tables (existence only - no seed data):"
+Check-TableExists "organization_reparent_request"
+Check-TableExists "organization_reparent_step"
+Write-Host "  Key columns:"
+Check-ColumnExists "organization_reparent_request" "sakha_organization_pk"
+Check-ColumnExists "organization_reparent_request" "to_parent_organization_pk"
+Check-ColumnExists "organization_reparent_request" "request_status"
+Check-ColumnExists "organization_reparent_step" "organization_reparent_request_pk"
+Check-ColumnExists "organization_reparent_step" "step_order"
+Check-ColumnExists "organization_reparent_step" "assigned_body_master_pk"
+Check-ColumnExists "organization_reparent_step" "step_status"
+Write-Host "  FK integrity (no orphans - vacuously true until used):"
+Check-FkIntegrity "organization_reparent_request -> organization (sakha)" "SELECT COUNT(*) FROM nss.organization_reparent_request r LEFT JOIN nss.organization o ON r.sakha_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+Check-FkIntegrity "organization_reparent_request -> organization (to parent)" "SELECT COUNT(*) FROM nss.organization_reparent_request r LEFT JOIN nss.organization o ON r.to_parent_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+Check-FkIntegrity "organization_reparent_step -> organization_reparent_request" "SELECT COUNT(*) FROM nss.organization_reparent_step s LEFT JOIN nss.organization_reparent_request r ON s.organization_reparent_request_pk = r.organization_reparent_request_pk WHERE r.organization_reparent_request_pk IS NULL;"
+Check-FkIntegrity "organization_reparent_step: step_role CHECK allows SOURCE_PARENT_PRESIDENT (patch 09 ran)" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'nss.organization_reparent_step'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%SOURCE_PARENT_PRESIDENT%') THEN 0 ELSE 1 END;"
+Check-FkIntegrity "organization_reparent_step -> body_master" "SELECT COUNT(*) FROM nss.organization_reparent_step s LEFT JOIN nss.body_master b ON s.assigned_body_master_pk = b.body_master_pk WHERE b.body_master_pk IS NULL;"
 Write-Host ""
 
 # Summary

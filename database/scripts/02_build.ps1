@@ -58,6 +58,9 @@
 #   Phase 11e- Attendance DDL (4 tables: weekly_sangha_puja,
 #              weekly_sangha_puja_attendance, attendance_exception,
 #              attendance_review - Tier 6, owner-confirmed 2026-10-27)
+#   Phase 11f- Organization re-parent approval DDL (2 tables:
+#              organization_reparent_request, organization_reparent_step -
+#              Sakha re-parenting approval chain, owner rule 2026-10-30)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
 #   Phase 13 - Admin bootstrap seed (NSS Admin superuser)
 #   Phase 13b- Geo attribution backfill (city_village/postal_code/
@@ -206,6 +209,9 @@ Write-Host "[Phase 0] Bootstrap RBAC - Seed" -ForegroundColor Cyan
 Invoke-Seed "permission_master (seed)" "permission_master" "$SeedBase\00_bootstrap\01_permission_master.sql"
 Invoke-Seed "role_master (seed)"       "role_master"       "$SeedBase\00_bootstrap\02_role_master.sql"
 Invoke-Seed "role_permission (seed)"   "role_permission"   "$SeedBase\00_bootstrap\03_role_permission.sql"
+# Idempotent patch: the seed above is existence-gated, so rows added to it later
+# (Mahila admin 15->18, Advisory Board admin 0->7, 2026-10-30) reach existing DBs here.
+Invoke-Sql "role_permission mahila/advisory-board patch" "$SeedBase\00_bootstrap\04_role_permission_mahila_advisory_board_patch.sql"
 Write-Host ""
 
 # Phase 1: Foundation DDL
@@ -259,10 +265,13 @@ foreach ($entry in $foundationSeed) {
 Write-Host ""
 
 # Phase 3: Organization DDL (1 table — type/status now in Foundation master_data)
-Write-Host "[Phase 3] Organization - DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger)" -ForegroundColor Cyan
+Write-Host "[Phase 3] Organization - DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger + organization singleton trigger)" -ForegroundColor Cyan
 Invoke-Ddl "organization"               "organization" "$DdlBase\02_organization\03_organization.sql"
 Invoke-Sql "organization_address_restriction_trigger" "$DdlBase\02_organization\04_organization_address_restriction_trigger.sql"
 Invoke-Sql "organization_kumari_sevak_uniqueness_trigger" "$DdlBase\02_organization\05_organization_kumari_sevak_uniqueness_trigger.sql"
+Invoke-Sql "organization_singleton_trigger" "$DdlBase\02_organization\08_organization_singleton_trigger.sql"
+# Idempotent patch (owner 2026-10-31): the single SQL definition of Sakha-like org types (SAKHA_SANGHA + SAKHA_ASANA); the MBR-038A membership triggers and the Advisory Board one-seat-per-Sakha trigger call it, so it must exist before them.
+Invoke-Sql "sakha_like_org_type_function" "$DdlBase\02_organization\10_sakha_like_org_type_function.sql"
 Write-Host ""
 
 # Phase 4: Organization Seed
@@ -271,6 +280,9 @@ Invoke-Seed "organization (seed)"               "organization"       "$SeedBase\
 Invoke-Seed "sakha postal codes (seed)"         "postal_code"        "$SeedBase\01_foundation\09_sakha_postal_codes.sql"
 Invoke-Seed "sakha branches (seed)"             "organization"       "$SeedBase\02_organization\05_sakha_branches.sql"
 Invoke-Seed "id_sequence_master (org sync)"     "id_sequence_master" "$SeedBase\02_organization\06_id_sequence_org_sync.sql"
+# Idempotent patch: the ORGANIZATION_TYPE value ADVISORY_BOARD + the singleton 'Advisory Board'
+# organization (owner decision 2026-10-30). Existence-gated seeds above never reach existing DBs.
+Invoke-Sql "advisory_board organization patch"  "$SeedBase\02_organization\07_advisory_board_organization_patch.sql"
 Write-Host ""
 
 # Phase 5: Person DDL
@@ -418,6 +430,8 @@ Write-Host "[Phase 11c] Governance - Seed Data" -ForegroundColor Cyan
 Invoke-Seed "body_type_master (seed)" "body_type_master" "$SeedBase\08_governance\01_body_type_master.sql"
 Invoke-Seed "position_master (seed)"  "position_master"  "$SeedBase\08_governance\02_position_master.sql"
 Invoke-Seed "body_master (seed)"      "body_master"       "$SeedBase\08_governance\03_body_master.sql"
+# Idempotent patch: a Sakha Asana has its own Governing Body shell like a Sakha Sangha (owner 2026-10-30); the seed above covers SAKHA_SANGHA only and is existence-gated.
+Invoke-Sql "sakha_asana governing body patch" "$SeedBase\08_governance\04_sakha_asana_governing_body_patch.sql"
 Write-Host ""
 
 # -------------------------------------------------
@@ -463,6 +477,27 @@ Invoke-Ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "$Ddl
 Invoke-Ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "$DdlBase\10_attendance\02_weekly_sangha_puja_attendance.sql"
 Invoke-Ddl "attendance_exception"          "attendance_exception"          "$DdlBase\10_attendance\03_attendance_exception.sql"
 Invoke-Ddl "attendance_review"             "attendance_review"             "$DdlBase\10_attendance\04_attendance_review.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11f: Organization re-parent approval DDL (2 tables, owner rule
+# 2026-10-30): re-parenting a Sakha needs the Sakha President -> leaving Anchalika/Zilla
+# President -> destination Anchalika/Zilla President -> Kendra President chain unless a Kendra
+# Governing Body member does it directly.
+# organization_reparent_request FK -> organization, user_account, person,
+# sangha_sevi (Depth 2)
+# organization_reparent_step FK -> organization_reparent_request,
+# body_master, position_master, organization, person (Depth 3)
+# File numbers 06/07 live in ddl/02_organization/, but the tables run here
+# (not in Phase 3) because they need user_account/person/sangha_sevi and
+# Governance's body_master/position_master. Placed before Phase 12/14 so
+# the writer grant and audit trigger cover them, same as Phase 11b/11d/11e.
+# -------------------------------------------------
+Write-Host "[Phase 11f] Organization re-parent approval - DDL (2 tables)" -ForegroundColor Cyan
+Invoke-Ddl "organization_reparent_request" "organization_reparent_request" "$DdlBase\02_organization\06_organization_reparent_request.sql"
+Invoke-Ddl "organization_reparent_step"    "organization_reparent_step"    "$DdlBase\02_organization\07_organization_reparent_step.sql"
+# Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
+Invoke-Sql "organization_reparent_step source-role patch" "$DdlBase\02_organization\09_organization_reparent_step_source_role_patch.sql"
 Write-Host ""
 
 # -------------------------------------------------
