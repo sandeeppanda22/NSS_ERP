@@ -18,3 +18,17 @@ approving, recording, monitoring, and retiring individual governance decisions.
   Authority = NSS Governing Body (via President/Parichalak). Adds `GOV-ROLE-006` to `GOV-001`;
   corrects the `Owner` field in `GOV-002..005`/`GDR-001` and the `Decision Authority` field in
   `GDR-002`/`GDR-003` (via preserved correction notes) to match.
+- `GDR-005_Advisory_Board_as_a_Singleton_Organization.md` — owner-directed (2026-10-30): the Advisory
+  Board becomes the 14th organization type `ADVISORY_BOARD` (singleton `ADB`/`NSSAB`, parent Kendra,
+  immutable name, DB singleton trigger — generalised 2026-10-30 to KENDRA / NILACHALA_KUTIRA / SMRUTI_MANDIRA / ADVISORY_BOARD and the central Kendra-parented Mahila Sangha) while the Advisory Board governance body stays NULL-org.
+  Status `Proposed` (NSS Governing Body ratification not verifiable).
+- `GDR-006_NULL_Organization_Administrative_Scopes.md` — owner-directed (2026-10-30): NULL-organization
+  admin scopes (`KENDRA_MAHILA_SANGHA` → all `MAHILA_SANGHA` orgs; `ADVISORY_BOARD` → the AB org) and
+  body-level `NULL_ORG_SCOPE_BODY_TYPES`, with final permission lists. Status `Proposed`.
+- `GDR-007_Sakha_Re-Parenting_Requires_President_Chain_Approval.md` — owner-directed (2026-10-30): Sakha
+  (Sakha Sangha and Sakha Asana alike) needs the President chain unless the actor is a Kendra Governing
+  Body member (§63 composite `NSS_ERP_KENDRA_ADMIN`) or the `NSS_ERP_ADMIN` super administrator (by role).
+  Status `Proposed`.
+- `GDR-008_Sakha_Asana_Is_a_Sakha_for_All_Organizational_Purposes.md` — owner-directed (2026-10-31): a Sakha
+  Asana hosts every wing a Sakha Sangha can (Kumari, Sevak, local Mahila, Paribarik Asana); amends
+  ORG-BR-091/092/094 (wing parents = the shared Sakha-like set). No schema change. Status `Proposed`.
