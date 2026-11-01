@@ -1693,13 +1693,24 @@
                                             </div>
                                             <div class="form-group">
                                                 <label class="form-label">Local Sakha Number</label>
-                                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <!-- Legacy vs new (GDR-009): only a member who ALREADY had a number
+                                                     before this system supplies it; everyone else is auto-numbered. -->
+                                                <label class="remember-label">
+                                                    <input type="checkbox" class="nss-checkbox" x-model="createForm.is_legacy_member">
+                                                    <span>Legacy member (already has a Local Sakha Number and card number)</span>
+                                                </label>
+                                                <template x-if="!createForm.is_legacy_member">
+                                                    <p class="form-hint" style="margin-top: 0.25rem;">Auto-generated — the next number in this Sakha's series is assigned on submit.</p>
+                                                </template>
+                                                <template x-if="createForm.is_legacy_member">
+                                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
                                                     <span style="font-weight: 600; color: #0D7377; font-size: 0.85rem; white-space: nowrap;"
                                                           x-text="sakhaShortCode(createForm.organization_pk)"></span>
                                                     <input type="number" class="form-input" x-model="createForm.local_sakha_number"
-                                                           placeholder="e.g. 1192" min="1" style="flex: 1;">
+                                                           placeholder="Existing number on the card, e.g. 1192 *" min="1" style="flex: 1;">
                                                 </div>
-                                                <div class="form-hint" x-show="createForm.local_sakha_number && createForm.organization_pk"
+                                                </template>
+                                                <div class="form-hint" x-show="createForm.is_legacy_member && createForm.local_sakha_number && createForm.organization_pk"
                                                      x-text="'ERP ID: ' + sakhaShortCode(createForm.organization_pk) + createForm.local_sakha_number"
                                                      style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;"></div>
                                                 <div class="form-hint"
@@ -1714,20 +1725,19 @@
                                              Probationary, Parichaya Patra for Regular/Associate. -->
                                         <template x-if="createForm.membership_type_pk">
                                         <div class="form-group" style="margin-top: 0.5rem; border-top: 1px solid #e5e7eb; padding-top: 0.75rem;">
-                                            <label class="remember-label">
-                                                <input type="checkbox" class="nss-checkbox" x-model="createForm.credential_is_legacy">
-                                                <span x-text="'This member already has a ' + credentialLabelFor(createForm.membership_type_pk) + ' (legacy — enter its number)'"></span>
-                                            </label>
-                                            <template x-if="!createForm.credential_is_legacy">
+                                            <!-- Same legacy flag as the Local Sakha Number (GDR-009 §2A): a
+                                                 legacy member supplies the number on their card, anyone else is auto-numbered. -->
+                                            <label class="form-label" x-text="credentialLabelFor(createForm.membership_type_pk) + ' Number'"></label>
+                                            <template x-if="!createForm.is_legacy_member">
                                                 <p class="form-hint">
-                                                    A new <span x-text="credentialLabelFor(createForm.membership_type_pk)"></span> number will be auto-generated on submit. Validity runs Dola Purnima to Dola Purnima (SOL-ARCH-013 FC-DECISION-01) — no issue date or year is entered by hand.
+                                                    Will be assigned automatically on submit (<span x-text="credentialLabelFor(createForm.membership_type_pk)"></span>). Validity runs Dola Purnima to Dola Purnima (SOL-ARCH-013 FC-DECISION-01) — no issue date or year is entered by hand.
                                                 </p>
                                             </template>
-                                            <template x-if="createForm.credential_is_legacy">
-                                                <div class="form-group" style="margin-top: 0.5rem;">
-                                                    <label class="form-label" x-text="credentialLabelFor(createForm.membership_type_pk) + ' Number *'"></label>
+                                            <template x-if="createForm.is_legacy_member">
+                                                <div style="margin-top: 0.25rem;">
                                                     <input type="text" class="form-input" x-model="createForm.credential_document_number"
-                                                           placeholder="e.g. 1, or 345/2025/2026 — as written on the old register" maxlength="30">
+                                                           placeholder="Existing number on the card, e.g. 345/2026/2027 *" maxlength="30" style="font-family: monospace;">
+                                                    <p class="form-hint">Format: number/year/next year (e.g. 345/2026/2027), exactly as printed on the card.</p>
                                                 </div>
                                             </template>
                                         </div>
@@ -1735,7 +1745,7 @@
                                         <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
                                             <button class="btn-action primary"
                                                     @click="createSanghaSeviForNewPerson()"
-                                                    :disabled="createSSLoading || !createForm.membership_type_pk || !createForm.organization_pk || (createForm.credential_is_legacy && !createForm.credential_document_number.trim())">
+                                                    :disabled="createSSLoading || !createForm.membership_type_pk || !createForm.organization_pk || (createForm.is_legacy_member && !createForm.credential_document_number.trim())">
                                                 <div class="spinner-sm" x-show="createSSLoading"></div>
                                                 <span x-text="createSSLoading ? 'Creating...' : 'Create Sangha Sevi'"></span>
                                             </button>
@@ -1941,13 +1951,24 @@
                                             </div>
                                             <div class="form-group">
                                                 <label class="form-label">Local Sakha Number</label>
-                                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <!-- Legacy vs new (GDR-009): only a member who ALREADY had a number
+                                                     before this system supplies it; everyone else is auto-numbered. -->
+                                                <label class="remember-label">
+                                                    <input type="checkbox" class="nss-checkbox" x-model="ssForm.is_legacy_member">
+                                                    <span>Legacy member (already has a Local Sakha Number and card number)</span>
+                                                </label>
+                                                <template x-if="!ssForm.is_legacy_member">
+                                                    <p class="form-hint" style="margin-top: 0.25rem;">Auto-generated — the next number in this Sakha's series is assigned on submit.</p>
+                                                </template>
+                                                <template x-if="ssForm.is_legacy_member">
+                                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
                                                     <span style="font-weight: 600; color: #0D7377; font-size: 0.85rem; white-space: nowrap;"
                                                           x-text="sakhaShortCode(ssForm.organization_pk)"></span>
                                                     <input type="number" class="form-input" x-model="ssForm.local_sakha_number"
-                                                           placeholder="e.g. 1192" min="1" style="flex: 1;">
+                                                           placeholder="Existing number on the card, e.g. 1192 *" min="1" style="flex: 1;">
                                                 </div>
-                                                <div class="form-hint" x-show="ssForm.local_sakha_number && ssForm.organization_pk"
+                                                </template>
+                                                <div class="form-hint" x-show="ssForm.is_legacy_member && ssForm.local_sakha_number && ssForm.organization_pk"
                                                      x-text="'ERP ID: ' + sakhaShortCode(ssForm.organization_pk) + ssForm.local_sakha_number"
                                                      style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;"></div>
                                                 <div class="form-hint"
@@ -1962,20 +1983,19 @@
                                              Probationary, Parichaya Patra for Regular/Associate. -->
                                         <template x-if="ssForm.membership_type_pk">
                                         <div class="form-group" style="margin-top: 0.5rem; border-top: 1px solid #e5e7eb; padding-top: 0.75rem;">
-                                            <label class="remember-label">
-                                                <input type="checkbox" class="nss-checkbox" x-model="ssForm.credential_is_legacy">
-                                                <span x-text="'This member already has a ' + credentialLabelFor(ssForm.membership_type_pk) + ' (legacy — enter its number)'"></span>
-                                            </label>
-                                            <template x-if="!ssForm.credential_is_legacy">
+                                            <!-- Same legacy flag as the Local Sakha Number (GDR-009 §2A): a
+                                                 legacy member supplies the number on their card, anyone else is auto-numbered. -->
+                                            <label class="form-label" x-text="credentialLabelFor(ssForm.membership_type_pk) + ' Number'"></label>
+                                            <template x-if="!ssForm.is_legacy_member">
                                                 <p class="form-hint">
-                                                    A new <span x-text="credentialLabelFor(ssForm.membership_type_pk)"></span> number will be auto-generated on submit. Validity runs Dola Purnima to Dola Purnima (SOL-ARCH-013 FC-DECISION-01) — no issue date or year is entered by hand.
+                                                    Will be assigned automatically on submit (<span x-text="credentialLabelFor(ssForm.membership_type_pk)"></span>). Validity runs Dola Purnima to Dola Purnima (SOL-ARCH-013 FC-DECISION-01) — no issue date or year is entered by hand.
                                                 </p>
                                             </template>
-                                            <template x-if="ssForm.credential_is_legacy">
-                                                <div class="form-group" style="margin-top: 0.5rem;">
-                                                    <label class="form-label" x-text="credentialLabelFor(ssForm.membership_type_pk) + ' Number *'"></label>
+                                            <template x-if="ssForm.is_legacy_member">
+                                                <div style="margin-top: 0.25rem;">
                                                     <input type="text" class="form-input" x-model="ssForm.credential_document_number"
-                                                           placeholder="e.g. 1, or 345/2025/2026 — as written on the old register" maxlength="30">
+                                                           placeholder="Existing number on the card, e.g. 345/2026/2027 *" maxlength="30" style="font-family: monospace;">
+                                                    <p class="form-hint">Format: number/year/next year (e.g. 345/2026/2027), exactly as printed on the card.</p>
                                                 </div>
                                             </template>
                                         </div>
@@ -2018,7 +2038,7 @@
                                                 @click="createSanghaSevi()"
                                                 :disabled="ssLoading || !ssForm.person_pk || !ssForm.membership_type_pk || !ssForm.organization_pk ||
                                                            (ssForm.create_user_account && !ssForm.password) ||
-                                                           (ssForm.credential_is_legacy && !ssForm.credential_document_number.trim())">
+                                                           (ssForm.is_legacy_member && !ssForm.credential_document_number.trim())">
                                             <div class="spinner-sm" x-show="ssLoading"></div>
                                             <span x-text="ssLoading ? 'Creating...' : 'Create Sangha Sevi'"></span>
                                         </button>
@@ -2717,7 +2737,7 @@
                                                                           :class="c.claimed_membership_type === 'Darshaka' ? 'badge-type-probationary' : 'badge-type-regular'"
                                                                           x-text="c.claimed_membership_type"></span>
                                                                 </td>
-                                                                <td style="font-family: ui-monospace, monospace; font-size: 0.75rem;" x-text="c.claimed_local_sakha_number || '—'"></td>
+                                                                <td style="font-family: ui-monospace, monospace; font-size: 0.75rem;" x-text="c.claimed_local_sakha_number || (c.is_legacy_member ? '—' : 'To be generated')"></td>
                                                                 <td style="font-size: 0.75rem;" x-text="formatDate(c.created_at)"></td>
                                                                 <td>
                                                                     <button class="btn-action" style="font-size: 0.7rem;" @click.stop="viewClaim(c.registration_claim_pk)">View →</button>
@@ -2778,12 +2798,16 @@
                                                     <div class="value" x-text="selectedClaim?.claimed_membership_type"></div>
                                                 </div>
                                                 <div class="detail-item">
+                                                    <div class="label">Existing member before this system?</div>
+                                                    <div class="value" x-text="selectedClaim?.is_legacy_member ? 'Yes — legacy member' : 'No — new member'"></div>
+                                                </div>
+                                                <div class="detail-item">
                                                     <div class="label">Local Sakha Number</div>
-                                                    <div class="value" style="font-family: monospace;" x-text="selectedClaim?.claimed_local_sakha_number || '(not provided)'"></div>
+                                                    <div class="value" style="font-family: monospace;" x-text="selectedClaim?.claimed_local_sakha_number || (selectedClaim?.is_legacy_member ? '(missing — correct before approving)' : '(will be generated on approval)')"></div>
                                                 </div>
                                                 <div class="detail-item">
                                                     <div class="label" x-text="selectedClaim?.claimed_membership_type === 'Darshaka' ? 'Anumati Patra Number' : 'Parichaya Patra Number'"></div>
-                                                    <div class="value" style="font-family: monospace;" x-text="selectedClaim?.claimed_credential_document_number || '(will be auto-generated on approval)'"></div>
+                                                    <div class="value" style="font-family: monospace;" x-text="selectedClaim?.claimed_credential_document_number || (selectedClaim?.is_legacy_member ? '(missing — correct before approving)' : '(will be generated on approval)')"></div>
                                                 </div>
                                             </div>
                                             <div class="detail-grid cols-3">
@@ -2809,8 +2833,12 @@
                                                         <div class="value" x-text="selectedClaim?.darshak_organization_name"></div>
                                                     </div>
                                                     <div class="detail-item">
+                                                        <div class="label">Existing Darshak there before this system?</div>
+                                                        <div class="value" x-text="selectedClaim?.darshak_is_legacy_member ? 'Yes — legacy' : 'No — new there'"></div>
+                                                    </div>
+                                                    <div class="detail-item">
                                                         <div class="label">Local Sakha Number (Darshak Sakha)</div>
-                                                        <div class="value" style="font-family: monospace;" x-text="selectedClaim?.darshak_local_sakha_number || '(not provided)'"></div>
+                                                        <div class="value" style="font-family: monospace;" x-text="selectedClaim?.darshak_local_sakha_number || (selectedClaim?.darshak_is_legacy_member ? '(missing — correct before approving)' : '(will be generated on approval)')"></div>
                                                     </div>
                                                 </div>
                                             </template>
@@ -2910,15 +2938,38 @@
                                                 </div>
                                                 <div class="form-group">
                                                     <label class="form-label">Local Sakha Number</label>
-                                                    <input type="text" class="form-input" x-model="claimEditForm.claimed_local_sakha_number" maxlength="20" style="font-family: monospace;">
+                                                    <label class="remember-label">
+                                                        <input type="checkbox" class="nss-checkbox" x-model="claimEditForm.is_legacy_member">
+                                                        <span>Legacy member (already has a Local Sakha Number and card number)</span>
+                                                    </label>
+                                                    <template x-if="claimEditForm.is_legacy_member">
+                                                        <input type="text" class="form-input" x-model="claimEditForm.claimed_local_sakha_number" maxlength="20" style="font-family: monospace;">
+                                                    </template>
+                                                    <template x-if="!claimEditForm.is_legacy_member">
+                                                        <p class="form-hint">Auto-generated on approval.</p>
+                                                    </template>
                                                 </div>
                                                 <div class="form-group">
                                                     <label class="form-label" x-text="claimEditForm.claimed_membership_type_master_data_pk && credentialLabelFor(claimEditForm.claimed_membership_type_master_data_pk) === 'Anumati Patra' ? 'Anumati Patra Number' : 'Parichaya Patra Number'"></label>
-                                                    <input type="text" class="form-input" x-model="claimEditForm.claimed_credential_document_number" maxlength="30" style="font-family: monospace;" placeholder="Leave blank to auto-generate on approval">
+                                                    <template x-if="claimEditForm.is_legacy_member">
+                                                        <input type="text" class="form-input" x-model="claimEditForm.claimed_credential_document_number" maxlength="30" style="font-family: monospace;" placeholder="Existing number on the card, e.g. 345/2026/2027">
+                                                    </template>
+                                                    <template x-if="!claimEditForm.is_legacy_member">
+                                                        <p class="form-hint">Auto-generated on approval.</p>
+                                                    </template>
                                                 </div>
                                                 <div class="form-group" x-show="selectedClaim?.darshak_organization_name">
                                                     <label class="form-label">Local Sakha Number (Darshak Sakha)</label>
-                                                    <input type="text" class="form-input" x-model="claimEditForm.darshak_local_sakha_number" maxlength="20" style="font-family: monospace;">
+                                                    <label class="remember-label">
+                                                        <input type="checkbox" class="nss-checkbox" x-model="claimEditForm.darshak_is_legacy_member">
+                                                        <span>Legacy Darshak there (already has a number)</span>
+                                                    </label>
+                                                    <template x-if="claimEditForm.darshak_is_legacy_member">
+                                                        <input type="text" class="form-input" x-model="claimEditForm.darshak_local_sakha_number" maxlength="20" style="font-family: monospace;">
+                                                    </template>
+                                                    <template x-if="!claimEditForm.darshak_is_legacy_member">
+                                                        <p class="form-hint">Auto-generated on approval.</p>
+                                                    </template>
                                                 </div>
                                                 <div class="form-group" x-data="nssDatePicker('claimEditForm.claimed_joining_date')" style="position: relative;">
                                                     <label class="form-label">Joining Date</label>
@@ -5534,7 +5585,7 @@
                             <div class="data-card" style="margin-top:1rem;">
                                 <div class="data-card-header">
                                     <h2 class="data-card-title" x-text="'Weekly Sangha Puja — ' + attMarkPuja.sakha_name + ' — ' + attMarkPuja.puja_date"></h2>
-                                    <button class="btn-action" @click="closeMarkAttendance()">Close</button>
+                                    <button class="btn-action" @click="closeMarkAttendance()">Done</button>
                                 </div>
                                 <div class="data-card-body">
                                     <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
@@ -5570,6 +5621,15 @@
                                                 </div>
                                             </div>
 
+                                            <!-- Live progress banner: "N of M marked", save / reconnect notes -->
+                                            <div class="att-live-banner">
+                                                <span class="att-live-progress" x-text="attMarkProgressText"></span>
+                                                <div class="att-bar"><div class="att-bar-fill" :style="'width:' + attMarkProgressPercent + '%'"></div></div>
+                                                <span class="att-live-note warn" x-show="attMarkDirtyCount" x-text="attMarkDirtyCount + ' unsaved'"></span>
+                                                <span class="att-live-note ok" x-show="attMarkSavedNote" x-text="attMarkSavedNote"></span>
+                                                <span class="att-live-note warn" x-show="attLiveReconnecting">Reconnecting&hellip;</span>
+                                            </div>
+
                                             <!-- Quick filter chips + bulk set. Marking everyone
                                                  Present and then correcting the few exceptions is
                                                  far fewer clicks than touching every row; the bulk
@@ -5578,6 +5638,8 @@
                                             <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem; flex-wrap:wrap; align-items:center;">
                                                 <span class="badge" :class="attMarkFilter === 'ALL' ? 'badge-identity' : 'badge-muted'" style="cursor:pointer;"
                                                       @click="attMarkFilter = 'ALL'" x-text="'All (' + attMarkCounts.total + ')'"></span>
+                                                <span class="badge" :class="attMarkFilter === 'NOT_MARKED' ? 'badge-identity' : 'badge-muted'" style="cursor:pointer;"
+                                                      @click="attMarkFilter = 'NOT_MARKED'" x-text="'Not marked (' + attMarkCounts.unmarked + ')'"></span>
                                                 <span class="badge" :class="attMarkFilter === 'PRESENT' ? 'badge-att-present' : 'badge-muted'" style="cursor:pointer;"
                                                       @click="attMarkFilter = 'PRESENT'" x-text="'Present (' + attMarkCounts.present + ')'"></span>
                                                 <span class="badge" :class="attMarkFilter === 'ABSENT' ? 'badge-att-absent' : 'badge-muted'" style="cursor:pointer;"
@@ -5598,10 +5660,9 @@
                                                  also how a cross-Sakha Darshak visitor gets marked
                                                  (they are not in the home roster). This block is kept
                                                  IDENTICAL (modulo indentation) here and in the
-                                                 dashboard Attendance Register in dashboard.html and
-                                                 admin.html — this project has no HTML include
-                                                 mechanism, so if you edit one copy you MUST edit all
-                                                 three. All logic is the shared
+                                                 dashboard Attendance Register in dashboard.html — this
+                                                 project has no HTML include mechanism, so if you edit
+                                                 one copy you MUST edit both. All logic is the shared
                                                  NSSAttendanceRegister mixin. -->
                                             <div style="margin:0 0 0.75rem; position:relative; max-width:32rem;">
                                                 <div class="att-search">
@@ -5642,18 +5703,22 @@
                                                     </thead>
                                                     <tbody>
                                                         <template x-for="row in attMarkHomeRows()" :key="row.sangha_sevi_pk">
-                                                            <tr>
+                                                            <tr :class="{ 'att-row-flash': row.flash, 'att-row-stale': attRowStale(row) }">
                                                                 <td class="font-mono text-sm" x-text="row.sangha_sevi_id"></td>
                                                                 <td class="font-mono text-sm" x-text="row.local_sakha_erp_id || '—'"></td>
-                                                                <td class="font-medium" x-text="row.person_name"></td>
+                                                                <td class="font-medium">
+                                                                    <span x-text="row.person_name"></span>
+                                                                    <div class="att-mark-meta" x-text="attRowMeta(row)"></div>
+                                                                    <div class="att-mark-hint" x-show="attRowStale(row)" x-text="attRowHint(row)"></div>
+                                                                </td>
                                                                 <td style="text-align:center;">
                                                                     <div style="display:inline-flex; gap:0.3rem;">
                                                                         <button type="button" class="att-toggle" :class="{ 'active-present': row.attendance_status_code === 'PRESENT' }"
-                                                                                @click="row.attendance_status_code = 'PRESENT'">P</button>
+                                                                                @click="attMarkTap(row, 'PRESENT')">P</button>
                                                                         <button type="button" class="att-toggle" :class="{ 'active-absent': row.attendance_status_code === 'ABSENT' }"
-                                                                                @click="row.attendance_status_code = 'ABSENT'">A</button>
+                                                                                @click="attMarkTap(row, 'ABSENT')">A</button>
                                                                         <button type="button" class="att-toggle" :class="{ 'active-excused': row.attendance_status_code === 'EXCUSED_ABSENCE' }"
-                                                                                @click="row.attendance_status_code = 'EXCUSED_ABSENCE'">E</button>
+                                                                                @click="attMarkTap(row, 'EXCUSED_ABSENCE')">E</button>
                                                                     </div>
                                                                 </td>
                                                             </tr>
@@ -5675,18 +5740,22 @@
                                                         </thead>
                                                         <tbody>
                                                             <template x-for="row in attMarkDarshakRows()" :key="row.sangha_sevi_pk">
-                                                                <tr>
+                                                                <tr :class="{ 'att-row-flash': row.flash, 'att-row-stale': attRowStale(row) }">
                                                                     <td class="font-mono text-sm" x-text="row.sangha_sevi_id"></td>
-                                                                    <td class="font-medium" x-text="row.person_name"></td>
+                                                                    <td class="font-medium">
+                                                                        <span x-text="row.person_name"></span>
+                                                                        <div class="att-mark-meta" x-text="attRowMeta(row)"></div>
+                                                                        <div class="att-mark-hint" x-show="attRowStale(row)" x-text="attRowHint(row)"></div>
+                                                                    </td>
                                                                     <td x-text="row.home_org_name"></td>
                                                                     <td style="text-align:center;">
                                                                         <div style="display:inline-flex; gap:0.3rem;">
                                                                             <button type="button" class="att-toggle" :class="{ 'active-present': row.attendance_status_code === 'PRESENT' }"
-                                                                                    @click="row.attendance_status_code = 'PRESENT'">P</button>
+                                                                                    @click="attMarkTap(row, 'PRESENT')">P</button>
                                                                             <button type="button" class="att-toggle" :class="{ 'active-absent': row.attendance_status_code === 'ABSENT' }"
-                                                                                    @click="row.attendance_status_code = 'ABSENT'">A</button>
+                                                                                    @click="attMarkTap(row, 'ABSENT')">A</button>
                                                                             <button type="button" class="att-toggle" :class="{ 'active-excused': row.attendance_status_code === 'EXCUSED_ABSENCE' }"
-                                                                                    @click="row.attendance_status_code = 'EXCUSED_ABSENCE'">E</button>
+                                                                                    @click="attMarkTap(row, 'EXCUSED_ABSENCE')">E</button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
@@ -5697,8 +5766,8 @@
                                             </div>
 
                                             <div style="display:flex; justify-content:flex-end; margin-top:1rem;">
-                                                <button class="btn-action primary" :disabled="attMarkSaving" @click="submitMarkAttendance()">
-                                                    <span x-text="attMarkSaving ? 'Saving…' : 'Submit Attendance'"></span>
+                                                <button class="btn-action primary" :disabled="attMarkSaving || !attMarkDirtyCount" @click="submitMarkAttendance()">
+                                                    <span x-text="attMarkSaving ? 'Saving…' : (attMarkDirtyCount ? 'Save ' + attMarkDirtyCount + ' ' + (attMarkDirtyCount === 1 ? 'change' : 'changes') : 'Save')"></span>
                                                 </button>
                                             </div>
                                         </div>

@@ -97,10 +97,15 @@ function registerApp() {
             membership_type_master_data_pk: "",
             organization_pk: "",
             joining_date: "",
+            // Legacy vs new (GDR-009): "yes" | "no" | "" (unanswered). The
+            // payload's is_legacy_member is derived from it — never from
+            // whether a number was typed.
+            legacy_choice: "",
             claimed_local_sakha_number: "",
             claimed_credential_document_number: "",
             is_attending_as_darshak: false,
             darshak_organization_pk: "",
+            darshak_legacy_choice: "",
             darshak_local_sakha_number: "",
             password: "",
         },
@@ -519,23 +524,31 @@ function registerApp() {
                     return;
                 }
 
-                // Local Sakha Number is required for every membership type,
-                // including Darshaka (AUTH-BR-086) — Darshak members get a
-                // number in a separate namespace, not no number at all.
-                // Exception: the standalone Apply-for-Darshak flow never
-                // shows this field — that number is system-generated at
-                // admin approval, not self-reported by the applicant.
-                if (!this.darshakFlow && !this.form.claimed_local_sakha_number.trim()) {
-                    this.error = "Local Sakha Number is required.";
+                // Legacy vs new (GDR-009): the question must be answered in every
+                // flow; a legacy member must give their existing Local Sakha
+                // Number, a new member gives none (auto-generated at approval).
+                if (!this.form.legacy_choice) {
+                    this.error = "Please tell us whether you were already a member of NSS before this system.";
+                    return;
+                }
+                if (this.form.legacy_choice === "yes" && !this.form.claimed_local_sakha_number.trim()) {
+                    this.error = "Local Sakha Number is required for an existing member.";
                     return;
                 }
 
-                // Parichaya Patra Number is mandatory for every membership
-                // type except Darshaka — Darshak members hold an Anumati
-                // Patra instead, which is issued later, not claimed here.
-                if (!this.darshakFlow && !this.isDarshaka() && !this.form.claimed_credential_document_number.trim()) {
-                    this.error = "Parichaya Patra Number is required.";
-                    return;
+                // GDR-009 §2A: a legacy member also gives the Parichaya/Anumati
+                // Patra number on their card (<n>/<yyyy>/<yyyy+1>); a new member
+                // gives none — it is generated on approval.
+                if (this.form.legacy_choice === "yes") {
+                    const m = /^([1-9][0-9]*)\/([0-9]{4})\/([0-9]{4})$/.exec(this.form.claimed_credential_document_number.trim());
+                    if (!m) {
+                        this.error = (this.isDarshaka() ? "Anumati Patra" : "Parichaya Patra") + " Number is required in the form number/year/next year (e.g. 345/2026/2027).";
+                        return;
+                    }
+                    if (Number(m[3]) !== Number(m[2]) + 1) {
+                        this.error = "The two years in the card number must be consecutive (e.g. 345/2026/2027).";
+                        return;
+                    }
                 }
 
                 // Darshak attendance: must have org + its own local number
@@ -544,8 +557,12 @@ function registerApp() {
                         this.error = "Select the Sakha you are attending as Darshak.";
                         return;
                     }
-                    if (!this.form.darshak_local_sakha_number.trim()) {
-                        this.error = "Local Sakha Number at the Darshak Sakha is required.";
+                    if (!this.form.darshak_legacy_choice) {
+                        this.error = "Please tell us whether you were already a Darshak at that Sakha.";
+                        return;
+                    }
+                    if (this.form.darshak_legacy_choice === "yes" && !this.form.darshak_local_sakha_number.trim()) {
+                        this.error = "Local Sakha Number at the Darshak Sakha is required for an existing Darshak.";
                         return;
                     }
                 }
@@ -554,15 +571,35 @@ function registerApp() {
             this.step = 3;
         },
 
+        // Legacy-vs-new claim fields (GDR-009) shared by POST /register and
+        // POST /register/claim: the explicit flag comes from the radio answer,
+        // and the Local Sakha Number + Patra number are sent only for a legacy
+        // member (the server 422s a number sent with legacy=false).
+        applyLegacyFields(payload) {
+            const legacy = this.form.legacy_choice === "yes";
+            payload.is_legacy_member = legacy;
+            if (legacy) {
+                payload.claimed_local_sakha_number = this.form.claimed_local_sakha_number.trim();
+                payload.claimed_credential_document_number = this.form.claimed_credential_document_number.trim();
+            }
+            if (this.form.is_attending_as_darshak && this.form.darshak_organization_pk) {
+                const dLegacy = this.form.darshak_legacy_choice === "yes";
+                payload.darshak_is_legacy_member = dLegacy;
+                if (dLegacy) payload.darshak_local_sakha_number = this.form.darshak_local_sakha_number.trim();
+            }
+        },
+
         // ── Reset membership-dependent fields when type changes ────
 
         onMembershipTypeChange() {
             // Reset Local Sakha Number when switching types
+            this.form.legacy_choice = "";
             this.form.claimed_local_sakha_number = "";
             this.form.claimed_credential_document_number = "";
             // Reset darshak fields
             this.form.is_attending_as_darshak = false;
             this.form.darshak_organization_pk = "";
+            this.form.darshak_legacy_choice = "";
             this.form.darshak_local_sakha_number = "";
         },
 
@@ -606,18 +643,10 @@ function registerApp() {
                     password: this.form.password,
                 };
                 if (this.form.joining_date) payload.joining_date = this.form.joining_date;
-                if (this.form.claimed_local_sakha_number.trim()) {
-                    payload.claimed_local_sakha_number = this.form.claimed_local_sakha_number.trim();
-                }
-                if (this.form.claimed_credential_document_number.trim()) {
-                    payload.claimed_credential_document_number = this.form.claimed_credential_document_number.trim();
-                }
+                this.applyLegacyFields(payload);
                 if (this.form.is_attending_as_darshak && this.form.darshak_organization_pk) {
                     payload.is_attending_as_darshak = true;
                     payload.darshak_organization_pk = this.form.darshak_organization_pk;
-                    if (this.form.darshak_local_sakha_number.trim()) {
-                        payload.darshak_local_sakha_number = this.form.darshak_local_sakha_number.trim();
-                    }
                 }
 
                 const res = await fetch("/api/v1/register/claim", {
@@ -702,23 +731,13 @@ function registerApp() {
                         payload.joining_date = this.form.joining_date;
                     }
 
-                    // Local Sakha Number (claim — not validated)
-                    if (this.form.claimed_local_sakha_number.trim()) {
-                        payload.claimed_local_sakha_number = this.form.claimed_local_sakha_number.trim();
-                    }
-
-                    // Existing Parichaya/Anumati Patra number, if already issued
-                    if (this.form.claimed_credential_document_number.trim()) {
-                        payload.claimed_credential_document_number = this.form.claimed_credential_document_number.trim();
-                    }
+                    // Legacy flags + existing numbers (admin verifies at approval)
+                    this.applyLegacyFields(payload);
 
                     // Darshak attendance
                     if (this.form.is_attending_as_darshak && this.form.darshak_organization_pk) {
                         payload.is_attending_as_darshak = true;
                         payload.darshak_organization_pk = this.form.darshak_organization_pk;
-                        if (this.form.darshak_local_sakha_number.trim()) {
-                            payload.darshak_local_sakha_number = this.form.darshak_local_sakha_number.trim();
-                        }
                     }
                 }
 

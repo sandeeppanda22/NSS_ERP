@@ -931,58 +931,72 @@
                         </p>
                     </div>
 
-                    <!-- Local Sakha Number — shown AFTER Sakha is selected (AUTH-BR-085).
-                         Not shown for the standalone Apply-for-Darshak flow: that
-                         number is system-generated at admin approval, not
-                         self-reported by the applicant. -->
-                    <template x-if="form.organization_pk && !darshakFlow">
+                    <!-- Legacy vs new (GDR-009): "Were you already a member before this
+                         system?" Yes -> the Local Sakha Number on the member's card is
+                         required; No -> it is assigned automatically at approval. Asked
+                         in every flow (full registration, claim-later, Apply for
+                         Darshak) once the Sakha is selected (AUTH-BR-085). -->
+                    <template x-if="form.organization_pk">
                         <div class="form-group">
                             <label class="reg-label">
-                                Local Sakha Number
+                                Were you already a member of NSS before this system? (Regular or Darshak)
                                 <span>*</span>
                             </label>
-                            <input type="text" x-model="form.claimed_local_sakha_number"
-                                   placeholder="Your local number in this Sakha"
-                                   class="reg-input"
-                                   :disabled="loading"
-                                   maxlength="20">
-                            <p class="pw-requirements" style="margin-top: 0.25rem;">
-                                <template x-if="isDarshaka()">
-                                    <span>Enter your Darshak number in this Sakha. Your Sakha admin will verify this.</span>
-                                </template>
-                                <template x-if="!isDarshaka()">
-                                    <span>Enter the number from your Parichaya Patra. Your Sakha admin will verify this.</span>
-                                </template>
-                            </p>
-                        </div>
-                    </template>
-
-                    <!-- Existing Parichaya/Anumati Patra number. Mandatory for every
-                         membership type except Darshaka — Darshak members hold an
-                         Anumati Patra issued later, not claimed at registration.
-                         Distinct from Local Sakha Number: this is the annual
-                         Kendra/Sakha-wide credential number, not the Tier 2
-                         per-Sakha identity. Not shown for the standalone
-                         Apply-for-Darshak flow — the Anumati Patra number is
-                         system-generated at admin approval, not self-reported. -->
-                    <template x-if="form.organization_pk && !darshakFlow">
-                        <div class="form-group">
-                            <label class="reg-label">
-                                <span x-text="isDarshaka() ? 'Anumati Patra Number' : 'Parichaya Patra Number'"></span>
-                                <span x-show="!isDarshaka()"> *</span>
-                                <span x-show="isDarshaka()" style="font-size: 0.75rem; color: #9ca3af; font-weight: normal;">(if already issued)</span>
-                            </label>
-                            <input type="text" x-model="form.claimed_credential_document_number"
-                                   placeholder="e.g. 345"
-                                   class="reg-input"
-                                   :disabled="loading"
-                                   :required="!isDarshaka()"
-                                   inputmode="numeric"
-                                   maxlength="30">
-                            <p class="pw-requirements" style="margin-top: 0.25rem;">
-                                <span x-show="!isDarshaka()">Enter just the number — the year is added automatically.</span>
-                                <span x-show="isDarshaka()">Enter just the number — the year is added automatically. Leave blank if you don't have one yet;</span>
-                            </p>
+                            <div style="display: flex; gap: 1.25rem; margin-top: 0.25rem;">
+                                <label class="remember-label">
+                                    <input type="radio" class="nss-radio" name="legacy_choice" value="yes"
+                                           x-model="form.legacy_choice" :disabled="loading">
+                                    <span>Yes, I already have a Local Sakha Number and card number</span>
+                                </label>
+                                <label class="remember-label">
+                                    <input type="radio" class="nss-radio" name="legacy_choice" value="no"
+                                           x-model="form.legacy_choice" :disabled="loading">
+                                    <span>No, I am new</span>
+                                </label>
+                            </div>
+                            <template x-if="form.legacy_choice === 'yes'">
+                                <div style="margin-top: 0.5rem;">
+                                    <label class="reg-label">
+                                        Local Sakha Number
+                                        <span>*</span>
+                                    </label>
+                                    <input type="text" x-model="form.claimed_local_sakha_number"
+                                           placeholder="Your existing local number in this Sakha"
+                                           class="reg-input"
+                                           :disabled="loading"
+                                           maxlength="20">
+                                    <p class="pw-requirements" style="margin-top: 0.25rem;">
+                                        <template x-if="isDarshaka()">
+                                            <span>Enter your existing Darshak number in this Sakha. Your Sakha admin will verify this.</span>
+                                        </template>
+                                        <template x-if="!isDarshaka()">
+                                            <span>Enter the number from your Parichaya Patra. Your Sakha admin will verify this.</span>
+                                        </template>
+                                    </p>
+                                </div>
+                                <!-- Existing Parichaya/Anumati Patra ("Kendra") number, same legacy
+                                     answer (GDR-009 §2A). Distinct from the Local Sakha Number: it is
+                                     the annual NSS-wide card number, <number>/<year>/<next year>. -->
+                                <div style="margin-top: 0.5rem;">
+                                    <label class="reg-label">
+                                        <span x-text="isDarshaka() ? 'Anumati Patra Number' : 'Parichaya Patra Number'"></span>
+                                        <span>*</span>
+                                    </label>
+                                    <input type="text" x-model="form.claimed_credential_document_number"
+                                           placeholder="e.g. 345/2026/2027"
+                                           class="reg-input"
+                                           :disabled="loading"
+                                           maxlength="30">
+                                    <p class="pw-requirements" style="margin-top: 0.25rem;">
+                                        Enter the number exactly as printed on your card: number/year/next year (e.g. 345/2026/2027). Your Sakha admin will verify this.
+                                    </p>
+                                </div>
+                            </template>
+                            <template x-if="form.legacy_choice === 'no'">
+                                <p class="pw-requirements" style="margin-top: 0.5rem;">
+                                    Your Local Sakha Number and your <span x-text="isDarshaka() ? 'Anumati Patra' : 'Parichaya Patra'"></span> number will be assigned automatically when your Sakha admin approves your registration.
+                                </p>
+                            </template>
                         </div>
                     </template>
 
@@ -1000,7 +1014,16 @@
                          Contact Information / Address — so this one card
                          doesn't read as a single unbroken wall of fields. -->
                 </div>
-                <div class="reg-group-col" x-show="!darshakFlow">
+                <!-- GDR-009 §2B: a Darshaka cannot attend another Sakha as a Darshak
+                     (attending elsewhere means transferring), so the attendance
+                     section is only offered to Regular/Associate members. -->
+                <div class="reg-group-col" x-show="!darshakFlow && form.membership_type_master_data_pk && isDarshaka()">
+                    <hr class="reg-divider reg-divider-stack-only">
+                    <p class="pw-requirements">
+                        A Darshaka who attends another Sakha must transfer to it — use Sakha Transfer from your dashboard after approval.
+                    </p>
+                </div>
+                <div class="reg-group-col" x-show="!darshakFlow && !isDarshaka()">
 
                     <hr class="reg-divider reg-divider-stack-only">
 
@@ -1042,15 +1065,37 @@
                                 </p>
                             </div>
                             <div class="form-group">
-                                <label class="reg-label">Local Sakha Number at Darshak Sakha *</label>
-                                <input type="text" x-model="form.darshak_local_sakha_number"
-                                       placeholder="Your local number at the Darshak Sakha"
-                                       class="reg-input"
-                                       :disabled="loading"
-                                       maxlength="20">
-                                <p class="pw-requirements" style="margin-top: 0.25rem;">
-                                    <span>Enter the number this Sakha has assigned you as a Darshak. Its admin will verify this.</span>
-                                </p>
+                                <label class="reg-label">Were you already a Darshak at this Sakha before this system? *</label>
+                                <div style="display: flex; gap: 1.25rem; margin-top: 0.25rem;">
+                                    <label class="remember-label">
+                                        <input type="radio" class="nss-radio" name="darshak_legacy_choice" value="yes"
+                                               x-model="form.darshak_legacy_choice" :disabled="loading">
+                                        <span>Yes, I already have a number there</span>
+                                    </label>
+                                    <label class="remember-label">
+                                        <input type="radio" class="nss-radio" name="darshak_legacy_choice" value="no"
+                                               x-model="form.darshak_legacy_choice" :disabled="loading">
+                                        <span>No, I am new there</span>
+                                    </label>
+                                </div>
+                                <template x-if="form.darshak_legacy_choice === 'yes'">
+                                    <div style="margin-top: 0.5rem;">
+                                        <label class="reg-label">Local Sakha Number at Darshak Sakha *</label>
+                                        <input type="text" x-model="form.darshak_local_sakha_number"
+                                               placeholder="Your existing local number at the Darshak Sakha"
+                                               class="reg-input"
+                                               :disabled="loading"
+                                               maxlength="20">
+                                        <p class="pw-requirements" style="margin-top: 0.25rem;">
+                                            <span>Enter the number this Sakha has already assigned you as a Darshak. Its admin will verify this.</span>
+                                        </p>
+                                    </div>
+                                </template>
+                                <template x-if="form.darshak_legacy_choice === 'no'">
+                                    <p class="pw-requirements" style="margin-top: 0.5rem;">
+                                        Your Darshak Local Sakha Number at this Sakha will be assigned automatically on approval.
+                                    </p>
+                                </template>
                             </div>
                         </div>
                     </template>

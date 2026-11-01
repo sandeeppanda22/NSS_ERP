@@ -1610,7 +1610,7 @@
                              Transfer / MBR-049 Apply for Darshak) — opens
                              the shared Change Request modal below. -->
                         <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                            <button @click="applyDarshak()" class="nss-hover-fade" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                            <button x-show="member?.membership_type_code !== 'PROBATIONARY'" @click="applyDarshak()" class="nss-hover-fade" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/></svg>
                                 Apply for Darshak (at another Sangha)
                             </button>
@@ -3588,7 +3588,7 @@
                                 <div class="data-card">
                                     <div class="data-card-header">
                                         <h3 class="data-card-title" x-text="'Weekly Sangha Puja — ' + attMarkPuja.puja_date"></h3>
-                                        <button type="button" class="btn-action" @click="closeMarkAttendance()">Close</button>
+                                        <button type="button" class="btn-action" @click="closeMarkAttendance()">Done</button>
                                     </div>
                                     <div class="data-card-body">
                                         <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
@@ -3624,10 +3624,21 @@
                                                     </div>
                                                 </div>
 
+                                                <!-- Live progress banner: "N of M marked", save / reconnect notes -->
+                                                <div class="att-live-banner">
+                                                    <span class="att-live-progress" x-text="attMarkProgressText"></span>
+                                                    <div class="att-bar"><div class="att-bar-fill" :style="'width:' + attMarkProgressPercent + '%'"></div></div>
+                                                    <span class="att-live-note warn" x-show="attMarkDirtyCount" x-text="attMarkDirtyCount + ' unsaved'"></span>
+                                                    <span class="att-live-note ok" x-show="attMarkSavedNote" x-text="attMarkSavedNote"></span>
+                                                    <span class="att-live-note warn" x-show="attLiveReconnecting">Reconnecting&hellip;</span>
+                                                </div>
+
                                                 <!-- Quick filter chips + bulk set -->
                                                 <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem; flex-wrap:wrap; align-items:center;">
                                                     <span class="badge" :class="attMarkFilter === 'ALL' ? 'badge-identity' : 'badge-muted'" style="cursor:pointer;"
                                                           @click="attMarkFilter = 'ALL'" x-text="'All (' + attMarkCounts.total + ')'"></span>
+                                                    <span class="badge" :class="attMarkFilter === 'NOT_MARKED' ? 'badge-identity' : 'badge-muted'" style="cursor:pointer;"
+                                                          @click="attMarkFilter = 'NOT_MARKED'" x-text="'Not marked (' + attMarkCounts.unmarked + ')'"></span>
                                                     <span class="badge" :class="attMarkFilter === 'PRESENT' ? 'badge-att-present' : 'badge-muted'" style="cursor:pointer;"
                                                           @click="attMarkFilter = 'PRESENT'" x-text="'Present (' + attMarkCounts.present + ')'"></span>
                                                     <span class="badge" :class="attMarkFilter === 'ABSENT' ? 'badge-att-absent' : 'badge-muted'" style="cursor:pointer;"
@@ -3681,18 +3692,22 @@
                                                         </thead>
                                                         <tbody>
                                                             <template x-for="row in attMarkHomeRows()" :key="row.sangha_sevi_pk">
-                                                                <tr>
+                                                                <tr :class="{ 'att-row-flash': row.flash, 'att-row-stale': attRowStale(row) }">
                                                                     <td class="font-mono text-sm" x-text="row.sangha_sevi_id"></td>
                                                                     <td class="font-mono text-sm" x-text="row.local_sakha_erp_id || '—'"></td>
-                                                                    <td class="font-medium" x-text="row.person_name"></td>
+                                                                    <td class="font-medium">
+                                                                        <span x-text="row.person_name"></span>
+                                                                        <div class="att-mark-meta" x-text="attRowMeta(row)"></div>
+                                                                        <div class="att-mark-hint" x-show="attRowStale(row)" x-text="attRowHint(row)"></div>
+                                                                    </td>
                                                                     <td style="text-align:center;">
                                                                         <div style="display:inline-flex; gap:0.3rem;">
                                                                             <button type="button" class="att-toggle" :class="{ 'active-present': row.attendance_status_code === 'PRESENT' }"
-                                                                                    @click="row.attendance_status_code = 'PRESENT'">P</button>
+                                                                                    @click="attMarkTap(row, 'PRESENT')">P</button>
                                                                             <button type="button" class="att-toggle" :class="{ 'active-absent': row.attendance_status_code === 'ABSENT' }"
-                                                                                    @click="row.attendance_status_code = 'ABSENT'">A</button>
+                                                                                    @click="attMarkTap(row, 'ABSENT')">A</button>
                                                                             <button type="button" class="att-toggle" :class="{ 'active-excused': row.attendance_status_code === 'EXCUSED_ABSENCE' }"
-                                                                                    @click="row.attendance_status_code = 'EXCUSED_ABSENCE'">E</button>
+                                                                                    @click="attMarkTap(row, 'EXCUSED_ABSENCE')">E</button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
@@ -3714,18 +3729,22 @@
                                                             </thead>
                                                             <tbody>
                                                                 <template x-for="row in attMarkDarshakRows()" :key="row.sangha_sevi_pk">
-                                                                    <tr>
+                                                                    <tr :class="{ 'att-row-flash': row.flash, 'att-row-stale': attRowStale(row) }">
                                                                         <td class="font-mono text-sm" x-text="row.sangha_sevi_id"></td>
-                                                                        <td class="font-medium" x-text="row.person_name"></td>
+                                                                        <td class="font-medium">
+                                                                            <span x-text="row.person_name"></span>
+                                                                            <div class="att-mark-meta" x-text="attRowMeta(row)"></div>
+                                                                            <div class="att-mark-hint" x-show="attRowStale(row)" x-text="attRowHint(row)"></div>
+                                                                        </td>
                                                                         <td x-text="row.home_org_name"></td>
                                                                         <td style="text-align:center;">
                                                                             <div style="display:inline-flex; gap:0.3rem;">
                                                                                 <button type="button" class="att-toggle" :class="{ 'active-present': row.attendance_status_code === 'PRESENT' }"
-                                                                                        @click="row.attendance_status_code = 'PRESENT'">P</button>
+                                                                                        @click="attMarkTap(row, 'PRESENT')">P</button>
                                                                                 <button type="button" class="att-toggle" :class="{ 'active-absent': row.attendance_status_code === 'ABSENT' }"
-                                                                                        @click="row.attendance_status_code = 'ABSENT'">A</button>
+                                                                                        @click="attMarkTap(row, 'ABSENT')">A</button>
                                                                                 <button type="button" class="att-toggle" :class="{ 'active-excused': row.attendance_status_code === 'EXCUSED_ABSENCE' }"
-                                                                                        @click="row.attendance_status_code = 'EXCUSED_ABSENCE'">E</button>
+                                                                                        @click="attMarkTap(row, 'EXCUSED_ABSENCE')">E</button>
                                                                             </div>
                                                                         </td>
                                                                     </tr>
@@ -3736,8 +3755,8 @@
                                                 </div>
 
                                                 <div style="display:flex; justify-content:flex-end; margin-top:1rem;">
-                                                    <button type="button" class="btn-action primary" :disabled="attMarkSaving" @click="submitMarkAttendance()">
-                                                        <span x-text="attMarkSaving ? 'Saving…' : 'Submit Attendance'"></span>
+                                                    <button type="button" class="btn-action primary" :disabled="attMarkSaving || !attMarkDirtyCount" @click="submitMarkAttendance()">
+                                                        <span x-text="attMarkSaving ? 'Saving…' : (attMarkDirtyCount ? 'Save ' + attMarkDirtyCount + ' ' + (attMarkDirtyCount === 1 ? 'change' : 'changes') : 'Save')"></span>
                                                     </button>
                                                 </div>
                                             </div>

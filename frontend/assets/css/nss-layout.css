@@ -904,6 +904,22 @@ tr.row-inactive:hover { opacity: 0.75; }
 .att-toggle.active-absent  { background: #dc2626; color: #fff; border-color: #dc2626; }
 .att-toggle.active-excused { background: #d97706; color: #fff; border-color: #d97706; }
 
+/* Live Attendance Register (several markers, one Sakha): progress banner,
+   per-row attribution ("by <name>, <time>"), the flash when a row updates
+   from another marker's Save, and the inline hint on a row whose server
+   state changed under this marker's unsaved edit. */
+.att-live-banner { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.att-live-banner .att-bar { width: 10rem; }
+.att-live-progress { font-size: 0.9rem; font-weight: 600; color: #1B2A4A; }
+.att-live-note { font-size: 0.75rem; color: #6b7280; }
+.att-live-note.warn { color: #b45309; }
+.att-live-note.ok { color: #15803d; font-weight: 600; }
+.att-mark-meta { font-size: 0.7rem; font-weight: 400; color: #6b7280; }
+.att-mark-hint { font-size: 0.72rem; font-weight: 500; color: #b45309; }
+@keyframes att-row-flash { from { background-color: #fef08a; } to { background-color: transparent; } }
+.att-row-flash { animation: att-row-flash 1.6s ease-out; }
+.att-row-stale { background-color: #fffbeb; }
+
 /* Member-search widget shared by every Attendance search box (owner ask
    2026-10-28 "redo the search box ... make it more professional"): the
    Attendance Register's search-to-add (both the Administration tab and

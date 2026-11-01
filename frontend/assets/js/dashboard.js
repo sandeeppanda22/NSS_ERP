@@ -680,6 +680,7 @@ function dashboardApp() {
             return this.loadAttRegPujas();
         },
 
+
         // ── Governance tab (read-only, all logged-in users) ──
         // 4 bodies: the 3 NSS-wide singletons + the viewer's own Sakha
         // Governing Body, each with current composition. Public endpoint,
@@ -2405,6 +2406,9 @@ function dashboardApp() {
         // and open the shared modal; openChangeRequestModal() does the
         // rest.
         applyDarshak() {
+            // GDR-009 §2B: a Darshaka who attends another Sakha transfers
+            // instead (the button is hidden for PROBATIONARY; the API 422s).
+            if (this.member?.membership_type_code === "PROBATIONARY") return;
             this.openChangeRequestModal("DARSHAK");
         },
 

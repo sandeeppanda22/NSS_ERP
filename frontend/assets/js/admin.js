@@ -137,10 +137,10 @@ function adminApp() {
             // (e.g. a person who isn't becoming a member right now).
             sangha_sevi_pk: "", sangha_sevi_skipped: false,
             membership_type_pk: "", organization_pk: "",
-            joining_date: "", local_sakha_number: "",
+            joining_date: "", is_legacy_member: false, local_sakha_number: "",
             // Mandatory credential (MBR-010/014/019A/B) — see
             // credentialLabelFor(). Same fields/defaults as ssForm above.
-            credential_is_legacy: false, credential_document_number: "",
+            credential_document_number: "",
         },
         createLoading: false,
         createSSLoading: false,
@@ -202,12 +202,11 @@ function adminApp() {
         // ── Create Sangha Sevi ────────────────────────────────
         ssForm: {
             person_pk: "", membership_type_pk: "", organization_pk: "",
-            joining_date: "", local_sakha_number: "",
+            joining_date: "", is_legacy_member: false, local_sakha_number: "",
             // Mandatory credential (MBR-010/014/019A/B) — see
-            // credentialLabelFor(). Leave credential_is_legacy false (the
-            // default) to auto-generate a new FY document number; check it
-            // to record an already-issued legacy credential by hand.
-            credential_is_legacy: false, credential_document_number: "",
+            // credentialLabelFor(). Entered only for a legacy member
+            // (is_legacy_member above); otherwise auto-generated (GDR-009 §2A).
+            credential_document_number: "",
             // Optional bundled login-account creation. Login is by
             // sangha_sevi_id, so the SS flow is the right place to offer it.
             create_user_account: false, password: "", force_password_change: true,
@@ -821,6 +820,7 @@ function adminApp() {
         _afterAttendanceSaved() {
             return this.loadAttPujas();
         },
+
 
         // When the admin's scope resolves to exactly one Sakha, the puja
         // form / filters / stats pick it automatically and show it as
@@ -1880,12 +1880,25 @@ function adminApp() {
         // the server resolves the issue date itself (a Parichaya Patra on the
         // governing Dola Purnima, an Anumati Patra on the day of application —
         // SOL-ARCH-013 FC-DECISION-01). Only the legacy number is sent, and
-        // only when the operator checked "already has one" and typed it in.
+        // only for a legacy member (the same is_legacy_member flag as the Local
+        // Sakha Number — GDR-009 §2A); the server 422s a number sent without it.
         _credentialPayloadFields(form) {
             const fields = {};
-            if (form.credential_is_legacy) {
+            if (form.is_legacy_member) {
                 const num = String(form.credential_document_number || "").trim();
                 if (num) fields.credential_document_number = num;
+            }
+            return fields;
+        },
+
+        // Legacy-vs-new Local Sakha Number (GDR-009), shared by Create User
+        // step 2 and Create Sangha Sevi: the explicit flag is always sent; the
+        // number only for a legacy member (the server 422s a number sent
+        // with legacy=false and a legacy member without one).
+        _localNumberPayloadFields(form) {
+            const fields = { is_legacy_member: !!form.is_legacy_member };
+            if (form.is_legacy_member) {
+                fields.local_sakha_erp_id = String(form.local_sakha_number || "").trim();
             }
             return fields;
         },
@@ -1902,9 +1915,8 @@ function adminApp() {
                     organization_pk: f.organization_pk,
                     joining_date: f.joining_date,
                     ...this._credentialPayloadFields(f),
+                    ...this._localNumberPayloadFields(f),
                 };
-                const num = String(f.local_sakha_number || "").trim();
-                if (num) payload.local_sakha_erp_id = num;
 
                 const res = await NSSAuth.apiFetch("/api/v1/admin/sangha-sevi", {
                     method: "POST",
@@ -1961,8 +1973,8 @@ function adminApp() {
                     person_pk: "", password: "", force_password_change: true,
                     sangha_sevi_pk: "", sangha_sevi_skipped: false,
                     membership_type_pk: "", organization_pk: "",
-                    joining_date: "", local_sakha_number: "",
-                    credential_is_legacy: false, credential_document_number: "",
+                    joining_date: "", is_legacy_member: false, local_sakha_number: "",
+                    credential_document_number: "",
                 };
                 this.selectedPersonDisplay = {};
                 this.personSearchResults = [];
@@ -2099,12 +2111,9 @@ function adminApp() {
                     organization_pk: this.ssForm.organization_pk,
                     joining_date: this.ssForm.joining_date,
                     ...this._credentialPayloadFields(this.ssForm),
+                    // Raw local number (legacy only) — backend composes <short_code><number>
+                    ...this._localNumberPayloadFields(this.ssForm),
                 };
-                // Send raw local number — backend composes <short_code><number>
-                const num = String(this.ssForm.local_sakha_number || "").trim();
-                if (num) {
-                    payload.local_sakha_erp_id = num;
-                }
 
                 // Optional bundled login-account creation (requires the
                 // caller to hold ADMIN_USER_MANAGE — the backend enforces it
@@ -2135,8 +2144,8 @@ function adminApp() {
                 // Reset form
                 this.ssForm = {
                     person_pk: "", membership_type_pk: "", organization_pk: "",
-                    joining_date: "", local_sakha_number: "",
-                    credential_is_legacy: false, credential_document_number: "",
+                    joining_date: "", is_legacy_member: false, local_sakha_number: "",
+                    credential_document_number: "",
                     create_user_account: false, password: "", force_password_change: true,
                 };
                 this.ssSelectedPerson = {};
@@ -3841,9 +3850,11 @@ function adminApp() {
                 last_name: nameParts.length > 1 ? nameParts[nameParts.length - 1] : "",
                 claimed_organization_pk: c.claimed_organization_pk || "",
                 claimed_membership_type_master_data_pk: c.claimed_membership_type_master_data_pk || "",
+                is_legacy_member: !!c.is_legacy_member,
                 claimed_local_sakha_number: c.claimed_local_sakha_number || "",
                 claimed_credential_document_number: c.claimed_credential_document_number || "",
                 claimed_joining_date: c.claimed_joining_date || "",
+                darshak_is_legacy_member: !!c.darshak_is_legacy_member,
                 darshak_local_sakha_number: c.darshak_local_sakha_number || "",
                 country_phone_code: c.country_phone_code || NSS.DEFAULT_COUNTRY_CODE,
                 mobile_number: c.mobile_number || "",
@@ -3886,12 +3897,23 @@ function adminApp() {
                     payload.claimed_organization_pk = f.claimed_organization_pk;
                 if (f.claimed_membership_type_master_data_pk !== (c.claimed_membership_type_master_data_pk || ""))
                     payload.claimed_membership_type_master_data_pk = f.claimed_membership_type_master_data_pk;
+                // Legacy rule (GDR-009): an unchecked flag means NO number — the
+                // server validates flag+number together, so send them together.
+                if (!f.is_legacy_member) {
+                    f.claimed_local_sakha_number = "";
+                    f.claimed_credential_document_number = "";
+                }
+                if (!f.darshak_is_legacy_member) f.darshak_local_sakha_number = "";
+                if (f.is_legacy_member !== !!c.is_legacy_member)
+                    payload.is_legacy_member = f.is_legacy_member;
                 if (f.claimed_local_sakha_number !== (c.claimed_local_sakha_number || ""))
                     payload.claimed_local_sakha_number = f.claimed_local_sakha_number;
                 if (f.claimed_credential_document_number !== (c.claimed_credential_document_number || ""))
                     payload.claimed_credential_document_number = f.claimed_credential_document_number;
                 if (f.claimed_joining_date !== (c.claimed_joining_date || ""))
                     payload.claimed_joining_date = f.claimed_joining_date;
+                if (f.darshak_is_legacy_member !== !!c.darshak_is_legacy_member)
+                    payload.darshak_is_legacy_member = f.darshak_is_legacy_member;
                 if (f.darshak_local_sakha_number !== (c.darshak_local_sakha_number || ""))
                     payload.darshak_local_sakha_number = f.darshak_local_sakha_number;
 
