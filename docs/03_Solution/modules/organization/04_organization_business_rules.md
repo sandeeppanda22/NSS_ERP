@@ -1621,7 +1621,7 @@ future local `MAHILA_SANGHA`) carry no code at all (ORG-BR-104). Unique apex typ
 
 # 36. Advisory Board Organization, and Sakha Re-Parenting Approval (owner-directed, 2026-10-30)
 
-> Recorded as GDR-005, GDR-006, GDR-007 (status `Proposed` — NSS Governing Body ratification not verified).
+> Recorded as GDR-005, GDR-006, GDR-007 (status `Approved` 2026-11-01 on the project owner's instruction).
 
 ## ORG-BR-106 — Advisory Board Is a Singleton Organization
 

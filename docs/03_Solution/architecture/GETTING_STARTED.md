@@ -583,11 +583,11 @@ claims whose legacy flag disagrees with the stored number. Diagnostic SELECTs ar
 
 # 8. Open Items and Pending Decisions
 
-- **GDR-005 .. GDR-009 are `Proposed`, not `Approved`** (`docs/00_Project_Governance/GDR/`): Advisory Board as a
+- **GDR-005 .. GDR-009 are `Approved`** (2026-11-01, on the project owner's instruction; `docs/00_Project_Governance/GDR/`): Advisory Board as a
   singleton organization (005), NULL-organization administrative scopes (006), Sakha re-parenting requires the
   President chain (007), Sakha Asana is a Sakha for all organizational purposes (008), legacy members supply
-  their Local Sakha Number while all others are auto-numbered (009). They await NSS Governing Body ratification;
-  the code already implements them.
+  their Local Sakha Number while all others are auto-numbered (009). The repo holds no separate NSS Governing Body
+  minutes; add their reference to each record if they exist. The code already implements them.
 - **Rate-limit fix 1 and adaptive polling fix 2 are not built.** The live attendance register still polls at a
   fixed 2 s interval under a flat per-IP limit; a per-route limit and an adaptive/back-off poll cadence are the
   proposed follow-ups.

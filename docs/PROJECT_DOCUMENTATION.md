@@ -386,7 +386,7 @@ Every enrollment path now goes through `api/helpers.py::create_sangha_sevi_with_
 `05_membership/20_home_affiliation_guard.sql` enforces it at COMMIT. Rows created before the fix are not
 repaired automatically — `03_validate` WARNs and `database/scripts/README.md` has the diagnostic SELECT.
 
-**Legacy vs new Local Sakha Number (GDR-009, Proposed — owner 2026-11-01; amends AUTH-BR-086 and MBR-030/030C/048).**
+**Legacy vs new Local Sakha Number (GDR-009, Approved 2026-11-01 on the owner's instruction; amends AUTH-BR-086 and MBR-030/030C/048).**
 A member who was ALREADY a member (Regular/Associate or Darshak) before this app supplies the number on their
 card; everyone else is auto-numbered by the shared allocator and must send none. The status is an explicit
 flag, never inferred: `registration_claim.is_legacy_member` (home Sakha) and `darshak_is_legacy_member`
@@ -601,13 +601,13 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   SAKHA_SANGHA + SAKHA_ASANA for governing body, President, members, attendance, correspondence and
   re-parenting; never hard-code `'SAKHA_SANGHA'` (`tests/api/test_sakha_asana_parity.py` enforces an
   allow-list). The wing parents (Kumari, Sevak, local Mahila Sangha, Paribarik Asana) are the same
-  Sakha-like set in `ALLOWED_PARENT_TYPES` (owner 2026-10-31, GDR-008 `Proposed`; amends ORG-BR-091/092/094);
+  Sakha-like set in `ALLOWED_PARENT_TYPES` (owner 2026-10-31, GDR-008 `Approved`; amends ORG-BR-091/092/094);
   the Kumari/Sevak one-per-parent trigger needed no change. Still SAKHA_SANGHA-specific on purpose: ORG-BR-096
   (an Asana is never created via `create_organization`), ORG-BR-098 premises, id-sequence/code generation.
 - **Null-organization scopes:** `rbac_service.NULL_ORG_SCOPE_ORG_TYPE` / `NULL_ORG_SCOPE_BODY_TYPES` map
   `KENDRA_MAHILA_SANGHA` and `ADVISORY_BOARD` to organizations/bodies; `ADVISORY_BOARD` org
   `organization_name` is immutable (`helpers.require_org_name_mutable`). Decisions are recorded in
-  GDR-005/006/007/008, all status `Proposed` (NSS Governing Body ratification not verified).
+  GDR-005..009, all status `Approved` (2026-11-01, on the project owner's instruction; no separate NSS Governing Body minutes in the repo).
 - **ORG-BR-099:** Anchalika/Zilla/Patha Chakra organizations may carry country/state/district but
   never a premises address (DB-trigger enforced).
 - **Search:** member search is 7-field, person search 4-field, trigram threshold 0.45;
@@ -652,7 +652,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 **Release / process**
 - Commit the uncommitted 2026-10-30/31 work (`git status`), then decide when `feature/tier6-governance`
   merges to `develop` and is released.
-- Ratification of GDR-005/006/007/008 by the NSS Governing Body (still `Proposed`).
+- Add the NSS Governing Body's own approval reference to GDR-005..009 if its minutes exist (the records are `Approved` on the project owner's instruction).
 - Advisory Board meetings and decisions are not modelled (planned inside Programmes & Events, Module #21;
   owner to specify the fields).
 - Existing DBs: run the diagnostic SELECT in `database/scripts/README.md` for duplicate singleton

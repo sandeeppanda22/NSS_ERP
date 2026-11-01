@@ -21,19 +21,19 @@ approving, recording, monitoring, and retiring individual governance decisions.
 - `GDR-005_Advisory_Board_as_a_Singleton_Organization.md` — owner-directed (2026-10-30): the Advisory
   Board becomes the 14th organization type `ADVISORY_BOARD` (singleton `ADB`/`NSSAB`, parent Kendra,
   immutable name, DB singleton trigger — generalised 2026-10-30 to KENDRA / NILACHALA_KUTIRA / SMRUTI_MANDIRA / ADVISORY_BOARD and the central Kendra-parented Mahila Sangha) while the Advisory Board governance body stays NULL-org.
-  Status `Proposed` (NSS Governing Body ratification not verifiable).
+  Status `Approved` (2026-11-01, on the project owner's instruction).
 - `GDR-006_NULL_Organization_Administrative_Scopes.md` — owner-directed (2026-10-30): NULL-organization
   admin scopes (`KENDRA_MAHILA_SANGHA` → all `MAHILA_SANGHA` orgs; `ADVISORY_BOARD` → the AB org) and
-  body-level `NULL_ORG_SCOPE_BODY_TYPES`, with final permission lists. Status `Proposed`.
+  body-level `NULL_ORG_SCOPE_BODY_TYPES`, with final permission lists. Status `Approved` (2026-11-01, on the project owner's instruction).
 - `GDR-007_Sakha_Re-Parenting_Requires_President_Chain_Approval.md` — owner-directed (2026-10-30): Sakha
   (Sakha Sangha and Sakha Asana alike) needs the President chain unless the actor is a Kendra Governing
   Body member (§63 composite `NSS_ERP_KENDRA_ADMIN`) or the `NSS_ERP_ADMIN` super administrator (by role).
-  Status `Proposed`.
+  Status `Approved` (2026-11-01, on the project owner's instruction).
 - `GDR-008_Sakha_Asana_Is_a_Sakha_for_All_Organizational_Purposes.md` — owner-directed (2026-10-31): a Sakha
   Asana hosts every wing a Sakha Sangha can (Kumari, Sevak, local Mahila, Paribarik Asana); amends
-  ORG-BR-091/092/094 (wing parents = the shared Sakha-like set). No schema change. Status `Proposed`.
+  ORG-BR-091/092/094 (wing parents = the shared Sakha-like set). No schema change. Status `Approved` (2026-11-01, on the project owner's instruction).
 - `GDR-009_Legacy_Members_Supply_Their_Local_Sakha_Number_All_Others_Are_Auto-Numbered.md` — owner-directed
   (2026-11-01): a legacy member (already Regular/Associate or Darshak before this system) supplies their
   existing Local Sakha Number; everyone else is auto-numbered by the shared allocator; explicit
   `is_legacy_member` per claim and per attendance Sakha; amends AUTH-BR-085/086/087 and MBR-030/030A/030C/030H/048/049; extended 2026-11-01 with the Parichaya/Anumati Patra number (§2A) and "a Darshaka cannot attend another Sakha" (§2B).
-  Status `Proposed`.
+  Status `Approved` (2026-11-01, on the project owner's instruction).

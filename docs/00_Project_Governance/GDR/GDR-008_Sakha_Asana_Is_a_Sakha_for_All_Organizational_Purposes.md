@@ -9,13 +9,13 @@
 | Decision Type | Governance Decision Record |
 | Register | Governance Decision Register (GDR-001) |
 | Decision Authority | NSS Governing Body (GOV-ROLE-006) |
-| Approver | Project Steering Committee |
-| Decision Status | Proposed |
-| Effective Date | TBD (on ratification; implementation already in the working tree as of 2026-10-31) |
+| Approver | Project owner (instruction recorded 2026-11-01) |
+| Decision Status | Approved |
+| Effective Date | 2026-11-01 (approval recorded on the project owner's instruction; rule in force in the code since 2026-10-31) |
 | Affected Documents | SOL-ORG-004 (ORG-BR-091, ORG-BR-092, ORG-BR-094, ORG-BR-104), ORGANIZATION_API_CONTRACT, FK_DEPENDENCY_GRAPH, GDR-007 |
 | Related Change Request | N/A (owner-directed decision, 2026-10-31) |
 
-> **Ratification flag.** This decision was directed by the project owner on 2026-10-31 and is recorded here per GDR-001 (GDR-DEC-001). GDR-001 and GOV-ROLE-006 place final decision authority with the NSS Governing Body; no evidence of that body's approval is available in the repository, so Decision Status is `Proposed`, not `Approved`. Advance it to `Approved` (and then `Implemented`) only once the NSS Governing Body / Project Steering Committee ratification is confirmed, and record that in this document.
+> **Approval note.** This decision was directed by the project owner on 2026-10-31. On 2026-11-01 the project owner instructed that GDR-005 to GDR-009 be approved, and that instruction is recorded here as the approval. GDR-001 and GOV-ROLE-006 name the NSS Governing Body as the decision authority; the repository holds no separate minutes of that body, so the approval is recorded as given by the project owner on the project's behalf. If the Governing Body's own approval is documented later, add its date and reference here.
 
 ---
 
@@ -50,7 +50,7 @@ SOL-ORG-004 amendment notes on ORG-BR-091/092/094; ORGANIZATION_API_CONTRACT par
 
 ## 6. Approval
 
-Recorded under GDR-001; approval pending per the Ratification flag above.
+Recorded under GDR-001; approved on the project owner's instruction on 2026-11-01 (see the Approval note above).
 
 ---
 
