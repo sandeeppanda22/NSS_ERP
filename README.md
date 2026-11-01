@@ -83,7 +83,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Backend
 
 * FastAPI — the only web/API layer in the codebase (`api/`, raw `psycopg2`, no ORM):
-  17 routers (251 endpoints; `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, committed on `feature/tier6-governance`), one per tier/module (per-router endpoint counts: `api/README.md` and
+  17 routers (252 endpoints; `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, committed on `feature/tier6-governance`), one per tier/module (per-router endpoint counts: `api/README.md` and
   `docs/03_Solution/api/API_CONTRACT.md`); `bootstrap.py` is the only unauthenticated router
   besides public registration.
   Tiers 1-4 GET endpoints are gated by `require_permission(...)` (Foundation/Organization/
@@ -883,7 +883,7 @@ Completed:
   endpoints. **48 tables at release** (incl. `post_office`/festival tables added later on the branch). New routers at that point: `auth.py` (8 endpoints then; 10 now), `registration.py` (6 then; 13 now,
   public), `claim_approval.py` (5), `admin.py` (25 then; 32 now), `audit.py` (1), plus 9 endpoints added to
   `family.py` and 6 write endpoints added to `foundation.py` (`FOUNDATION_MANAGE`; 8 writes plus 4 member `propose` POSTs now) — **108
-  endpoints at that point (137 at the v0.11.0 release, 251 now incl. Tier 6)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
+  endpoints at that point (137 at the v0.11.0 release, 252 now incl. Tier 6)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
   auth/admin tables). `permission_master`/`role_permission` are seeded. Every Tier 4
   "verification"/demo seed file has been deleted — a fresh build produces **zero demo
   Person/Family/Membership data**; real data comes from the registration/approval flow or the
@@ -903,7 +903,7 @@ Completed:
   Two new routers: `governance.py` (56 endpoints, `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) and
   `membership_change_request.py` (5 endpoints, Sakha Transfer / Apply for Darshak workflow) and
   `correspondence.py` (19 endpoints, Correspondence Register, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`) —
-  **251 endpoints, 17 routers, 71 tables total (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
+  **252 endpoints, 17 routers, 71 tables total (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
   (auto-granted by `rbac_service.load_composite_grants`); 28 permissions (adds `CORRESPONDENCE_*`, `GEO_ENTRY_APPROVE`, `ATTENDANCE_*`), 11 roles (adds `NSS_ERP_ATTENDANCE_MARKER`).
 
 Current Focus:
@@ -934,7 +934,7 @@ Each tier follows the vertical slice pattern: **DB -> API -> Web UI -> Flutter M
 | **3** | Person | Person identity, contact, address (2 tables: `person`, `person_address`) | Done | Done (4 endpoints at release; 8 now) | Done (folded into `admin.html` Person Directory) | -- |
 | **4** | Family, Membership | Family groups/relationships + dynamic relationship graph (5 tables) + membership registration/approval/transfer/lifecycle (12 tables) | Done | Done (14 endpoints at release; 24 now incl. 9 Tier 5 Family endpoints) | Done (folded into `dashboard.html`/`admin.html`) | -- |
 | **5** | Authentication, Administration | `user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`, `user_role`, `admin_scope` (5 auth + 2 admin tables, plus supporting tables added to Family/Membership/Foundation) — RBAC management, JWT, audit | Done (v0.11.0) | Done (auth, registration, claim-approval, admin, audit, geo-approval routers; 108 endpoints at release incl. Tier 1-4 additions) | Done (login/register/dashboard/admin pages) | -- |
-| **6** | Governance (+ Correspondence, Membership change requests, Attendance); Assets & Property still planned | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly Sangha Puja attendance (Tier 6 `attendance.py`, 4 tables) and Sakha re-parent approvals (`org_reparent.py`, 2 tables) implemented; property/asset custodianship not started | In progress (10 governance + 5 correspondence + 4 attendance + 2 re-parent + 2 membership tables) | In progress (`governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19 + `attendance.py` 20 + `org_reparent.py` 4 endpoints, plus admin credential endpoints; 251 total across all tiers) | In progress | -- |
+| **6** | Governance (+ Correspondence, Membership change requests, Attendance); Assets & Property still planned | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly Sangha Puja attendance (Tier 6 `attendance.py`, 4 tables) and Sakha re-parent approvals (`org_reparent.py`, 2 tables) implemented; property/asset custodianship not started | In progress (10 governance + 5 correspondence + 4 attendance + 2 re-parent + 2 membership tables) | In progress (`governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19 + `attendance.py` 21 + `org_reparent.py` 4 endpoints, plus admin credential endpoints; 252 total across all tiers) | In progress | -- |
 | **7** | Heritage (Founder & Heritage) | Founder record, teachings, objectives, milestones, publications framework (8 tables) | Not started | Not started | Not started | -- |
 | **8** | Programmes & Events | Common event framework (DRAFT, not frozen) — programme types, event instances, sessions | Not started | Not started | Not started | -- |
 | **9** | Kumari Sangha, Kishor Puja, Sevak Sangha | Youth/seva modules — KM/KH identity, annual events, guardian assignment, SS transition, Sevak volunteer/training/seva | Not started | Not started | Not started | -- |

@@ -20,7 +20,7 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 17 routers, 251 endpoints (decorator-counted). |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 17 routers, 252 endpoints (decorator-counted). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 71 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
 | Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (3718 items collected). |
@@ -89,7 +89,7 @@ All mounted in `api/main.py` with the prefix shown. Auth model is **per router**
 | `governance.py` | `/api/v1/governance` | 56 | `GOVERNANCE_VIEW/MANAGE` + org scope; `/public/*`, open-for-voting and `votes/self` need login only |
 | `membership_change_request.py` | `/api/v1/membership/change-requests` | 5 | Member-initiated Sakha Transfer / Apply for Darshak |
 | `correspondence.py` | `/api/v1/correspondence` | 19 | `CORRESPONDENCE_VIEW/MANAGE` + org scope; member-facing and approval-step endpoints |
-| `attendance.py` | `/api/v1/attendance` | 20 | `ATTENDANCE_VIEW/MANAGE` + scope; review actions gated by live Secretary/President seat |
+| `attendance.py` | `/api/v1/attendance` | 21 | `ATTENDANCE_VIEW/MANAGE` + scope; review actions gated by live Secretary/President seat |
 | `org_reparent.py` | `/api/v1/org-reparent` | 4 | login-only; Sakha re-parent approvals decided by live President seat (no admin override) |
 
 Endpoint-level contract: `docs/03_Solution/api/API_CONTRACT.md`. Per-file layer reference:
@@ -376,6 +376,35 @@ Number (`membership_sakha_affiliation.local_sakha_erp_id`, per Sakha, archived o
 never reassigned), Kendra Number (`parichaya_patra.document_number`, annual, e.g.
 `345/2024/2025`). Associate members get a Parichaya Patra but no Anumati Patra.
 
+**Gotcha — a Sangha Sevi must never exist without its Local Sakha ID (fixed 2026-11-01).** Before this,
+`admin.py::create_user` (Create Person/User tab) and `create_sangha_sevi` only inserted the
+`membership_sakha_affiliation` row `if body.local_sakha_erp_id:`, so leaving the optional Local Sakha
+Number blank created a `sangha_sevi` with an `organization_pk` but no affiliation (shown as `–` in rosters).
+Every enrollment path now goes through `api/helpers.py::create_sangha_sevi_with_home_affiliation()`
+(typed number validated, else auto-generated via `next_sakha_local_number()` →
+`nss.fn_next_sakha_local_number()`; an organization with no `short_code` is a loud 422), and
+`05_membership/20_home_affiliation_guard.sql` enforces it at COMMIT. Rows created before the fix are not
+repaired automatically — `03_validate` WARNs and `database/scripts/README.md` has the diagnostic SELECT.
+
+**Legacy vs new Local Sakha Number (GDR-009, Proposed — owner 2026-11-01; amends AUTH-BR-086 and MBR-030/030C/048).**
+A member who was ALREADY a member (Regular/Associate or Darshak) before this app supplies the number on their
+card; everyone else is auto-numbered by the shared allocator and must send none. The status is an explicit
+flag, never inferred: `registration_claim.is_legacy_member` (home Sakha) and `darshak_is_legacy_member`
+(attendance Sakha — legacy status can differ per Sakha), plus `is_legacy_member` on admin
+`create_user`/`create_sangha_sevi`. One validator (`helpers.resolve_legacy_local_number()`, claims via
+`validate_claim_local_numbers()`) is used by `POST /register`, `POST /register/claim`, claim PATCH/approval and
+admin creation (legacy ⇒ number required, 422; non-legacy ⇒ number must be blank, 422; taken ⇒ 409). Claim
+approval step 7 (cross-Sakha Darshak attendance) goes through `ensure_darshak_attendance_affiliation()`: skipped
+only when the member already has an OPEN affiliation at that Sakha, else a legacy number or the next Darshak
+number is inserted and any collision is a 409 rolling the approval back (the old silent `ON CONFLICT DO NOTHING`
+is gone). Schema carried to existing DBs by `ddl/06_authentication/06_registration_claim_legacy_member_patch.sql`
+(existing claims: legacy iff they already carried a number). The member-initiated change request keeps its own
+equivalent `is_legacy_import`.
+
+**Parichaya / Anumati Patra number (GDR-009 §2A, owner 2026-11-01).** The card ("Kendra") number follows the SAME `is_legacy_member` flag (no second flag, no schema change): a legacy member supplies the existing `<seq>/<yyyy>/<yyyy+1>` number (strict format, consecutive years, positive integer without leading zeros; 409 if already issued — Parichaya NSS-wide, Anumati per issuing Sakha), anyone else sends none (422). Validator `helpers.resolve_legacy_patra_number()` (+ `parse_legacy_patra_number()`, `patra_number_exists()`), called by register, `/register/claim`, claim PATCH/approval and admin `create_user`/`create_sangha_sevi`; the single enrolment-time credential step is `issue_credential_at_enrolment()` (wraps `issue_membership_credential(is_legacy=True)`). Every member gets exactly one credential, minted at enrolment when not legacy: the Anumati Patra (Darshaka) from a per-Sakha counter, the Parichaya Patra (Regular/Associate) from the Kendra-wide counter, with the Parichaya issue date/validity pinned to the most recent confirmed Dola Purnima (FC-DECISION-01; a missing confirmed date blocks issuance with the existing 422). `03_validate` WARNs about active members lacking the credential their type requires. `next_credential_document_number()` now skips any already-issued number (a legacy member may hold one from the current year) while keeping the per-year counter.
+
+**Darshaka cannot attend another Sakha (GDR-009 §2B).** The cross-Sakha attendance affiliation (registration attendance Sakha, claim step 7, `DARSHAK` change request / dashboard Apply for Darshak) is Regular/Associate only; a PROBATIONARY member must do a Sakha Transfer (422 via `require_non_darshaka_for_attendance()`).
+
 ### 4. Family graph and "effective Sakha"
 
 `family_link` stores only direct `PARENT_OF`, `SPOUSE_OF` (and `SIBLING_OF`, backfilled by
@@ -413,6 +442,14 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
 - **Attendance (`attendance.py`):** weekly Sangha Puja marking, keyed on `sangha_sevi_pk`; the
   attended Sakha may differ from the member's home Sakha. Review/exception actions check the live
   Secretary/President seat (`_require_review_authority()`; `NSS_ERP_ADMIN` overrides).
+  *Live register workflow (2026-10-31):* several markers of one Sakha work the same register. The UI saves
+  only the rows that marker changed, each with `expected_version`; a stale overwrite of someone else's
+  different mark returns 409 `detail.conflicts` and the marker chooses Overwrite / Keep theirs. The panel
+  *Overriding another marker's mark (2026-11-01):* tapping P/A/E on a row another person marked asks "Marked <Status> by <Name> at <time> - change it?" (own marks never ask; bulk "Mark all" skips such rows unless confirmed once); the server also returns 409 when the version matches but the row was last changed by a different member to a different status (not named in `overwrite_sangha_sevi_pks`); requests without `expected_version` are unchanged. *Register-screen percentage (2026-11-01):* `present / (roster total - excused)`, unmarked members counted in the denominator (`registerAttendancePercentage()`, `attendance-register.js`), so 8 present, 1 absent, 3 unmarked = 67%. EXCUSED_ABSENCE stays out of the denominator because ATT-008 excludes it (frozen docs untouched). The stats endpoints (`/stats/organizations/...`, `/stats/members/...`, member leaderboard) are multi-week figures and still use present/(present+absent) over marked records; owner decision pending. The panel
+  polls `GET /attendance/pujas/{pk}/live` (fixed 2 s; ETag/304; adaptive cadence deliberately not built yet) and stays open after Save. *Gotcha:* the whole test suite runs in one transaction, so
+  `NOW()` is identical for every write there — tests simulate "another marker, later" by shifting
+  `updated_at`. *Open item:* 2 s polling from many users on one IP can hit the global `RATE_LIMIT`
+  (`300/minute` per IP); the owner will address rate limiting separately.
 - **Sakha re-parenting (`org_reparent.py`, owner rule 2026-10-30):** moving a Sakha (SAKHA_SANGHA or
   SAKHA_ASANA — the owner treats them as the same; an Asana has its own Governing Body and President)
   under a different Anchalika/Zilla (the Assign Sakha action, incl. the initial move out of Kendra) is

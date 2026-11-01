@@ -19,7 +19,7 @@
 
 # 1. Overview
 
-The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **251 endpoints** across 17
+The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **252 endpoints** across 17
 routers. Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
 (released as v0.11.0)** added JWT authentication, RBAC, write endpoints, and gated almost everything:
 
@@ -41,7 +41,7 @@ routers. Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
 **Tier 6 (on `feature/tier6-governance`, not yet merged or released)** adds `governance.py` (56
 endpoints, section 12c), `membership_change_request.py` (5, section 8b), `correspondence.py`
 (19, section 12d), four admin credential endpoints (the `T6` rows in section 12) and
-`membership.py`'s `GET /directory`. It also adds `attendance.py` (20, section 12e) and `org_reparent.py` (4, section 12f; the latter and the 2026-10-30/31 person-address / `/register/address-types` additions are still uncommitted).
+`membership.py`'s `GET /directory`. It also adds `attendance.py` (21, section 12e) and `org_reparent.py` (4, section 12f; the latter and the 2026-10-30/31 person-address / `/register/address-types` additions are still uncommitted).
 
 Tier 5 endpoints (sections 10-14) are summarized here only at table level — see the routers
 (`api/routers/auth.py`, `admin.py`, `claim_approval.py`, `registration.py`, `audit.py`), their
@@ -421,6 +421,10 @@ registration page has no JWT yet). `POST ""` always creates a `person`; it creat
 discarded). Such a person can later submit a claim through `/lookup-existing` + `/claim`, verified
 by `person_id` + date of birth. **No `sangha_sevi` is created until an admin approves the claim.**
 
+**Local Sakha Number (GDR-009, Proposed — owner 2026-11-01):** the request states explicitly whether the person was already a member before this system. `is_legacy_member=true` ⇒ `claimed_local_sakha_number` required (422 if blank/malformed); `false` (default) ⇒ it must be blank (422 if sent) and the number is auto-generated at approval. The attendance Sakha has its own pair `darshak_is_legacy_member` / `darshak_local_sakha_number`. One validator: `helpers.validate_claim_local_numbers()`. Applies to `POST ""` and `POST /claim`.
+
+**Patra number (GDR-009 §2A) and Darshaka attendance (§2B):** `claimed_credential_document_number` follows the same `is_legacy_member` flag — legacy ⇒ required, strictly `<seq>/<yyyy>/<yyyy+1>` (e.g. `345/2026/2027`; 422 if malformed or years not consecutive; 409 if already issued); otherwise it must be blank (422 if sent) and is no longer required for a new Regular/Associate member. A new member's Anumati (Darshaka) or Parichaya (Regular/Associate) Patra number is auto-minted at approval. Validator `helpers.resolve_legacy_patra_number()`. A PROBATIONARY (Darshaka) registrant sending `is_attending_as_darshak` ⇒ 422 ("A Darshaka who attends another Sakha must transfer to it; use Sakha Transfer").
+
 | # | Method | Path | Description |
 |---|---|---|---|
 | 72 | POST | `` | Self-register |
@@ -449,8 +453,8 @@ admin's `admin_scope` organizations unless NSS-WIDE.
 |---|---|---|---|
 | 78 | GET | `` | List claims (status filter, pagination, sorting) |
 | 79 | GET | `/{pk}` | Claim detail |
-| 80 | PATCH | `/{pk}` | Edit claim fields before decision |
-| 81 | POST | `/{pk}/approve` | Approve — creates `sangha_sevi` + `membership_sakha_affiliation`, activates the account |
+| 80 | PATCH | `/{pk}` | Edit claim fields before decision; `is_legacy_member` / `darshak_is_legacy_member` are validated TOGETHER with the numbers (to turn legacy into new send `false` and `""` for both numbers in one request; `claimed_credential_document_number` is validated with the same flag; for a Darshaka claim the stored attendance Sakha is cleared and supplying one is 422) — the admin's verification step (GDR-009) |
+| 81 | POST | `/{pk}/approve` | Approve — creates `sangha_sevi` + `membership_sakha_affiliation`, activates the account. Local Sakha Number per GDR-009: legacy claim lacking a number ⇒ 422; non-legacy ⇒ auto-generated (Regular/Associate or Darshak series). Patra credential: a legacy member's existing number recorded, otherwise minted (Anumati for a Darshaka, Parichaya — issue date pinned to the confirmed Dola Purnima — for Regular/Associate); a claim holding an attendance Sakha for a Darshaka ⇒ 422. Cross-Sakha attendance affiliation (Regular/Associate only): legacy number or next Darshak number at that Sakha; skipped only if an open affiliation exists there, any other collision ⇒ 409 and the approval rolls back. `ClaimListItem`/`ClaimDetailResponse` carry `is_legacy_member` (+ `darshak_is_legacy_member` on detail) |
 | 82 | POST | `/{pk}/reject` | Reject the claim |
 
 ---
@@ -463,7 +467,7 @@ the last column (`any of`).
 | # | Method | Path | Description | Permission (any of) |
 |---|---|---|---|---|
 | 83 | GET | `/users` | List users (search, sort, pagination); only accounts tied to an active `sangha_sevi` | `ADMIN_USER_VIEW`, `ADMIN_USER_MANAGE`, `MEMBERSHIP_APPROVE` |
-| 84 | POST | `/users` | Create a user account | `ADMIN_USER_MANAGE`, `PERSON_MANAGE` |
+| 84 | POST | `/users` | Create a user account (with `create_sangha_sevi=true` also creates the Sangha Sevi **and its home affiliation**; `is_legacy_member` (default false) + `local_sakha_erp_id`: legacy ⇒ number required; otherwise it must be blank and is auto-generated, never skipped; 422 on mismatch, 409 if taken — GDR-009; `credential_document_number` follows the same flag: legacy ⇒ required `<seq>/<yyyy>/<yyyy+1>` card number, otherwise blank — otherwise the Anumati/Parichaya number is minted; the response always carries `credential_type`/`credential_document_number`) | `ADMIN_USER_MANAGE`, `PERSON_MANAGE` |
 | 85 | GET | `/users/{pk}` | User detail | view set above |
 | 86 | GET | `/users/check-account/{person_pk}` | Does a person already have a usable/soft-deleted login | `ADMIN_USER_VIEW`, `ADMIN_USER_MANAGE`, `PERSON_MANAGE` |
 | 87 | POST | `/users/{pk}/reset-password` | Admin password reset | `ADMIN_USER_MANAGE`, `PERSON_MANAGE` |
@@ -639,13 +643,14 @@ responsible person/organization already set on the row, and now also fires autom
 
 # 12e. Tier 6 — Attendance
 
-**Router prefix:** `/api/v1/attendance` (`api/routers/attendance.py`) — 20 endpoints. Gates: `ATTENDANCE_VIEW` / `ATTENDANCE_MANAGE` (+ admin scope; the per-Sakha `NSS_ERP_ATTENDANCE_MARKER` role holds both for marking). Attendance Review actions and exception creation additionally call `_require_review_authority()` — the live Secretary/President seat on the member's home Sakha `SAKHA_GOVERNING_BODY` (President only for escalate-to-parichalak, reopen, override, and closing a review already ESCALATED_TO_PRESIDENT); `NSS_ERP_ADMIN` overrides.
+**Router prefix:** `/api/v1/attendance` (`api/routers/attendance.py`) — 21 endpoints. Gates: `ATTENDANCE_VIEW` / `ATTENDANCE_MANAGE` (+ admin scope; the per-Sakha `NSS_ERP_ATTENDANCE_MARKER` role holds both for marking). Attendance Review actions and exception creation additionally call `_require_review_authority()` — the live Secretary/President seat on the member's home Sakha `SAKHA_GOVERNING_BODY` (President only for escalate-to-parichalak, reopen, override, and closing a review already ESCALATED_TO_PRESIDENT); `NSS_ERP_ADMIN` overrides.
 
 | Method | Path | Gate | Description |
 |---|---|---|---|
 | POST | `/pujas` | Manage | Create a Weekly Sangha Puja (201; one per Sakha per date) |
 | GET | `/pujas` | View | List pujas |
 | POST | `/pujas/{weekly_sangha_puja_pk}/attendance` | Manage | Mark PRESENT/ABSENT/EXCUSED_ABSENCE for members (201); 3 consecutive ABSENT opens a review |
+| GET | `/pujas/{weekly_sangha_puja_pk}/live` | View or Manage + scope | Live-register poll (see below) |
 | PATCH | `/records/{attendance_pk}` | Manage | Correct a record (approving an Excused Absence needs review authority) |
 | GET | `/records` | View | List attendance records |
 | POST | `/exceptions` | View + review authority | Create an attendance exception (201) |
@@ -657,7 +662,15 @@ responsible person/organization already set on the row, and now also fires autom
 | GET | `/stats/organizations/{organization_pk}/members` | View | Per-member attendance within an organization |
 | GET | `/stats/members/{sangha_sevi_pk}` | View | One member's attendance stats |
 
-Authority: `docs/03_Solution/modules/attendance/` (frozen 2026-10-27). Automated tests: `tests/api/test_attendance.py` and `tests/security/test_attendance_security.py` (238 collected; written but not yet run against the DB); UI tests in `tests/ui/test_ui_attendance.py` (132 collected), also never run.
+**Live register (several markers of one Sakha, 2026-10-31).** `AttendanceRecordResponse` (from `GET /records` and the mark response) additionally carries `marked_by_name`, `marked_by_sangha_sevi_id`, `marked_at` and `version` (`version` == `marked_at` == the row's last change, `GREATEST(created_at, COALESCE(updated_at, created_at))`).
+
+`GET /pujas/{weekly_sangha_puja_pk}/live?since=<ISO-8601>` (`ATTENDANCE_VIEW` or `ATTENDANCE_MANAGE` + `require_org_in_scope` on the puja's Sakha; 404 unknown puja; 422 bad `since`). Response: `{"server_time", "marked_count", "changed": [{"sangha_sevi_pk", "attendance_pk", "attendance_status_code", "version", "marked_by_name", "marked_by_sangha_sevi_id", "marked_at", "is_active"}]}`. `changed` = rows whose version is newer than `since` minus a 1 s overlap (every row when `since` is omitted); `is_active=false` = unmarked/removed. `server_time` is the DB clock and is the next `since`. An `ETag` fingerprinting the puja's whole state is returned; `If-None-Match` with the current ETag answers `304` with no body.
+
+`POST /pujas/{pk}/attendance` is backwards compatible. New optional request fields: per item `expected_version` (the `version` the marker last saw, echoed verbatim; `null` = "I saw it unmarked") and body `overwrite_sangha_sevi_pks: [uuid]`. If ANY item names `expected_version` the request is conflict-checked under a per-puja advisory lock + `SELECT ... FOR UPDATE`: a member conflicts when the row is active, its current version differs from `expected_version` AND its current status differs from the requested one (identical status is not a conflict; a soft-deleted row counts as unmarked) and the member is not in `overwrite_sangha_sevi_pks`. A member ALSO conflicts when the version matches but the row is active, was last changed by a DIFFERENT member than the caller, and has a different status than requested (changing someone else's mark needs an explicit overwrite; editing your own never conflicts; a row with no recorded marker is not attributable and is left alone; owner 2026-11-01). Any unconfirmed conflict saves NOTHING and returns `409` with `{"detail": {"message": str, "conflicts": [{"sangha_sevi_pk", "current_status_code", "changed_by_name", "changed_by_sangha_sevi_id", "changed_at", "requested_status_code"}]}}`. No `expected_version` anywhere = the original last-write-wins behaviour. ATT-006..010, the EXCUSED_ABSENCE re-mark authority check, consecutive-absence detection, audit and the not-before-puja-date rule are unchanged.
+
+**Known risk (open item, rate limiting NOT touched here; owner will handle separately):** the live poller hits `GET /api/v1/attendance/pujas/{pk}/live` every 2 s per open register (fixed interval; idle slow-down, hidden-tab pause and error back-off were left out on purpose), and the app's SlowAPI limit is a single global `RATE_LIMIT` (default `300/minute`) per client IP. Several markers behind one NAT/office IP, or many Sakhas on a shared network, can therefore exhaust the per-IP budget (one active register alone is ~30 requests/min) and start getting 429s; the poller treats any non-2xx/304 as an error, shows a "Reconnecting" note and retries at the same 2 s, so heavy 429s will keep hammering; a dedicated higher limit (or exemption) for this route and the adaptive cadence are both still to do.
+
+Authority: `docs/03_Solution/modules/attendance/` (frozen 2026-10-27). Automated tests: `tests/api/test_attendance.py` and `tests/security/test_attendance_security.py` (261 collected; written but not yet run against the DB); UI tests in `tests/ui/test_ui_attendance.py` (132 collected), also never run.
 
 ---
 
@@ -742,9 +755,9 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 6 | Correspondence Register | 19 |
 | 6 | Attendance | 20 |
 | 6 | Sakha Re-parent Approvals | 4 |
-| **Total** | | **251** |
+| **Total** | | **252** |
 
-(per-router, decorator-counted: admin 32, attendance 20, audit 1, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 8, registration 13.)
+(per-router, decorator-counted: admin 32, attendance 21, audit 1, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 8, registration 13.)
 
 The endpoint numbers in the tables above are stable identifiers, not path order: #1-#46 are the
 original Tier 0-4 set; #47-#137 were appended as Tier 5 endpoints landed. Tier 6 endpoints (sections 8b, 12c and the `T6` admin rows) are not numbered.
