@@ -7,7 +7,9 @@
 # run 02_build.ps1 first.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
-# Version: 1.2 — add Auth (5 tables), Admin (2 tables),
+# Version: 1.3 - parity re-audit vs 03_validate.sh (2026-11-01): patch-delivered
+#                 object checks, corrected master_category/master_data minimums.
+# Version: 1.2 - add Auth (5 tables), Admin (2 tables),
 #                 person address FK columns; Governance key-column
 #                 + FK-integrity checks (parity with 03_validate.sh)
 #
@@ -76,6 +78,14 @@ function Check-FkIntegrity {
     else { Log-Fail "${Label}: $orphans orphaned rows" }
 }
 
+function Check-WarnCount {
+    param([string]$Label, [string]$Query)
+    $n = Invoke-PsqlQuery $Query
+    if ($n -eq "0") { Log-Pass "${Label}: none" }
+    elseif ($n -eq "ERROR") { Log-Fail "${Label}: check failed" }
+    else { Log-Warn "${Label}: $n row(s) - see database/scripts/README.md diagnostic SELECT" }
+}
+
 function Check-ColumnExists {
     param([string]$Table, [string]$Column)
     $result = Invoke-PsqlQuery "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'nss' AND table_name = '$Table' AND column_name = '$Column');"
@@ -133,8 +143,8 @@ $foundationTables = @("master_category","system_setting","id_sequence_master","c
 foreach ($t in $foundationTables) { Check-TableExists $t }
 
 Write-Host "  Row counts:"
-Check-RowCount "master_category" 13
-Check-RowCount "master_data" 90
+Check-RowCount "master_category" 19
+Check-RowCount "master_data" 118
 Check-RowCount "id_sequence_master" 14
 Check-RowCount "country" 5
 Check-RowCount "state" 112
@@ -190,6 +200,7 @@ Check-FkIntegrity "organization -> country" "SELECT COUNT(*) FROM nss.organizati
 Check-FkIntegrity "organization -> city_village" "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.city_village cv ON o.city_village_pk = cv.city_village_pk WHERE o.city_village_pk IS NOT NULL AND cv.city_village_pk IS NULL;"
 Check-FkIntegrity "organization -> postal_code" "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.postal_code pc ON o.postal_code_pk = pc.postal_code_pk WHERE o.postal_code_pk IS NOT NULL AND pc.postal_code_pk IS NULL;"
 Check-FkIntegrity "organization: exactly one active ADVISORY_BOARD organization (patch 07_advisory_board_organization_patch.sql ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE md.value_code = 'ADVISORY_BOARD' AND o.is_active = TRUE) = 1 THEN 0 ELSE 1 END;"
+Check-FkIntegrity "organization: ORGANIZATION_TYPE has all 14 values (13 Bye-Law types + ADVISORY_BOARD)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'ORGANIZATION_TYPE' AND md.is_active = TRUE) >= 14 THEN 0 ELSE 1 END;"
 Check-FkIntegrity "organization: fn_is_sakha_like_org_type() present" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_is_sakha_like_org_type') THEN 0 ELSE 1 END;"
 Check-FkIntegrity "organization: every active SAKHA_ASANA has a SAKHA_GOVERNING_BODY (patch 04_sakha_asana_governing_body_patch.sql ran)" "SELECT COUNT(*) FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE md.value_code = 'SAKHA_ASANA' AND o.is_active = TRUE AND NOT EXISTS (SELECT 1 FROM nss.body_master bm JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk WHERE bm.organization_pk = o.organization_pk AND bt.body_type_code = 'SAKHA_GOVERNING_BODY');"
 Check-FkIntegrity "organization: singleton trigger present" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_enforce_organization_singleton' AND NOT tgisinternal) THEN 0 ELSE 1 END;"
@@ -311,6 +322,16 @@ Check-TableExists "credential_sequence_counter"
 Check-TableExists "sakha_local_number_counter"
 Check-TableExists "membership_change_request"
 Check-TableExists "system_event_log"
+Write-Host "  Local Sakha ID allocator + home-affiliation guard (files 19/20):"
+Check-FkIntegrity "membership: nss.fn_next_sakha_local_number() present" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_next_sakha_local_number') THEN 0 ELSE 1 END;"
+Check-FkIntegrity "membership: nss.fn_assert_sevi_has_home_affiliation() present" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_assert_sevi_has_home_affiliation') THEN 0 ELSE 1 END;"
+Check-FkIntegrity "membership: deferred home-affiliation constraint triggers present" "SELECT CASE WHEN (SELECT COUNT(*) FROM pg_trigger WHERE tgname IN ('ctrg_sevi_home_affiliation', 'ctrg_affiliation_home_affiliation') AND tgconstraint <> 0 AND tgdeferrable AND tginitdeferred AND NOT tgisinternal) = 2 THEN 0 ELSE 1 END;"
+Check-WarnCount "membership: active Sangha Sevis with NO open home affiliation / Local Sakha ID (not auto-repaired)" "SELECT COUNT(*) FROM nss.sangha_sevi ss WHERE ss.is_active = TRUE AND ss.is_system_account = FALSE AND NOT EXISTS (SELECT 1 FROM nss.membership_sakha_affiliation msa WHERE msa.sangha_sevi_pk = ss.sangha_sevi_pk AND msa.organization_pk = ss.organization_pk AND msa.effective_to IS NULL AND msa.affiliation_status IN ('ACTIVE', 'REACTIVATED') AND btrim(msa.local_sakha_erp_id) <> '');"
+Write-Host "  Legacy-vs-new Local Sakha Number flags (registration_claim, GDR-009):"
+Check-FkIntegrity "registration_claim: is_legacy_member + darshak_is_legacy_member columns present" "SELECT CASE WHEN (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'nss' AND table_name = 'registration_claim' AND column_name IN ('is_legacy_member', 'darshak_is_legacy_member')) = 2 THEN 0 ELSE 1 END;"
+Check-FkIntegrity "registration_claim: legacy flag/number agreement CHECKs present" "SELECT CASE WHEN (SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'nss.registration_claim'::regclass AND conname IN ('chk_registration_claim_legacy_home', 'chk_registration_claim_legacy_darshak')) = 2 THEN 0 ELSE 1 END;"
+Check-WarnCount "registration_claim: rows whose legacy flag disagrees with the stored number (must be 0)" "SELECT COUNT(*) FROM nss.registration_claim WHERE is_legacy_member <> (claimed_local_sakha_number IS NOT NULL) OR darshak_is_legacy_member <> (darshak_local_sakha_number IS NOT NULL);"
+Check-WarnCount "membership: active, non-system Sangha Sevis lacking an ACTIVE credential of the type their membership type requires (Parichaya for Regular/Associate, Anumati for Probationary; GDR-009 invariant, not auto-repaired)" "SELECT COUNT(*) FROM nss.sangha_sevi ss JOIN nss.master_data mt ON mt.master_data_pk = ss.membership_type_master_data_pk WHERE ss.is_active = TRUE AND ss.is_system_account = FALSE AND CASE WHEN mt.value_code = 'PROBATIONARY' THEN NOT EXISTS (SELECT 1 FROM nss.anumati_patra ap WHERE ap.sangha_sevi_pk = ss.sangha_sevi_pk AND ap.status = 'ACTIVE') ELSE NOT EXISTS (SELECT 1 FROM nss.parichaya_patra pp WHERE pp.sangha_sevi_pk = ss.sangha_sevi_pk AND pp.status = 'ACTIVE') END;"
 Write-Host ""
 
 # Governance (10 tables - existence only, no seed)
@@ -406,6 +427,7 @@ Check-ColumnExists "attendance_review" "assigned_to_role"
 
 Write-Host "  FK integrity (no orphans - vacuously true until seeded):"
 Check-FkIntegrity "weekly_sangha_puja -> organization (sakha)" "SELECT COUNT(*) FROM nss.weekly_sangha_puja w LEFT JOIN nss.organization o ON w.sakha_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+Check-FkIntegrity "weekly_sangha_puja_attendance: idx_wspa_puja_last_change present (patch 05_attendance_live_version_index_patch.sql ran)" "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'nss' AND indexname = 'idx_wspa_puja_last_change') THEN 0 ELSE 1 END;"
 Check-FkIntegrity "weekly_sangha_puja_attendance -> weekly_sangha_puja" "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.weekly_sangha_puja w ON a.weekly_sangha_puja_pk = w.weekly_sangha_puja_pk WHERE w.weekly_sangha_puja_pk IS NULL;"
 Check-FkIntegrity "weekly_sangha_puja_attendance -> sangha_sevi" "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.sangha_sevi s ON a.sangha_sevi_pk = s.sangha_sevi_pk WHERE s.sangha_sevi_pk IS NULL;"
 Check-FkIntegrity "weekly_sangha_puja_attendance -> master_data (status)" "SELECT COUNT(*) FROM nss.weekly_sangha_puja_attendance a LEFT JOIN nss.master_data md ON a.attendance_status_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"

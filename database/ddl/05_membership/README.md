@@ -46,6 +46,8 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
 | 16 | `16_foundation_audit_fk.sql` | *(no table — adds the `submitted_by_`/`reviewed_by_sangha_sevi_pk` FKs on Foundation `district`, `postal_code`, `post_office`, `city_village`; run as Phase 7b)* | — | `sangha_sevi` + the four Foundation tables |
 | 17 | `17_sakha_local_number_counter.sql` | `sakha_local_number_counter` | 3 | `organization` |
 | 18 | `18_membership_change_request.sql` | `membership_change_request` | 3 | `sangha_sevi`, `organization` (×2) |
+| 19 | `19_sakha_local_number_allocator.sql` | *(function `nss.fn_next_sakha_local_number()`, no table)* | — | `sakha_local_number_counter`, `membership_sakha_affiliation` |
+| 20 | `20_home_affiliation_guard.sql` | *(2 deferred constraint triggers, no table)* | — | `sangha_sevi`, `membership_sakha_affiliation` |
 
 ## What Each Table Is For
 
@@ -132,7 +134,7 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
   `parichaya_patra.document_number`/`anumati_patra.document_number` in `<seq>/<FY start>/<FY end>`
   format. One row per (`credential_type`, `scope_organization_pk`, `financial_year_start`) —
   `PARICHAYA_PATRA` is a single Kendra-wide counter, `ANUMATI_PATRA` is one counter per issuing
-  Sakha — and the sequence restarts at 1 each 1 April (a new FY = a new row). Rows are created on
+  Sakha — (the allocator skips any already-issued number, e.g. a legacy member's own current-year card number) and the sequence restarts at 1 each 1 April (a new FY = a new row). Rows are created on
   demand by upsert, not seeded. Distinct from `id_sequence_master` (one flat, never-reset counter
   per business ID). `uq_credential_sequence_scope` makes the triple unique; the
   `credential_type` CHECK limits it to the two values above.
@@ -149,6 +151,20 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
   `compose_local_sakha_erp_id()` already composes. Unlike `credential_sequence_counter`, this
   counter carries **no financial-year column and never resets** — a Local Sakha ERP Number is
   permanent (MBR-030, MBR-022), not an annual credential number.
+- **Local Sakha ID is always generated (2026-11-01)** — `19_sakha_local_number_allocator.sql` is the
+  one allocation rule (`nss.fn_next_sakha_local_number(org, namespace, prefix)`, called by
+  `api/helpers.py::next_sakha_local_number()`): counts up from the per-(organization, namespace)
+  `sakha_local_number_counter` row (row-locked, so concurrent creations never collide) and skips any
+  composed id that already exists for that Sakha, archived rows included, so numbers are never
+  reused and typed/legacy numbers are stepped over. `20_home_affiliation_guard.sql` adds two
+  `DEFERRABLE INITIALLY DEFERRED` constraint triggers (on `sangha_sevi` and
+  `membership_sakha_affiliation`): at COMMIT every ACTIVE, non-system (`is_system_account = FALSE`)
+  `sangha_sevi` must have an open (`effective_to IS NULL`, `ACTIVE`/`REACTIVATED`) affiliation at its
+  own `organization_pk` with a non-blank `local_sakha_erp_id`. Transfers pass (close + open + move
+  org in one transaction); a Darshak row at another Sakha neither satisfies nor violates it;
+  inactive sevis and SS1 are exempt. Constraint triggers only check rows touched by a transaction,
+  so existing rows without an affiliation are NOT scanned and do not break a build — and are NOT
+  repaired either (no backfill; `03_validate` WARNs, see `database/scripts/README.md`).
 - **`membership_change_request`** — (Tier 6) the Sakha Transfer / Apply for Darshak workflow
   table (MBR-048, MBR-049): `PENDING_SOURCE_RELEASE` → `PENDING_DESTINATION_ACCEPT` →
   `COMPLETED`, with a rejection branch at either stage. `request_type` is `TRANSFER` or

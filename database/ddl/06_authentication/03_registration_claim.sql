@@ -12,7 +12,9 @@
 -- Design decisions:
 --   - Stores self-declared membership claims pending admin approval
 --   - One PENDING claim per user_account at a time (partial unique index)
---   - claimed_local_sakha_number is NOT validated at registration
+--   - claimed_local_sakha_number is validated at registration only for shape
+--     and the legacy rule (is_legacy_member => required, else must be blank);
+--     the admin verifies it at approval
 --   - Claim lifecycle: PENDING -> APPROVED | REJECTED
 --   - Approval triggers sangha_sevi + affiliation creation (API-level)
 --   - person_pk is a denormalized FK for query convenience
@@ -39,15 +41,24 @@ CREATE TABLE IF NOT EXISTS nss.registration_claim
 
     claimed_local_sakha_number VARCHAR(20) NULL,
 
+    -- LEGACY vs NEW (GDR-009, owner 2026-11-01). TRUE = the registrant was
+    -- ALREADY a member (Regular/Associate/Darshak) before this system
+    -- existed and states the number on their card in
+    -- claimed_local_sakha_number; FALSE = new, and the number is
+    -- auto-generated at approval (claimed_local_sakha_number must be NULL).
+    -- An explicit flag, never inferred from "a number was typed". Admin
+    -- verifies/corrects both at approval. See chk_registration_claim_legacy_*.
+    is_legacy_member BOOLEAN NOT NULL DEFAULT FALSE,
+
     claimed_joining_date DATE NULL,
 
-    -- Existing Parichaya Patra / Anumati Patra document number, for a
-    -- registrant who already holds one (legacy member). Distinct from
+    -- Existing Parichaya Patra / Anumati Patra document number of a LEGACY
+    -- member (is_legacy_member = TRUE), strictly <seq>/<yyyy>/<yyyy+1>
+    -- (GDR-009 §2A). NULL for a new member: the number is then auto-minted at
+    -- approval. Application-enforced (no CHECK). Distinct from
     -- claimed_local_sakha_number (Tier 2 identity) — this is the Tier 3
     -- annual Kendra/Sakha-wide credential number (MEM-PENDING-001 /
-    -- Tier 4 Frozen Decisions "Three-tier member identity"). NULL means
-    -- a new one is auto-generated for the current FY at approval time
-    -- (see api/helpers.py::issue_membership_credential()).
+    -- Tier 4 Frozen Decisions "Three-tier member identity").
     claimed_credential_document_number VARCHAR(30) NULL,
 
     -- ── Darshak Attendance ──────────────────────────────
@@ -60,6 +71,13 @@ CREATE TABLE IF NOT EXISTS nss.registration_claim
     -- one yet; required at approval once darshak_organization_pk is set
     -- (mirrors claimed_local_sakha_number's own requirement).
     darshak_local_sakha_number VARCHAR(20) NULL,
+
+    -- Legacy status AT THE ATTENDING SAKHA, independent of is_legacy_member
+    -- (a person can be a legacy home-Sakha member and a new attendee
+    -- elsewhere, or the reverse). TRUE = darshak_local_sakha_number is the
+    -- existing Darshak number at that Sakha; FALSE = the next number in that
+    -- Sakha's Darshak series is allocated at approval.
+    darshak_is_legacy_member BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- ── Claim Status ────────────────────────────────────
 
@@ -123,7 +141,16 @@ CREATE TABLE IF NOT EXISTS nss.registration_claim
             (is_active = TRUE AND deleted_at IS NULL)
             OR
             (is_active = FALSE AND deleted_at IS NOT NULL)
-        )
+        ),
+
+    -- Legacy flag and number always agree: legacy <=> a number is stored.
+    -- (The API reports a mismatch as a clear 422 first; these are the
+    -- backstop. Patch: 06_registration_claim_legacy_member_patch.sql.)
+    CONSTRAINT chk_registration_claim_legacy_home
+        CHECK (is_legacy_member = (claimed_local_sakha_number IS NOT NULL)),
+
+    CONSTRAINT chk_registration_claim_legacy_darshak
+        CHECK (darshak_is_legacy_member = (darshak_local_sakha_number IS NOT NULL))
 );
 
 -- ── Indexes ─────────────────────────────────────────────

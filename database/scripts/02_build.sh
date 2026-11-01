@@ -9,6 +9,8 @@
 #
 # Authority: SOL-ARCH-010 (DDL Creation Order),
 #            SOL-ARCH-011 (Bootstrap Architecture)
+# Version: 2.7  — header/phase audit (2026-11-01): 71 tables in 13 table-creating phases; every
+#            idempotent patch file listed below; Phase 7b added to the phase list.
 # Version: 2.6  — reinstate post_office (SOL-ARCH-010 Amendment,
 #            2026-10-03: Member-Assisted Geographic Entry). A PIN
 #            can hold many post offices; post_office is one of the
@@ -40,11 +42,13 @@
 #              created separately in Phase 14)
 #   Phase 2  — Foundation seed data (incl. ORGANIZATION_TYPE
 #              category and unified STATUS category in master_data)
-#   Phase 3  — Organization DDL (1 table)
-#   Phase 4  — Organization seed data
+#   Phase 3  — Organization DDL (1 table + 4 triggers/functions)
+#   Phase 4  — Organization seed data (+ Advisory Board organization patch)
 #   Phase 5  — Person DDL (2 tables)
 #   Phase 6  — Family DDL (6 tables)
-#   Phase 7  — Membership DDL (16 tables)
+#   Phase 7  — Membership DDL (16 tables + Sakha-only trigger, Local Sakha ID
+#              allocator, home-affiliation guard)
+#   Phase 7b — Deferred Foundation audit FKs (16_foundation_audit_fk.sql)
 #   Phase 8  — Tier 4 Verification Seed Data (removed — no demo data)
 #   Phase 9  — Grant nss_db_backend read-only access
 #   Phase 10 — Authentication DDL (5 tables: user_account,
@@ -58,7 +62,8 @@
 #              election_vote_participation) + ballot-immutability
 #              triggers (11_governance_immutability.sql) + seat-count
 #              triggers (12_governance_seat_limits.sql)
-#   Phase 11c— Governance Seed Data (body_type_master, position_master)
+#   Phase 11c— Governance Seed Data (body_type_master, position_master,
+#              body_master + Sakha Asana governing-body patch)
 #   Phase 11d— Correspondence DDL (5 tables: correspondence,
 #              correspondence_document, correspondence_finance_reference,
 #              correspondence_sequence_counter, correspondence_approval_step —
@@ -80,6 +85,23 @@
 #   Phase 15 — (OPTIONAL, local dev only) demo/test seed, run only when
 #              RUN_DEMO_SEED is truthy and database/seed/demo/nss_demo_seed.sql
 #              exists (gitignored; never on Render)
+#
+# Idempotent patch files (run every build via run_sql / Invoke-Sql; NOT
+# existence-gated - they carry changes to already-existing tables or seeds to
+# databases built before the change; see database/scripts/README.md):
+#   Phase 0   seed/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql
+#   Phase 3   ddl/02_organization/08_organization_singleton_trigger.sql
+#             ddl/02_organization/10_sakha_like_org_type_function.sql
+#   Phase 4   seed/02_organization/07_advisory_board_organization_patch.sql
+#   Phase 6   ddl/04_family/08_family_head_history_audit_columns.sql
+#   Phase 7   ddl/05_membership/19_sakha_local_number_allocator.sql
+#             ddl/05_membership/20_home_affiliation_guard.sql
+#   Phase 10  ddl/06_authentication/06_registration_claim_legacy_member_patch.sql
+#   Phase 11b ddl/08_governance/13_governance_nomination_refile_index.sql
+#   Phase 11c seed/08_governance/04_sakha_asana_governing_body_patch.sql
+#   Phase 11e ddl/10_attendance/05_attendance_live_version_index_patch.sql
+#   Phase 11f ddl/02_organization/09_organization_reparent_step_source_role_patch.sql
+# Table count: 71 (3+14+1+2+6+16+5+2+10+5+4+2+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,14).
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data — Person data lives in
@@ -285,7 +307,7 @@ run_seed "permission_master (seed)" "permission_master" "${SEED_BASE}/00_bootstr
 run_seed "role_master (seed)"       "role_master"       "${SEED_BASE}/00_bootstrap/02_role_master.sql"
 run_seed "role_permission (seed)"   "role_permission"   "${SEED_BASE}/00_bootstrap/03_role_permission.sql"
 # Idempotent patch: the seed above is existence-gated, so rows added to it later
-# (Mahila admin 15->18, Advisory Board admin 0->7, 2026-10-30) reach existing DBs here.
+# (Mahila admin 15->18, Advisory Board admin 0->8, 2026-10-30) reach existing DBs here.
 run_sql "role_permission mahila/advisory-board patch" "${SEED_BASE}/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql"
 echo ""
 
@@ -435,6 +457,11 @@ run_sql "sakha_only_membership_trigger"  "${DDL_BASE}/05_membership/14_sakha_onl
 run_ddl "credential_sequence_counter"    "credential_sequence_counter"    "${DDL_BASE}/05_membership/15_credential_sequence_counter.sql"
 run_ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "${DDL_BASE}/05_membership/17_sakha_local_number_counter.sql"
 run_ddl "membership_change_request"      "membership_change_request"      "${DDL_BASE}/05_membership/18_membership_change_request.sql"
+# Local Sakha ID allocator + home-affiliation guard (2026-11-01): functions /
+# DEFERRED constraint triggers only (CREATE OR REPLACE / DROP..CREATE TRIGGER, idempotent;
+# no existing-row scan, so a DB already holding members without a Local Sakha ID builds).
+run_sql "sakha_local_number_allocator"  "${DDL_BASE}/05_membership/19_sakha_local_number_allocator.sql"
+run_sql "home_affiliation_guard"          "${DDL_BASE}/05_membership/20_home_affiliation_guard.sql"
 echo ""
 
 # -------------------------------------------------
@@ -479,6 +506,8 @@ echo -e "${CYAN}[Phase 10] Authentication — DDL (5 tables)${NC}"
 run_ddl "user_account"           "user_account"         "${DDL_BASE}/06_authentication/01_user_account.sql"
 run_ddl "password_history"       "password_history"     "${DDL_BASE}/06_authentication/02_password_history.sql"
 run_ddl "registration_claim"     "registration_claim"   "${DDL_BASE}/06_authentication/03_registration_claim.sql"
+# Idempotent patch (GDR-009, owner 2026-11-01): the legacy-vs-new Local Sakha Number flags (is_legacy_member / darshak_is_legacy_member + agreement CHECKs) for a registration_claim table that already exists (03_ is existence-gated); existing claims default to legacy iff they already carry a number.
+run_sql "registration_claim_legacy_member_patch" "${DDL_BASE}/06_authentication/06_registration_claim_legacy_member_patch.sql"
 run_ddl "password_reset_token"   "password_reset_token" "${DDL_BASE}/06_authentication/04_password_reset_token.sql"
 run_ddl "user_session"           "user_session"         "${DDL_BASE}/06_authentication/05_user_session.sql"
 echo ""
@@ -494,7 +523,7 @@ run_ddl "admin_scope"  "admin_scope" "${DDL_BASE}/07_administration/02_admin_sco
 echo ""
 
 # -------------------------------------------------
-# Phase 11b: Governance DDL (9 tables, Tier 6, Depths 0–6)
+# Phase 11b: Governance DDL (10 tables, Tier 6, Depths 0–6)
 # Unified Body Governance Model (GOV-BR-004).
 # Depends only on body_type_master/position_master (Depth 0),
 # organization, person, sangha_sevi — all created in earlier
@@ -603,6 +632,8 @@ run_ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "${DDL_B
 run_ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "${DDL_BASE}/10_attendance/02_weekly_sangha_puja_attendance.sql"
 run_ddl "attendance_exception"          "attendance_exception"          "${DDL_BASE}/10_attendance/03_attendance_exception.sql"
 run_ddl "attendance_review"             "attendance_review"             "${DDL_BASE}/10_attendance/04_attendance_review.sql"
+# Live-register index (owner 2026-10-31): 02_weekly_sangha_puja_attendance.sql is existence-gated, so this idempotent patch carries the (puja, last-change) index to existing databases.
+run_sql "attendance_live_version_index" "${DDL_BASE}/10_attendance/05_attendance_live_version_index_patch.sql"
 echo ""
 
 # -------------------------------------------------

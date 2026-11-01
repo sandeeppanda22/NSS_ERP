@@ -12,6 +12,7 @@ audit trigger, so both cover these tables). Design authority: `docs/03_Solution/
 | `02_weekly_sangha_puja_attendance.sql` | `weekly_sangha_puja_attendance` | One row per (puja, member), keyed on `sangha_sevi_pk`. `attendance_sakha_pk` is separate from the member's home Sakha (cross-Sakha / Darshak attendance); no `is_darshak` flag is stored. Status is a `master_data` FK (`ATTENDANCE_STATUS`). |
 | `03_attendance_exception.sql` | `attendance_exception` | Date-ranged exception per member; type is a `master_data` FK (`ATTENDANCE_EXCEPTION_TYPE`); `to_date >= from_date` CHECK. |
 | `04_attendance_review.sql` | `attendance_review` | Opened after 3 consecutive ABSENT; `assigned_to_role` CHECK (SECRETARY/PRESIDENT/PARICHALAK); status is a `master_data` FK. "One OPEN review per member" is enforced in the API, not by an index. |
+| `05_attendance_live_version_index_patch.sql` | (index only) | Idempotent patch (not a table; run with `run_sql`/`Invoke-Sql` by `02_build.sh`/`.ps1` and `render_build.sh`): `idx_wspa_puja_last_change` on `weekly_sangha_puja_attendance (weekly_sangha_puja_pk, GREATEST(created_at, COALESCE(updated_at, created_at)))` serving the live-register cursor (`GET /attendance/pujas/{pk}/live`). `03_validate.sh`/`.ps1` check it exists. |
 
 Reference data (`ATTENDANCE_STATUS`, `ATTENDANCE_EXCEPTION_TYPE`, review statuses) is seeded in
 `database/seed/01_foundation/02_master_data.sql`; RBAC (`ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE`,

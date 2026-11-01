@@ -21,7 +21,7 @@
 #   DB_HOST  = localhost
 #   DB_PORT  = 5432
 #
-# Modules validated:
+# Modules validated (71 tables in all):
 #   - Bootstrap RBAC (3 tables)
 #   - Foundation (12 tables)
 #   - Organization (1 table — type/status in Foundation master_data)
@@ -29,7 +29,16 @@
 #   - Authentication (5 tables)
 #   - Administration (2 tables)
 #   - Family (6), Membership (14, incl. credential_sequence_counter), system_event_log — existence only
-#   - Governance (9 tables — existence only, no seed)
+#   - Governance (10 tables — existence only, no seed)
+#   - Correspondence (5), Attendance (4), Organization re-parent approval (2)
+#   - Patch-delivered objects (a patch that did not run FAILs here): Advisory
+#     Board org + singleton trigger, fn_is_sakha_like_org_type, Sakha Asana
+#     governing bodies, per-role permission minimums, Local Sakha ID allocator
+#     + home-affiliation guard, registration_claim legacy flags, attendance
+#     live-register index, re-parent step CHECK, nomination re-file index
+#   - WARN-only diagnostics (never FAIL): members lacking a home affiliation /
+#     Local Sakha ID, lacking an ACTIVE Parichaya/Anumati credential, claims whose
+#     legacy flag disagrees with the stored number
 #
 # Extend this script when new modules are added.
 # =====================================================
@@ -119,6 +128,22 @@ check_fk_integrity() {
     fi
 }
 
+check_warn_count() {
+    # Informational: a non-zero count is a WARN (never FAIL) — used for
+    # pre-existing data the build deliberately does not repair.
+    local label="$1"
+    local query="$2"
+    local n
+    n=$(${PSQL} -c "${query}" 2>&1 || echo "ERROR")
+    if [ "$n" = "0" ]; then
+        log_pass "${label}: none"
+    elif [ "$n" = "ERROR" ]; then
+        log_fail "${label}: check failed"
+    else
+        log_warn "${label}: ${n} row(s) — see database/scripts/README.md diagnostic SELECT"
+    fi
+}
+
 check_min_percentage() {
     local label="$1"
     local query="$2"      # must SELECT a single numeric percentage (0-100)
@@ -192,7 +217,7 @@ check_fk_integrity "role_permission: NSS_ERP_SAKHA_ADMIN has >= 18 rows" \
 echo ""
 
 # =====================================================
-# Module 2: Foundation (11 tables)
+# Module 2: Foundation (13 tables + post_office checked via column checks)
 # =====================================================
 echo -e "${CYAN}--- Foundation ---${NC}"
 echo "  Tables:"
@@ -208,8 +233,8 @@ for t in "${FOUNDATION_TABLES[@]}"; do
 done
 
 echo "  Row counts:"
-check_row_count "master_category" 13
-check_row_count "master_data" 90
+check_row_count "master_category" 19
+check_row_count "master_data" 118
 check_row_count "id_sequence_master" 14
 check_row_count "country" 5
 check_row_count "state" 112
@@ -281,6 +306,8 @@ check_fk_integrity "organization -> postal_code" \
     "SELECT COUNT(*) FROM nss.organization o LEFT JOIN nss.postal_code pc ON o.postal_code_pk = pc.postal_code_pk WHERE o.postal_code_pk IS NOT NULL AND pc.postal_code_pk IS NULL;"
 check_fk_integrity "organization: exactly one active ADVISORY_BOARD organization (patch 07_advisory_board_organization_patch.sql ran)" \
     "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE md.value_code = 'ADVISORY_BOARD' AND o.is_active = TRUE) = 1 THEN 0 ELSE 1 END;"
+check_fk_integrity "organization: ORGANIZATION_TYPE has all 14 values (13 Bye-Law types + ADVISORY_BOARD)" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'ORGANIZATION_TYPE' AND md.is_active = TRUE) >= 14 THEN 0 ELSE 1 END;"
 check_fk_integrity "organization: fn_is_sakha_like_org_type() present" \
     "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_is_sakha_like_org_type') THEN 0 ELSE 1 END;"
 check_fk_integrity "organization: every active SAKHA_ASANA has a SAKHA_GOVERNING_BODY (patch 04_sakha_asana_governing_body_patch.sql ran)" \
@@ -399,7 +426,7 @@ check_fk_integrity "admin_scope -> organization" \
 echo ""
 
 # =====================================================
-# Module 7: Family, Membership, audit
+# Module 7: Family (6), Membership (16), audit — existence only
 # =====================================================
 echo -e "${CYAN}--- Family / Membership / Audit ---${NC}"
 echo "  Tables (existence only — no seed data):"
@@ -426,6 +453,24 @@ check_table_exists "credential_sequence_counter"
 check_table_exists "sakha_local_number_counter"
 check_table_exists "membership_change_request"
 check_table_exists "system_event_log"
+echo "  Local Sakha ID allocator + home-affiliation guard (files 19/20):"
+check_fk_integrity "membership: nss.fn_next_sakha_local_number() present" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_next_sakha_local_number') THEN 0 ELSE 1 END;"
+check_fk_integrity "membership: nss.fn_assert_sevi_has_home_affiliation() present" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_assert_sevi_has_home_affiliation') THEN 0 ELSE 1 END;"
+check_fk_integrity "membership: deferred home-affiliation constraint triggers present" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM pg_trigger WHERE tgname IN ('ctrg_sevi_home_affiliation', 'ctrg_affiliation_home_affiliation') AND tgconstraint <> 0 AND tgdeferrable AND tginitdeferred AND NOT tgisinternal) = 2 THEN 0 ELSE 1 END;"
+check_warn_count "membership: active Sangha Sevis with NO open home affiliation / Local Sakha ID (not auto-repaired)" \
+    "SELECT COUNT(*) FROM nss.sangha_sevi ss WHERE ss.is_active = TRUE AND ss.is_system_account = FALSE AND NOT EXISTS (SELECT 1 FROM nss.membership_sakha_affiliation msa WHERE msa.sangha_sevi_pk = ss.sangha_sevi_pk AND msa.organization_pk = ss.organization_pk AND msa.effective_to IS NULL AND msa.affiliation_status IN ('ACTIVE', 'REACTIVATED') AND btrim(msa.local_sakha_erp_id) <> '');"
+echo "  Legacy-vs-new Local Sakha Number flags (registration_claim, GDR-009):"
+check_fk_integrity "registration_claim: is_legacy_member + darshak_is_legacy_member columns present" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'nss' AND table_name = 'registration_claim' AND column_name IN ('is_legacy_member', 'darshak_is_legacy_member')) = 2 THEN 0 ELSE 1 END;"
+check_fk_integrity "registration_claim: legacy flag/number agreement CHECKs present" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'nss.registration_claim'::regclass AND conname IN ('chk_registration_claim_legacy_home', 'chk_registration_claim_legacy_darshak')) = 2 THEN 0 ELSE 1 END;"
+check_warn_count "registration_claim: rows whose legacy flag disagrees with the stored number (must be 0)" \
+    "SELECT COUNT(*) FROM nss.registration_claim WHERE is_legacy_member <> (claimed_local_sakha_number IS NOT NULL) OR darshak_is_legacy_member <> (darshak_local_sakha_number IS NOT NULL);"
+check_warn_count "membership: active, non-system Sangha Sevis lacking an ACTIVE credential of the type their membership type requires (Parichaya for Regular/Associate, Anumati for Probationary; GDR-009 invariant, not auto-repaired)" \
+    "SELECT COUNT(*) FROM nss.sangha_sevi ss JOIN nss.master_data mt ON mt.master_data_pk = ss.membership_type_master_data_pk WHERE ss.is_active = TRUE AND ss.is_system_account = FALSE AND CASE WHEN mt.value_code = 'PROBATIONARY' THEN NOT EXISTS (SELECT 1 FROM nss.anumati_patra ap WHERE ap.sangha_sevi_pk = ss.sangha_sevi_pk AND ap.status = 'ACTIVE') ELSE NOT EXISTS (SELECT 1 FROM nss.parichaya_patra pp WHERE pp.sangha_sevi_pk = ss.sangha_sevi_pk AND pp.status = 'ACTIVE') END;"
 echo ""
 
 # =====================================================
@@ -534,6 +579,8 @@ check_column_exists "attendance_review" "sangha_sevi_pk"
 check_column_exists "attendance_review" "review_status_master_data_pk"
 check_column_exists "attendance_review" "assigned_to_role"
 
+check_fk_integrity "weekly_sangha_puja_attendance: idx_wspa_puja_last_change present (patch 05_attendance_live_version_index_patch.sql ran)" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'nss' AND indexname = 'idx_wspa_puja_last_change') THEN 0 ELSE 1 END;"
 check_fk_integrity "weekly_sangha_puja -> organization (sakha)" \
     "SELECT COUNT(*) FROM nss.weekly_sangha_puja w LEFT JOIN nss.organization o ON w.sakha_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
 check_fk_integrity "weekly_sangha_puja_attendance -> weekly_sangha_puja" \

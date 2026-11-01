@@ -92,7 +92,7 @@ Build phases (authoritative detail in `scripts/README.md`):
 | 11b | Governance DDL — 10 tables + ballot-immutability triggers (`08_governance/`) |
 | 11c | Governance seed — body types, positions, 3 NSS-wide bodies, then the idempotent Sakha Asana governing-body patch (`04_`) |
 | 11d | Correspondence DDL — 5 tables (`09_correspondence/`) |
-| 11e | Attendance DDL — 4 tables (`10_attendance/`) |
+| 11e | Attendance DDL — 4 tables (`10_attendance/`) + idempotent live-register index patch `05_attendance_live_version_index_patch.sql` |
 | 11f | Organization re-parent approval DDL — 2 tables (`02_organization/06`-`07`) + source-role patch (`09_`) |
 | 12 | Grant `nss_db_writer` |
 | 13 | Admin bootstrap (`scripts/bootstrap_admin.py`) |
@@ -205,7 +205,8 @@ database/
 │   ├── 05_membership/    16 tables (`sangha_sevi` first; incl. `darshak_attendance_registration`,
 │   │                     `credential_sequence_counter`, `sakha_local_number_counter`, `membership_change_request`) + `14_sakha_only_membership_trigger.sql`, `16_foundation_audit_fk.sql` (ALTER only)
 │   ├── 06_authentication/ 5 tables: user_account, password_history, registration_claim,
-│   │                     password_reset_token, user_session (Tier 5)
+│   │                     password_reset_token, user_session (Tier 5) + `06_registration_claim_legacy_member_patch.sql`
+│   │                     (idempotent `run_sql` patch, GDR-009: `is_legacy_member`/`darshak_is_legacy_member` + CHECKs)
 │   ├── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
 │   ├── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql`, `12_governance_seat_limits.sql`, `13_governance_nomination_refile_index.sql` (Tier 6)
 │   ├── 09_correspondence/ 5 tables (Tier 6)

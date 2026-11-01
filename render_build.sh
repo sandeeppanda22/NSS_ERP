@@ -141,7 +141,30 @@
 #                     insensitive, whitespace-tolerant; default: skipped)
 #
 # Keep phase order in sync with database/scripts/02_build.sh
-# if it changes.
+# if it changes. Verified identical on 2026-11-01: every DDL/seed/patch file
+# below is run in the same order as 02_build.sh (71 tables).
+#
+# Idempotent patch files run on EVERY deploy via run_sql (never existence-
+# gated; they carry changes to already-existing tables/seeds): role_permission
+# mahila/advisory-board patch, organization singleton trigger, sakha-like
+# org-type function, Advisory Board organization patch, family_head_history
+# audit columns, Local Sakha ID allocator, home-affiliation guard (deferred
+# constraint triggers - they scan nothing, so a Neon DB already holding
+# members without a Local Sakha ID still deploys; 03_validate WARNs about
+# them), registration_claim legacy-member patch, governance nomination
+# re-file index, Sakha Asana governing-body patch, attendance live-version
+# index, organization_reparent_step source-role patch.
+#
+# Render/Neon notes for the objects above:
+#   - Functions (fn_next_sakha_local_number, fn_assert_sevi_has_home_affiliation,
+#     fn_is_sakha_like_org_type, ...) are plain SECURITY INVOKER and nothing in
+#     database/ revokes EXECUTE, so PostgreSQL's default PUBLIC EXECUTE lets
+#     nss_db_writer call them; the tables they touch are covered by Phase 12's
+#     GRANT ... ON ALL TABLES + ALTER DEFAULT PRIVILEGES (INSERT/UPDATE/SELECT),
+#     so sakha_local_number_counter needs no extra grant. Only
+#     fn_audit_trigger() is SECURITY DEFINER.
+#   - PostGIS is deliberately not installed here (best-effort extensions are
+#     pgcrypto, pg_trgm, btree_gin); no DDL/seed/API code references it.
 # ==========================================================
 
 set -euo pipefail
@@ -281,7 +304,7 @@ run_seed "permission_master (seed)" "permission_master" "${SEED_BASE}/00_bootstr
 run_seed "role_master (seed)"       "role_master"       "${SEED_BASE}/00_bootstrap/02_role_master.sql"
 run_seed "role_permission (seed)"   "role_permission"   "${SEED_BASE}/00_bootstrap/03_role_permission.sql"
 # Idempotent patch: the seed above is existence-gated, so rows added to it later
-# (Mahila admin 15->18, Advisory Board admin 0->7, 2026-10-30) reach existing DBs here.
+# (Mahila admin 15->18, Advisory Board admin 0->8, 2026-10-30) reach existing DBs here.
 run_sql "role_permission mahila/advisory-board patch" "${SEED_BASE}/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql"
 
 echo ""
@@ -318,7 +341,7 @@ run_seed "city_village (seed)"       "city_village"       "${SEED_BASE}/01_found
 run_seed "city_village urban recovery (seed)" "city_village" "${SEED_BASE}/01_foundation/11b_city_village_urban_recovery.sql"
 
 echo ""
-echo "--- Phase 3: Organization — DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger; type via ORGANIZATION_TYPE, status via unified STATUS in Foundation master_data) ---"
+echo "--- Phase 3: Organization — DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger + organization singleton trigger + Sakha-like org-type function; type via ORGANIZATION_TYPE, status via unified STATUS in Foundation master_data) ---"
 run_ddl "organization"               "organization" "${DDL_BASE}/02_organization/03_organization.sql"
 run_sql "organization_address_restriction_trigger" "${DDL_BASE}/02_organization/04_organization_address_restriction_trigger.sql"
 run_sql "organization_kumari_sevak_uniqueness_trigger" "${DDL_BASE}/02_organization/05_organization_kumari_sevak_uniqueness_trigger.sql"
@@ -356,7 +379,7 @@ run_sql "family_move_transition_guard" "${DDL_BASE}/04_family/07_family_move_tra
 run_sql "family_head_history_audit_columns" "${DDL_BASE}/04_family/08_family_head_history_audit_columns.sql"
 
 echo ""
-echo "--- Phase 7: Membership — DDL (16 tables + Sakha-only trigger) ---"
+echo "--- Phase 7: Membership — DDL (16 tables + Sakha-only trigger + Local Sakha ID allocator + home-affiliation guard) ---"
 run_ddl "sangha_sevi"                    "sangha_sevi"                    "${DDL_BASE}/05_membership/01_sangha_sevi.sql"
 run_ddl "membership_status_history"      "membership_status_history"      "${DDL_BASE}/05_membership/02_membership_status_history.sql"
 run_ddl "membership_renewal_request"     "membership_renewal_request"     "${DDL_BASE}/05_membership/03_membership_renewal_request.sql"
@@ -374,6 +397,11 @@ run_sql "sakha_only_membership_trigger"  "${DDL_BASE}/05_membership/14_sakha_onl
 run_ddl "credential_sequence_counter"    "credential_sequence_counter"    "${DDL_BASE}/05_membership/15_credential_sequence_counter.sql"
 run_ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "${DDL_BASE}/05_membership/17_sakha_local_number_counter.sql"
 run_ddl "membership_change_request"      "membership_change_request"      "${DDL_BASE}/05_membership/18_membership_change_request.sql"
+# Local Sakha ID allocator + home-affiliation guard (2026-11-01): functions /
+# DEFERRED constraint triggers only (CREATE OR REPLACE / DROP..CREATE TRIGGER, idempotent;
+# no existing-row scan, so a DB already holding members without a Local Sakha ID builds).
+run_sql "sakha_local_number_allocator"  "${DDL_BASE}/05_membership/19_sakha_local_number_allocator.sql"
+run_sql "home_affiliation_guard"          "${DDL_BASE}/05_membership/20_home_affiliation_guard.sql"
 
 echo ""
 echo "--- Phase 7b: Deferred Foundation Audit FKs ---"
@@ -420,6 +448,8 @@ echo "--- Phase 10: Authentication — DDL (5 tables) ---"
 run_ddl "user_account"           "user_account"         "${DDL_BASE}/06_authentication/01_user_account.sql"
 run_ddl "password_history"       "password_history"     "${DDL_BASE}/06_authentication/02_password_history.sql"
 run_ddl "registration_claim"     "registration_claim"   "${DDL_BASE}/06_authentication/03_registration_claim.sql"
+# Idempotent patch (GDR-009, owner 2026-11-01): the legacy-vs-new Local Sakha Number flags (is_legacy_member / darshak_is_legacy_member + agreement CHECKs) for a registration_claim table that already exists (03_ is existence-gated); existing claims default to legacy iff they already carry a number.
+run_sql "registration_claim_legacy_member_patch" "${DDL_BASE}/06_authentication/06_registration_claim_legacy_member_patch.sql"
 run_ddl "password_reset_token"   "password_reset_token" "${DDL_BASE}/06_authentication/04_password_reset_token.sql"
 run_ddl "user_session"           "user_session"         "${DDL_BASE}/06_authentication/05_user_session.sql"
 
@@ -482,6 +512,8 @@ run_ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "${DDL_B
 run_ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "${DDL_BASE}/10_attendance/02_weekly_sangha_puja_attendance.sql"
 run_ddl "attendance_exception"          "attendance_exception"          "${DDL_BASE}/10_attendance/03_attendance_exception.sql"
 run_ddl "attendance_review"             "attendance_review"             "${DDL_BASE}/10_attendance/04_attendance_review.sql"
+# Live-register index (owner 2026-10-31): 02_weekly_sangha_puja_attendance.sql is existence-gated, so this idempotent patch carries the (puja, last-change) index to existing databases.
+run_sql "attendance_live_version_index" "${DDL_BASE}/10_attendance/05_attendance_live_version_index_patch.sql"
 
 echo ""
 echo "--- Phase 11f: Organization re-parent approval — DDL (2 tables: organization_reparent_request, organization_reparent_step) ---"
