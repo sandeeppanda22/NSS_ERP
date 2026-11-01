@@ -9,8 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> `feature/tier6-governance` (23 commits past `develop`, not merged or released); the work since commit `0d956eb` (live attendance
-> register, local Sakha ID + legacy-member numbering rules, Patra rules, build/validate/docs refresh) is still uncommitted on top.
+> `feature/tier6-governance` (29 commits past `develop`, not merged or released); tree clean as of 2026-11-01.
 
 ## Commands
 
