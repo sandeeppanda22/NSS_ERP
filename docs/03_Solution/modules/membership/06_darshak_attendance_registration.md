@@ -59,6 +59,8 @@ This table applies to:
    Anumati Patra at their enrolling Sakha, approved to attend a
    different Sakha.
 
+   > **Amendment (2026-11-01, owner-directed, GDR-009 §2B):** item 2 no longer applies: a Darshaka (Probationary) cannot be a Darshak attendee at another Sakha — attending elsewhere means a Sakha Transfer, after which that Sakha is his home Sakha. Only Regular and Associate members hold a cross-Sakha attendance affiliation.
+
 This table does NOT apply to:
 
 - **Visitors** (attending ≤4 consecutive Sundays without approval) — no

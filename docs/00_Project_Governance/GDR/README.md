@@ -32,3 +32,8 @@ approving, recording, monitoring, and retiring individual governance decisions.
 - `GDR-008_Sakha_Asana_Is_a_Sakha_for_All_Organizational_Purposes.md` — owner-directed (2026-10-31): a Sakha
   Asana hosts every wing a Sakha Sangha can (Kumari, Sevak, local Mahila, Paribarik Asana); amends
   ORG-BR-091/092/094 (wing parents = the shared Sakha-like set). No schema change. Status `Proposed`.
+- `GDR-009_Legacy_Members_Supply_Their_Local_Sakha_Number_All_Others_Are_Auto-Numbered.md` — owner-directed
+  (2026-11-01): a legacy member (already Regular/Associate or Darshak before this system) supplies their
+  existing Local Sakha Number; everyone else is auto-numbered by the shared allocator; explicit
+  `is_legacy_member` per claim and per attendance Sakha; amends AUTH-BR-085/086/087 and MBR-030/030A/030C/030H/048/049; extended 2026-11-01 with the Parichaya/Anumati Patra number (§2A) and "a Darshaka cannot attend another Sakha" (§2B).
+  Status `Proposed`.

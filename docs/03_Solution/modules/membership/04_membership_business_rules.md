@@ -323,6 +323,8 @@ the Parichaya Patra renewal requirement to Associate Members.
 of the Annual Parichaya Patra (Identity Card) or Anumati Patra (Admit Card)
 as the case may be."
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** a new Associate (or Regular) member is minted a Parichaya Patra at claim approval or admin creation (a legacy member's existing number is recorded instead), its issue date and validity pinned to Dola Purnima (MBR-014, FC-DECISION-01). Associate members still receive a Parichaya Patra and no Anumati Patra (MBR-019B).
+
 ---
 
 ## MBR-019B — Associate Members Do Not Receive Anumati Patra
@@ -469,6 +471,8 @@ Example: ESS1192 (Ekamra Sakha), CTC42 (Cuttack Sakha)
 The local number is not the global Membership identity. The global
 identity is the Sangha Sevi ID (Tier 1).
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** "auto-generated" is the rule for every member who is NOT a *legacy member*. A person who was already a member (Regular/Associate or Darshak/Darshaka) before this application existed MUST supply the Local Sakha Number already on their card (stored verbatim, 409 if taken in that Sakha); everyone else is numbered by the shared allocator. Legacy status is an explicit flag (`is_legacy_member`, never inferred from a number being present) on a registration claim and on admin `create_user`/`create_sangha_sevi`, and the same rule applies to the cross-Sakha Darshak attendance affiliation at the attended Sakha, with its own flag (`darshak_is_legacy_member`). Admin verifies at approval.
+
 Stored on: `membership_sakha_affiliation.local_sakha_erp_id`
 
 ---
@@ -490,6 +494,12 @@ The Kendra Number does not change on Sakha transfer.
 
 Stored on: `parichaya_patra.document_number`
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the Kendra Number follows the same legacy-vs-new split as the Local Sakha Number (MBR-030). A **legacy member** (already a member before this application — the same explicit `is_legacy_member` flag, no separate one) MUST supply the number printed on their existing card; **everyone else** has it auto-generated.
+
+- **Auto-generated:** `<seq>/<yyyy>/<yyyy+1>` from `credential_sequence_counter`, keyed by credential type + scope + year: ONE Kendra-wide counter for the Parichaya Patra (NSS-unique, `uq_pp_document_number`), one counter PER SAKHA for the Anumati Patra (`uq_ap_document_number` is per issuing Sakha). The counter resets each year. Every member holds exactly one credential (Anumati for a Darshaka, Parichaya for Regular/Associate), so a non-legacy member's number is minted at claim approval or admin creation. The card's *issue date and validity* are pinned to Dola Purnima (FC-DECISION-01): `issue_membership_credential()` uses the most recent confirmed Dola Purnima for a Parichaya Patra, and a missing confirmed date blocks issuance with its existing 422. If a candidate already exists — a legacy member may carry a number from the current year — the allocator skips it and advances (mirroring `fn_next_sakha_local_number()`); a number is never reused or duplicated.
+- Applies to the Anumati Patra number identically (a legacy Darshaka supplies their Anumati number). A new member's number must be blank (422 if sent).
+- Validated at registration, claim edit, claim approval, admin `create_user`/`create_sangha_sevi`, and credential issuance (`issue_membership_credential(is_legacy=True)`). MBR-030H's bare-number/year-pinning entry rules still govern the hand-typed number on the promote endpoint and admin correction.
+
 CROSS-REFERENCE (SOL-ARCH-013 FC-DECISION-01, 2026-10-01): this
 financial-year numbering is explicitly UNCHANGED and stays decoupled from
 `valid_from`/`valid_to`, which moved to a Dola-Purnima basis (MBR-014).
@@ -504,6 +514,8 @@ financial-year numbering is explicitly UNCHANGED and stays decoupled from
 AUTHORITY: user decision, 2026-10-03. SUPERSEDES the 2026-10-01 note
 "no one, legacy or new, is ever asked to supply a year", which is hereby
 retired. Applies identically to **Parichaya Patra** and **Anumati Patra**.
+
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the entry rules below no longer apply to a registration claim, claim approval or admin member creation: those take the legacy-vs-new split (MBR-030A, amended) — a legacy member supplies the full `<seq>/<yyyy>/<yyyy+1>` card number (any past/current year pair, not pinned to the issue date), anyone else supplies none. The rules below remain in force for the promote endpoint's hand-typed number and for admin correction of an issued number.
 
 Nobody is ever *required* to type a year. Whoever enters a Patra number —
 member, Sangha Sevi, or admin, at registration, claim approval, or member
@@ -621,6 +633,8 @@ deliberately for legacy-register-import cases (a paper-register number predates 
 be preserved verbatim), exposed at the API layer as an explicit admin choice
 (`is_legacy_import`), never as a silent fallback.
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the explicit-number path described under "RESOLVED (MBR-048)" is now the *legacy member* path, driven by an explicit `is_legacy_member` flag (registration claim, admin creation) — a typed number without the flag is a 422, and a flagged legacy member without a number is a 422. The Darshak namespace marker and the never-reassigned rule are unchanged; a legacy Darshak number is composed with the marker like an allocated one. See GDR-009.
+
 ### Progression and archival
 
 Promotion from Probationary to Regular issues a new Regular-namespace
@@ -721,6 +735,8 @@ On `COMPLETED`:
 A member may have at most one open (non-terminal) change request at a time (DB-enforced, partial
 unique index on `membership_change_request`).
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the same legacy-vs-new principle governs the numbering step: this workflow's own `is_legacy_import` + `new_local_number` pair is the existing, equivalent form of the flag (an explicit number is accepted only together with the explicit flag; otherwise auto-sequenced) and is left as is. The registration-claim / admin-creation / claim-approval attendance paths use `is_legacy_member` / `darshak_is_legacy_member` with the one shared validator `resolve_legacy_local_number()`.
+
 ---
 
 ## MBR-049 — Apply for Darshak Is a Change Request, Not a Transfer
@@ -739,6 +755,8 @@ MBR-048's two-step request/release/accept workflow shape (`membership_change_req
   Sakha and home Local Sakha ERP Number are unaffected.
 - A `membership_journey_event` is still recorded, documenting the start of Darshak attendance at
   the new Sakha.
+
+> **Amendment (2026-11-01, owner-directed, GDR-009 §2B):** **Only a Regular or Associate member may apply for Darshak.** A Darshaka (PROBATIONARY) cannot be a Darshak attendee at another Sakha: if he attends or moves to another Sakha, that Sakha becomes his home Sakha and he must do a Sakha Transfer (MBR-048). A `DARSHAK` request for a PROBATIONARY member is refused with 422 ("A Darshaka who attends another Sakha must transfer to it; use Sakha Transfer") at filing and again at destination acceptance, and the same rule applies to the registration-time attendance Sakha (`is_attending_as_darshak` / `darshak_organization_pk`) and to claim edit/approval. The cross-Sakha attendance affiliation therefore exists only for Regular/Associate members; its numbering (existing number if legacy, else next in that Sakha's Darshak series) is unchanged.
 
 `old_organization_pk` on a `DARSHAK`-type change request names the member's home Sakha for
 display/audit purposes only — it carries no release-of-affiliation meaning the way it does for a

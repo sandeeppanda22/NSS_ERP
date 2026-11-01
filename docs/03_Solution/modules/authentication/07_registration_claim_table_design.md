@@ -142,6 +142,25 @@ This is the member's self-declared Local Sakha Number (same as SS ID).
 - Non-NULL for non-Darshaka members (application-level enforcement)
 - Not validated against sangha_sevi at registration time (AUTH-BR-087)
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the two bullets above ("NULL for Darshaka" / "Non-NULL for non-Darshaka") are replaced by the legacy-vs-new rule. The column is non-NULL **iff** the registrant is a legacy member, recorded explicitly in two new columns added by the idempotent patch `ddl/06_authentication/06_registration_claim_legacy_member_patch.sql`:
+>
+>     is_legacy_member          BOOLEAN NOT NULL DEFAULT FALSE   -- home Sakha
+>     darshak_is_legacy_member  BOOLEAN NOT NULL DEFAULT FALSE   -- attendance Sakha (darshak_organization_pk), independent of the first
+>
+> with `chk_registration_claim_legacy_home` (`is_legacy_member = (claimed_local_sakha_number IS NOT NULL)`) and `chk_registration_claim_legacy_darshak` (same for `darshak_local_sakha_number`). A new member's number is NULL and is generated at approval. Existing claims are defaulted once, when the columns are added: legacy iff they already carried a number.
+
+> **Amendment (2026-11-01, owner-directed, GDR-009 §2B):** for a PROBATIONARY (Darshaka) claim `darshak_organization_pk`, `darshak_is_legacy_member` and `darshak_local_sakha_number` must be NULL/FALSE — a Darshaka cannot attend another Sakha (Sakha Transfer instead). Application-enforced (no CHECK); the claim edit clears them when the claim is, or becomes, a Darshaka claim.
+
+---
+
+## 4.7A Claimed Parichaya / Anumati Patra Number
+
+    claimed_credential_document_number VARCHAR(30) NULL
+
+The card ("Kendra") number a registrant who already holds a Parichaya Patra (Regular/Associate) or Anumati Patra (Darshaka) declares, in the form `<seq>/<yyyy>/<yyyy+1>` (e.g. `345/2026/2027`).
+
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the column is non-NULL **only** for a legacy member (`is_legacy_member = TRUE`), under the SAME flag as `claimed_local_sakha_number` — no new column and no DDL patch. It is application-enforced (not a CHECK), because pre-existing rows may still hold a number without the flag: such a claim 422s at approval until the admin corrects it through claim edit. For a new member it is NULL and the number is minted at approval by `next_credential_document_number()` (Anumati for a Darshaka, Parichaya for Regular/Associate). A legacy number is stored in canonical form (no leading zeros), is never replaced by the counter, and is a 409 if the same document number is already issued (Parichaya: NSS-wide; Anumati: per issuing Sakha).
+
 ---
 
 ## 4.8 Claimed Joining Date
