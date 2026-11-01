@@ -58,10 +58,20 @@ class MarkAttendanceItem(BaseModel):
     # this specific member attended cross-Sakha (ATT-026/028).
     attendance_sakha_pk: UUID | None = None
     remarks: str | None = None
+    # Optimistic concurrency for the shared live register (owner "Option B").
+    # The `version` this marker last saw for THIS member's row, echoed
+    # VERBATIM from a previous response (never re-formatted: it carries
+    # microseconds). null = "I saw this member unmarked". The server only
+    # checks it when the request names expected_version on at least one item
+    # (see MarkAttendanceRequest); otherwise it is the legacy last-write-wins.
+    expected_version: datetime | None = None
 
 
 class MarkAttendanceRequest(BaseModel):
     records: list[MarkAttendanceItem]
+    # Second round after a 409: the members whose conflict the marker has
+    # explicitly accepted overwriting. Anyone else still conflicting 409s.
+    overwrite_sangha_sevi_pks: list[UUID] = []
 
 
 class AttendanceRecordResponse(BaseModel):
@@ -118,10 +128,48 @@ class AttendanceRecordResponse(BaseModel):
 
     remarks: str | None
 
+    # Who last changed this row and when (live register). `version` is the
+    # row's last-change timestamp, GREATEST(created_at, COALESCE(updated_at,
+    # created_at)) - the value to echo back as MarkAttendanceItem.
+    # expected_version. `marked_at` carries the same instant for display.
+    # The marker is NULL only for rows written without an actor.
+    marked_by_name: str | None = None
+    marked_by_sangha_sevi_id: str | None = None
+    marked_at: datetime
+    version: datetime
+
 
 class AttendanceRecordListResponse(BaseModel):
     records: list[AttendanceRecordResponse]
     total: int
+
+
+class AttendanceConflict(BaseModel):
+    """One entry of the 409 body of POST /pujas/{pk}/attendance (detail.conflicts)."""
+    sangha_sevi_pk: UUID
+    current_status_code: str
+    changed_by_name: str | None
+    changed_by_sangha_sevi_id: str | None
+    changed_at: datetime
+    requested_status_code: str
+
+
+class LiveAttendanceRow(BaseModel):
+    sangha_sevi_pk: UUID
+    attendance_pk: UUID
+    attendance_status_code: str
+    version: datetime
+    marked_by_name: str | None
+    marked_by_sangha_sevi_id: str | None
+    marked_at: datetime
+    is_active: bool  # False = unmarked / removed
+
+
+class LiveAttendanceResponse(BaseModel):
+    """GET /pujas/{pk}/live - rows changed since the cursor (all when absent)."""
+    server_time: datetime  # DB clock; the next poll's `since`
+    marked_count: int      # active rows for the whole puja
+    changed: list[LiveAttendanceRow]
 
 
 class CorrectAttendanceRequest(BaseModel):

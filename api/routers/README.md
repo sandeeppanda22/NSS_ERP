@@ -1,6 +1,6 @@
 # api/routers/
 
-One FastAPI `APIRouter` per module, all included by `api/main.py`. **17 routers, 251 endpoints**
+One FastAPI `APIRouter` per module, all included by `api/main.py`. **17 routers, 252 endpoints**
 (decorator-counted; `governance.py`, `membership_change_request.py`, `correspondence.py` and `attendance.py` are Tier 6, committed on `feature/tier6-governance`; `org_reparent.py` (Sakha re-parent approvals) is also Tier 6 but still uncommitted). Raw parameterized psycopg2 SQL, no ORM; response models live in
 `api/schemas/`. See `api/README.md` for the per-endpoint tables.
 

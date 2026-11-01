@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-17 routers (251 endpoints; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 20; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
+17 routers (252 endpoints; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -117,8 +117,18 @@ api/
 │                        `financial_year_bounds()`, `next_credential_document_number()`
 │                        (Kendra/Anumati `<seq>/<fy_start>/<fy_end>` counter via
 │                        `credential_sequence_counter`); membership —
-│                        `compose_local_sakha_erp_id()`, `insert_sakha_affiliation()`,
-│                        `issue_membership_credential()`, `is_probationary_membership_type()`,
+│                        `compose_local_sakha_erp_id()`, `local_sakha_id_prefix()`,
+│                        `create_sangha_sevi_with_home_affiliation()` (the ONE creator of a Sangha Sevi + its home
+│                        affiliation/Local Sakha ID; used by admin create_user/create_sangha_sevi and claim approval),
+│                        `insert_sakha_affiliation()`, legacy-vs-new Local Sakha Number rule (GDR-009) —
+│                        `resolve_legacy_local_number()` (the one validator), `validate_claim_local_numbers()`
+│                        (home + attendance number of a claim), `ensure_darshak_attendance_affiliation()`
+│                        (claim approval step 7; skip only if an OPEN affiliation exists, else 409),
+│                        Patra number rule (GDR-009 §2A) — `resolve_legacy_patra_number()`, `parse_legacy_patra_number()`,
+│                        `patra_number_exists()`, `patra_card_type_for_membership_type()`,
+│                        `issue_credential_at_enrolment()` (legacy number recorded, else minted),
+│                        `require_non_darshaka_for_attendance()` (§2B),
+│                        `issue_membership_credential()` (`is_legacy=`), `is_probationary_membership_type()`,
 │                        `require_sakha_organization()`, `resolve_scoped_sakha()`,
 │                        `resolve_kumari_sevak_parent_sakha()`, `get_kendra_organization_pk()`;
 │                        Tier 6 additions — `next_sakha_local_number()` (atomic Local Sakha
@@ -277,8 +287,8 @@ api/
 │   │                     login-only, authority to decide = live President seat (no admin override; NSS_ERP_ADMIN and Kendra GB members re-parent directly instead); requests
 │   │                     are filed by `PATCH /admin/organizations/{pk}` (HTTP 202) — logic in
 │   │                     `services/org_reparent_service.py`, seat lookups in `services/seat_service.py`
-│   ├── attendance.py     Tier 6 — 20 endpoints under /api/v1/attendance: Weekly Sangha Puja
-│   │                     (`/pujas`, `/pujas/{pk}/attendance`, `/records`), `/exceptions`, Attendance
+│   ├── attendance.py     Tier 6 — 21 endpoints under /api/v1/attendance: Weekly Sangha Puja
+│   │                     (`/pujas`, `/pujas/{pk}/attendance` (optimistic `expected_version` -> 409 conflicts), `/pujas/{pk}/live` (2 s poll, ETag/304), `/records`), `/exceptions`, Attendance
 │   │                     Review workflow (`/reviews*`: close/defer/revisit/escalate-to-president/
 │   │                     escalate-to-parichalak/reopen/override), `/watch-list`, `/stats/*`.
 │   │                     `ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE` + admin scope; review/exception
@@ -421,7 +431,7 @@ exact `require_permission`/`require_any_permission` arguments in each router.
 | DELETE | `/api/v1/admin/users/{pk}/roles/{user_role_pk}` | `ADMIN_ROLE_MANAGE` | Revoke a role assignment |
 | POST | `/api/v1/admin/persons` | `PERSON_MANAGE` | Admin creates a person directly (no account) |
 | GET | `/api/v1/admin/persons/check-contact` | any of `ADMIN_USER_MANAGE`/`PERSON_MANAGE` | Advisory duplicate lookup by mobile/email |
-| POST | `/api/v1/admin/sangha-sevi` | any of `ADMIN_USER_MANAGE`/`PERSON_MANAGE` | Create a standalone Sangha Sevi record, decoupled from user-account creation; scope-checked |
+| POST | `/api/v1/admin/sangha-sevi` | any of `ADMIN_USER_MANAGE`/`PERSON_MANAGE` | Create a standalone Sangha Sevi record, decoupled from user-account creation; scope-checked. Always opens the home `membership_sakha_affiliation`: `is_legacy_member` (default false) + `local_sakha_erp_id` and `credential_document_number`: legacy ⇒ both required (Patra number `<seq>/<yyyy>/<yyyy+1>`), otherwise both blank — Local number and the Anumati/Parichaya number auto-generated (GDR-009 §2A; 422 on mismatch or if the Sakha has no `short_code`; 409 if a typed number is taken) |
 | GET | `/api/v1/admin/sangha-sevi/check/{person_pk}` | any of `ADMIN_USER_VIEW`/`ADMIN_USER_MANAGE`/`MEMBERSHIP_APPROVE` | Whether a person already has an active Sangha Sevi record |
 | POST | `/api/v1/admin/sangha-sevi/check-batch` | same | Batch check up to 100 persons for an active Sangha Sevi or a pending registration claim |
 | GET | `/api/v1/admin/sangha-sevi/without-account` | any of `ADMIN_USER_VIEW`/`ADMIN_USER_MANAGE`/`MEMBERSHIP_APPROVE` | Paginated, searchable Sangha Sevis with an SS ID but no usable login (Create Account picker) |

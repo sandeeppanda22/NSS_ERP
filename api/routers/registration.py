@@ -31,13 +31,17 @@ Business rules (AUTH-BR-081 through AUTH-BR-098):
     password is discarded, not persisted anywhere.
   - No sangha_sevi or membership_sakha_affiliation created at registration
   - Membership intent stored in nss.registration_claim table
-  - Local Sakha Number: required for every membership type except Darshaka
-    (PROBATIONARY) — a legacy member migrating a known paper-register
-    number may still enter it (optional for Darshaka), but a brand-new
-    Darshaka applicant has none to self-report; Darshak members are
-    enrolled in a separate short_code+marker namespace (MBR-030C) with
-    the number system-generated at admin approval.
-  - Local Sakha Number is NOT validated at registration (admin verifies)
+  - Local Sakha Number (GDR-009, owner 2026-11-01): the registrant states
+    explicitly whether they were ALREADY a member before this system
+    (is_legacy_member). Legacy -> claimed_local_sakha_number is required
+    (the number on their card); not legacy -> it must be blank and the
+    system auto-generates the next number at admin approval (Regular/
+    Associate series, or the Darshak series for a Darshaka). The same
+    question is asked separately for an attendance Sakha
+    (darshak_is_legacy_member). One shared validator:
+    api/helpers.py::validate_claim_local_numbers().
+  - The number is only shape-checked here; whether it is the right one (and
+    not already taken) is verified by the admin at approval
   - PENDING_APPROVAL accounts cannot login
   - Sakha admin approves claim → creates membership records → activates account
 
@@ -54,7 +58,7 @@ from pydantic import BaseModel, Field
 from api.config import settings
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
-from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_mobile, validate_email, get_master_data_pk, is_probationary_membership_type
+from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_claim_local_numbers, resolve_legacy_patra_number, patra_card_type_for_membership_type, require_non_darshaka_for_attendance, validate_mobile, validate_email, get_master_data_pk
 from api.services.auth_service import hash_password, validate_password_policy
 from api.routers.foundation import fetch_countries, fetch_states, fetch_districts, fetch_cities, fetch_postal_codes, fetch_post_offices, fetch_master_data
 from api.routers.organization import fetch_organizations
@@ -145,19 +149,23 @@ class RegisterRequest(BaseModel):
     )
     joining_date: Optional["date"] = None
 
-    # Local Sakha Number (shown after sakha selection) — required for every
-    # membership type except Darshaka (see module docstring).
+    # Legacy vs new (GDR-009): "Were you already a member of NSS before this
+    # system?" — Regular/Associate OR Darshak. Explicit, never inferred.
+    is_legacy_member: bool = Field(
+        default=False,
+        description="True if already a member before this system; then claimed_local_sakha_number is required, otherwise it must be blank (auto-generated at approval).",
+    )
     claimed_local_sakha_number: str | None = Field(
         None, max_length=20,
-        description="Local Sakha Number — required for all membership types except Darshaka",
+        description="Existing Local Sakha Number on the member's card — required when is_legacy_member is true, must be blank otherwise",
     )
 
-    # Existing Parichaya Patra / Anumati Patra document number, for a
-    # registrant who already holds one (legacy member). Optional — omit to
-    # have a new one auto-generated at approval time for the current FY.
+    # Existing Parichaya Patra / Anumati Patra number — GDR-009 §2A: required
+    # for a legacy member (is_legacy_member), must be blank for everyone else
+    # (auto-generated at approval).
     claimed_credential_document_number: str | None = Field(
         None, max_length=30,
-        description="Existing Parichaya/Anumati Patra number, if already issued. Omit to auto-generate a new one at approval.",
+        description="Existing Parichaya/Anumati Patra number (<seq>/<yyyy>/<yyyy+1>, e.g. 345/2026/2027) — required when is_legacy_member is true, must be blank otherwise (auto-generated at approval).",
     )
 
     # Darshak attendance at another Sangha (optional)
@@ -168,9 +176,13 @@ class RegisterRequest(BaseModel):
     darshak_organization_pk: str | None = Field(
         None, description="UUID of Sakha the user is attending as Darshak",
     )
+    darshak_is_legacy_member: bool = Field(
+        default=False,
+        description="True if already a Darshak at the attending Sakha before this system; then darshak_local_sakha_number is required, otherwise it must be blank (auto-generated at approval).",
+    )
     darshak_local_sakha_number: str | None = Field(
         None, max_length=20,
-        description="Local Sakha Number at the darshak (attending) Sakha — required when is_attending_as_darshak is True",
+        description="Existing Darshak Local Sakha Number at the attending Sakha — required when darshak_is_legacy_member is true, must be blank otherwise",
     )
 
     # Password
@@ -183,6 +195,28 @@ class RegisterResponse(BaseModel):
     person_id: str
     person_name: str
     message: str
+
+
+def _resolve_claim_credential_fields(cur, body) -> str | None:
+    """
+    Membership-type-dependent checks of a registration claim, shared by
+    POST /register and POST /register/claim:
+      * GDR-009 §2B — a Darshaka cannot claim an attendance Sakha (422);
+      * GDR-009 §2A — the claimed Parichaya/Anumati Patra number: legacy ->
+        the card's existing number is required, format-checked and not
+        already issued (409); new -> it must be blank (422) and the number
+        (Anumati or Parichaya) is auto-minted at approval.
+        Rule: helpers.resolve_legacy_patra_number().
+    Returns the number to store (None for a new member).
+    """
+    # GDR-009 §2B: a Darshaka cannot attend another Sakha (must transfer).
+    if body.is_attending_as_darshak:
+        require_non_darshaka_for_attendance(cur, body.membership_type_master_data_pk)
+    return resolve_legacy_patra_number(
+        cur, body.is_legacy_member, body.claimed_credential_document_number,
+        card_type=patra_card_type_for_membership_type(cur, body.membership_type_master_data_pk),
+        issuing_organization_pk=body.organization_pk,
+    )
 
 
 from datetime import date  # noqa: E402 — needed for forward ref resolution
@@ -394,10 +428,12 @@ class ClaimExistingRequest(BaseModel):
     membership_type_master_data_pk: str = Field(..., min_length=1)
     organization_pk: str = Field(..., min_length=1)
     joining_date: Optional["date"] = None
+    is_legacy_member: bool = False
     claimed_local_sakha_number: str | None = Field(None, max_length=20)
     claimed_credential_document_number: str | None = Field(None, max_length=30)
     is_attending_as_darshak: bool = False
     darshak_organization_pk: str | None = None
+    darshak_is_legacy_member: bool = False
     darshak_local_sakha_number: str | None = Field(None, max_length=20)
 
     password: str = Field(..., min_length=8, max_length=128)
@@ -427,34 +463,23 @@ def claim_existing(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="darshak_organization_pk is required when is_attending_as_darshak is True.",
             )
-        if not body.darshak_local_sakha_number:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="darshak_local_sakha_number is required when is_attending_as_darshak is True.",
-            )
+    # GDR-009: legacy members state their existing number(s); everyone else
+    # leaves them blank and is auto-numbered at approval.
+    claimed_local_number, darshak_local_number = validate_claim_local_numbers(
+        is_legacy_member=body.is_legacy_member,
+        claimed_local_sakha_number=body.claimed_local_sakha_number,
+        darshak_organization_pk=body.darshak_organization_pk if body.is_attending_as_darshak else None,
+        darshak_is_legacy_member=body.darshak_is_legacy_member if body.is_attending_as_darshak else False,
+        darshak_local_sakha_number=body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+    )
 
     with conn.cursor() as cur:
         person_pk, person_id, person_name, existing_account = _verify_existing_person_for_claim(
             cur, body.person_id, body.date_of_birth
         )
 
-        # AUTH-BR-086: Local Sakha Number and Parichaya/Anumati Patra Number
-        # are required for every membership type EXCEPT Darshaka — a legacy
-        # member migrating a known paper-register number may still enter it
-        # here (optional), but a brand-new Darshaka applicant has none to
-        # self-report; both numbers are system-generated at admin approval
-        # instead.
-        if not is_probationary_membership_type(cur, body.membership_type_master_data_pk):
-            if not body.claimed_local_sakha_number:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Local Sakha Number is required.",
-                )
-            if not body.claimed_credential_document_number or not body.claimed_credential_document_number.strip():
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="claimed_credential_document_number (Parichaya Patra Number) is required for this membership type.",
-                )
+        # Patra number follows the same legacy rule (GDR-009 §2A).
+        claimed_credential_number = _resolve_claim_credential_fields(cur, body)
 
         require_sakha_organization(cur, body.organization_pk)
 
@@ -531,13 +556,15 @@ def claim_existing(
                 person_pk,
                 claimed_organization_pk,
                 claimed_membership_type_master_data_pk,
+                is_legacy_member,
                 claimed_local_sakha_number,
                 claimed_credential_document_number,
                 claimed_joining_date,
                 darshak_organization_pk,
+                darshak_is_legacy_member,
                 darshak_local_sakha_number,
                 claim_status
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
             RETURNING registration_claim_pk
             """,
             (
@@ -545,11 +572,13 @@ def claim_existing(
                 str(person_pk),
                 body.organization_pk,
                 body.membership_type_master_data_pk,
-                body.claimed_local_sakha_number,
-                body.claimed_credential_document_number,
+                body.is_legacy_member,
+                claimed_local_number,
+                claimed_credential_number,
                 body.joining_date,
                 body.darshak_organization_pk if body.is_attending_as_darshak else None,
-                body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+                bool(body.is_attending_as_darshak and body.darshak_is_legacy_member),
+                darshak_local_number,
             ),
         )
         claim_pk = cur.fetchone()[0]
@@ -798,11 +827,19 @@ def register(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="darshak_organization_pk is required when is_attending_as_darshak is True.",
             )
-        if not body.darshak_local_sakha_number:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="darshak_local_sakha_number is required when is_attending_as_darshak is True.",
-            )
+
+    # ── 3b2. Legacy-vs-new Local Sakha Numbers (GDR-009) ────────────────
+    #   Legacy -> the existing number is required; new -> it must be blank
+    #   and is auto-generated at approval. Only meaningful with a claim.
+    claimed_local_number = darshak_local_number = None
+    if body.has_membership:
+        claimed_local_number, darshak_local_number = validate_claim_local_numbers(
+            is_legacy_member=body.is_legacy_member,
+            claimed_local_sakha_number=body.claimed_local_sakha_number,
+            darshak_organization_pk=body.darshak_organization_pk if body.is_attending_as_darshak else None,
+            darshak_is_legacy_member=body.darshak_is_legacy_member if body.is_attending_as_darshak else False,
+            darshak_local_sakha_number=body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+        )
 
     # ── 3c. Validate address fields (user decision, 2026-10-03) ─────────
     # Pydantic's `...` only guards presence/type, not a blank string — a UI
@@ -828,15 +865,11 @@ def register(
 
     with conn.cursor() as cur:
 
-        # ── 3d. Parichaya Patra Number is mandatory for every membership
-        # type except Darshaka (PROBATIONARY) — Darshak members hold an
-        # Anumati Patra issued later, not claimed at registration.
-        if body.has_membership and not is_probationary_membership_type(cur, body.membership_type_master_data_pk):
-            if not body.claimed_credential_document_number or not body.claimed_credential_document_number.strip():
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="claimed_credential_document_number (Parichaya Patra Number) is required for this membership type.",
-                )
+        # ── 3d. Patra number: legacy -> required + validated; new -> blank
+        # and auto-generated at approval (GDR-009 §2A). Only with a claim.
+        claimed_credential_number = (
+            _resolve_claim_credential_fields(cur, body) if body.has_membership else None
+        )
 
         # ── 4. Check duplicate mobile + email ──────────────────────────
         check_duplicate_contact(
@@ -852,22 +885,6 @@ def register(
         #   Mirrors the DB trigger and the claim_approval / admin guards.
         if body.has_membership and body.organization_pk:
             require_sakha_organization(cur, body.organization_pk)
-
-        # ── 5b. Validate Local Sakha Number requirement (AUTH-BR-086) ────
-        #   Required for every membership type except Darshaka (PROBATIONARY)
-        #   — a legacy member migrating a known paper-register number may
-        #   still enter it here (optional), but a brand-new Darshaka
-        #   applicant has none to self-report; the number is
-        #   system-generated at admin approval instead.
-        if (
-            body.has_membership
-            and not is_probationary_membership_type(cur, body.membership_type_master_data_pk)
-            and not body.claimed_local_sakha_number
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Local Sakha Number is required.",
-            )
 
         # ── 6. Generate person_id ───────────────────────────────────────
         person_id = next_id(cur, "PERSON")
@@ -1098,13 +1115,15 @@ def register(
                     person_pk,
                     claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
+                    is_legacy_member,
                     claimed_local_sakha_number,
                     claimed_credential_document_number,
                     claimed_joining_date,
                     darshak_organization_pk,
+                    darshak_is_legacy_member,
                     darshak_local_sakha_number,
                     claim_status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
                 RETURNING registration_claim_pk
                 """,
                 (
@@ -1112,11 +1131,13 @@ def register(
                     str(person_pk),
                     body.organization_pk,
                     body.membership_type_master_data_pk,
-                    body.claimed_local_sakha_number,
-                    body.claimed_credential_document_number,
+                    body.is_legacy_member,
+                    claimed_local_number,
+                    claimed_credential_number,
                     body.joining_date,
                     body.darshak_organization_pk if body.is_attending_as_darshak else None,
-                    body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+                    bool(body.is_attending_as_darshak and body.darshak_is_legacy_member),
+                    darshak_local_number,
                 ),
             )
             claim_pk = cur.fetchone()[0]

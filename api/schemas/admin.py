@@ -44,19 +44,31 @@ class CreateUserRequest(BaseModel):
     joining_date: str | None = Field(
         None, description="Joining date ISO (required if create_sangha_sevi)",
     )
+    # GDR-009 (owner 2026-11-01): legacy members supply the number already on
+    # their card; everyone else is auto-numbered. Explicit, never inferred
+    # from whether a number was typed.
+    is_legacy_member: bool = Field(
+        default=False,
+        description=(
+            "True if this person was ALREADY a member before this system "
+            "(Regular/Associate or Darshak): local_sakha_erp_id is then "
+            "required (and credential_document_number). False: both must be "
+            "blank and the next numbers are auto-generated."
+        ),
+    )
     local_sakha_erp_id: str | None = Field(
         None, max_length=30,
-        description="Local Sakha register number (raw, e.g. 1192). Backend composes <short_code><number>.",
+        description="Existing Local Sakha register number (raw, e.g. 1192) of a legacy member; Backend composes <short_code><number>. Must be blank unless is_legacy_member.",
     )
     # Mandatory credential (MBR-010/014/019A/B), mirroring
     # CreateSanghaSeviRequest below — this branch creates a sangha_sevi row
     # too (when create_sangha_sevi=true), so it owes the member the same
-    # Anumati/Parichaya Patra. Omit credential_document_number to
-    # auto-generate a new FY number; supply it to record an already-issued
-    # legacy credential instead. Ignored when create_sangha_sevi=false.
+    # Anumati/Parichaya Patra. GDR-009 §2A: credential_document_number is
+    # required for a legacy member (is_legacy_member) and must be blank
+    # otherwise (auto-generated). Ignored when create_sangha_sevi=false.
     credential_document_number: str | None = Field(
         None, max_length=30,
-        description="Existing document number for a legacy (already-issued) credential; omit to auto-generate a new one.",
+        description="Existing Parichaya/Anumati Patra number (<seq>/<yyyy>/<yyyy+1>, e.g. 345/2026/2027) of a legacy member — required when is_legacy_member, must be blank otherwise (auto-generated, GDR-009 §2A).",
     )
     credential_issue_date: str | None = Field(
         None, description="Deprecated — issue date is now derived from credential_issue_year's Dola Purnima. An explicit ISO (YYYY-MM-DD) date still wins if supplied.",
@@ -194,9 +206,21 @@ class CreateSanghaSeviRequest(BaseModel):
             "not 'joined today'; it is never defaulted."
         ),
     )
+    # GDR-009 (owner 2026-11-01): legacy members supply the number already on
+    # their card; everyone else is auto-numbered. Explicit, never inferred
+    # from whether a number was typed.
+    is_legacy_member: bool = Field(
+        default=False,
+        description=(
+            "True if this person was ALREADY a member before this system "
+            "(Regular/Associate or Darshak): local_sakha_erp_id is then "
+            "required (and credential_document_number). False: both must be "
+            "blank and the next numbers are auto-generated."
+        ),
+    )
     local_sakha_erp_id: str | None = Field(
         None, max_length=30,
-        description="Local Sakha register number (raw, e.g. 1192). Backend composes <short_code><number>.",
+        description="Existing Local Sakha register number (raw, e.g. 1192) of a legacy member; Backend composes <short_code><number>. Must be blank unless is_legacy_member.",
     )
     # Optional: also create a login (user account) for this person. Because
     # login is by sangha_sevi_id, an account is only usable once the person
@@ -217,16 +241,16 @@ class CreateSanghaSeviRequest(BaseModel):
     )
     # Mandatory credential (MBR-010/014/019A/B): a PROBATIONARY member must
     # be issued an Anumati Patra; REGULAR/ASSOCIATE must be issued a
-    # Parichaya Patra. Two paths:
-    #   - Omit credential_document_number: a new number is auto-generated
-    #     for the current financial year (Kendra-wide sequence for
-    #     Parichaya Patra, Sakha-wide for Anumati Patra — MBR-030A).
-    #   - Provide credential_document_number (+ optionally the other
-    #     credential_* fields): records an already-issued legacy
-    #     credential instead of minting a new one.
+    # Parichaya Patra. Two paths, selected by is_legacy_member (GDR-009 §2A):
+    #   - New member: credential_document_number MUST be blank; a number is
+    #     auto-generated (Kendra-wide sequence for Parichaya Patra,
+    #     Sakha-wide for Anumati Patra — MBR-030A).
+    #   - Legacy member: credential_document_number is REQUIRED and records
+    #     the already-issued card (+ optionally the other credential_*
+    #     fields) instead of minting a new one.
     credential_document_number: str | None = Field(
         None, max_length=30,
-        description="Existing document number for a legacy (already-issued) credential; omit to auto-generate a new one.",
+        description="Existing Parichaya/Anumati Patra number (<seq>/<yyyy>/<yyyy+1>, e.g. 345/2026/2027) of a legacy member — required when is_legacy_member, must be blank otherwise (auto-generated, GDR-009 §2A).",
     )
     credential_issue_date: str | None = Field(
         None, description="Deprecated — issue date is now derived from credential_issue_year's Dola Purnima. An explicit ISO (YYYY-MM-DD) date still wins if supplied.",

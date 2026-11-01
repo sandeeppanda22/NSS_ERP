@@ -53,14 +53,16 @@ from api.helpers import (
     get_active_status_pk, compose_local_sakha_erp_id, log_audit,
     SAKHA_LIKE_ORG_TYPES, SAKHA_LIKE_ORG_TYPES_SQL, apply_person_profile_update, SINGLETON_ORG_TYPES, CENTRAL_MAHILA_ORG_TYPE,
     require_singleton_slot_free,
-    insert_sakha_affiliation, is_probationary_membership_type,
+    insert_sakha_affiliation, create_sangha_sevi_with_home_affiliation,
+    resolve_legacy_local_number, resolve_legacy_patra_number,
+    patra_card_type_for_membership_type,
     require_entity, check_duplicate_contact, record_password_history,
     validate_and_hash_password,
     build_order_by, natural_sort_key,
     require_sakha_organization, resolve_kumari_sevak_parent_sakha,
     resolve_scoped_sakha, ORGANIZATION_ADDRESS_JOINS_SQL,
     get_kendra_organization_pk, next_credential_document_number,
-    issue_membership_credential, USER_ACCOUNT_MEMBERSHIP_JOINS_SQL,
+    issue_membership_credential, issue_credential_at_enrolment, USER_ACCOUNT_MEMBERSHIP_JOINS_SQL,
     validate_mobile, validate_email,
     fetch_person_date_of_birth,
     parse_optional_date, normalize_patra_document_number,
@@ -557,6 +559,36 @@ def check_person_contact(
     }
 
 
+
+def _legacy_local_number(body) -> str | None:
+    """
+    The home Local Sakha number for an admin-created member under the
+    legacy-vs-new rule (GDR-009): legacy -> the typed number (required),
+    otherwise None (auto-generated). Thin adapter over the one shared
+    validator, used by create_user and create_sangha_sevi alike.
+    """
+    return resolve_legacy_local_number(
+        body.is_legacy_member, body.local_sakha_erp_id,
+        flag_field="is_legacy_member", number_field="local_sakha_erp_id",
+    )
+
+
+def _legacy_credential_number(cur, body) -> str | None:
+    """
+    The Parichaya/Anumati Patra number for an admin-created member under the
+    same legacy flag (GDR-009 §2A): legacy -> the card's existing number
+    (required, format-checked, 409 if already issued); new -> None, so
+    issue_membership_credential() auto-mints it. Used by create_user and
+    create_sangha_sevi alike; the rule lives in resolve_legacy_patra_number().
+    """
+    return resolve_legacy_patra_number(
+        cur, body.is_legacy_member, body.credential_document_number,
+        card_type=patra_card_type_for_membership_type(cur, body.membership_type_pk),
+        issuing_organization_pk=body.organization_pk,
+        number_field="credential_document_number",
+    )
+
+
 @router.post("/users", response_model=UserAccountResponse, status_code=201)
 def create_user(
     body: CreateUserRequest,
@@ -697,9 +729,6 @@ def create_user(
                     detail="This person already has a Sangha Sevi record.",
                 )
 
-            # Get ACTIVE status pk
-            active_status_pk = get_active_status_pk(cur)
-
             # MBR-038A: membership must be tied to a Sakha Sangha.
             # Auto-resolve the Sakha when omitted (single-Sakha admin), or
             # require an explicit in-scope pick otherwise — mirrors the
@@ -713,51 +742,31 @@ def create_user(
             # fall inside the actor's scope subtree.
             _require_org_in_scope(cur, user, body.organization_pk, "create accounts")
 
-            generated_ss_id = next_id(cur, "SANGHA_SEVI", actor_pk=actor)
             # MBR-047: optional. "" from an untouched UI field becomes NULL,
             # and a malformed value becomes a 422 instead of a 500.
             joining_date_val = parse_optional_date(
                 body.joining_date, "Sangha Joining Date",
             )
-            cur.execute(
-                """
-                INSERT INTO nss.sangha_sevi (
-                    sangha_sevi_id, person_pk,
-                    membership_type_master_data_pk,
-                    membership_status_master_data_pk,
-                    organization_pk, joining_date
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING sangha_sevi_pk
-                """,
-                (
-                    generated_ss_id,
-                    str(body.person_pk),
-                    body.membership_type_pk,
-                    str(active_status_pk),
-                    body.organization_pk,
-                    joining_date_val,
-                ),
+            # GDR-009: validate both numbers up front (422/409 before anything
+            # is written) — Local Sakha Number, then the Patra number, same flag.
+            local_number = _legacy_local_number(body)
+            credential_number = _legacy_credential_number(cur, body)
+            # One shared creator: the Sangha Sevi row AND its home
+            # affiliation with a Local Sakha ID (typed number if supplied,
+            # else auto-generated) — never one without the other.
+            created_ss = create_sangha_sevi_with_home_affiliation(
+                cur,
+                person_pk=str(body.person_pk),
+                membership_type_pk=body.membership_type_pk,
+                organization_pk=body.organization_pk,
+                joining_date=joining_date_val,
+                actor_pk=actor,
+                actor_user_account_pk=str(user.user_account_pk),
+                module="admin",
+                local_number=local_number,
             )
-            ss_pk = cur.fetchone()[0]
-            log_audit(cur, action="CREATE", table_name="sangha_sevi", record_pk=str(ss_pk),
-                      actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                      module="admin", summary=f"Created sangha sevi {generated_ss_id}")
-
-            # Create membership_sakha_affiliation if local_sakha_erp_id provided
-            if body.local_sakha_erp_id:
-                aff_pk = insert_sakha_affiliation(
-                    cur,
-                    sangha_sevi_pk=str(ss_pk),
-                    organization_pk=body.organization_pk,
-                    local_number=body.local_sakha_erp_id,
-                    effective_from=joining_date_val,
-                    is_darshak=is_probationary_membership_type(
-                        cur, body.membership_type_pk
-                    ),
-                )
-                log_audit(cur, action="CREATE", table_name="membership_sakha_affiliation", record_pk=str(aff_pk),
-                          actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                          module="admin", summary="Created sakha affiliation")
+            ss_pk = created_ss["sangha_sevi_pk"]
+            generated_ss_id = created_ss["sangha_sevi_id"]
 
             # ── Mandatory credential (MBR-010/014/019A/B) ──────────
             # PROBATIONARY -> Anumati Patra; REGULAR/ASSOCIATE -> Parichaya
@@ -766,12 +775,14 @@ def create_user(
             # same credential (previously a gap: this path minted a
             # Sangha Sevi record with no card issued at all).
             generated_credential_type, generated_credential_pk, generated_credential_document_number = (
-                issue_membership_credential(
+                issue_credential_at_enrolment(
                     cur,
-                    sangha_sevi_pk=str(ss_pk),
+                    is_legacy_member=body.is_legacy_member,
                     membership_type_pk=body.membership_type_pk,
+                    document_number=credential_number,
+                    sangha_sevi_pk=str(ss_pk),
                     organization_pk=body.organization_pk,
-                    document_number=body.credential_document_number,
+                    local_sakha_erp_id=created_ss["local_sakha_erp_id"],
                     issue_date=date.fromisoformat(body.credential_issue_date) if body.credential_issue_date else None,
                     issue_year=body.credential_issue_year,
                     valid_from=date.fromisoformat(body.credential_valid_from) if body.credential_valid_from else None,
@@ -866,9 +877,6 @@ def create_sangha_sevi(
                 detail="This person already has a Sangha Sevi record.",
             )
 
-        # Get ACTIVE status pk
-        active_status_pk = get_active_status_pk(cur)
-
         # Auto-resolve the target Sakha when the caller omitted it: a
         # single-Sakha admin gets their own Sakha filled in; an NSS-wide or
         # multi-Sakha admin is asked to pick. This is the member-attach
@@ -887,47 +895,41 @@ def create_sangha_sevi(
         # both the resolved and the explicitly-picked organization.
         _require_org_in_scope(cur, user, body.organization_pk, "create Sangha Sevi records")
 
-        # Generate SS ID and insert
+        # Generate SS ID, insert, and open the home affiliation with its
+        # Local Sakha ID (typed number if supplied, else auto-generated).
         actor = user.actor_pk
-        ss_id = next_id(cur, "SANGHA_SEVI", actor_pk=actor)
         # MBR-047: Sangha Joining Date is optional; "" becomes NULL.
         joining_date_val = parse_optional_date(
             body.joining_date, "Sangha Joining Date",
         )
-        cur.execute(
-            """
-            INSERT INTO nss.sangha_sevi (
-                sangha_sevi_id, person_pk,
-                membership_type_master_data_pk,
-                membership_status_master_data_pk,
-                organization_pk, joining_date
-            ) VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING sangha_sevi_pk
-            """,
-            (
-                ss_id,
-                str(body.person_pk),
-                body.membership_type_pk,
-                str(active_status_pk),
-                body.organization_pk,
-                joining_date_val,
-            ),
-        )
-        ss_pk = cur.fetchone()[0]
-        log_audit(cur, action="CREATE", table_name="sangha_sevi", record_pk=str(ss_pk),
-                  actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                  module="admin", summary=f"Created sangha sevi {ss_id}")
-
-        # ── Mandatory credential (MBR-010/014/019A/B) ──────────
-        # PROBATIONARY -> Anumati Patra; REGULAR/ASSOCIATE -> Parichaya
-        # Patra. Auto-generates a new FY document number unless the caller
-        # supplied one (an already-issued legacy credential being entered).
-        credential_type, credential_pk, credential_document_number = issue_membership_credential(
+        # GDR-009: both numbers validated up front, same flag.
+        local_number = _legacy_local_number(body)
+        credential_number = _legacy_credential_number(cur, body)
+        created_ss = create_sangha_sevi_with_home_affiliation(
             cur,
-            sangha_sevi_pk=str(ss_pk),
+            person_pk=str(body.person_pk),
             membership_type_pk=body.membership_type_pk,
             organization_pk=body.organization_pk,
-            document_number=body.credential_document_number,
+            joining_date=joining_date_val,
+            actor_pk=actor,
+            actor_user_account_pk=str(user.user_account_pk),
+            module="admin",
+            local_number=local_number,
+        )
+        ss_pk = created_ss["sangha_sevi_pk"]
+        ss_id = created_ss["sangha_sevi_id"]
+
+        # ── Credential (MBR-010/014/019A/B, GDR-009 §2A) ──────────
+        # PROBATIONARY -> Anumati Patra; REGULAR/ASSOCIATE -> Parichaya Patra;
+        # a legacy member's existing number is recorded, otherwise minted.
+        credential_type, credential_pk, credential_document_number = issue_credential_at_enrolment(
+            cur,
+            is_legacy_member=body.is_legacy_member,
+            membership_type_pk=body.membership_type_pk,
+            document_number=credential_number,
+            sangha_sevi_pk=str(ss_pk),
+            organization_pk=body.organization_pk,
+            local_sakha_erp_id=created_ss["local_sakha_erp_id"],
             issue_date=date.fromisoformat(body.credential_issue_date) if body.credential_issue_date else None,
             issue_year=body.credential_issue_year,
             valid_from=date.fromisoformat(body.credential_valid_from) if body.credential_valid_from else None,
@@ -938,22 +940,6 @@ def create_sangha_sevi(
         log_audit(cur, action="CREATE", table_name=credential_type.lower(), record_pk=credential_pk,
                   actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
                   module="admin", summary=f"Issued {credential_type} {credential_document_number}")
-
-        # Create membership_sakha_affiliation if local_sakha_erp_id provided
-        if body.local_sakha_erp_id:
-            aff_pk = insert_sakha_affiliation(
-                cur,
-                sangha_sevi_pk=str(ss_pk),
-                organization_pk=body.organization_pk,
-                local_number=body.local_sakha_erp_id,
-                effective_from=joining_date_val,
-                is_darshak=is_probationary_membership_type(
-                    cur, body.membership_type_pk
-                ),
-            )
-            log_audit(cur, action="CREATE", table_name="membership_sakha_affiliation", record_pk=str(aff_pk),
-                      actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                      module="admin", summary="Created sakha affiliation")
 
         # ── Optionally create a login (user account) ──────────
         # Mirrors POST /users' account block, inverted: here the Sangha Sevi

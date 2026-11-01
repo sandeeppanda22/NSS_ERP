@@ -42,6 +42,7 @@ from api.helpers import (
     is_probationary_membership_type,
     log_audit,
     next_festival_date_on_or_after,
+    require_non_darshaka_for_attendance,
     require_sakha_organization,
 )
 from api.schemas.membership_change_request import (
@@ -186,6 +187,15 @@ def create_change_request(
             )
 
         require_sakha_organization(cur, str(body.new_organization_pk))
+
+        # GDR-009 §2B: a Darshaka cannot attend another Sakha as a Darshak —
+        # he transfers (a TRANSFER request) instead.
+        if body.request_type == "DARSHAK":
+            cur.execute(
+                "SELECT membership_type_master_data_pk FROM nss.sangha_sevi WHERE sangha_sevi_pk = %s",
+                (str(body.sangha_sevi_pk),),
+            )
+            require_non_darshaka_for_attendance(cur, (cur.fetchone() or (None,))[0])
 
         # One open request per member at a time (also enforced by the partial
         # unique index uq_mem_change_req_one_open) — a clear 409 instead of a
@@ -499,6 +509,10 @@ def destination_decision(
         cur.execute("SELECT membership_type_master_data_pk FROM nss.sangha_sevi WHERE sangha_sevi_pk = %s",
                     (str(sangha_sevi_pk),))
         membership_type_pk = (cur.fetchone() or (None,))[0]
+        if request_type == "DARSHAK":
+            # GDR-009 §2B — re-checked at acceptance: the member may have been
+            # demoted/changed since filing, and pre-rule requests may exist.
+            require_non_darshaka_for_attendance(cur, membership_type_pk)
         is_darshak_namespace = (
             request_type == "DARSHAK" or is_probationary_membership_type(cur, membership_type_pk)
         )

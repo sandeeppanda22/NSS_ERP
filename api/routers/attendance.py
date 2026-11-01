@@ -25,17 +25,19 @@ Three-tier identity model (unchanged from Membership): all attendance is
 keyed on sangha_sevi_pk, never a second identity (ATT-001/002).
 """
 
-from datetime import date
+import hashlib
+from datetime import date, datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
 from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
-from api.dependencies.rbac import require_permission
+from api.dependencies.rbac import require_any_permission, require_permission
 from api.helpers import MAX_LIMIT, get_master_data_pk, log_audit, require_entity, require_sakha_organization
 from api.routers.governance import _CURRENT_ASSIGNMENT_SQL, _person_name_sql
 from api.schemas.attendance import (
+    AttendanceConflict,
     AttendanceRecordListResponse,
     AttendanceRecordResponse,
     CorrectAttendanceRequest,
@@ -43,6 +45,8 @@ from api.schemas.attendance import (
     CreatePujaRequest,
     ExceptionListResponse,
     ExceptionResponse,
+    LiveAttendanceResponse,
+    LiveAttendanceRow,
     MarkAttendanceRequest,
     MemberAttendanceStatsResponse,
     OrgAttendanceStatsResponse,
@@ -94,6 +98,32 @@ _HAS_OPEN_REVIEW_SQL = """EXISTS (
     JOIN nss.master_data rmd ON rmd.master_data_pk = r.review_status_master_data_pk
     WHERE r.sangha_sevi_pk = %s AND r.is_active = TRUE AND rmd.value_code != 'CLOSED'
 )"""
+
+
+# Live-register "who changed this row, and when". The row's version is its
+# last-change instant. Expects alias a = weekly_sangha_puja_attendance. The
+# expression is spelled exactly as in idx_wspa_puja_last_change
+# (database/ddl/10_attendance/05_attendance_live_version_index_patch.sql) so
+# the planner can use that index - change both together.
+_ATT_VERSION_SQL = "GREATEST(a.created_at, COALESCE(a.updated_at, a.created_at))"
+
+# The marker is whoever wrote the last change (updated_by once the row has
+# been touched again, else created_by). SELECT columns: name, Sangha Sevi ID,
+# version. Shared by the record list, the mark response, the live endpoint and
+# the conflict check, so the four can never disagree about attribution.
+_ATT_MARKER_COLUMNS_SQL = (
+    f"NULLIF({_person_name_sql('mbp')}, ''), mbs.sangha_sevi_id, {_ATT_VERSION_SQL}"
+)
+_ATT_MARKER_JOINS_SQL = """
+    LEFT JOIN nss.sangha_sevi mbs
+           ON mbs.sangha_sevi_pk = COALESCE(a.updated_by_sangha_sevi_pk, a.created_by_sangha_sevi_pk)
+    LEFT JOIN nss.person mbp ON mbp.person_pk = mbs.person_pk
+"""
+
+# A change committed by a transaction that STARTED earlier than the poller's
+# cursor carries an older NOW() than the cursor, so the live endpoint re-sends
+# rows within this overlap and the client merges idempotently by version.
+_LIVE_OVERLAP_SECONDS = 1
 
 
 def _require_view_or_self(user: UserContext, sangha_sevi_pk) -> None:
@@ -383,7 +413,74 @@ def list_pujas(
 # 2. Attendance Marking
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.post("/pujas/{weekly_sangha_puja_pk}/attendance", response_model=AttendanceRecordListResponse, status_code=201)
+def _as_utc(dt: datetime) -> datetime:
+    """A naive client timestamp is taken as UTC; aware ones are left alone."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _find_attendance_conflicts(cur, puja_pk, body: MarkAttendanceRequest, actor_pk) -> list[AttendanceConflict]:
+    """
+    Optimistic-concurrency check for the shared live register. Locks the
+    affected rows (a per-puja advisory lock first, because FOR UPDATE cannot
+    lock a row that does not exist yet) and returns the members whose row was
+    changed by someone else since this marker last saw it: current version !=
+    expected_version (null expected = "I saw it unmarked") AND current status
+    != the requested one (an identical status is not a conflict) AND not
+    named in overwrite_sangha_sevi_pks. A soft-deleted row counts as unmarked.
+
+    Second rule (owner 2026-11-01, "ask, naming who changed it"): even when the
+    version MATCHES - the caller loaded the mark and then tapped a different
+    status - an active row last changed by a DIFFERENT, known Sangha Sevi than
+    ``actor_pk`` is a conflict too unless named in overwrite_sangha_sevi_pks.
+    Editing your own mark never conflicts; a row with no recorded marker
+    (legacy) cannot be attributed to anyone else and is left alone.
+    """
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(puja_pk),))
+    pks = [str(i.sangha_sevi_pk) for i in body.records]
+    placeholders = ",".join(["%s"] * len(pks))
+    cur.execute(
+        f"""
+        SELECT a.sangha_sevi_pk, a.is_active, md.value_code, {_ATT_MARKER_COLUMNS_SQL},
+               COALESCE(a.updated_by_sangha_sevi_pk, a.created_by_sangha_sevi_pk)
+        FROM   nss.weekly_sangha_puja_attendance a
+        JOIN   nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
+        {_ATT_MARKER_JOINS_SQL}
+        WHERE  a.weekly_sangha_puja_pk = %s AND a.sangha_sevi_pk IN ({placeholders})
+        FOR UPDATE OF a
+        """,
+        [str(puja_pk), *pks],
+    )
+    current = {str(r[0]): r for r in cur.fetchall()}
+    confirmed = {str(pk) for pk in body.overwrite_sangha_sevi_pks}
+    conflicts: list[AttendanceConflict] = []
+    for item in body.records:
+        key = str(item.sangha_sevi_pk)
+        row = current.get(key)
+        if row is None or not row[1] or key in confirmed:
+            continue
+        _, _, current_code, marker_name, marker_sevi_id, version, marker_pk = row
+        version_matches = (
+            item.expected_version is not None and _as_utc(item.expected_version) == _as_utc(version)
+        )
+        by_someone_else = marker_pk is not None and str(marker_pk) != str(actor_pk)
+        if version_matches and not by_someone_else:
+            continue
+        if current_code == item.attendance_status_code:
+            continue
+        conflicts.append(AttendanceConflict(
+            sangha_sevi_pk=item.sangha_sevi_pk, current_status_code=current_code,
+            changed_by_name=marker_name, changed_by_sangha_sevi_id=marker_sevi_id,
+            changed_at=version, requested_status_code=item.attendance_status_code,
+        ))
+    return conflicts
+
+
+@router.post(
+    "/pujas/{weekly_sangha_puja_pk}/attendance",
+    response_model=AttendanceRecordListResponse,
+    status_code=201,
+    responses={409: {"description": "detail.conflicts: members someone else changed since expected_version"}},
+)
 def mark_attendance(
     weekly_sangha_puja_pk: UUID,
     body: MarkAttendanceRequest,
@@ -396,6 +493,18 @@ def mark_attendance(
     Each item upserts (one row per member per puja, Table Design §9); an
     ABSENT mark immediately runs consecutive-absence detection
     (ATT-009/010/014).
+
+    Live register (several markers, one Sakha): when any item carries
+    ``expected_version`` the whole request is conflict-checked first. Members
+    whose row someone else changed since that version (and whose current
+    status differs from the requested one) are NOT saved: nothing is saved and
+    409 is returned with ``detail.conflicts``; resend with those members in
+    ``overwrite_sangha_sevi_pks`` to overwrite, or drop them to keep the other
+    marker's mark. The same 409 is returned when the version matches but the
+    row's current mark was last changed by a DIFFERENT member than the caller
+    and differs from the requested status (changing someone else's mark needs
+    an explicit overwrite; your own mark never does). A request with no
+    ``expected_version`` anywhere keeps the original last-write-wins behaviour.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -417,14 +526,26 @@ def mark_attendance(
             code: get_master_data_pk(cur, "ATTENDANCE_STATUS", code)
             for code in ("PRESENT", "ABSENT", "EXCUSED_ABSENCE")
         }
-        result_pks: list[str] = []
         for item in body.records:
-            require_entity(cur, "sangha_sevi", str(item.sangha_sevi_pk), label="Member")
             if item.attendance_status_code not in status_pks:
                 raise HTTPException(
                     status_code=422,
                     detail=f"Unknown attendance status: {item.attendance_status_code}",
                 )
+        if body.records and any("expected_version" in i.model_fields_set for i in body.records):
+            conflicts = _find_attendance_conflicts(cur, weekly_sangha_puja_pk, body, user.sangha_sevi_pk)
+            if conflicts:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": "Some members were changed by someone else since you last saw them.",
+                        # JSON-ready: HTTPException detail is not run through jsonable_encoder.
+                        "conflicts": [c.model_dump(mode="json") for c in conflicts],
+                    },
+                )
+        result_pks: list[str] = []
+        for item in body.records:
+            require_entity(cur, "sangha_sevi", str(item.sangha_sevi_pk), label="Member")
             # Re-marking an already-EXCUSED record to anything else revokes an
             # approval — same seat requirement as correct_attendance().
             if item.attendance_status_code != "EXCUSED_ABSENCE":
@@ -471,6 +592,88 @@ def mark_attendance(
 
         records = _fetch_records(cur, attendance_pks=result_pks)
     return AttendanceRecordListResponse(records=records, total=len(records))
+
+
+@router.get(
+    "/pujas/{weekly_sangha_puja_pk}/live",
+    response_model=LiveAttendanceResponse,
+    responses={304: {"description": "Nothing changed since the ETag in If-None-Match"}},
+)
+def live_attendance(
+    weekly_sangha_puja_pk: UUID,
+    response: Response,
+    since: datetime | None = Query(None, description="ISO-8601 server_time of the previous poll; omit for every row"),
+    if_none_match: str | None = Header(None),
+    user: UserContext = Depends(require_any_permission("ATTENDANCE_VIEW", "ATTENDANCE_MANAGE")),
+    conn=Depends(get_connection),
+):
+    """
+    Live-register poll for one puja: the attendance rows changed after
+    ``since`` (all rows when omitted), each with who marked it and when;
+    ``is_active=false`` = unmarked/removed. Rows within a 1 s overlap of
+    ``since`` are re-sent so a concurrent commit is never skipped - clients
+    merge by ``version``. The ETag fingerprints the puja's whole state (every
+    row's version, status and active flag), independent of ``since``, so an
+    unchanged register answers 304 with no body.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT sakha_pk FROM nss.weekly_sangha_puja WHERE weekly_sangha_puja_pk = %s AND is_active = TRUE",
+            (str(weekly_sangha_puja_pk),),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Weekly Sangha Puja event not found.")
+        require_org_in_scope(cur, user, row[0], "view this Sakha's attendance")
+
+        # Order matters: cursor first, then the state fingerprint, then the
+        # rows. A commit landing between the last two makes the rows newer
+        # than the ETag, so the next poll's ETag differs and re-sends them
+        # (never the reverse, which would hide a row behind a stale ETag).
+        cur.execute("SELECT clock_timestamp()")
+        server_time = cur.fetchone()[0]
+        cur.execute(
+            f"""
+            SELECT COUNT(*) FILTER (WHERE a.is_active),
+                   md5(COALESCE(string_agg(
+                       a.attendance_pk::text || '|' || ({_ATT_VERSION_SQL})::text || '|'
+                       || a.is_active::text || '|' || a.attendance_status_master_data_pk::text,
+                       ',' ORDER BY a.attendance_pk), ''))
+            FROM nss.weekly_sangha_puja_attendance a
+            WHERE a.weekly_sangha_puja_pk = %s
+            """,
+            (str(weekly_sangha_puja_pk),),
+        )
+        marked_count, state_hash = cur.fetchone()
+        etag = '"' + hashlib.sha256(f"{marked_count}:{state_hash}".encode()).hexdigest()[:32] + '"'
+        if if_none_match and etag in {t.strip().removeprefix("W/") for t in if_none_match.split(",")}:
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+
+        conditions = ["a.weekly_sangha_puja_pk = %s"]
+        params: list = [str(weekly_sangha_puja_pk)]
+        if since is not None:
+            conditions.append(f"{_ATT_VERSION_SQL} > %s - make_interval(secs => %s)")
+            params += [_as_utc(since), _LIVE_OVERLAP_SECONDS]
+        cur.execute(
+            f"""
+            SELECT a.sangha_sevi_pk, a.attendance_pk, md.value_code, a.is_active, {_ATT_MARKER_COLUMNS_SQL}
+            FROM   nss.weekly_sangha_puja_attendance a
+            JOIN   nss.master_data md ON md.master_data_pk = a.attendance_status_master_data_pk
+            {_ATT_MARKER_JOINS_SQL}
+            WHERE  {' AND '.join(conditions)}
+            ORDER BY {_ATT_VERSION_SQL}, a.attendance_pk
+            """,
+            params,
+        )
+        changed = [
+            LiveAttendanceRow(
+                sangha_sevi_pk=r[0], attendance_pk=r[1], attendance_status_code=r[2], is_active=r[3],
+                marked_by_name=r[4], marked_by_sangha_sevi_id=r[5], marked_at=r[6], version=r[6],
+            )
+            for r in cur.fetchall()
+        ]
+    response.headers["ETag"] = etag
+    return LiveAttendanceResponse(server_time=server_time, marked_count=marked_count, changed=changed)
 
 
 @router.patch("/records/{attendance_pk}", response_model=AttendanceRecordResponse)
@@ -540,7 +743,8 @@ _RECORD_SELECT_SQL = f"""
                  AND  dar.approval_status = 'APPROVED'
                  AND  dar.registration_status = 'ACTIVE'
            ) AS has_approved_darshak_registration,
-           aff.local_sakha_erp_id
+           aff.local_sakha_erp_id,
+           {_ATT_MARKER_COLUMNS_SQL}
     FROM   nss.weekly_sangha_puja_attendance a
     JOIN   nss.weekly_sangha_puja w ON w.weekly_sangha_puja_pk = a.weekly_sangha_puja_pk
     JOIN   nss.sangha_sevi s ON s.sangha_sevi_pk = a.sangha_sevi_pk
@@ -560,6 +764,7 @@ _RECORD_SELECT_SQL = f"""
            ON aff.sangha_sevi_pk = s.sangha_sevi_pk
           AND aff.organization_pk = s.organization_pk
           AND aff.effective_to IS NULL
+    {_ATT_MARKER_JOINS_SQL}
 """
 
 
@@ -582,6 +787,7 @@ def _row_to_record(r) -> AttendanceRecordResponse:
         membership_type_code=r[14],
         has_approved_darshak_registration=bool(r[15]),
         local_sakha_erp_id=r[16],
+        marked_by_name=r[17], marked_by_sangha_sevi_id=r[18], marked_at=r[19], version=r[19],
         # Cross-Sakha when the member's HOME Sakha differs from the
         # puja's own Sakha (ATT-026/029/030) — NOT when attendance_sakha_pk
         # differs from the puja's sakha_pk, which are definitionally the
