@@ -843,8 +843,8 @@ class TestRegistrationOriginEntryScope:
                     INSERT INTO nss.registration_claim (
                         user_account_pk, person_pk, claimed_organization_pk,
                         claimed_membership_type_master_data_pk,
-                        claimed_local_sakha_number, claim_status
-                    ) VALUES (%s, %s, %s, %s, 'G1', 'PENDING')
+                        claimed_local_sakha_number, is_legacy_member, claim_status
+                    ) VALUES (%s, %s, %s, %s, 'G1', TRUE, 'PENDING')
                 """, (ua_pk, person_pk, sakha_orgs[key], type_pk))
                 cur.execute("""
                     INSERT INTO nss.city_village

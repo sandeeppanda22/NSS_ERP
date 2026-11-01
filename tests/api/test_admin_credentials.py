@@ -180,6 +180,9 @@ def _create_darshaka_member(client, admin_headers, write_conn, sakha_org_pk, mem
             "organization_pk": sakha_org_pk,
             "joining_date": "2024-01-15",
             "local_sakha_erp_id": local_number,
+            "is_legacy_member": True,
+            # GDR-009 §2A: a legacy Darshaka supplies the existing Anumati number.
+            "credential_document_number": f"{int(uuid4().int % 900_000) + 100_000}/2023/2024",
             "credential_issue_date": "2024-01-15",
             "credential_valid_from": "2024-01-15",
             "credential_valid_to": "2030-01-01",

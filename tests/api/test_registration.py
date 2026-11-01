@@ -28,6 +28,7 @@ from uuid import uuid4
 
 from tests.registration_support import (
     registration_address, non_darshaka_credential_number, add_user_account,
+    create_person_with_sangha_sevi,
 )
 
 
@@ -233,6 +234,8 @@ class TestRegistration:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D1",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
         })
         assert response.status_code == 201, f"Registration failed: {response.json()}"
         data = response.json()
@@ -318,8 +321,8 @@ class TestRegistration:
         assert response.status_code == 422
         assert "mobile_number or email" in response.json()["detail"]
 
-    def test_register_nondarshaka_requires_local_sakha_number(self, client, test_org_pk, gender_pk, write_conn, reg_address):
-        """Non-Darshaka registration without Local Sakha Number returns 422."""
+    def test_register_legacy_nondarshaka_requires_local_sakha_number(self, client, test_org_pk, gender_pk, write_conn, reg_address):
+        """GDR-009: a LEGACY non-Darshaka registration without the number returns 422."""
         # Get a non-Darshaka membership type
         cur = write_conn.cursor()
         cur.execute("""
@@ -346,20 +349,77 @@ class TestRegistration:
             "has_membership": True,
             "membership_type_master_data_pk": str(row[0]),
             "organization_pk": test_org_pk,
-            # Credential number supplied so the Local Sakha Number rule (5b) is
-            # the one that fires, not the earlier Parichaya Patra rule (3d).
+            # Credential number supplied so the legacy-number rule is the one
+            # that fires, not the Parichaya Patra rule (3d).
             "claimed_credential_document_number": non_darshaka_credential_number(),
+            "is_legacy_member": True,
             # No claimed_local_sakha_number
         })
         assert response.status_code == 422
-        assert "Local Sakha Number" in response.json()["detail"]
+        assert "claimed_local_sakha_number" in response.json()["detail"]
+
+    def test_register_new_nondarshaka_needs_no_local_sakha_number(self, client, test_org_pk, gender_pk, write_conn, reg_address):
+        """GDR-009: a NEW (non-legacy) Regular/Associate registrant gives no number;
+        it is auto-generated at approval. The claim stores is_legacy_member=false."""
+        cur = write_conn.cursor()
+        cur.execute("""
+            SELECT md.master_data_pk FROM nss.master_data md
+            JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+            WHERE mc.category_code = 'MEMBERSHIP_TYPE' AND md.value_code != 'PROBATIONARY'
+              AND md.is_active = TRUE LIMIT 1
+        """)
+        row = cur.fetchone()
+        if row is None:
+            pytest.skip("No non-Darshaka membership type found.")
+        response = client.post("/api/v1/register", json={
+            "first_name": "NewRegular", "last_name": "Test", "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}newreg@test.example",
+            "password": TEST_PASSWORD, **reg_address,
+            "has_membership": True, "membership_type_master_data_pk": str(row[0]),
+            "organization_pk": test_org_pk,
+            # GDR-009 §2A: a NEW Regular/Associate sends no Parichaya number
+            # either — the Kendra issues it later, on Dola Purnima.
+            "is_legacy_member": False,
+        })
+        assert response.status_code == 201, response.json()
+        cur.execute(
+            "SELECT is_legacy_member, claimed_local_sakha_number FROM nss.registration_claim "
+            "WHERE person_pk = %s", (response.json()["person_pk"],))
+        assert cur.fetchone() == (False, None)
+
+    def test_register_new_member_with_a_number_is_422(self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address):
+        """GDR-009: a number sent with is_legacy_member=false is a clear 422, not ignored."""
+        response = client.post("/api/v1/register", json={
+            "first_name": "NewTyped", "last_name": "Test", "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}newtyped@test.example",
+            "password": TEST_PASSWORD, **reg_address,
+            "has_membership": True, "membership_type_master_data_pk": darshaka_type_pk,
+            "organization_pk": test_org_pk,
+            "is_legacy_member": False, "claimed_local_sakha_number": "D77",
+        })
+        assert response.status_code == 422
+        assert "must be blank" in response.json()["detail"]
+
+    def test_register_legacy_number_with_spaces_is_422(self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address):
+        response = client.post("/api/v1/register", json={
+            "first_name": "LegSpace", "last_name": "Test", "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}legspace@test.example",
+            "password": TEST_PASSWORD, **reg_address,
+            "has_membership": True, "membership_type_master_data_pk": darshaka_type_pk,
+            "organization_pk": test_org_pk,
+            "is_legacy_member": True, "claimed_local_sakha_number": "12 34",
+        })
+        assert response.status_code == 422
 
     def test_register_darshaka_local_sakha_number_optional_at_registration(
         self, client, test_org_pk, darshaka_type_pk, gender_pk, reg_address
     ):
-        """A Darshaka applicant has no number to self-report, so registration
-        accepts the claim without one (the number is only enforced at approval —
-        see test_claim_approval.py::TestApproveRequiresLocalSakhaNumber)."""
+        """A NEW Darshaka applicant (is_legacy_member defaults to false) has no number
+        to self-report; it is auto-generated at approval — see
+        test_claim_approval.py::TestApproveLegacyVsNewLocalSakhaNumber."""
         response = client.post("/api/v1/register", json={
             "first_name": "DarshakaNoNumber",
             "last_name": "Test",
@@ -377,7 +437,8 @@ class TestRegistration:
 
     def test_register_attending_as_darshak_requires_darshak_local_sakha_number(
         self, client, test_org_pk, darshaka_type_pk, gender_pk, write_conn, reg_address):
-        """is_attending_as_darshak=True without darshak_local_sakha_number returns 422."""
+        """is_attending_as_darshak=True with darshak_is_legacy_member but no
+        darshak_local_sakha_number returns 422."""
         with write_conn.cursor() as cur:
             cur.execute(
                 "SELECT organization_pk FROM nss.organization "
@@ -403,8 +464,11 @@ class TestRegistration:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D2",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             "is_attending_as_darshak": True,
             "darshak_organization_pk": other_org_pk,
+            "darshak_is_legacy_member": True,
             # No darshak_local_sakha_number
         })
         assert response.status_code == 422
@@ -449,6 +513,8 @@ class TestClaimApproval:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D3",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
         })
         assert reg_resp.status_code == 201
         person_pk = reg_resp.json()["person_pk"]
@@ -548,7 +614,9 @@ class TestClaimApproval:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D9",
-            "claimed_credential_document_number": "789",
+            "is_legacy_member": True,
+            # A PREVIOUS year's card is a valid legacy number (GDR-009 §2A).
+            "claimed_credential_document_number": "789/2025/2026",
         })
         assert reg_resp.status_code == 201
         person_pk = reg_resp.json()["person_pk"]
@@ -567,8 +635,7 @@ class TestClaimApproval:
         )
         assert approve_resp.status_code == 200, f"Approve failed: {approve_resp.json()}"
 
-        fy_start, fy_end, _, _ = financial_year_bounds(date.today())
-        expected_document_number = f"789/{fy_start}/{fy_end}"
+        expected_document_number = "789/2025/2026"
 
         with write_conn.cursor() as cur:
             cur.execute(
@@ -598,6 +665,8 @@ class TestClaimApproval:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D4",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
         })
         assert reg_resp.status_code == 201
         person_pk = reg_resp.json()["person_pk"]
@@ -700,6 +769,8 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D5",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             **{**reg_address, "city_village_name": cv_name},
         })
         assert response.status_code == 201, f"Registration with address failed: {response.json()}"
@@ -740,6 +811,8 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D6",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             **reg_address,
         })
         assert response.status_code == 201, response.json()
@@ -784,6 +857,8 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D7",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             **reg_address,
         }
         del payload[missing_field]
@@ -806,6 +881,8 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D7",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             **{**reg_address, "address_line_1": "   "},
         })
         assert response.status_code == 422
@@ -864,6 +941,8 @@ class TestRegistrationWithAddress:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": test_org_pk,
             "claimed_local_sakha_number": "D8",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             **{**reg_address, "city_village_name": cv_name},
         })
         assert response.status_code == 201, response.json()
@@ -1112,8 +1191,8 @@ class TestLookupExisting:
                 INSERT INTO nss.registration_claim (
                     user_account_pk, person_pk, claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
-                    claimed_local_sakha_number, claim_status
-                ) VALUES (%s, %s, %s, %s, %s, 'PENDING')
+                    claimed_local_sakha_number, is_legacy_member, claim_status
+                ) VALUES (%s, %s, %s, %s, %s, TRUE, 'PENDING')
             """, (ua_pk, person["person_pk"], sakha_pk, regular_type_pk, "L1"))
         resp = client.post(self.URL, json={
             "person_id": person["person_id"], "date_of_birth": TEST_DOB,
@@ -1160,6 +1239,8 @@ class TestClaimExisting:
             "membership_type_master_data_pk": type_pk,
             "organization_pk": sakha_pk,
             "claimed_local_sakha_number": "L7",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             "password": CLAIM_PASSWORD,
         }
         body.update(overrides)
@@ -1215,7 +1296,7 @@ class TestClaimExisting:
         })
         assert look.status_code == 409
 
-    def test_non_darshaka_requires_local_sakha_number(
+    def test_legacy_non_darshaka_requires_local_sakha_number(
         self, client, write_conn, sakha_pk, regular_type_pk
     ):
         person = _make_orphan_person(write_conn, "CLNL")
@@ -1225,15 +1306,91 @@ class TestClaimExisting:
             claimed_credential_document_number=non_darshaka_credential_number(),
         ))
         assert resp.status_code == 422
-        assert "Local Sakha Number" in resp.json()["detail"]
+        assert "claimed_local_sakha_number" in resp.json()["detail"]
 
-    def test_non_darshaka_requires_credential_number(
+    def test_new_non_darshaka_with_no_number_succeeds(
         self, client, write_conn, sakha_pk, regular_type_pk
     ):
+        person = _make_orphan_person(write_conn, "CLNN")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk,
+            is_legacy_member=False, claimed_local_sakha_number=None,
+            claimed_credential_document_number=None,
+        ))
+        assert resp.status_code == 201, resp.json()
+
+    def test_new_member_with_a_number_is_422(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLNT")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, is_legacy_member=False,
+        ))
+        assert resp.status_code == 422
+        assert "must be blank" in resp.json()["detail"]
+
+    def test_legacy_non_darshaka_requires_credential_number(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        """GDR-009 §2A: the Parichaya number is required for a LEGACY member only."""
         person = _make_orphan_person(write_conn, "CLNC")
-        resp = client.post(self.URL, json=self._body(person, sakha_pk, regular_type_pk))
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, claimed_credential_document_number=None,
+        ))
         assert resp.status_code == 422
         assert "claimed_credential_document_number" in resp.json()["detail"]
+
+    def test_new_member_with_a_credential_number_is_422(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLNX")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, is_legacy_member=False,
+            claimed_local_sakha_number=None,
+        ))
+        assert resp.status_code == 422
+        assert "claimed_credential_document_number must be blank" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("bad", ["345", "0345/2026/2027", "345/2026/2028", "345/2027/2026", "x/2026/2027"])
+    def test_legacy_credential_number_format_is_422(
+        self, client, write_conn, sakha_pk, regular_type_pk, bad
+    ):
+        person = _make_orphan_person(write_conn, "CLNF")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, claimed_credential_document_number=bad,
+        ))
+        assert resp.status_code == 422
+        assert "claimed_credential_document_number" in resp.json()["detail"]
+
+    def test_legacy_credential_number_already_issued_is_409(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLND")
+        number = non_darshaka_credential_number()
+        sevi_pk = create_person_with_sangha_sevi(write_conn, sakha_pk, "CLNDP")[1]
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT sangha_sevi_pk FROM nss.sangha_sevi WHERE sangha_sevi_id = %s", (sevi_pk,))
+            ss_pk = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO nss.parichaya_patra (sangha_sevi_pk, document_number, issue_date, valid_from, valid_to) "
+                "VALUES (%s, %s, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE + 300)", (ss_pk, number),
+            )
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, claimed_credential_document_number=number,
+        ))
+        assert resp.status_code == 409
+
+    def test_darshaka_with_attendance_sakha_is_422(
+        self, client, write_conn, sakha_pk, darshaka_type_pk
+    ):
+        """GDR-009 §2B: a Darshaka must transfer, not attend another Sakha."""
+        person = _make_orphan_person(write_conn, "CLDQ")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, darshaka_type_pk, is_attending_as_darshak=True,
+            darshak_organization_pk=sakha_pk, darshak_is_legacy_member=False,
+        ))
+        assert resp.status_code == 422
+        assert "must transfer" in resp.json()["detail"]
 
     def test_non_darshaka_with_both_numbers_succeeds(
         self, client, write_conn, sakha_pk, regular_type_pk
@@ -1298,7 +1455,7 @@ class TestClaimExisting:
         ))
         assert resp.status_code == 422
 
-    def test_darshak_attendance_requires_org_and_number(
+    def test_legacy_darshak_attendance_requires_org_and_number(
         self, client, write_conn, sakha_pk, darshaka_type_pk
     ):
         person = _make_orphan_person(write_conn, "CLDA")
@@ -1310,18 +1467,19 @@ class TestClaimExisting:
 
         no_number = client.post(self.URL, json=self._body(
             person, sakha_pk, darshaka_type_pk, is_attending_as_darshak=True,
-            darshak_organization_pk=sakha_pk,
+            darshak_organization_pk=sakha_pk, darshak_is_legacy_member=True,
         ))
         assert no_number.status_code == 422
         assert "darshak_local_sakha_number" in no_number.json()["detail"]
 
     def test_darshak_attendance_fields_are_stored(
-        self, client, write_conn, sakha_pk, darshaka_type_pk
+        self, client, write_conn, sakha_pk, regular_type_pk
     ):
         person = _make_orphan_person(write_conn, "CLDS")
         resp = client.post(self.URL, json=self._body(
-            person, sakha_pk, darshaka_type_pk, is_attending_as_darshak=True,
+            person, sakha_pk, regular_type_pk, is_attending_as_darshak=True,
             darshak_organization_pk=sakha_pk, darshak_local_sakha_number="DK3",
+            darshak_is_legacy_member=True,
         ))
         assert resp.status_code == 201, resp.json()
         with write_conn.cursor() as cur:
@@ -1332,6 +1490,34 @@ class TestClaimExisting:
             org_pk, number = cur.fetchone()
             assert str(org_pk) == sakha_pk
             assert number == "DK3"
+
+    def test_new_attendee_stores_flag_false_and_no_number(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLDN")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, is_attending_as_darshak=True,
+            darshak_organization_pk=sakha_pk, darshak_is_legacy_member=False,
+        ))
+        assert resp.status_code == 201, resp.json()
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT darshak_is_legacy_member, darshak_local_sakha_number "
+                "FROM nss.registration_claim WHERE person_pk = %s", (person["person_pk"],),
+            )
+            assert cur.fetchone() == (False, None)
+
+    def test_new_attendee_with_a_number_is_422(
+        self, client, write_conn, sakha_pk, regular_type_pk
+    ):
+        person = _make_orphan_person(write_conn, "CLDX")
+        resp = client.post(self.URL, json=self._body(
+            person, sakha_pk, regular_type_pk, is_attending_as_darshak=True,
+            darshak_organization_pk=sakha_pk, darshak_is_legacy_member=False,
+            darshak_local_sakha_number="DK9",
+        ))
+        assert resp.status_code == 422
+        assert "darshak_local_sakha_number must be blank" in resp.json()["detail"]
 
     @pytest.mark.parametrize("missing", [
         "person_id", "date_of_birth", "membership_type_master_data_pk",

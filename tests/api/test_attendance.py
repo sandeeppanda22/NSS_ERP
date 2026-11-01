@@ -1227,3 +1227,311 @@ class TestStatsEdgeCases:
         mark(client, sakha_admin_h, register_pujas[4]["weekly_sangha_puja_pk"], (m["sangha_sevi_pk"], "EXCUSED_ABSENCE"))
         b = client.get(f"{BASE}/stats/members/{m['sangha_sevi_pk']}", params=WINDOW, headers=sakha_admin_h).json()
         assert (b["total_records"], b["excused_count"], b["attendance_percentage"]) == (1, 1, None)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Live register — GET /pujas/{pk}/live and optimistic-concurrency marking
+# (collected only: written but NOT yet run against a DB)
+#
+# The suite runs every test of a module inside ONE transaction, so NOW() (and
+# therefore created_at/updated_at) is identical for every write. Another
+# marker's later change is therefore simulated by moving the row's timestamp
+# with _shift_version(), which is exactly what a later commit looks like.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _shift_version(write_conn, attendance_pk: str, minutes: int) -> None:
+    with write_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE nss.weekly_sangha_puja_attendance "
+            "SET updated_at = COALESCE(updated_at, created_at) + %s * INTERVAL '1 minute' "
+            "WHERE attendance_pk = %s",
+            (minutes, attendance_pk),
+        )
+
+
+def _live(client, headers, puja_pk, params=None):
+    return client.get(f"{BASE}/pujas/{puja_pk}/live", params=params, headers=headers)
+
+
+def _post_mark(client, headers, puja_pk, records, overwrite=None):
+    body = {"records": records}
+    if overwrite is not None:
+        body["overwrite_sangha_sevi_pks"] = overwrite
+    return client.post(f"{BASE}/pujas/{puja_pk}/attendance", json=body, headers=headers)
+
+
+class TestLiveEndpoint:
+
+    def test_without_since_returns_every_row_with_attribution(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        a, b = (new_member(write_conn, register_org_pk, n) for n in ("LvA", "LvB"))
+        marked = mark(client, sakha_admin_h, pk, (a["sangha_sevi_pk"], "PRESENT"), (b["sangha_sevi_pk"], "ABSENT"))
+        r = _live(client, sakha_admin_h, pk)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body) == {"server_time", "marked_count", "changed"}
+        by_member = {c["sangha_sevi_pk"]: c for c in body["changed"]}
+        assert by_member[a["sangha_sevi_pk"]]["attendance_status_code"] == "PRESENT"
+        assert by_member[b["sangha_sevi_pk"]]["attendance_status_code"] == "ABSENT"
+        row = by_member[a["sangha_sevi_pk"]]
+        assert set(row) == {"sangha_sevi_pk", "attendance_pk", "attendance_status_code", "version",
+                            "marked_by_name", "marked_by_sangha_sevi_id", "marked_at", "is_active"}
+        assert row["is_active"] is True and row["marked_by_sangha_sevi_id"]
+        assert row["version"] == row["marked_at"]
+        assert body["marked_count"] >= 2
+        assert r.headers["ETag"]
+        # The marked-by data matches what the mark response / GET /records carry.
+        rec = next(x for x in marked["records"] if x["sangha_sevi_pk"] == a["sangha_sevi_pk"])
+        assert rec["version"] == row["version"] and rec["marked_by_sangha_sevi_id"] == row["marked_by_sangha_sevi_id"]
+
+    def test_since_returns_only_rows_changed_after_the_cursor(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[1]["weekly_sangha_puja_pk"]
+        a, b = (new_member(write_conn, register_org_pk, n) for n in ("LvSinceA", "LvSinceB"))
+        out = mark(client, sakha_admin_h, pk, (a["sangha_sevi_pk"], "PRESENT"), (b["sangha_sevi_pk"], "PRESENT"))
+        rec_a = next(x for x in out["records"] if x["sangha_sevi_pk"] == a["sangha_sevi_pk"])
+        _shift_version(write_conn, rec_a["attendance_pk"], 10)     # a changed 10 minutes "later"
+        full = {c["sangha_sevi_pk"]: c for c in _live(client, sakha_admin_h, pk).json()["changed"]}
+        cursor = full[b["sangha_sevi_pk"]]["version"]
+        # A cursor 5 minutes after b's version: only a (shifted +10 min) is newer.
+        from datetime import datetime, timedelta
+        since = (datetime.fromisoformat(cursor) + timedelta(minutes=5)).isoformat()
+        changed = _live(client, sakha_admin_h, pk, params={"since": since}).json()["changed"]
+        assert {c["sangha_sevi_pk"] for c in changed} == {a["sangha_sevi_pk"]}
+        # (b is excluded: it is older than the cursor minus the 1 s overlap.)
+        # A cursor after everything: nothing changed.
+        later = (datetime.fromisoformat(cursor) + timedelta(hours=1)).isoformat()
+        assert _live(client, sakha_admin_h, pk, params={"since": later}).json()["changed"] == []
+
+    def test_rows_within_the_one_second_overlap_are_resent(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        from datetime import datetime, timedelta
+        pk = register_pujas[1]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "LvOverlap")
+        rec = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        v = datetime.fromisoformat(rec["version"])
+        inside = (v + timedelta(milliseconds=500)).isoformat()    # cursor just after the row: still inside the overlap
+        outside = (v + timedelta(seconds=5)).isoformat()
+        assert m["sangha_sevi_pk"] in {c["sangha_sevi_pk"] for c in
+                                       _live(client, sakha_admin_h, pk, params={"since": inside}).json()["changed"]}
+        assert m["sangha_sevi_pk"] not in {c["sangha_sevi_pk"] for c in
+                                           _live(client, sakha_admin_h, pk, params={"since": outside}).json()["changed"]}
+
+    def test_etag_gives_304_until_something_changes(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[2]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "LvEtag")
+        mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))
+        first = _live(client, sakha_admin_h, pk)
+        etag = first.headers["ETag"]
+        again = _live(client, {**sakha_admin_h, "If-None-Match": etag}, pk)
+        assert again.status_code == 304 and again.content == b""
+        mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "ABSENT"))
+        changed = _live(client, {**sakha_admin_h, "If-None-Match": etag}, pk)
+        assert changed.status_code == 200 and changed.headers["ETag"] != etag
+
+    def test_a_removed_row_is_reported_inactive_and_leaves_the_marked_count(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[3]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "LvRemoved")
+        rec = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        before = _live(client, sakha_admin_h, pk).json()["marked_count"]
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE nss.weekly_sangha_puja_attendance SET is_active = FALSE, deleted_at = NOW(), "
+                "updated_at = NOW() + INTERVAL '1 minute' WHERE attendance_pk = %s", (rec["attendance_pk"],))
+        body = _live(client, sakha_admin_h, pk).json()
+        row = next(c for c in body["changed"] if c["sangha_sevi_pk"] == m["sangha_sevi_pk"])
+        assert row["is_active"] is False
+        assert body["marked_count"] == before - 1
+
+    def test_marker_role_can_poll_its_own_sakha(self, client, marker_h, register_pujas):
+        r = _live(client, marker_h, register_pujas[0]["weekly_sangha_puja_pk"])
+        assert r.status_code == 200, r.text
+
+    def test_unknown_puja_is_404(self, client, sakha_admin_h):
+        assert _live(client, sakha_admin_h, FAKE_UUID).status_code == 404
+
+    def test_bad_since_is_422(self, client, sakha_admin_h, register_pujas):
+        r = _live(client, sakha_admin_h, register_pujas[0]["weekly_sangha_puja_pk"], params={"since": "yesterday"})
+        assert r.status_code == 422
+
+
+class TestRecordAttribution:
+
+    def test_records_and_mark_response_say_who_marked_and_when(
+        self, client, write_conn, sakha_admin_h, sakha_admin, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "AttrWho")
+        rec = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        assert rec["marked_by_sangha_sevi_id"] == sakha_admin["sangha_sevi_id"]
+        assert rec["marked_by_name"] and rec["marked_at"] and rec["version"] == rec["marked_at"]
+        listed = client.get(f"{BASE}/records", params={"sangha_sevi_pk": m["sangha_sevi_pk"]}, headers=sakha_admin_h).json()
+        assert listed["records"][0]["version"] == rec["version"]
+
+    def test_a_remark_by_someone_else_changes_the_marker_and_version(
+        self, client, write_conn, sakha_admin_h, marker_h, marker_user, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "AttrRemark")
+        first = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "ABSENT"))["records"][0]
+        second = mark(client, marker_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        assert second["marked_by_sangha_sevi_id"] == marker_user["sangha_sevi_id"]
+        assert second["attendance_pk"] == first["attendance_pk"]
+
+
+class TestConcurrentMarking:
+
+    def _setup(self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, puja_pk, label):
+        """Member marked PRESENT by marker A (version v1); then marker B flips it to ABSENT a minute later."""
+        m = new_member(write_conn, register_org_pk, label)
+        v1 = mark(client, sakha_admin_h, puja_pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        theirs = mark(client, marker_h, puja_pk, (m["sangha_sevi_pk"], "ABSENT"))["records"][0]
+        _shift_version(write_conn, theirs["attendance_pk"], 1)
+        return m, v1, theirs
+
+    def test_stale_expected_version_with_a_different_status_is_a_409_and_saves_nothing(
+        self, client, write_conn, sakha_admin_h, marker_h, marker_user, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        m, v1, theirs = self._setup(client, write_conn, sakha_admin_h, marker_h, register_org_pk, pk, "CcStale")
+        other = new_member(write_conn, register_org_pk, "CcInnocent")
+        r = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": other["sangha_sevi_pk"], "attendance_status_code": "PRESENT", "expected_version": None},
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT", "expected_version": v1["version"]},
+        ])
+        assert r.status_code == 409, r.text
+        detail = r.json()["detail"]
+        assert set(detail) == {"message", "conflicts"} and len(detail["conflicts"]) == 1
+        c = detail["conflicts"][0]
+        assert set(c) == {"sangha_sevi_pk", "current_status_code", "changed_by_name", "changed_by_sangha_sevi_id",
+                          "changed_at", "requested_status_code"}
+        assert c["sangha_sevi_pk"] == m["sangha_sevi_pk"]
+        assert (c["current_status_code"], c["requested_status_code"]) == ("ABSENT", "PRESENT")
+        assert c["changed_by_sangha_sevi_id"] == marker_user["sangha_sevi_id"]
+        # All-or-nothing: neither the conflicting nor the innocent member was written.
+        now = {x["sangha_sevi_pk"]: x["attendance_status_code"] for x in
+               client.get(f"{BASE}/records", params={"weekly_sangha_puja_pk": pk, "organization_pk": register_org_pk,
+                                                     "page_size": 200}, headers=sakha_admin_h).json()["records"]}
+        assert now[m["sangha_sevi_pk"]] == "ABSENT" and other["sangha_sevi_pk"] not in now
+
+    def test_identical_requested_status_is_not_a_conflict(
+        self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[1]["weekly_sangha_puja_pk"]
+        m, v1, theirs = self._setup(client, write_conn, sakha_admin_h, marker_h, register_org_pk, pk, "CcSame")
+        r = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "ABSENT", "expected_version": v1["version"]}])
+        assert r.status_code == 201, r.text
+
+    def test_confirmed_overwrite_saves(
+        self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[2]["weekly_sangha_puja_pk"]
+        m, v1, theirs = self._setup(client, write_conn, sakha_admin_h, marker_h, register_org_pk, pk, "CcOverwrite")
+        item = {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT", "expected_version": v1["version"]}
+        assert _post_mark(client, sakha_admin_h, pk, [item]).status_code == 409
+        r = _post_mark(client, sakha_admin_h, pk, [item], overwrite=[m["sangha_sevi_pk"]])
+        assert r.status_code == 201, r.text
+        assert r.json()["records"][0]["attendance_status_code"] == "PRESENT"
+
+    def test_matching_expected_version_saves(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[3]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "CcMatch")
+        v1 = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        r = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "ABSENT", "expected_version": v1["version"]}])
+        assert r.status_code == 201, r.text
+
+    def test_null_expected_version_conflicts_only_if_someone_marked_it_meanwhile(
+        self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[4]["weekly_sangha_puja_pk"]
+        fresh = new_member(write_conn, register_org_pk, "CcNullFresh")
+        taken = new_member(write_conn, register_org_pk, "CcNullTaken")
+        mark(client, marker_h, pk, (taken["sangha_sevi_pk"], "ABSENT"))
+        ok = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": fresh["sangha_sevi_pk"], "attendance_status_code": "PRESENT", "expected_version": None}])
+        assert ok.status_code == 201, ok.text
+        bad = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": taken["sangha_sevi_pk"], "attendance_status_code": "PRESENT", "expected_version": None}])
+        assert bad.status_code == 409
+        assert bad.json()["detail"]["conflicts"][0]["current_status_code"] == "ABSENT"
+
+    # ── Someone else's mark, version MATCHES (owner 2026-11-01: "ask, naming who changed it") ──
+
+    def _marked_by_other(self, client, write_conn, marker_h, register_org_pk, pk, label, status="ABSENT"):
+        m = new_member(write_conn, register_org_pk, label)
+        rec = mark(client, marker_h, pk, (m["sangha_sevi_pk"], status))["records"][0]
+        return m, rec
+
+    def test_matching_version_but_marked_by_someone_else_with_a_different_status_is_a_409(
+        self, client, write_conn, sakha_admin_h, marker_h, marker_user, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        m, rec = self._marked_by_other(client, write_conn, marker_h, register_org_pk, pk, "CcOtherMatch")
+        item = {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT",
+                "expected_version": rec["version"]}
+        r = _post_mark(client, sakha_admin_h, pk, [item])
+        assert r.status_code == 409, r.text
+        [c] = r.json()["detail"]["conflicts"]
+        assert c["changed_by_sangha_sevi_id"] == marker_user["sangha_sevi_id"] and c["changed_by_name"]
+        assert (c["current_status_code"], c["requested_status_code"]) == ("ABSENT", "PRESENT")
+        # nothing was written; an explicit overwrite then saves
+        assert _post_mark(client, sakha_admin_h, pk, [item], overwrite=[m["sangha_sevi_pk"]]).status_code == 201
+
+    def test_matching_version_same_status_as_someone_else_is_not_a_conflict(
+        self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[1]["weekly_sangha_puja_pk"]
+        m, rec = self._marked_by_other(client, write_conn, marker_h, register_org_pk, pk, "CcOtherSame")
+        r = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "ABSENT", "expected_version": rec["version"]}])
+        assert r.status_code == 201, r.text
+
+    def test_editing_your_own_mark_never_conflicts_even_after_the_row_was_touched_by_you_twice(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[2]["weekly_sangha_puja_pk"]
+        m = new_member(write_conn, register_org_pk, "CcOwnTwice")
+        v1 = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))["records"][0]
+        v2 = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "ABSENT", "expected_version": v1["version"]}])
+        assert v2.status_code == 201, v2.text
+        r = _post_mark(client, sakha_admin_h, pk, [
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "PRESENT",
+             "expected_version": v2.json()["records"][0]["version"]}])
+        assert r.status_code == 201, r.text
+
+    def test_legacy_request_without_expected_version_may_still_overwrite_someone_elses_mark(
+        self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[3]["weekly_sangha_puja_pk"]
+        m, _ = self._marked_by_other(client, write_conn, marker_h, register_org_pk, pk, "CcOtherLegacy")
+        out = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))
+        assert out["records"][0]["attendance_status_code"] == "PRESENT"
+
+    def test_request_without_any_expected_version_is_last_write_wins_as_before(
+        self, client, write_conn, sakha_admin_h, marker_h, register_org_pk, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        m, v1, theirs = self._setup(client, write_conn, sakha_admin_h, marker_h, register_org_pk, pk, "CcLegacy")
+        out = mark(client, sakha_admin_h, pk, (m["sangha_sevi_pk"], "PRESENT"))
+        assert out["records"][0]["attendance_status_code"] == "PRESENT"
+
+    def test_unknown_status_is_still_422_before_any_conflict_check(
+        self, client, write_conn, sakha_admin_h, register_org_pk, register_pujas,
+    ):
+        m = new_member(write_conn, register_org_pk, "CcBadStatus")
+        r = _post_mark(client, sakha_admin_h, register_pujas[0]["weekly_sangha_puja_pk"], [
+            {"sangha_sevi_pk": m["sangha_sevi_pk"], "attendance_status_code": "LATE", "expected_version": None}])
+        assert r.status_code == 422

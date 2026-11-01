@@ -24,11 +24,14 @@ tests/
 ├── reparent_support.py       # Shared builders for the Sakha re-parent tests (fresh Anchalika/Sakha via the admin API, Kendra/GB/Anchalika seat helpers, patch/decide shortcuts; builds on test_correspondence.py/attendance_support.py helpers; not a test file)
 ├── README.md            # This file
 │
-├── api/                 # API integration tests (FastAPI TestClient, no browser) — 31 files
+├── api/                 # API integration tests (FastAPI TestClient, no browser) — 32 files
 │   ├── test_admin.py              # Tier 5 — admin CRUD, roles (incl. Assign-Role self-assign guard), orgs (87; 119)
 │   ├── test_admin_credentials.py  # Tier 6 — member credential list/timeline/issue/promote (16; 16)
+│   ├── test_legacy_local_number.py    # GDR-009 legacy-vs-new Local Sakha Number: validator, admin create matrix, attendance helper, registration_claim columns/patch (52; 26 run without a DB). NOT yet run against a DB
+│   ├── test_patra_numbering.py        # GDR-009 §2A/§2B: Parichaya/Anumati Patra number — strict `<seq>/<yyyy>/<yyyy+1>` validator, legacy-vs-new resolver, allocator skipping taken numbers (stub-cursor: run without a DB), `issue_credential_at_enrolment()` Associate vs Darshaka, legacy vs new matrix (every member is minted a credential), Darshaka-cannot-attend check (48; 36 run without a DB). NOT yet run against a DB
+│   ├── test_local_sakha_id.py     # Local Sakha ID always generated: allocator, shared creator, admin paths (14). NOT yet run
 │   ├── test_admin_scope.py        # ADMIN-BR-076/077 admin-scope subtree enforcement across admin/claim endpoints (85; 99)
-│   ├── test_attendance.py         # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, review trigger/workflow, stats (109; 155). NOT yet run
+│   ├── test_attendance.py         # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, review trigger/workflow, stats, live endpoint + concurrent-marking conflicts (126; 172). NOT yet run
 │   ├── test_audit.py              # Tier 5 — field-change-log viewer (13; 23)
 │   ├── test_auth.py               # Tier 5 — login, refresh, logout, change-password, sessions (39; 43)
 │   ├── test_bootstrap.py          # Tier 0 — health, roles, permissions (14; 14)
@@ -63,12 +66,13 @@ tests/
 │   ├── test_data_integrity.py     # Cross-module entity smoke tests (23; 23)
 │   ├── test_festival_schema.py    # festival_master / festival_calendar_date schema + resolver helpers (14; 20)
 │   ├── test_organization_schema.py # ORG-BR-099 premises-address trigger (9; 40). NOT yet run
+│   ├── test_home_affiliation_guard.py # deferred home-affiliation guard + fn_next_sakha_local_number (14). NOT yet run
 │   └── test_organization_singleton.py # trg_enforce_organization_singleton: KENDRA/NILACHALA_KUTIRA/SMRUTI_MANDIRA/ADVISORY_BOARD + central Mahila Sangha (7; 13). NOT yet run
 │
 ├── security/            # Cross-tier security assertions — 16 files
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17; 17)
 │   ├── test_admin_surface_security.py # Admin-surface 401/403 matrix, parametrized over endpoints (7; 97)
-│   ├── test_attendance_security.py    # Attendance auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat (19; 83). NOT yet run
+│   ├── test_attendance_security.py    # Attendance auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat (22; 89). NOT yet run
 │   ├── test_audit_security.py         # Audit endpoint auth/RBAC gating (4; 4)
 │   ├── test_auth_security.py          # Auth endpoint auth gating (4; 3)
 │   ├── test_core_modules_security.py  # 401/403 matrix over foundation/organization/person/membership/family endpoints + self-or-permission (23; 168). NOT yet run
@@ -97,6 +101,7 @@ tests/
     ├── test_ui_admin_claims.py      # Registration claims tabs, detail view (6; 6)
     ├── test_ui_admin_correspondence.py # Admin Correspondence tab: register switcher, send/dispatch/broadcast/reply, detail view (50; 70)
     ├── test_ui_admin_create_user.py # Create user account, reactivation (3; 3)
+    ├── test_ui_legacy_local_number.py # source-level (GDR-009): register legacy question (+ Patra number inside the Yes branch, attendance hidden for a Darshaka) + admin Create User/Sangha Sevi checkbox/Patra input + Registration Approvals flag display/edit + dashboard Apply-for-Darshak hidden for PROBATIONARY (22; all run without a browser)
     ├── test_ui_admin_dropdown_resets.py # source-level: child dropdowns reset on parent change, PIN narrowed by district, stale-response guards (12; 16). NOT yet run
     ├── test_ui_admin_member_directory.py # Member Directory tab, search, detail panel (4; 4)
     ├── test_ui_admin_modals.py      # Admin write-path modals and confirm dialogs (4; 4)
@@ -107,7 +112,7 @@ tests/
     ├── test_ui_admin_tabs.py        # Admin sidebar tab switching / activeTab panels (2; 9)
     ├── test_ui_admin_users.py       # User list, search, filters, detail, INACTIVE styling (11; 11)
     ├── test_ui_advisory_board_dashboard.py # source-level: Advisory Board dashboard tab wiring (3; 3). NOT yet run
-    ├── test_ui_attendance.py        # Attendance register UI (admin.html / org dashboard; attendance-register.js) (58; 132). NOT yet run
+    ├── test_ui_attendance.py        # Attendance register UI (admin.html / org dashboard; attendance-register.js) (68; 142). NOT yet run
     ├── test_ui_auth_refresh.py      # auth.js NSSAuth.apiFetch refresh/401-retry logic, fetch stubbed (18; 24)
     ├── test_ui_badges.py            # Shared badge system (badges.css) source-level checks (7; 13)
     ├── test_ui_dashboard.py         # Dashboard: all tabs, content rendering, edit profile, admin tabs, family state, documents, logout (62; 62)

@@ -246,14 +246,14 @@ def test_register_panel_toggles_use_exactly_the_api_status_codes(admin_html: str
     accepted = set(re.search(r'for code in \(([^)]*)\)', router_src).group(1).replace('"', "").replace(" ", "").split(","))
     assert accepted == {"PRESENT", "ABSENT", "EXCUSED_ABSENCE"}
     for html in (admin_html, dashboard_html):
-        assigned = set(re.findall(r"row\.attendance_status_code = '([A-Z_]+)'", html))
+        assigned = set(re.findall(r"attMarkTap\(row, '([A-Z_]+)'\)", html))
         bulk = set(re.findall(r"attMarkSetAll\('([A-Z_]+)'\)", html))
         assert assigned == accepted and bulk == accepted
 
 
 def test_mark_panel_has_filter_chips_for_every_status(admin_html: str):
     panel = _panel(admin_html, "attPujas")
-    for code in ("ALL", "PRESENT", "ABSENT", "EXCUSED_ABSENCE"):
+    for code in ("ALL", "NOT_MARKED", "PRESENT", "ABSENT", "EXCUSED_ABSENCE"):
         assert f"attMarkFilter = '{code}'" in panel
 
 
@@ -264,7 +264,7 @@ def test_mark_panel_separates_home_members_from_darshak_visitors(admin_html: str
 
 def test_submit_button_is_disabled_while_saving(admin_html: str, dashboard_html: str):
     for html in (admin_html, dashboard_html):
-        assert re.search(r""":disabled="attMarkSaving" @click="submitMarkAttendance\(\)\"""", html)
+        assert re.search(r""":disabled="attMarkSaving[^"]*" @click="submitMarkAttendance\(\)\"""", html)
 
 
 def test_search_to_add_block_is_identical_in_admin_and_dashboard(admin_html: str, dashboard_html: str):
@@ -275,6 +275,27 @@ def test_search_to_add_block_is_identical_in_admin_and_dashboard(admin_html: str
         return re.sub(r"\s+", " ", m.group(1)).strip()
 
     assert block(admin_html) == block(dashboard_html)
+
+
+def test_live_register_markup_is_present_in_both_copies(admin_html: str, dashboard_html: str):
+    """The panel is hand-copied into admin.html and dashboard.html; the live-register additions must be in both."""
+    for html in (admin_html, dashboard_html):
+        assert html.count('x-text="attRowMeta(row)"') == 2          # home grid + Darshak grid
+        assert html.count('x-text="attRowHint(row)"') == 2
+        assert html.count("'att-row-flash': row.flash") == 2
+        assert 'x-text="attMarkProgressText"' in html               # "N of M marked"
+        assert "attLiveReconnecting" in html and "attMarkSavedNote" in html
+        assert "attMarkFilter = 'NOT_MARKED'" in html
+        assert "Submit Attendance" not in html                      # now an explicit "Save N changes"
+        assert not re.search(r"row\.attendance_status_code = '", html), "edits must go through attMarkTap()/attMarkSet()"
+
+
+def test_poll_interval_numbers_live_only_in_the_shared_mixin(register_js: str):
+    block = re.search(r"const LIVE_POLL = Object\.freeze\(\{(.*?)\}\);", register_js, re.DOTALL).group(1)
+    assert "POLL_MS: 2000" in block
+    for dropped in ("IDLE_MS", "IDLE_AFTER_MS", "BACKOFF_MS", "visibilitychange", "_attRegisterShown"):
+        assert dropped not in register_js, f"{dropped} was removed on purpose (owner, for now)"
+    assert "If-None-Match" in register_js
 
 
 def test_search_input_requires_two_characters_in_the_hint_and_the_code(admin_html: str, register_js: str):
@@ -379,7 +400,8 @@ def test_frontend_covers_the_endpoints_it_is_supposed_to_use():
     """A guard against the contract test above passing vacuously (e.g. a regex that matches nothing)."""
     urls = _frontend_attendance_urls()
     for expected in (
-        "/api/v1/attendance/pujas", "/api/v1/attendance/pujas/{}/attendance", "/api/v1/attendance/records",
+        "/api/v1/attendance/pujas", "/api/v1/attendance/pujas/{}/attendance", "/api/v1/attendance/pujas/{}/live",
+        "/api/v1/attendance/records",
         "/api/v1/attendance/exceptions", "/api/v1/attendance/watch-list",
         "/api/v1/attendance/stats/organizations/{}", "/api/v1/attendance/stats/organizations/{}/members",
         "/api/v1/attendance/stats/members/{}", "/api/v1/attendance/reviews",
@@ -554,8 +576,98 @@ def test_tallies_exclude_excused_absence_from_the_percentage(register_page: Page
         host.attMarkRows = [{ attendance_status_code: 'EXCUSED_ABSENCE' }];
         return { c: { ...c }, onlyExcused: host.attMarkCounts.percentage };
     """)["result"]
-    assert out["c"] == {"present": 3, "absent": 1, "excused": 2, "total": 6, "percentage": 75}
+    assert out["c"] == {"present": 3, "absent": 1, "excused": 2, "total": 6, "marked": 6, "unmarked": 0, "percentage": 75}
     assert out["onlyExcused"] is None
+
+
+def test_percentage_is_out_of_the_whole_roster_unmarked_in_excused_out(register_page: Page):
+    """Owner 2026-11-01: 8 present, 1 absent, 0 excused, 12 total (3 unmarked) is 67% (8/12), not 89% (8/9)."""
+    out = _run(register_page, """
+        const st = [...Array(8).fill('PRESENT'), 'ABSENT', null, null, null];
+        host.attMarkRows = st.map(s => ({ attendance_status_code: s }));
+        const c = host.attMarkCounts;
+        const fn = NSSAttendanceRegister.registerAttendancePercentage;
+        host.attMarkRows = [...st.map(s => ({ attendance_status_code: s })), { attendance_status_code: 'EXCUSED_ABSENCE' }];
+        return { pct: c.percentage, total: c.total, withExcused: host.attMarkCounts.percentage,
+                 fn: [fn(8, 0, 12), fn(8, 1, 13), fn(0, 0, 0), fn(0, 3, 3), fn(0, 0, 5)] };
+    """)["result"]
+    assert out["pct"] == 67 and out["total"] == 12
+    assert out["withExcused"] == 67, "an excused member leaves the denominator (ATT-008): 8 / (13 - 1)"
+    assert out["fn"] == [67, 67, None, None, 0]
+
+
+def test_markup_shows_the_percentage_only_via_the_shared_formula(admin_html: str, dashboard_html: str, register_js: str):
+    for html in (admin_html, dashboard_html):
+        assert "attMarkCounts.percentage" in html
+    assert register_js.count("Math.round(present / denom * 100)") == 1, "one shared formula"
+    assert "c.present + c.absent" not in register_js
+
+
+def _other_marker_run(body: str, answer: str = "true"):
+    return f"""
+        const dialogs = [];
+        const realConfirm = NSSDialog.confirm;
+        NSSDialog.confirm = async (msg, opts) => {{ dialogs.push({{ msg, opts }}); return {answer}; }};
+        host.currentUser = {{ sangha_sevi_id: 'SS1' }};
+        host.attMarkPuja = {PUJA};
+        const mk = (pk, st, by) => host._attMarkRow({{ sangha_sevi_pk: pk, organization_pk: 'S1', first_name: pk }},
+            st ? {{ attendance_status_code: st, version: '2026-01-01T10:00:00+00:00', marked_by_name: by + ' Name',
+                    marked_by_sangha_sevi_id: by, marked_at: '2026-01-01T10:00:00+00:00' }} : null);
+        try {{ {body} }} finally {{ NSSDialog.confirm = realConfirm; }}
+    """
+
+
+def test_tapping_a_status_over_someone_elses_mark_asks_naming_who(register_page: Page):
+    out = _run(register_page, _other_marker_run("""
+        host.attMarkRows = [mk('a', 'ABSENT', 'SS7'), mk('b', 'ABSENT', 'SS1'), mk('c', 'ABSENT', 'SS7'), mk('d', null, 'SS7')];
+        await host.attMarkTap(host.attMarkRows[0], 'PRESENT');   // someone else's, different -> asks
+        await host.attMarkTap(host.attMarkRows[1], 'PRESENT');   // my own -> never asks
+        await host.attMarkTap(host.attMarkRows[2], 'ABSENT');    // same status -> nothing to ask
+        await host.attMarkTap(host.attMarkRows[3], 'PRESENT');   // unmarked -> never asks
+        return { dialogs, rows: host.attMarkRows.map(r => [r.attendance_status_code, r.dirty, r.confirmedOverwrite]) };
+    """))["result"]
+    [d] = out["dialogs"]
+    assert "Marked Absent by SS7 Name" in d["msg"] and "change it?" in d["msg"]
+    assert out["rows"] == [["PRESENT", True, True], ["PRESENT", True, False], ["ABSENT", False, False], ["PRESENT", True, False]]
+
+
+def test_cancelling_keeps_the_other_markers_mark(register_page: Page):
+    out = _run(register_page, _other_marker_run("""
+        host.attMarkRows = [mk('a', 'ABSENT', 'SS7')];
+        await host.attMarkTap(host.attMarkRows[0], 'PRESENT');
+        const r = host.attMarkRows[0];
+        return { dialogs: dialogs.length, row: [r.attendance_status_code, r.dirty, r.confirmedOverwrite] };
+    """, "false"))["result"]
+    assert out == {"dialogs": 1, "row": ["ABSENT", False, False]}
+
+
+def test_confirmed_overwrite_is_sent_in_overwrite_sangha_sevi_pks(register_page: Page):
+    out = _run(register_page, _seq([{"status": 201, "body": {"records": [
+        _rec("a", "PRESENT", "2026-01-01T10:40:00+00:00")], "total": 1}}]) + _other_marker_run("""
+        host.attMarkRows = [mk('a', 'ABSENT', 'SS7')];
+        await host.attMarkTap(host.attMarkRows[0], 'PRESENT');
+        await host.submitMarkAttendance();
+        return { dialogs: dialogs.length, confirmed: host.attMarkRows[0].confirmedOverwrite };
+    """))
+    [post] = [c for c in out["calls"] if c["method"] == "POST"]
+    body = json.loads(post["body"])
+    assert body["overwrite_sangha_sevi_pks"] == ["a"] and body["records"][0]["expected_version"] == "2026-01-01T10:00:00+00:00"
+    assert out["result"] == {"dialogs": 1, "confirmed": False}, "asked once (the tap), not again on Save"
+
+
+def test_bulk_set_skips_other_markers_rows_unless_confirmed_once(register_page: Page):
+    script = """
+        host.attMarkRows = [mk('a', 'ABSENT', 'SS7'), mk('b', 'ABSENT', 'SS8'), mk('c', 'ABSENT', 'SS1'), mk('d', null, 'SS7')];
+        await host.attMarkSetAll('PRESENT');
+        return { dialogs, rows: host.attMarkRows.map(r => [r.attendance_status_code, r.confirmedOverwrite]) };
+    """
+    skipped = _run(register_page, _other_marker_run(script, "false"))["result"]
+    [d] = skipped["dialogs"]
+    assert "2 members were marked by someone else" in d["msg"]
+    assert skipped["rows"] == [["ABSENT", False], ["ABSENT", False], ["PRESENT", False], ["PRESENT", False]]
+    confirmed = _run(register_page, _other_marker_run(script, "true"))["result"]
+    assert len(confirmed["dialogs"]) == 1, "one question for the whole batch"
+    assert confirmed["rows"] == [["PRESENT", True], ["PRESENT", True], ["PRESENT", False], ["PRESENT", False]]
 
 
 def test_filter_and_bulk_set_only_touch_the_rows_on_screen(register_page: Page):
@@ -597,14 +709,16 @@ def test_visitors_from_another_sakha_are_split_out_and_ignore_the_filter(registe
     assert out == {"home": [], "darshak": ["b"], "flags": [False, True]}, "home rows obey the filter, visitors do not"
 
 
-def test_row_builder_defaults_to_present_and_joins_the_name(register_page: Page):
+def test_row_builder_starts_unmarked_and_joins_the_name(register_page: Page):
     row = _run(register_page, f"""
         host.attMarkPuja = {PUJA};
         return host._attMarkRow({{ sangha_sevi_pk: 'a', sangha_sevi_id: 'SS9', organization_pk: 'S1',
                                    first_name: 'Asha', middle_name: null, last_name: 'Devi',
                                    membership_type_code: 'REGULAR', local_sakha_erp_id: 'ESS7' }}, null);
     """)["result"]
-    assert row["attendance_status_code"] == "PRESENT" and row["already_marked"] is False
+    # No default status: an untouched row is unmarked and must never be saved.
+    assert row["attendance_status_code"] is None and row["already_marked"] is False
+    assert row["dirty"] is False and row["ackVersion"] is None and row["serverState"]["status"] is None
     assert row["person_name"] == "Asha Devi" and row["local_sakha_erp_id"] == "ESS7"
 
 
@@ -692,12 +806,14 @@ _RECORDS = {"records": [
 def test_opening_the_register_prefills_only_this_pujas_recorded_statuses(register_page: Page):
     out = _run(register_page, f"""
         await host.openMarkAttendance({PUJA});
-        return {{ loading: host.attMarkLoading, error: host.attMarkError,
+        const seen = {{ loading: host.attMarkLoading, error: host.attMarkError,
                   rows: host.attMarkRows.map(r => [r.sangha_sevi_pk, r.attendance_status_code, r.already_marked]) }};
+        host.closeMarkAttendance();
+        return seen;
     """, routes=[["/membership/directory", {"status": 200, "body": _ROSTER}],
                  ["/attendance/records", {"status": 200, "body": _RECORDS}]])
     assert out["result"] == {"loading": False, "error": "",
-                             "rows": [["a", "PRESENT", False], ["b", "ABSENT", True]]}
+                             "rows": [["a", None, False], ["b", "ABSENT", True]]}
     urls = [c["url"] for c in out["calls"]]
     assert any("/api/v1/membership/directory?" in u and "organization_pk=S1" in u for u in urls)
     assert any("/api/v1/attendance/records?" in u and "organization_pk=S1" in u
@@ -705,7 +821,7 @@ def test_opening_the_register_prefills_only_this_pujas_recorded_statuses(registe
 
 
 def test_the_records_request_is_within_the_apis_page_size_cap(register_page: Page):
-    out = _run(register_page, f"await host.openMarkAttendance({PUJA}); return null;",
+    out = _run(register_page, f"await host.openMarkAttendance({PUJA}); host.closeMarkAttendance(); return null;",
                routes=[["/membership/directory", {"status": 200, "body": _ROSTER}],
                        ["/attendance/records", {"status": 200, "body": _RECORDS}]])
     sizes = [int(m.group(1)) for c in out["calls"] if "/attendance/records" in c["url"]
@@ -721,25 +837,214 @@ def test_a_failed_roster_load_is_reported_and_leaves_no_rows(register_page: Page
     assert out["result"] == {"loading": False, "error": "Failed to load this Sakha's member roster.", "rows": 0}
 
 
-def test_submit_posts_one_status_per_row_closes_the_panel_and_runs_the_host_hook(register_page: Page):
-    out = _run(register_page, f"""
+# A scripted fetch for tests that need different answers to successive calls (the stub in
+# _RUN_TEMPLATE answers by URL only): `seq` steps are consumed in order; every call is recorded.
+_SEQ_FETCH = """
+        const seq = %SEQ%;
+        window.fetch = (url, opts = {}) => {
+            calls.push({ url: String(url), method: opts.method || 'GET', body: opts.body || null,
+                         headers: opts.headers || {} });
+            const step = seq.shift() || { status: 404, body: {} };
+            return Promise.resolve({
+                ok: step.status >= 200 && step.status < 300, status: step.status,
+                json: () => Promise.resolve(step.body),
+                headers: { get: (n) => (step.headers || {})[n] || null },
+            });
+        };
+"""
+
+
+def _seq(steps: list) -> str:
+    return _SEQ_FETCH.replace("%SEQ%", json.dumps(steps))
+
+
+def _rec(pk, status, version, by="Marker One", sevi="SS9", at=None):
+    return {"sangha_sevi_pk": pk, "attendance_status_code": status, "version": version,
+            "marked_by_name": by, "marked_by_sangha_sevi_id": sevi, "marked_at": at or version,
+            "weekly_sangha_puja_pk": "P1", "sangha_sevi_id": "SS-" + pk, "person_name": "Person " + pk,
+            "home_organization_pk": "S1", "home_organization_name": "Home", "membership_type_code": "REGULAR"}
+
+
+def test_submit_sends_only_the_dirty_rows_with_the_version_each_was_last_seen_at(register_page: Page):
+    out = _run(register_page, _seq([{"status": 201, "body": {"records": [
+        _rec("b", "ABSENT", "2026-01-01T10:05:00.123456+00:00"),
+        _rec("c", "PRESENT", "2026-01-01T10:05:00.123456+00:00"),
+    ], "total": 2}}]) + f"""
         let refreshed = 0;
         host._afterAttendanceSaved = () => {{ refreshed++; }};
         host.attMarkPuja = {PUJA};
         host.attMarkRows = [
-            {{ sangha_sevi_pk: 'a', attendance_status_code: 'PRESENT', person_name: 'ignored' }},
-            {{ sangha_sevi_pk: 'b', attendance_status_code: 'EXCUSED_ABSENCE', is_darshak: true }},
+            host._attMarkRow({{ sangha_sevi_pk: 'a', organization_pk: 'S1' }}, null),                 // untouched, unmarked
+            host._attMarkRow({{ sangha_sevi_pk: 'b', organization_pk: 'S1' }}, {json.dumps(_rec("b", "PRESENT", "2026-01-01T10:00:00.000001+00:00"))}),
+            host._attMarkRow({{ sangha_sevi_pk: 'c', organization_pk: 'S1' }}, null),
+            host._attMarkRow({{ sangha_sevi_pk: 'd', organization_pk: 'S1' }}, {json.dumps(_rec("d", "ABSENT", "2026-01-01T09:00:00+00:00"))}),  // untouched, marked
         ];
+        host.attMarkSet(host.attMarkRows[1], 'ABSENT');   // changed an existing mark
+        host.attMarkSet(host.attMarkRows[2], 'PRESENT');  // marked a new one
+        host.attMarkSet(host.attMarkRows[3], 'ABSENT');   // set to what the server already has -> not dirty
+        const before = host.attMarkDirtyCount;
         await host.submitMarkAttendance();
-        return {{ refreshed, open: host.attMarkPuja !== null, saving: host.attMarkSaving, error: host.attMarkError }};
-    """, routes=[["/attendance/pujas/P1/attendance", {"status": 201, "body": {"records": [], "total": 0}}]])
-    assert out["result"] == {"refreshed": 1, "open": False, "saving": False, "error": ""}
+        const [b, c] = [host.attMarkRows[1], host.attMarkRows[2]];
+        return {{ before, refreshed, open: host.attMarkPuja !== null, saving: host.attMarkSaving,
+                  error: host.attMarkError, note: host.attMarkSavedNote, dirty: host.attMarkDirtyCount,
+                  b: [b.attendance_status_code, b.ackVersion, b.dirty], c: [c.attendance_status_code, c.ackVersion] }};
+    """)
+    assert out["result"] == {
+        "before": 2, "refreshed": 1, "open": True, "saving": False, "error": "", "note": "Saved 2 changes.",
+        "dirty": 0, "b": ["ABSENT", "2026-01-01T10:05:00.123456+00:00", False],
+        "c": ["PRESENT", "2026-01-01T10:05:00.123456+00:00"],
+    }, "the panel must stay open after Save (live register) and rebaseline to the server's versions"
     [post] = [c for c in out["calls"] if c["method"] == "POST"]
     assert post["url"].endswith("/api/v1/attendance/pujas/P1/attendance")
-    assert json.loads(post["body"]) == {"records": [
-        {"sangha_sevi_pk": "a", "attendance_status_code": "PRESENT"},
-        {"sangha_sevi_pk": "b", "attendance_status_code": "EXCUSED_ABSENCE"},
-    ]}
+    assert json.loads(post["body"]) == {
+        "records": [
+            {"sangha_sevi_pk": "b", "attendance_status_code": "ABSENT", "expected_version": "2026-01-01T10:00:00.000001+00:00"},
+            {"sangha_sevi_pk": "c", "attendance_status_code": "PRESENT", "expected_version": None},
+        ],
+        "overwrite_sangha_sevi_pks": [],
+    }, "untouched rows are never sent; expected_version is echoed verbatim (null = saw it unmarked)"
+
+
+def test_saving_with_nothing_dirty_sends_nothing(register_page: Page):
+    out = _run(register_page, f"""
+        host.attMarkPuja = {PUJA};
+        host.attMarkRows = [host._attMarkRow({{ sangha_sevi_pk: 'a', organization_pk: 'S1' }}, null)];
+        await host.submitMarkAttendance();
+        return host.attMarkSavedNote;
+    """)
+    assert out["result"] == "Nothing to save." and out["calls"] == []
+
+
+_CONFLICT_409 = {"status": 409, "body": {"detail": {"message": "x", "conflicts": [{
+    "sangha_sevi_pk": "b", "current_status_code": "ABSENT", "changed_by_name": "Other Marker",
+    "changed_by_sangha_sevi_id": "SS7", "changed_at": "2026-01-01T10:32:00+00:00", "requested_status_code": "PRESENT"}]}}}
+
+
+def _conflict_run(answer: str, follow_up: list):
+    return _seq([_CONFLICT_409, *follow_up]) + f"""
+        const dialogs = [];
+        const realConfirm = NSSDialog.confirm;
+        NSSDialog.confirm = async (msg, opts) => {{ dialogs.push({{ msg, opts }}); return {answer}; }};
+        try {{
+            host.attMarkPuja = {PUJA};
+            host.attMarkRows = [
+                host._attMarkRow({{ sangha_sevi_pk: 'a', organization_pk: 'S1', first_name: 'Asha' }}, null),
+                host._attMarkRow({{ sangha_sevi_pk: 'b', organization_pk: 'S1', first_name: 'Bina' }}, null),
+            ];
+            host.attMarkSet(host.attMarkRows[0], 'PRESENT');
+            host.attMarkSet(host.attMarkRows[1], 'PRESENT');
+            await host.submitMarkAttendance();
+            return {{ dialogs, rows: host.attMarkRows.map(r => [r.sangha_sevi_pk, r.attendance_status_code, r.dirty]),
+                      error: host.attMarkError }};
+        }} finally {{ NSSDialog.confirm = realConfirm; }}
+    """
+
+
+def test_a_409_names_who_changed_it_and_overwrite_resends_with_confirmation(register_page: Page):
+    out = _run(register_page, _conflict_run("true", [{"status": 201, "body": {"records": [
+        _rec("a", "PRESENT", "2026-01-01T10:40:00+00:00"), _rec("b", "PRESENT", "2026-01-01T10:40:00+00:00")], "total": 2}}]))
+    [dialog] = out["result"]["dialogs"]
+    assert "Bina" in dialog["msg"] and "Other Marker" in dialog["msg"] and "Absent" in dialog["msg"]
+    assert dialog["opts"]["confirmText"] == "Overwrite these" and dialog["opts"]["cancelText"] == "Keep theirs"
+    posts = [json.loads(c["body"]) for c in out["calls"] if c["method"] == "POST"]
+    assert len(posts) == 2 and posts[0]["overwrite_sangha_sevi_pks"] == []
+    assert posts[1]["overwrite_sangha_sevi_pks"] == ["b"] and len(posts[1]["records"]) == 2
+    assert out["result"]["rows"] == [["a", "PRESENT", False], ["b", "PRESENT", False]]
+
+
+def test_keep_theirs_drops_only_the_conflicting_edit_and_resends_the_rest(register_page: Page):
+    out = _run(register_page, _conflict_run("false", [{"status": 201, "body": {"records": [
+        _rec("a", "PRESENT", "2026-01-01T10:40:00+00:00")], "total": 1}}]))
+    posts = [json.loads(c["body"]) for c in out["calls"] if c["method"] == "POST"]
+    assert [r["sangha_sevi_pk"] for r in posts[1]["records"]] == ["a"] and posts[1]["overwrite_sangha_sevi_pks"] == []
+    assert out["result"]["rows"] == [["a", "PRESENT", False], ["b", "ABSENT", False]], "b shows the other marker's mark"
+
+
+def test_a_dirty_row_whose_server_state_changed_is_flagged_and_never_silently_overwritten(register_page: Page):
+    out = _run(register_page, f"""
+        host.attMarkPuja = {PUJA};
+        host.attMarkRows = [
+            host._attMarkRow({{ sangha_sevi_pk: 'a', organization_pk: 'S1' }}, null),
+            host._attMarkRow({{ sangha_sevi_pk: 'b', organization_pk: 'S1' }}, null),
+        ];
+        host.attMarkSet(host.attMarkRows[0], 'PRESENT');                    // a: my unsaved edit
+        await host._attApplyLive({{ server_time: 'T', marked_count: 2, changed: [
+            {{ sangha_sevi_pk: 'a', attendance_status_code: 'ABSENT', version: '2026-01-01T10:32:00+00:00',
+               marked_by_name: 'Other Marker', marked_by_sangha_sevi_id: 'SS7', marked_at: '2026-01-01T10:32:00+00:00', is_active: true }},
+            {{ sangha_sevi_pk: 'b', attendance_status_code: 'PRESENT', version: '2026-01-01T10:33:00+00:00',
+               marked_by_name: 'Other Marker', marked_by_sangha_sevi_id: 'SS7', marked_at: '2026-01-01T10:33:00+00:00', is_active: true }},
+        ] }});
+        const [a, b] = host.attMarkRows;
+        const first = {{ a: [a.attendance_status_code, a.dirty, host.attRowStale(a)], b: [b.attendance_status_code, b.dirty, b.flash, host.attRowStale(b)],
+                         hint: host.attRowHint(a).startsWith('Other Marker marked Absent at') }};
+        // the same payload again (server overlap) and an older one change nothing
+        await host._attApplyLive({{ changed: [{{ sangha_sevi_pk: 'b', attendance_status_code: 'ABSENT', version: '2026-01-01T10:31:00+00:00', is_active: true }}] }});
+        first.bAfterStale = b.attendance_status_code;
+        // someone else saves exactly what I wanted -> no longer dirty
+        host.attMarkSet(b, 'ABSENT');
+        await host._attApplyLive({{ changed: [{{ sangha_sevi_pk: 'b', attendance_status_code: 'ABSENT', version: '2026-01-01T10:40:00+00:00', is_active: true }}] }});
+        first.bConverged = [b.dirty, b.ackVersion];
+        return first;
+    """)["result"]
+    assert out["a"] == ["PRESENT", True, True], "local edit kept, flagged stale"
+    assert out["b"] == ["PRESENT", False, True, False], "untouched row updates in place and flashes"
+    assert out["hint"] is True
+    assert out["bAfterStale"] == "PRESENT"
+    assert out["bConverged"] == [False, "2026-01-01T10:40:00+00:00"]
+
+
+def test_live_removal_unmarks_an_untouched_row_and_unknown_members_are_fetched(register_page: Page):
+    out = _run(register_page, _seq([{"status": 200, "body": {"records": [
+        _rec("z", "PRESENT", "2026-01-01T10:50:00+00:00")]}}]) + f"""
+        host.attMarkPuja = {PUJA};
+        host.attMarkRows = [host._attMarkRow({{ sangha_sevi_pk: 'a', organization_pk: 'S1' }}, {json.dumps(_rec("a", "PRESENT", "2026-01-01T10:00:00+00:00"))})];
+        await host._attApplyLive({{ changed: [
+            {{ sangha_sevi_pk: 'a', attendance_status_code: 'PRESENT', version: '2026-01-01T10:45:00+00:00', is_active: false }},
+            {{ sangha_sevi_pk: 'z', attendance_status_code: 'PRESENT', version: '2026-01-01T10:50:00+00:00', is_active: true }},
+        ] }});
+        return {{ rows: host.attMarkRows.map(r => [r.sangha_sevi_pk, r.attendance_status_code]), counts: host.attMarkProgressText }};
+    """)["result"]
+    assert out == {"rows": [["a", None], ["z", "PRESENT"]], "counts": "1 of 2 marked"}
+
+
+def test_poll_interval_is_a_fixed_two_seconds(register_page: Page):
+    out = _run(register_page, """
+        return NSSAttendanceRegister.LIVE_POLL;
+    """)["result"]
+    assert out == {"POLL_MS": 2000}
+
+
+def test_a_poll_sends_the_cursor_and_etag_handles_304_and_flags_reconnecting(register_page: Page):
+    out = _run(register_page, _seq([
+        {"status": 200, "headers": {"ETag": '"e1"'}, "body": {"server_time": "2026-01-01T10:00:00+00:00", "marked_count": 0, "changed": []}},
+        {"status": 304, "body": {}},
+        {"status": 500, "body": {}},
+    ]) + f"""
+        host.attMarkPuja = {PUJA};
+        host._attPolling = true;                       // polling "started", but drive the ticks by hand
+        const gen = host._attPollGen;
+        await host._attPollOnce(gen);  const afterFirst = [host._attPollSince, host._attPollEtag];
+        clearTimeout(host._attPollTimer);
+        await host._attPollOnce(gen);  const after304 = host.attLiveReconnecting;
+        clearTimeout(host._attPollTimer);
+        await host._attPollOnce(gen);  const afterError = [host.attLiveReconnecting, host._attPollFailures];
+        clearTimeout(host._attPollTimer);
+        host._attStopPolling();
+        return {{ afterFirst, after304, afterError }};
+    """)
+    assert out["result"] == {"afterFirst": ["2026-01-01T10:00:00+00:00", '"e1"'], "after304": False, "afterError": [True, 1]}
+    live = [c for c in out["calls"] if "/live" in c["url"]]
+    assert len(live) == 3 and "since=" not in live[0]["url"] and "If-None-Match" not in live[0]["headers"]
+    assert "since=2026-01-01T10%3A00%3A00%2B00%3A00" in live[1]["url"] and live[1]["headers"]["If-None-Match"] == '"e1"'
+
+
+def test_filter_chip_not_marked_lists_only_unmarked_rows(register_page: Page):
+    out = _run(register_page, """
+        host.attMarkRows = [{ sangha_sevi_pk: 'a', attendance_status_code: null }, { sangha_sevi_pk: 'b', attendance_status_code: 'ABSENT' }];
+        host.attMarkFilter = 'NOT_MARKED';
+        return [host.attMarkVisibleRows().map(r => r.sangha_sevi_pk), host.attMarkProgressText, host.attMarkProgressPercent];
+    """)["result"]
+    assert out == [["a"], "1 of 2 marked", 50]
 
 
 def test_a_rejected_submit_keeps_the_register_open_and_shows_the_servers_reason(register_page: Page):

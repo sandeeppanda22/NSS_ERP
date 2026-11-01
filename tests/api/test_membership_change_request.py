@@ -305,6 +305,29 @@ class TestCreateChangeRequest:
         assert resp.status_code == 201, resp.text
         assert resp.json()["request_type"] == "DARSHAK"
 
+    def test_darshaka_cannot_apply_for_darshak_but_can_transfer(
+        self, client, manage_headers, write_conn, source_org_pk, dest_org_pk
+    ):
+        """GDR-009 §2B: a Darshaka (PROBATIONARY) who attends another Sakha must
+        transfer to it — a DARSHAK request is 422, a TRANSFER is accepted."""
+        darshaka = _create_member_with_home_affiliation(
+            write_conn, "Darshaka", organization_pk=source_org_pk,
+            membership_type_code="PROBATIONARY",
+        )
+        refused = client.post(BASE, headers=manage_headers, json={
+            "sangha_sevi_pk": darshaka["sangha_sevi_pk"],
+            "request_type": "DARSHAK",
+            "new_organization_pk": dest_org_pk,
+        })
+        assert refused.status_code == 422, refused.text
+        assert "must transfer" in refused.json()["detail"]
+        transfer = client.post(BASE, headers=manage_headers, json={
+            "sangha_sevi_pk": darshaka["sangha_sevi_pk"],
+            "request_type": "TRANSFER",
+            "new_organization_pk": dest_org_pk,
+        })
+        assert transfer.status_code == 201, transfer.text
+
     def test_neither_self_nor_manage_rejected(self, client, plain_headers, member_user, dest_org_pk):
         resp = client.post(BASE, headers=plain_headers, json={
             "sangha_sevi_pk": member_user["sangha_sevi_pk"],

@@ -41,6 +41,9 @@ LOCAL_SAKHA_NUM_SEL = '[x-model="form.claimed_local_sakha_number"]'
 CREDENTIAL_NUM_SEL = '[x-model="form.claimed_credential_document_number"]'
 DARSHAK_TOGGLE_SEL = '[x-model="form.is_attending_as_darshak"]'
 DARSHAK_ORG_SEL = '[x-model="form.darshak_organization_pk"]'
+LEGACY_YES_SEL = 'input[name="legacy_choice"][value="yes"]'
+LEGACY_NO_SEL = 'input[name="legacy_choice"][value="no"]'
+DARSHAK_LEGACY_YES_SEL = 'input[name="darshak_legacy_choice"][value="yes"]'
 DARSHAK_LOCAL_NUM_SEL = '[x-model="form.darshak_local_sakha_number"]'
 COUNTRY_SEL = '[x-model="form.country_pk"]'
 STATE_SEL = '[x-model="form.state_pk"]'
@@ -151,9 +154,9 @@ class TestRegisterStep2Membership:
         assert options.count() > 10, "Sakha dropdown should have many options (175 branches)"
 
     def test_local_sakha_number_required_marker(self, page: Page):
-        """Local Sakha Number is now required for every membership type,
-        including Darshaka — no longer marked optional once a Sakha is
-        selected (AUTH-BR-086)."""
+        """GDR-009: once a Sakha is selected the 'already a member before this
+        system?' question appears; the Local Sakha Number input is revealed
+        only by answering Yes (and hidden with an auto-assign note on No)."""
         _goto_register(page)
         _fill_step1(page, _unique_suffix())
         _advance_step1_to_step2(page)
@@ -170,13 +173,23 @@ class TestRegisterStep2Membership:
         sakha_sel.select_option(index=1)
         page.wait_for_timeout(500)
 
-        local_num = page.locator(LOCAL_SAKHA_NUM_SEL)
-        assert local_num.count() > 0, "Local Sakha Number field should appear once a Sakha is selected"
+        assert page.locator(LEGACY_YES_SEL).count() > 0, "legacy question should appear once a Sakha is selected"
+        assert page.locator(LOCAL_SAKHA_NUM_SEL).count() == 0, "number hidden until the member answers Yes"
+        page.locator(LEGACY_NO_SEL).check()
+        page.wait_for_timeout(300)
+        assert page.locator(LOCAL_SAKHA_NUM_SEL).count() == 0, "No -> number stays hidden (auto-assigned)"
+        page.locator(LEGACY_YES_SEL).check()
+        page.wait_for_timeout(300)
+        assert page.locator(LOCAL_SAKHA_NUM_SEL).count() > 0, "Yes reveals the Local Sakha Number field"
 
         credential_num = page.locator(CREDENTIAL_NUM_SEL)
         assert credential_num.count() > 0, (
-            "Parichaya/Anumati Patra number field should appear once a Sakha is selected"
+            "Parichaya/Anumati Patra number field should appear with the Local Sakha Number "
+            "once the member answers Yes (GDR-009 §2A)"
         )
+        page.locator(LEGACY_NO_SEL).check()
+        page.wait_for_timeout(300)
+        assert page.locator(CREDENTIAL_NUM_SEL).count() == 0, "No -> Patra number hidden (issued automatically)"
 
     def test_darshak_attendance_reveals_own_local_number(self, page: Page):
         """Toggling 'Attending another Sangha as Darshak?' reveals a Darshak
@@ -199,8 +212,13 @@ class TestRegisterStep2Membership:
         page.wait_for_timeout(500)
 
         assert page.locator(DARSHAK_ORG_SEL).count() > 0, "Darshak Sakha selector should appear"
+        assert page.locator(DARSHAK_LEGACY_YES_SEL).count() > 0, (
+            "The attendance Sakha asks its own 'already a Darshak there?' question"
+        )
+        page.locator(DARSHAK_LEGACY_YES_SEL).check()
+        page.wait_for_timeout(300)
         assert page.locator(DARSHAK_LOCAL_NUM_SEL).count() > 0, (
-            "Darshak Sakha's own Local Sakha Number field should appear"
+            "Yes reveals the Darshak Sakha's own Local Sakha Number field"
         )
 
 

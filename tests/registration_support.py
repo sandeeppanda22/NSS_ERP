@@ -10,10 +10,14 @@ need by name, same convention as tests/attendance_support.py.
 Registration rules this module encodes (api/routers/registration.py):
   - The address block is MANDATORY (country_pk, state_pk, district_pk,
     city_village_name, postal_code_value, address_line_1).
-  - claimed_credential_document_number (Parichaya Patra number) is required
-    for every membership type except Darshaka (PROBATIONARY).
-  - claimed_local_sakha_number is required for every membership type except
-    Darshaka at *registration* time (approval still insists on one).
+  - claimed_credential_document_number (Parichaya/Anumati Patra number)
+    follows the same legacy flag (GDR-009 §2A): required, strictly
+    <seq>/<yyyy>/<yyyy+1>, for a legacy member; must be blank otherwise.
+  - A Darshaka (PROBATIONARY) claim cannot carry an attendance Sakha (§2B).
+  - Local Sakha Number follows the legacy-vs-new rule (GDR-009): is_legacy_member
+    true -> claimed_local_sakha_number required; false (default) -> it must be
+    blank and the number is auto-generated at approval. Same for the attendance
+    Sakha via darshak_is_legacy_member / darshak_local_sakha_number.
 """
 
 import random
@@ -61,8 +65,15 @@ def registration_address(cur) -> dict:
 
 
 def non_darshaka_credential_number() -> str:
-    """A bare, globally-unique Parichaya Patra number for non-Darshaka claims."""
-    return str(random.randint(100000, 999999))
+    """
+    A random six-digit-seq legacy card number in the strict MBR-030A form
+    ``<seq>/<yyyy>/<yyyy+1>`` for the current year (GDR-009 §2A). Valid as a
+    LEGACY member's existing Parichaya (or Anumati) Patra number; a new member
+    sends none. Random enough not to collide with real issued numbers.
+    """
+    from datetime import date
+    year = date.today().year
+    return f"{random.randint(100000, 999999)}/{year}/{year + 1}"
 
 
 def add_user_account(write_conn, person_pk, password, *, status="PENDING_APPROVAL", is_active=True) -> str:

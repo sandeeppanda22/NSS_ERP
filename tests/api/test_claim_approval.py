@@ -24,6 +24,8 @@ and in-scope admins.
 NOTE: cleanup is automatic via transaction rollback in conftest.py.
 """
 
+import re
+
 import pytest
 from uuid import uuid4
 
@@ -246,7 +248,8 @@ def _register_address(write_conn):
 
 def _register(client, email_suffix, gender_pk, org_pk, membership_type_pk,
               local_sakha_number=None, darshak_org_pk=None, darshak_local_sakha_number=None,
-              last_name="Test", credential_number=None):
+              last_name="Test", credential_number=None, legacy=True,
+              darshak_legacy=True):
     payload = {
         **_REGISTER_ADDRESS,
         "first_name": "ClaimApproval",
@@ -258,24 +261,30 @@ def _register(client, email_suffix, gender_pk, org_pk, membership_type_pk,
         "has_membership": True,
         "membership_type_master_data_pk": membership_type_pk,
         "organization_pk": org_pk,
-        # Local Sakha Number is required for every membership type, incl.
-        # Darshaka (AUTH-BR-086) — not validated at registration, so any
-        # non-empty default is fine for callers that don't care about the
-        # exact value. Must still be unique per call: unlike before this
-        # requirement existed, every registration now actually composes
-        # into nss.membership_sakha_affiliation's local_sakha_erp_id on
-        # approval, which is UNIQUE per (organization_pk, local_sakha_erp_id)
-        # — a fixed default would collide across the many registrations
-        # this module-scoped test class approves against the same org.
-        "claimed_local_sakha_number": local_sakha_number or uuid4().hex[:6],
+        # GDR-009: legacy=True (default) = the registrant states an existing
+        # number, which must still be unique per call because it composes
+        # into nss.membership_sakha_affiliation's UNIQUE (organization_pk,
+        # local_sakha_erp_id) on approval. legacy=False = a NEW member: no
+        # number is sent and the allocator assigns one at approval.
+        "is_legacy_member": legacy,
     }
-    if credential_number:
-        # Required for every membership type except Darshaka (registration.py 3d).
-        payload["claimed_credential_document_number"] = credential_number
+    if legacy:
+        payload["claimed_local_sakha_number"] = local_sakha_number or uuid4().hex[:6]
+    # GDR-009 §2A: the card number follows the legacy flag — a legacy claim
+    # carries one (an explicit credential_number wins, else a random strict
+    # <seq>/<yyyy>/<yyyy+1>); a new claim carries none unless a test passes
+    # credential_number explicitly to provoke the 422.
+    number = credential_number
+    if number is None and legacy:
+        number = non_darshaka_credential_number()
+    if number:
+        payload["claimed_credential_document_number"] = number
     if darshak_org_pk:
         payload["is_attending_as_darshak"] = True
         payload["darshak_organization_pk"] = darshak_org_pk
-        payload["darshak_local_sakha_number"] = darshak_local_sakha_number or uuid4().hex[:6]
+        payload["darshak_is_legacy_member"] = darshak_legacy
+        if darshak_legacy:
+            payload["darshak_local_sakha_number"] = darshak_local_sakha_number or uuid4().hex[:6]
     resp = client.post("/api/v1/register", json=payload)
     assert resp.status_code == 201, f"Registration failed: {resp.json()}"
     return resp.json()
@@ -470,8 +479,8 @@ class TestApproveNonDarshakaAndDarshak:
                 INSERT INTO nss.registration_claim (
                     user_account_pk, person_pk, claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
-                    claimed_local_sakha_number, claim_status
-                ) VALUES (%s, %s, %s, %s, %s, 'PENDING')
+                    claimed_local_sakha_number, is_legacy_member, claim_status
+                ) VALUES (%s, %s, %s, %s, %s, TRUE, 'PENDING')
                 RETURNING registration_claim_pk
                 """,
                 (ua_pk, person["person_pk"], sakha_orgs["org_a"], non_darshaka_type_pk, local_number),
@@ -497,7 +506,7 @@ class TestApproveNonDarshakaAndDarshak:
             assert cur.fetchone()[0] == 1, "Must not create a duplicate active sangha_sevi row."
 
     def test_approve_darshak_creates_attendance_affiliation(
-        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
     ):
         """Approving a claim with darshak_organization_pk set must create a
         SECOND membership_sakha_affiliation row at the darshak org, in
@@ -512,7 +521,7 @@ class TestApproveNonDarshakaAndDarshak:
         a member's home affiliation and a darshak attendance affiliation
         at a different org are no longer mutually exclusive."""
         person = _register(
-            client, "darshakatt", gender_pk, sakha_orgs["org_a"], darshaka_type_pk,
+            client, "darshakatt", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
             darshak_org_pk=sakha_orgs["org_b"],
         )
         claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
@@ -540,32 +549,19 @@ class TestApproveNonDarshakaAndDarshak:
             assert sakha_orgs["org_b"] in org_pks, "Darshak attendance affiliation at darshak org missing."
 
 
-class TestApproveRequiresLocalSakhaNumber:
-    """AUTH-BR-086: the Local Sakha Number is required for non-Darshaka claims and
-    optional for Darshaka. A PENDING claim's number can be blanked via PATCH before
-    approval, so approve_claim must handle both cases: reject for non-Darshaka,
-    mint the next Darshak-namespace number (MBR-030C / MBR-048) for Darshaka."""
+class TestApproveLegacyVsNewLocalSakhaNumber:
+    """AUTH-BR-086 as amended by GDR-009 (owner 2026-11-01): a LEGACY claim must
+    carry its existing Local Sakha Number; a NEW claim carries none and the
+    number is auto-generated at approval by the shared allocator (Regular/
+    Associate series, or the Darshak series for a Darshaka). Same rule,
+    separately, for the cross-Sakha attendance affiliation (step 7)."""
 
-    def test_approve_darshaka_without_local_number_auto_generates_it(
-        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
-    ):
-        person = _register(client, "darkblank", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
-        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+    @staticmethod
+    def _auth(admin_tokens):
+        return {"Authorization": f"Bearer {admin_tokens['access_token']}"}
 
-        patch_resp = client.patch(
-            f"/api/v1/admin/claims/{claim_pk}",
-            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
-            json={"claimed_local_sakha_number": ""},
-        )
-        assert patch_resp.status_code == 200, f"Blanking number failed: {patch_resp.json()}"
-
-        resp = client.post(
-            f"/api/v1/admin/claims/{claim_pk}/approve",
-            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
-            json={},
-        )
-        assert resp.status_code == 200, resp.json()
-
+    @staticmethod
+    def _local_id(write_conn, person_pk, org_pk):
         with write_conn.cursor() as cur:
             cur.execute("""
                 SELECT msa.local_sakha_erp_id, o.short_code
@@ -573,56 +569,340 @@ class TestApproveRequiresLocalSakhaNumber:
                 JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = msa.sangha_sevi_pk
                 JOIN nss.organization o ON o.organization_pk = msa.organization_pk
                 WHERE ss.person_pk = %s AND msa.organization_pk = %s
-            """, (person["person_pk"], sakha_orgs["org_a"]))
-            local_id, short_code = cur.fetchone()
+            """, (person_pk, org_pk))
+            return cur.fetchone()
+
+    def test_new_darshaka_claim_is_auto_numbered_in_darshak_series(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "newdark", gender_pk, sakha_orgs["org_a"],
+                           darshaka_type_pk, legacy=False)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 200, resp.json()
+        local_id, short_code = self._local_id(write_conn, person["person_pk"], sakha_orgs["org_a"])
         # <short_code><Darshak marker><sequence> — never the bare Regular namespace.
         assert local_id.startswith(short_code) and local_id[len(short_code):].strip("0123456789") != ""
         assert local_id[-1].isdigit()
 
-    def test_approve_non_darshaka_without_local_number_fails(
+    def test_new_regular_claim_is_auto_numbered_in_regular_series(
         self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
     ):
         person = _register(
-            client, "regblank", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            client, "newreg", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            legacy=False,
+        )
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 200, resp.json()
+        local_id, short_code = self._local_id(write_conn, person["person_pk"], sakha_orgs["org_a"])
+        # Regular namespace: the short_code followed by digits only.
+        assert local_id[len(short_code):].isdigit()
+
+    def test_legacy_regular_claim_keeps_its_typed_number(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        typed = f"LG{uuid4().hex[:5]}"
+        person = _register(
+            client, "legreg", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            local_sakha_number=typed, credential_number=non_darshaka_credential_number(),
+        )
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 200, resp.json()
+        local_id, short_code = self._local_id(write_conn, person["person_pk"], sakha_orgs["org_a"])
+        assert local_id == f"{short_code}{typed}"
+
+    def test_patch_cannot_blank_a_legacy_number(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        """Legacy claim + blank number is the AUTH-BR-086 422 that survives."""
+        person = _register(
+            client, "legblank", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
             credential_number=non_darshaka_credential_number(),
         )
         claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
-        client.patch(
-            f"/api/v1/admin/claims/{claim_pk}",
-            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
-            json={"claimed_local_sakha_number": ""},
-        )
-        resp = client.post(
-            f"/api/v1/admin/claims/{claim_pk}/approve",
-            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
-            json={},
-        )
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}",
+                            headers=self._auth(admin_tokens),
+                            json={"claimed_local_sakha_number": ""})
         assert resp.status_code == 422
-        assert "Local Sakha Number" in resp.json()["detail"]
+        assert "claimed_local_sakha_number" in resp.json()["detail"]
 
-    def test_approve_darshak_attendance_without_darshak_local_number_fails(
+    def test_admin_can_flip_a_claim_to_new_with_flag_and_blank_together(
         self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
     ):
+        person = _register(client, "flipnew", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}",
+                            headers=self._auth(admin_tokens),
+                            json={"is_legacy_member": False, "claimed_local_sakha_number": "",
+                                  "claimed_credential_document_number": ""})
+        assert resp.status_code == 200, resp.json()
+        detail = client.get(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens)).json()
+        assert detail["is_legacy_member"] is False
+        assert detail["claimed_local_sakha_number"] is None
+        approve = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                              headers=self._auth(admin_tokens), json={})
+        assert approve.status_code == 200, approve.json()
+
+    def test_patch_new_flag_with_a_number_left_in_place_is_422(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "flipbad", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}",
+                            headers=self._auth(admin_tokens),
+                            json={"is_legacy_member": False})
+        assert resp.status_code == 422
+        assert "must be blank" in resp.json()["detail"]
+
+    def test_patch_marking_legacy_without_a_number_is_422(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "flipleg", gender_pk, sakha_orgs["org_a"],
+                           darshaka_type_pk, legacy=False)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}",
+                            headers=self._auth(admin_tokens),
+                            json={"is_legacy_member": True})
+        assert resp.status_code == 422
+        assert "claimed_local_sakha_number is required" in resp.json()["detail"]
+
+    def test_legacy_attendance_without_number_is_422_at_patch(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
         person = _register(
-            client, "darkattblank", gender_pk, sakha_orgs["org_a"], darshaka_type_pk,
+            client, "darkattblank", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
             darshak_org_pk=sakha_orgs["org_b"],
         )
         claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
-
-        patch_resp = client.patch(
-            f"/api/v1/admin/claims/{claim_pk}",
-            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
-            json={"darshak_local_sakha_number": ""},
-        )
-        assert patch_resp.status_code == 200, f"Blanking darshak number failed: {patch_resp.json()}"
-
-        resp = client.post(
-            f"/api/v1/admin/claims/{claim_pk}/approve",
-            headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
-            json={},
-        )
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}",
+                            headers=self._auth(admin_tokens),
+                            json={"darshak_local_sakha_number": ""})
         assert resp.status_code == 422
-        assert "darshak_local_sakha_number" in resp.json()["detail"] or "Darshak Sakha" in resp.json()["detail"]
+        assert "darshak_local_sakha_number" in resp.json()["detail"]
+
+    def test_new_attendee_is_allocated_the_next_darshak_number(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(
+            client, "newattend", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            darshak_org_pk=sakha_orgs["org_b"], darshak_legacy=False,
+        )
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 200, resp.json()
+        local_id, short_code = self._local_id(write_conn, person["person_pk"], sakha_orgs["org_b"])
+        assert local_id.startswith(short_code) and local_id[-1].isdigit()
+        assert local_id[len(short_code):].strip("0123456789") != "", "must be in the Darshak series"
+
+    def test_legacy_attendee_keeps_typed_number_even_if_home_claim_is_new(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        """Legacy status is per Sakha: new at home, legacy at the attended Sakha."""
+        typed = f"DK{uuid4().hex[:5]}"
+        person = _register(
+            client, "mixedlegacy", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            legacy=False, darshak_org_pk=sakha_orgs["org_b"], darshak_local_sakha_number=typed,
+        )
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 200, resp.json()
+        local_id, _ = self._local_id(write_conn, person["person_pk"], sakha_orgs["org_b"])
+        assert local_id.endswith(typed)
+
+    def test_attendance_number_collision_is_409_and_rolls_the_approval_back(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        typed = f"CK{uuid4().hex[:5]}"
+        first = _register(client, "collide1", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+                          darshak_org_pk=sakha_orgs["org_b"], darshak_local_sakha_number=typed)
+        second = _register(client, "collide2", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+                           darshak_org_pk=sakha_orgs["org_b"], darshak_local_sakha_number=typed)
+        c1 = _pending_claim_pk(write_conn, first["person_pk"])
+        c2 = _pending_claim_pk(write_conn, second["person_pk"])
+        ok = client.post(f"/api/v1/admin/claims/{c1}/approve", headers=self._auth(admin_tokens), json={})
+        assert ok.status_code == 200, ok.json()
+        clash = client.post(f"/api/v1/admin/claims/{c2}/approve", headers=self._auth(admin_tokens), json={})
+        assert clash.status_code == 409, clash.json()
+        assert typed in clash.json()["detail"]
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT claim_status FROM nss.registration_claim WHERE registration_claim_pk = %s", (c2,))
+            assert cur.fetchone()[0] == "PENDING", "a failed approval must leave the claim PENDING"
+
+    def test_attendance_at_a_sakha_with_an_open_affiliation_is_skipped_not_an_error(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        """Attending the SAME Sakha as home: the open home affiliation already
+        exists, so step 7 skips silently (and does not mint a second row)."""
+        person = _register(
+            client, "attendhome", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+            darshak_org_pk=sakha_orgs["org_a"], darshak_legacy=False,
+        )
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 200, resp.json()
+        with write_conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM nss.membership_sakha_affiliation msa
+                JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = msa.sangha_sevi_pk
+                WHERE ss.person_pk = %s AND msa.organization_pk = %s AND msa.effective_to IS NULL
+            """, (person["person_pk"], sakha_orgs["org_a"]))
+            assert cur.fetchone()[0] == 1
+
+
+class TestApprovePatraNumberLegacyVsNew:
+    """GDR-009 §2A (owner 2026-11-01): the Parichaya/Anumati Patra number follows
+    the SAME is_legacy_member flag. Legacy -> the card's existing number is
+    recorded as given; otherwise it is minted at approval (Anumati for a
+    Darshaka, Parichaya for Regular/Associate). Also GDR-009 §2B: a Darshaka cannot hold an attendance Sakha."""
+
+    @staticmethod
+    def _auth(admin_tokens):
+        return {"Authorization": f"Bearer {admin_tokens['access_token']}"}
+
+    @staticmethod
+    def _approve(client, admin_tokens, write_conn, person):
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        return claim_pk, client.post(
+            f"/api/v1/admin/claims/{claim_pk}/approve",
+            headers=TestApprovePatraNumberLegacyVsNew._auth(admin_tokens), json={},
+        )
+
+    @staticmethod
+    def _patra_rows(write_conn, person_pk, table):
+        with write_conn.cursor() as cur:
+            cur.execute(
+                f"SELECT document_number FROM nss.{table} WHERE sangha_sevi_pk = "
+                "(SELECT sangha_sevi_pk FROM nss.sangha_sevi WHERE person_pk = %s AND is_active = TRUE)",
+                (person_pk,),
+            )
+            return [r[0] for r in cur.fetchall()]
+
+    def test_legacy_regular_records_the_existing_parichaya_number(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        number = f"{__import__('random').randint(100000, 999999)}/2025/2026"
+        person = _register(client, "patlegreg", gender_pk, sakha_orgs["org_a"],
+                           non_darshaka_type_pk, credential_number=number)
+        _, resp = self._approve(client, admin_tokens, write_conn, person)
+        assert resp.status_code == 200, resp.json()
+        assert self._patra_rows(write_conn, person["person_pk"], "parichaya_patra") == [number]
+
+    def test_new_regular_gets_a_minted_parichaya_patra_at_approval(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "patnewreg", gender_pk, sakha_orgs["org_a"],
+                           non_darshaka_type_pk, legacy=False)
+        _, resp = self._approve(client, admin_tokens, write_conn, person)
+        assert resp.status_code == 200, resp.json()
+        rows = self._patra_rows(write_conn, person["person_pk"], "parichaya_patra")
+        assert len(rows) == 1 and re.fullmatch(r"[1-9]\d*/\d{4}/\d{4}", rows[0])
+        assert self._patra_rows(write_conn, person["person_pk"], "anumati_patra") == []
+
+    def test_new_darshaka_gets_a_minted_anumati_patra(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "patnewdark", gender_pk, sakha_orgs["org_a"],
+                           darshaka_type_pk, legacy=False)
+        _, resp = self._approve(client, admin_tokens, write_conn, person)
+        assert resp.status_code == 200, resp.json()
+        rows = self._patra_rows(write_conn, person["person_pk"], "anumati_patra")
+        assert len(rows) == 1 and re.fullmatch(r"[1-9]\d*/\d{4}/\d{4}", rows[0])
+
+    def test_legacy_darshaka_records_the_existing_anumati_number(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        number = f"{__import__('random').randint(100000, 999999)}/2024/2025"
+        person = _register(client, "patlegdark", gender_pk, sakha_orgs["org_a"],
+                           darshaka_type_pk, credential_number=number)
+        _, resp = self._approve(client, admin_tokens, write_conn, person)
+        assert resp.status_code == 200, resp.json()
+        assert self._patra_rows(write_conn, person["person_pk"], "anumati_patra") == [number]
+        assert self._patra_rows(write_conn, person["person_pk"], "parichaya_patra") == []
+
+    def test_legacy_number_issued_after_claim_is_409_at_approval(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        number = f"{__import__('random').randint(100000, 999999)}/2025/2026"
+        first = _register(client, "patdup1", gender_pk, sakha_orgs["org_a"],
+                          non_darshaka_type_pk, credential_number=number)
+        second = _register(client, "patdup2", gender_pk, sakha_orgs["org_a"],
+                           non_darshaka_type_pk, credential_number=number)
+        _, ok = self._approve(client, admin_tokens, write_conn, first)
+        assert ok.status_code == 200, ok.json()
+        c2, clash = self._approve(client, admin_tokens, write_conn, second)
+        assert clash.status_code == 409, clash.json()
+        assert number in clash.json()["detail"]
+
+    def test_patch_flip_to_new_needs_the_patra_number_cleared_too(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "patflip", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        bad = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens),
+                           json={"is_legacy_member": False, "claimed_local_sakha_number": ""})
+        assert bad.status_code == 422
+        assert "claimed_credential_document_number must be blank" in bad.json()["detail"]
+        good = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens),
+                            json={"is_legacy_member": False, "claimed_local_sakha_number": "",
+                                  "claimed_credential_document_number": ""})
+        assert good.status_code == 200, good.json()
+
+    def test_patch_rejects_a_malformed_patra_number(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "patbad", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens),
+                            json={"claimed_credential_document_number": "345"})
+        assert resp.status_code == 422
+
+    def test_patch_giving_a_darshaka_an_attendance_sakha_is_422(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "dkpatch", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens),
+                            json={"darshak_organization_pk": sakha_orgs["org_b"]})
+        assert resp.status_code == 422
+        assert "must transfer" in resp.json()["detail"]
+
+    def test_patch_converting_a_claim_to_darshaka_clears_its_attendance_sakha(
+        self, client, admin_tokens, sakha_orgs, non_darshaka_type_pk, darshaka_type_pk, gender_pk, write_conn
+    ):
+        person = _register(client, "dkconv", gender_pk, sakha_orgs["org_a"], non_darshaka_type_pk,
+                           darshak_org_pk=sakha_orgs["org_b"], darshak_legacy=False)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        resp = client.patch(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens),
+                            json={"claimed_membership_type_master_data_pk": darshaka_type_pk})
+        assert resp.status_code == 200, resp.json()
+        detail = client.get(f"/api/v1/admin/claims/{claim_pk}", headers=self._auth(admin_tokens)).json()
+        assert detail["darshak_organization_pk"] is None
+        assert detail["darshak_is_legacy_member"] is False
+        assert detail["darshak_local_sakha_number"] is None
+
+    def test_approving_a_stored_darshaka_attendance_claim_is_422(
+        self, client, admin_tokens, sakha_orgs, darshaka_type_pk, gender_pk, write_conn
+    ):
+        """A claim that reached the DB in the forbidden state (pre-rule data) is refused at approval."""
+        person = _register(client, "dkstored", gender_pk, sakha_orgs["org_a"], darshaka_type_pk)
+        claim_pk = _pending_claim_pk(write_conn, person["person_pk"])
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE nss.registration_claim SET darshak_organization_pk = %s WHERE registration_claim_pk = %s",
+                (sakha_orgs["org_b"], claim_pk),
+            )
+        resp = client.post(f"/api/v1/admin/claims/{claim_pk}/approve",
+                           headers=self._auth(admin_tokens), json={})
+        assert resp.status_code == 422
+        assert "must transfer" in resp.json()["detail"]
 
 
 # ── Scope enforcement on approve/reject ─────────────────────────────────
@@ -906,6 +1186,8 @@ class TestClaimRepointAndResubmit:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": sakha_orgs["org_b"],
             "claimed_local_sakha_number": uuid4().hex[:6],
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             "password": TEST_PASSWORD,
         })
         assert resp.status_code == 201, resp.json()
@@ -947,6 +1229,8 @@ class TestClaimRepointAndResubmit:
             "membership_type_master_data_pk": darshaka_type_pk,
             "organization_pk": sakha_orgs["org_a"],
             "claimed_local_sakha_number": uuid4().hex[:6],
+            "is_legacy_member": True,
+            "claimed_credential_document_number": non_darshaka_credential_number(),
             "password": TEST_PASSWORD,
         })
         assert resp.status_code == 201, resp.json()

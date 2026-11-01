@@ -227,8 +227,8 @@ class TestSanghaSeviChecks:
                 INSERT INTO nss.registration_claim (
                     user_account_pk, person_pk, claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
-                    claimed_local_sakha_number, claim_status
-                ) VALUES (%s, %s, %s, %s, 'B1', 'PENDING') RETURNING registration_claim_pk
+                    claimed_local_sakha_number, is_legacy_member, claim_status
+                ) VALUES (%s, %s, %s, %s, 'B1', TRUE, 'PENDING') RETURNING registration_claim_pk
             """, (ua_pk, str(claimant), sakha_a, regular_type))
             claim_pk = str(cur.fetchone()[0])
 

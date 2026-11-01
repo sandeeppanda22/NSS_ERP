@@ -139,6 +139,8 @@ class TestPendingLoginBlocked:
             "membership_type_master_data_pk": membership_type_pk,
             "organization_pk": org_pk,
             "claimed_local_sakha_number": "SEC1",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": "900001/2025/2026",
         })
         assert response.status_code == 201, response.json()
         data = response.json()

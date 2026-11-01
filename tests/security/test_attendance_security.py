@@ -37,6 +37,7 @@ ENDPOINTS = [
     ("POST", f"{BASE}/pujas", {"sakha_pk": FAKE_UUID, "puja_date": "2001-01-07"}),
     ("GET", f"{BASE}/pujas", None),
     ("POST", PUJA, {"records": []}),
+    ("GET", f"{BASE}/pujas/{FAKE_UUID}/live", None),
     ("PATCH", f"{BASE}/records/{FAKE_UUID}", {"attendance_status_code": "PRESENT"}),
     ("GET", f"{BASE}/records", None),
     ("POST", f"{BASE}/exceptions",
@@ -126,6 +127,32 @@ class TestAdminScope:
         )
         assert r.status_code == 403
         assert r.json()["detail"] == "You can only mark attendance for this Sakha within your admin scope."
+
+    def test_cannot_poll_a_foreign_sakhas_live_register(self, client, other_admin_h, register_pujas):
+        r = client.get(f"{BASE}/pujas/{register_pujas[0]['weekly_sangha_puja_pk']}/live", headers=other_admin_h)
+        assert r.status_code == 403
+        assert r.json()["detail"] == "You can only view this Sakha's attendance within your admin scope."
+
+    def test_live_poll_leaks_nothing_to_a_foreign_admin_even_with_an_etag(
+        self, client, sakha_admin_h, other_admin_h, register_pujas,
+    ):
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        etag = client.get(f"{BASE}/pujas/{pk}/live", headers=sakha_admin_h).headers["ETag"]
+        r = client.get(f"{BASE}/pujas/{pk}/live", headers={**other_admin_h, "If-None-Match": etag})
+        assert r.status_code == 403, "scope is checked before the ETag comparison"
+
+    def test_view_only_role_may_poll_but_a_conflict_check_cannot_bypass_the_mark_gate(
+        self, client, write_conn, register_org_pk, register_pujas,
+    ):
+        auditor = _with_sevi_pk(write_conn, _create_admin_with_scope(
+            write_conn, role_code="NSS_ERP_AUDITOR", scope_level="SAKHA", organization_pk=register_org_pk))
+        h = _login_headers(client, auditor["sangha_sevi_id"], auditor["password"])
+        pk = register_pujas[0]["weekly_sangha_puja_pk"]
+        assert client.get(f"{BASE}/pujas/{pk}/live", headers=h).status_code == 200
+        r = client.post(f"{BASE}/pujas/{pk}/attendance", headers=h, json={
+            "records": [{"sangha_sevi_pk": FAKE_UUID, "attendance_status_code": "PRESENT", "expected_version": None}],
+            "overwrite_sangha_sevi_pks": [FAKE_UUID]})
+        assert r.status_code == 403
 
     def test_cannot_correct_foreign_record(self, client, write_conn, sakha_admin_h, other_admin_h,
                                            register_org_pk, register_pujas):
