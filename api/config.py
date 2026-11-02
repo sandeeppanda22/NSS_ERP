@@ -54,6 +54,12 @@ class Settings:
     # 300/min is the IP-velocity backstop. Override per environment via
     # the RATE_LIMIT env var.
     RATE_LIMIT: str = os.environ.get("RATE_LIMIT", "300/minute")
+    # Per-USER limit for the live attendance register poll
+    # (GET /attendance/pujas/{pk}/live, api/rate_limit.py user_or_ip_key). A
+    # route-specific limit REPLACES the global per-IP one for that route, so
+    # members sharing a Sakha's WiFi no longer split one 300/min IP budget
+    # (2 s polling = 30/min per open register). 120/min allows ~4 open tabs.
+    LIVE_ATTENDANCE_RATE_LIMIT: str = os.environ.get("LIVE_ATTENDANCE_RATE_LIMIT", "120/minute")
 
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).

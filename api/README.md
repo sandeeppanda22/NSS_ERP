@@ -163,6 +163,9 @@ api/
 │                        membership + pending-claim joins). Plus constants
 │                        `DARSHAK_LOCAL_ID_MARKER_SETTING`,
 │                        `PROBATIONARY_MEMBERSHIP_TYPE_CODE`
+├── rate_limit.py        the shared SlowAPI `Limiter` (global per-IP `RATE_LIMIT`) + `user_or_ip_key` (JWT `sub`,
+│                        else client IP) for per-user route limits, e.g. `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance
+│                        `/live` poll; `api/main.py` only wires it into the app
 ├── middleware.py        `add_security_headers(request, call_next)` — sets
 │                        `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/
 │                        `Permissions-Policy` on every response, plus `Cache-Control: no-store`
@@ -572,8 +575,10 @@ Registered in `api/main.py`. Starlette runs the **last-registered** middleware o
 the effective request order is security headers → CORS → rate limiting → route:
 
 1. **Rate limiting** (`slowapi`) — `Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])`
-   registered via `SlowAPIMiddleware`; default `300/minute` per client IP, global (no per-route
-   `@limiter.limit` overrides exist anywhere in `api/`). Returns 429 once the limit trips.
+   (defined in `api/rate_limit.py`, wired by `main.py` via `SlowAPIMiddleware`); default `300/minute`
+   per client IP, global. The one per-route override is `@limiter.limit(settings.LIVE_ATTENDANCE_RATE_LIMIT,
+   key_func=user_or_ip_key)` on `attendance.py::live_attendance` (per user, replaces the global limit).
+   Returns 429 once a limit trips.
    `POST /auth/forgot-password`'s 3-per-hour cap is a separate, DB-backed check on
    `password_reset_token`, not this limiter.
 2. **CORS** (`fastapi.middleware.cors.CORSMiddleware`) — only added `if settings.CORS_ORIGINS:`;

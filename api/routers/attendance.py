@@ -29,11 +29,13 @@ import hashlib
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 
+from api.config import settings
 from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
 from api.dependencies.rbac import require_any_permission, require_permission
+from api.rate_limit import limiter, user_or_ip_key
 from api.helpers import MAX_LIMIT, get_master_data_pk, log_audit, require_entity, require_sakha_organization
 from api.routers.governance import _CURRENT_ASSIGNMENT_SQL, _person_name_sql
 from api.schemas.attendance import (
@@ -599,7 +601,11 @@ def mark_attendance(
     response_model=LiveAttendanceResponse,
     responses={304: {"description": "Nothing changed since the ETag in If-None-Match"}},
 )
+# Per-USER limit (replaces the global per-IP one for this route): the live
+# register polls every ~2 s from every open marker, often behind one WiFi IP.
+@limiter.limit(settings.LIVE_ATTENDANCE_RATE_LIMIT, key_func=user_or_ip_key)
 def live_attendance(
+    request: Request,
     weekly_sangha_puja_pk: UUID,
     response: Response,
     since: datetime | None = Query(None, description="ISO-8601 server_time of the previous poll; omit for every row"),

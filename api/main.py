@@ -55,10 +55,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 
 from api.config import settings
 from api.database import close_pool
@@ -68,6 +67,7 @@ from api.error_handlers import (
     validation_exception_handler,
 )
 from api.middleware import add_security_headers
+from api.rate_limit import limiter
 from api.routers import bootstrap, foundation, organization, person, family, membership
 from api.routers import auth, admin, registration, claim_approval, audit, geo_approval
 from api.routers import governance
@@ -201,10 +201,8 @@ def _frontend_fingerprint() -> str:
 
 
 # ── Rate limiter ─────────────────────────────────────────────────────────
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[settings.RATE_LIMIT],
-)
+# The Limiter itself lives in api/rate_limit.py (routers attach per-route
+# limits to it); main.py only wires it into the app below.
 
 
 logger = logging.getLogger(__name__)
