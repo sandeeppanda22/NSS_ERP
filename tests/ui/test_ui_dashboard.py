@@ -7,7 +7,7 @@ Tests all dashboard features after login:
   - Personal tab: info display, membership snapshot, address, edit profile
   - Membership tab: details, account info, affiliations, journey timeline
   - Family tab: family state (tree or create prompt), member list
-  - Attendance/Governance tabs: placeholder cards
+  - Attendance/Governance tabs: real Tier 6 views (placeholder only without a Sangha Sevi)
   - Documents tab: Parichaya Patra, Anumati Patra
   - Admin tabs: visibility, stats grid, admin link
 
@@ -161,10 +161,16 @@ class TestDashboardTopbar:
     def test_topbar_shows_current_tab_title(self, admin_page: Page):
         """Topbar title reflects the active tab name."""
         _wait_dashboard_ready(admin_page)
-        topbar_title = admin_page.locator(".topbar-title")
-        text = topbar_title.text_content().strip()
-        assert len(text) > 0, "Topbar title should not be empty"
-        # Default tab is Personal — title should reflect that
+        # .topbar-title is now the fixed brand name; the active tab is shown
+        # in the breadcrumb (desktop: .topbar-breadcrumb-desktop, mobile:
+        # .topbar-breadcrumb) driven by currentTabLabel.
+        assert admin_page.locator(".topbar-title").text_content().strip(), (
+            "Topbar brand title should not be empty"
+        )
+        crumb = admin_page.locator(".topbar-breadcrumb-desktop")
+        text = crumb.text_content().strip()
+        assert len(text) > 0, "Topbar current-tab label should not be empty"
+        # Default tab is Personal — label should reflect that
         assert "personal" in text.lower() or "information" in text.lower() or "dashboard" in text.lower()
 
 
@@ -324,7 +330,9 @@ class TestTabSwitching:
         _wait_dashboard_ready(admin_page)
         _switch_tab(admin_page, "Attendance")
 
-        item = admin_page.locator(".nav-item:has-text('Attendance')")
+        # "Attendance Register" (markers only) also matches the text filter;
+        # the member's own Attendance tab is the first nav item.
+        item = admin_page.locator(".nav-item:has-text('Attendance')").first
         is_active = item.evaluate(
             "el => el.classList.contains('active')"
         )
@@ -356,7 +364,9 @@ class TestTabSwitching:
     def test_topbar_title_updates_on_tab_switch(self, admin_page: Page):
         """Topbar title updates when switching tabs."""
         _wait_dashboard_ready(admin_page)
-        topbar_title = admin_page.locator(".topbar-title")
+        # The active tab label lives in the breadcrumb, not .topbar-title
+        # (which is the fixed "Nilachala Saraswata Sangha" brand name).
+        topbar_title = admin_page.locator(".topbar-breadcrumb-desktop")
 
         _switch_tab(admin_page, "Membership")
         text = topbar_title.text_content().strip().lower()
@@ -461,11 +471,11 @@ class TestMembershipTab:
             "Journey Timeline section should be visible"
         )
 
-    # ── Self-service governance entry points (Darshak / Sakha transfer) ──
-    # These buttons live at the top of the Membership tab. They open a
-    # notice explaining the workflow is handled by the (forthcoming)
-    # Governance module — no backend call yet — so the test asserts the
-    # button is present and that clicking it surfaces that notice.
+    # ── Self-service change-request entry points (Darshak / Sakha transfer) ──
+    # These buttons live at the top of the Membership tab. Since Tier 6
+    # (membership_change_request.py) they open the real Change Request
+    # modal (destination Sakha + reason + Submit Request) — no longer a
+    # "handled by Governance module" notice dialog.
 
     def test_apply_darshak_button_visible(self, admin_page: Page):
         """Membership tab exposes an 'Apply for Darshak' action."""
@@ -487,35 +497,33 @@ class TestMembershipTab:
         )
         assert btn.count() > 0, "Request Sakha Transfer button should be present"
 
-    def test_apply_darshak_shows_governance_notice(self, admin_page: Page):
-        """Clicking 'Apply for Darshak' opens the Governance-module notice."""
+    def test_apply_darshak_opens_change_request_modal(self, admin_page: Page):
+        """Clicking 'Apply for Darshak' opens the Change Request modal."""
         _wait_dashboard_ready(admin_page)
         _switch_tab(admin_page, "Membership")
         admin_page.wait_for_timeout(500)
         admin_page.locator(
             "[x-show=\"tab === 'membership'\"] button:has-text('Apply for Darshak')"
         ).first.click()
-        overlay = admin_page.locator("#nss-dialog-overlay")
-        expect(overlay).to_be_visible()
-        message = admin_page.locator("#nss-dialog-message")
-        assert "Governance" in (message.text_content() or ""), (
-            "Darshak notice should mention the Governance module"
-        )
+        expect(
+            admin_page.get_by_role("heading", name="Apply for Darshak")
+        ).to_be_visible()
+        expect(admin_page.get_by_text("Sakha to attend")).to_be_visible()
+        expect(admin_page.get_by_role("button", name="Submit Request")).to_be_visible()
 
-    def test_request_sakha_transfer_shows_governance_notice(self, admin_page: Page):
-        """Clicking 'Request Sakha Transfer' opens the Governance-module notice."""
+    def test_request_sakha_transfer_opens_change_request_modal(self, admin_page: Page):
+        """Clicking 'Request Sakha Transfer' opens the Change Request modal."""
         _wait_dashboard_ready(admin_page)
         _switch_tab(admin_page, "Membership")
         admin_page.wait_for_timeout(500)
         admin_page.locator(
             "[x-show=\"tab === 'membership'\"] button:has-text('Request Sakha Transfer')"
         ).first.click()
-        overlay = admin_page.locator("#nss-dialog-overlay")
-        expect(overlay).to_be_visible()
-        message = admin_page.locator("#nss-dialog-message")
-        assert "Governance" in (message.text_content() or ""), (
-            "Sakha transfer notice should mention the Governance module"
-        )
+        expect(
+            admin_page.get_by_role("heading", name="Request Sakha Transfer")
+        ).to_be_visible()
+        expect(admin_page.get_by_text("Destination Sakha")).to_be_visible()
+        expect(admin_page.get_by_role("button", name="Submit Request")).to_be_visible()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -616,20 +624,25 @@ class TestFamilyTab:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  ATTENDANCE TAB (placeholder)
+#  ATTENDANCE TAB
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestAttendanceTab:
 
     def test_attendance_placeholder(self, admin_page: Page):
-        """Attendance tab shows placeholder card."""
+        """Attendance tab is a real history view (placeholder only without a Sangha Sevi)."""
         _wait_dashboard_ready(admin_page)
         _switch_tab(admin_page, "Attendance")
         admin_page.wait_for_timeout(500)
 
-        assert _placeholder_card_visible(admin_page, "Attendance Records"), (
-            "Attendance tab should show 'Attendance Records' placeholder"
+        tab_div = admin_page.locator('[x-show="tab === \'attendance\'"]')
+        # Admin user holds an active Sangha Sevi -> real tab; otherwise the
+        # 'Attendance Records' placeholder card is shown.
+        real = tab_div.get_by_text("Your Weekly Sangha Puja attendance history.")
+        assert real.count() > 0 or _placeholder_card_visible(admin_page, "Attendance Records"), (
+            "Attendance tab should show the attendance history (or the "
+            "'Attendance Records' placeholder when there is no Sangha Sevi)"
         )
 
     def test_attendance_placeholder_message(self, admin_page: Page):
@@ -647,20 +660,22 @@ class TestAttendanceTab:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  GOVERNANCE TAB (placeholder)
+#  GOVERNANCE TAB
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestGovernanceTab:
 
     def test_governance_placeholder(self, admin_page: Page):
-        """Governance tab shows placeholder card."""
+        """Governance tab is now a real view (Tier 6), not a placeholder card."""
         _wait_dashboard_ready(admin_page)
         _switch_tab(admin_page, "Governance")
         admin_page.wait_for_timeout(500)
 
-        assert _placeholder_card_visible(admin_page, "Governance Roles"), (
-            "Governance tab should show 'Governance Roles' placeholder"
+        tab_div = admin_page.locator('[x-show="tab === \'governance\'"]')
+        expect(tab_div.get_by_role("heading", name="Governance", exact=True)).to_be_visible()
+        assert not _placeholder_card_visible(admin_page, "Governance Roles"), (
+            "the old 'Governance Roles' placeholder should be gone"
         )
 
 
@@ -877,21 +892,26 @@ class TestSuperAdminTabs:
                 "with an undefined label"
             )
 
-    def test_super_admin_branch_returns_before_the_per_role_loop(self):
+    def test_super_admin_branch_is_a_true_union_not_an_early_return(self):
         """
-        The super-admin branch must short-circuit, so ORGANIZATIONAL role tabs
-        (Sakha/Kendra/... Management) are never appended for a user whose
-        access already covers every org.
+        Owner-confirmed 2026-10-22 ("true union"): a super-wide admin
+        (NSS_ERP_ADMIN / NSS_ERP_KENDRA_ADMIN) always gets the three fixed
+        system tabs AND a tab per organizational role they also hold. The
+        old early-return short-circuit was deliberately removed, so the
+        fixed tabs are seeded into `seen` and the per-role loop still runs.
         """
         js = _DASHBOARD_JS.read_text(encoding="utf-8")
         body = js.split("_buildAdminTabs() {")[1].split("\n        },")[0]
-        guard = 'if (this.user.scopes.some(s => s.role_code === "NSS_ERP_ADMIN"))'
-        assert guard in body, "_buildAdminTabs() no longer special-cases the super admin"
-        after_guard = body.split(guard)[1]
-        assert "return;" in after_guard.split("const seen = new Set();")[0], (
-            "the super-admin branch no longer returns early — organizational "
-            "role tabs would be listed alongside the three system tabs again"
+        assert 's.role_code === "NSS_ERP_ADMIN"' in body, (
+            "_buildAdminTabs() no longer special-cases the super admin"
         )
+        assert "SUPER_ADMIN_TAB_ORDER" in body
+        assert "seen.add(rc)" in body, "fixed system roles must be marked seen"
+        assert "return;" not in body.split("const seen = new Set();")[1], (
+            "the super-admin branch returns early again - organizational "
+            "role tabs would be dropped for a super-wide admin"
+        )
+        assert "this.adminTabs = [...fixedTabs, ...orgTabs]" in body
 
     def test_registration_approvals_is_permission_gated(self):
         """

@@ -1,6 +1,7 @@
 # render.yaml — Render.com Infrastructure-as-Code
-# Defines the NSS ERP web service (Tiers 0–5: Bootstrap, Foundation,
-# Organization, Person, Family/Membership, Authentication + Administration).
+# Defines the NSS ERP web service (Tiers 0–6: Bootstrap, Foundation,
+# Organization, Person, Family/Membership, Authentication + Administration,
+# Governance, Correspondence, Attendance, Sakha re-parenting).
 #
 # Database is hosted on Neon.dev (per TECH_STACK_DECISIONS.md §1).
 # DB credentials are set as environment variables in the Render

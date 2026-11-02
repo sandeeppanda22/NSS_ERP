@@ -74,7 +74,7 @@ class OrganizationResponse(BaseModel):
     parent_organization_name: str | None
     # The parent's type distinguishes otherwise-identical children, e.g. a
     # central Mahila Sangha (parent = KENDRA) from a local one
-    # (parent = SAKHA_SANGHA).
+    # (parent = a Sakha-like org: SAKHA_SANGHA or SAKHA_ASANA).
     parent_organization_type_code: str | None = None
 
     # Inline address
@@ -135,6 +135,15 @@ class OrgChildStatsResponse(BaseModel):
     member_count: int = 0
     person_count: int = 0
 
+    # Attendance % (Tier 6, 2026-10-27) — present/(present+absent) across
+    # every descendant Sakha's Weekly Sangha Puja history, same
+    # computation as attendance.py::organization_stats. None/
+    # attendance_tracked=False only when no puja event has been recorded
+    # yet anywhere in this child's subtree (pre-adoption), matching
+    # /admin/dashboard-stats' own convention.
+    attendance_pct: float | None = None
+    attendance_tracked: bool = False
+
 
 class OrgStatsResponse(BaseModel):
     """
@@ -159,10 +168,11 @@ class OrgStatsResponse(BaseModel):
     renewals_due counts PENDING nss.membership_renewal_request rows whose
     Sangha Sevi's home Sakha falls in this org's subtree — real today
     (0 until the renewal module writes rows), not a placeholder.
-    attendance_pct has no supporting table (darshak_attendance_registration
-    is a registration/approval record, not a per-meeting log — there is no
-    session table anywhere in the schema), so it is always None with
-    attendance_tracked=False rather than a fabricated figure.
+    attendance_pct (Tier 6, 2026-10-27) — present/(present+absent) across
+    every descendant Sakha's Weekly Sangha Puja history, same computation
+    as attendance.py::organization_stats and admin.py::dashboard_stats'
+    own rollup. None/attendance_tracked=False only when no puja event has
+    been recorded yet anywhere in this subtree (pre-adoption).
 
     parichay_patra_holders + darshaks is an exact partition of member_count
     (every MEMBERSHIP_TYPE except PROBATIONARY carries a Parichay Patra, and
@@ -190,7 +200,7 @@ class OrgStatsResponse(BaseModel):
     kumari_sanghas: int = 0
     sevak_sanghas: int = 0
     renewals_due: int = 0
-    attendance_pct: int | None = None
+    attendance_pct: float | None = None
     attendance_tracked: bool = False
 
 
@@ -260,12 +270,12 @@ class OrgWingSummaryResponse(BaseModel):
     recursive org_tree -> descendant-Sakhas pattern _ORG_STATS_SQL uses,
     so one implementation serves every level the user asked about:
 
-      SAKHA_SANGHA     -> subtree is just itself; its own wings
+      SAKHA_SANGHA/ASANA -> subtree is just itself; its own wings
       ANCHALIKA/ZILLA  -> aggregates its descendant Sakhas' wings
       KENDRA           -> aggregates every Sakha NSS-wide
 
     Anchalika and Zilla can only ever AGGREGATE: the frozen parent-type
-    matrix (ORG-BR-090/091/092) permits wings under SAKHA_SANGHA or (for
+    matrix (ORG-BR-090/091/092) permits wings under SAKHA_SANGHA/SAKHA_ASANA (amended 2026-10-31, GDR-008) or (for
     the single central Mahila Sangha) KENDRA only, and ORG-BR-089 makes
     Sakhas the sole legal children of an Anchalika/Zilla. So neither tier
     can own a wing org row, and aggregation is the only meaningful

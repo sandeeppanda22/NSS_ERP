@@ -63,16 +63,16 @@ class TestOrganizationTypes:
             assert t["is_active"] is True
 
     def test_list_includes_frozen_types(self, client):
-        """All 13 frozen organization types are present (may include more)."""
+        """All 13 frozen organization types plus the singleton ADVISORY_BOARD (2026-10-30)."""
         data = client.get(f"{BASE}/types").json()
-        assert len(data) >= 13
+        assert len(data) >= 14
         codes = {t["organization_type_code"] for t in data}
         expected = {
             "KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA",
             "ANCHALIKA_SANGHA", "ZILLA_SANGHA", "SAKHA_SANGHA",
             "SAKHA_ASANA", "PARIBARIK_ASANA", "PARIBARIK_SANGHA",
             "PATHA_CHAKRA", "KUMARI_SANGHA", "SEVAK_SANGHA",
-            "MAHILA_SANGHA",
+            "MAHILA_SANGHA", "ADVISORY_BOARD",
         }
         assert expected.issubset(codes), f"Missing org types: {expected - codes}"
 

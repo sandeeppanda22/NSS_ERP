@@ -8,6 +8,12 @@
 
 ---
 
+> **Implementation note (Tier 6):** the implemented DDL (`database/ddl/08_governance/`) has **10**
+> tables — it adds `election_vote_participation` (voter ledger) and, per the 2026-10-09 secrecy
+> resolution, `election.is_secret_ballot` with a nullable `election_vote.voter_person_pk`; ballot
+> rows are append-only (`11_governance_immutability.sql`). Status vocabularies are `VARCHAR + CHECK`.
+> This design text is unchanged; see `README.md` → "Implementation drift".
+
 # 1. Purpose
 
 This document defines the table-level design baseline for the Governance

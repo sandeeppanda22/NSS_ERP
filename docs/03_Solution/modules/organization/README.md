@@ -9,6 +9,11 @@ current state and `docs/PROJECT_DOCUMENTATION.md` → Conventions & gotchas for 
 reconciliation status; the still-open items (type-to-type parent matrix, `organization_code`
 naming) are unaffected.
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005):** the Organization type list gains a 14th type, `ADVISORY_BOARD` ("Advisory Board") — a singleton (code `ADB`, short_code `NSSAB`, parent `KENDRA`, name immutable, at most one active row enforced by trigger `nss.fn_enforce_organization_singleton`, which also enforces single active `KENDRA`, `NILACHALA_KUTIRA`, `SMRUTI_MANDIRA` and one central Kendra-parented `MAHILA_SANGHA` — owner amendment 2026-10-30; local per-Sakha Mahila Sanghas are unrestricted). The Advisory Board *governance body* remains NSS-wide/NULL-organization. Where this document lists a fixed set of types, read it as extended by this amendment. See `docs/00_Project_Governance/GDR/GDR-005_Advisory_Board_as_a_Singleton_Organization.md`.
+
+> **Amendment (2026-10-31, owner-directed, GDR-008):** the type-to-type parent matrix (ORG-BR-091/092/094) is widened: `KUMARI_SANGHA`, `SEVAK_SANGHA`, the local per-Sakha `MAHILA_SANGHA` and `PARIBARIK_ASANA` may be parented by a Sakha-like organization — `SAKHA_SANGHA` **or** `SAKHA_ASANA` (the `MAHILA_SANGHA` `KENDRA` tier and its singleton rule are unchanged). No schema change: the self-FK `parent_organization_pk` is type-agnostic. See `docs/00_Project_Governance/GDR/GDR-008_Sakha_Asana_Is_a_Sakha_for_All_Organizational_Purposes.md`.
+
 ---
 
 ## Documents

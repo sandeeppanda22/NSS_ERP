@@ -7,7 +7,10 @@ navigation between steps.  All tests use the unauthenticated `page` fixture.
 """
 
 import pytest
-import time
+
+from tests.ui.register_support import (
+    fill_step1,
+)
 
 pytestmark = pytest.mark.ui
 
@@ -27,18 +30,6 @@ CONFIRM_PASSWORD_SEL = '[x-model="confirmPassword"]'
 ERROR_BOX = ".alert-box"
 STEPPER_DOT = ".stepper-dot"
 
-# DOB uses the shared nssDatePicker. The picker root carries a
-# data-nss-dp="<model path>" hook stamped by nss-datepicker.js, and the
-# visible input inside it has x-model="display" (DD/MM/YYYY, auto-parsed
-# to ISO internally).
-#
-# Do NOT match on the x-data text: the picker is declared as
-# nssDatePicker('form.date_of_birth', { maxToday: true }), so a substring
-# ending in "date_of_birth')" never matches and the field silently stays
-# empty — which then blocks the disabled Step 1 Next button.
-DOB_PICKER_SEL = '[data-nss-dp="form.date_of_birth"]'
-DOB_INPUT_SEL = f'{DOB_PICKER_SEL} input[x-model="display"]'
-
 # Step-specific Next buttons — use exact text to avoid picking hidden steps
 # Step 1: "Next: Membership Details →", Step 2: "Next: Password →"
 STEP1_NEXT_BTN = 'button:has-text("Membership Details")'
@@ -56,60 +47,10 @@ def _goto_register(page, base_url):
     page.wait_for_selector(FIRST_NAME_SEL, state="visible")
 
 
-def _fill_dob(page, dd_mm_yyyy: str):
-    """
-    Fill the nssDatePicker DOB field by typing digits.
-
-    The picker's @input handler auto-inserts slashes (15061995 → 15/06/1995)
-    and writes ISO (1995-06-15) to form.date_of_birth.
-    Using page.type() fires real keystroke events so Alpine's @input binding works.
-    """
-    dob_input = page.locator(DOB_INPUT_SEL)
-    if dob_input.count() == 0:
-        return
-    dob_input.first.click()
-    page.wait_for_timeout(200)
-    dob_input.first.fill("")
-    page.wait_for_timeout(100)
-    digits = dd_mm_yyyy.replace("/", "")
-    dob_input.first.type(digits, delay=50)
-    page.wait_for_timeout(300)
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(200)
-
-
-def _wait_for_gender_options(page, timeout=15000):
-    """Wait for the async init() to populate the gender dropdown."""
-    page.wait_for_function(
-        'document.querySelector(\'[x-model="form.gender_master_data_pk"]\')?.options?.length > 1',
-        timeout=timeout,
-    )
-
-
-def _unique_suffix():
-    """Generate a unique suffix for test data to avoid duplicate-check collisions."""
-    return str(int(time.time()))[-6:]
-
-
 def _fill_step1_required(page):
-    """Fill the minimum required fields on step 1 so the Next button can proceed."""
-    suffix = _unique_suffix()
-    page.fill(FIRST_NAME_SEL, f"Test{suffix}")
-    page.fill(LAST_NAME_SEL, f"User{suffix}")
-
-    # Date of birth -- nssDatePicker, type digits (auto-slashed)
-    _fill_dob(page, "15/01/2000")
-
-    # Wait for gender dropdown to be populated by async init()
-    _wait_for_gender_options(page)
-    gender = page.locator(GENDER_SEL)
-    if gender.is_visible():
-        gender.select_option(index=1)
-
-    # At least one contact field is required (mobile or email)
-    # Use unique email to avoid duplicate-check API blocking goStep2()
-    page.fill(EMAIL_SEL, f"testuser{suffix}@example.com")
-    page.wait_for_timeout(300)
+    """Fill the minimum required fields on step 1 (personal info, contact,
+    and the mandatory address block) so the Next button is enabled."""
+    fill_step1(page, dob="15/01/2000")
 
 
 def _advance_to_step2(page):
@@ -165,18 +106,8 @@ def test_register_step1_contact_required(page, base_url):
     """At least one of mobile number or email must be provided."""
     _goto_register(page, base_url)
 
-    # Fill all mandatory fields except contact info
-    page.fill(FIRST_NAME_SEL, "Test")
-    page.fill(LAST_NAME_SEL, "User")
-
-    _fill_dob(page, "15/01/2000")
-
-    _wait_for_gender_options(page)
-    gender = page.locator(GENDER_SEL)
-    if gender.is_visible():
-        gender.select_option(index=1)
-
-    page.wait_for_timeout(300)
+    # Fill everything (incl. address) except contact info
+    fill_step1(page, contact=False)
 
     # Ensure mobile and email are empty
     page.fill(MOBILE_SEL, "")
@@ -217,8 +148,10 @@ def test_register_step2_back_button(page, base_url):
     _fill_step1_required(page)
     _advance_to_step2(page)
 
-    # Click back — step 2 Back button: @click="step = 1"
-    back_btn = page.locator('button:has-text("Back")').first
+    # Click back — step 2 Back button. Scoped to the step-2 card: the hidden
+    # 'darshak-entry' and 'lookup' cards also have "← Back" buttons and come
+    # earlier in the DOM, so an unscoped .first picked a hidden one.
+    back_btn = page.locator('[x-show="step === 2"] button:has-text("Back")')
     back_btn.click()
     page.wait_for_timeout(500)
 

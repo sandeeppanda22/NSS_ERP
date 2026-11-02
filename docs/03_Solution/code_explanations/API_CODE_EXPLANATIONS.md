@@ -871,7 +871,7 @@ def list_roles(conn=Depends(get_connection)) -> list[RoleResponse]:
     """
     Return all active roles from nss.role_master.
 
-    Tier 0 state: 8 frozen roles.
+    Tier 0 state: 10 frozen roles.
     """
     with conn.cursor() as cur:
         cur.execute(

@@ -16,7 +16,7 @@ ConfigDict(from_attributes=True) is unnecessary.
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PersonResponse(BaseModel):
@@ -143,6 +143,14 @@ class PersonAddressResponse(BaseModel):
     remarks: str | None
     is_active: bool
 
+    # Added so an address can be round-tripped into the edit form (member
+    # address editor) without re-deriving ids from names.
+    post_office_pk: UUID | None = None
+    post_office_name: str | None = None
+    district_pk: UUID | None = None
+    state_pk: UUID | None = None
+    country_pk: UUID | None = None
+
 
 class PersonListResponse(BaseModel):
     """
@@ -157,3 +165,43 @@ class PersonListResponse(BaseModel):
 
     persons: list[PersonSummaryResponse]
     total: int
+
+
+class PersonAddressCreateRequest(BaseModel):
+    """
+    POST /api/v1/person/persons/{person_pk}/addresses.
+
+    city_village_pk / postal_code_pk / post_office_pk may reference a PENDING
+    row the person (or their Sangha Sevi) proposed via the foundation
+    ``.../propose`` endpoints; any other PENDING row is refused.
+    """
+
+    address_type_master_data_pk: UUID
+    address_line_1: str = Field(..., min_length=1, max_length=255)
+    address_line_2: str | None = Field(None, max_length=255)
+    landmark: str | None = Field(None, max_length=255)
+    city_village_pk: UUID | None = None
+    postal_code_pk: UUID | None = None
+    post_office_pk: UUID | None = None
+    is_primary: bool = False
+    remarks: str | None = None
+
+
+class PersonAddressUpdateRequest(BaseModel):
+    """
+    PATCH /api/v1/person/persons/{person_pk}/addresses/{person_address_pk}.
+
+    Partial update: only fields present in the request body change. An
+    optional field sent explicitly as null (or "" for text) is cleared;
+    address_type_master_data_pk, address_line_1 and is_primary cannot be null.
+    """
+
+    address_type_master_data_pk: UUID | None = None
+    address_line_1: str | None = Field(None, max_length=255)
+    address_line_2: str | None = Field(None, max_length=255)
+    landmark: str | None = Field(None, max_length=255)
+    city_village_pk: UUID | None = None
+    postal_code_pk: UUID | None = None
+    post_office_pk: UUID | None = None
+    is_primary: bool | None = None
+    remarks: str | None = None

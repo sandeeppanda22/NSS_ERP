@@ -1,8 +1,47 @@
 # NSS ERP Attendance Module
 
-Status: DRAFT design complete (Review Workflow FROZEN) — no Attendance code exists yet (the
-Django prototype, which once had an empty `backend/attendance/` app stub, was removed entirely
-in the Django-to-FastAPI migration); this is greenfield design with zero corresponding code.
+Status: DRAFT design complete (Review Workflow FROZEN). **Implemented (Tier 6, committed on `feature/tier6-governance`, 2026-10-27/28):**
+DDL `database/ddl/10_attendance/` (4 tables, build Phase 11e), API `api/routers/attendance.py`
+(21 endpoints under `/api/v1/attendance`) and the shared UI mixin `frontend/assets/js/attendance-register.js`
+(admin Attendance group + Sakha dashboard register). API/security tests exist (`tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`, `tests/attendance_support.py`; 261 collected, not yet run against the DB); UI tests `tests/ui/test_ui_attendance.py` (132 collected) also never run.
+
+---
+
+## Live multi-marker register (2026-10-31, owner decision "Option B")
+
+Several markers of the same Sakha open the Mark Attendance register at once. It updates live and one
+marker cannot overwrite another's work, without changing any frozen rule (ATT-006..010, the
+EXCUSED_ABSENCE authority check, consecutive-absence detection, audit and "not before the puja date"
+are untouched):
+
+- **Explicit Save, only changed rows.** The UI sends only the members THIS marker changed (never the
+  roster); untouched members stay unmarked (no default status). Each sent row carries
+  `expected_version` = the row `version` (last-change timestamp) the marker last saw.
+- **409 on a stale overwrite.** If someone else changed that member since, and to a different status,
+  `POST /pujas/{pk}/attendance` saves nothing and returns `409 detail.conflicts` naming who changed it
+  and when; the UI asks "Overwrite these" (resend with `overwrite_sangha_sevi_pks`) or "Keep theirs".
+- **Changing someone else's mark asks first (2026-11-01).** Even when the marker's screen is current,
+  tapping a different status on a row another person marked asks "Marked <Status> by <Name> at <time> -
+  change it?" (Cancel keeps their mark; OK flags the row so Save sends it in `overwrite_sangha_sevi_pks`).
+  Own marks never ask; the bulk P/A/E buttons skip other people's rows unless confirmed once for the batch.
+  The server enforces the same rule for requests carrying `expected_version`: a matching version is still a
+  409 when the row was last changed by a different member to a different status. Requests without
+  `expected_version` keep last-write-wins.
+- **Register-screen percentage (2026-11-01).** `present / (roster total - excused)` - unmarked members are
+  in the denominator, EXCUSED_ABSENCE members are not. One pure function,
+  `registerAttendancePercentage()` in `attendance-register.js`. **Tension with ATT-008** (frozen, not
+  edited): ATT-008 defines the percentage over marked present/absent records only; this screen figure
+  (8 present, 1 absent, 3 unmarked of 12 = 67%, not 89%) is a deliberate owner-directed display rule.
+  The stats endpoints (org, per-member, member leaderboard, dashboard cards) are multi-week figures and
+  still use present/(present+absent); aligning them is an open owner decision.
+- **Live view.** `GET /pujas/{pk}/live` is polled adaptively (`LIVE_POLL` in `attendance-register.js`: 2 s while the register is visible and active, 10 s after 60 s with no change, paused in a hidden browser tab or when the host tab is not on screen and refreshed at once on return, 4/8/16/30 s back-off on errors — a 429's `Retry-After` raises the wait) with an ETag so an unchanged register is a 304; a "Reconnecting" note shows on errors. Rows show "by <name>, <time>"; a banner shows "N of M marked";
+  a "Not marked" filter chip lists members nobody has marked.
+- **Index.** `idx_wspa_puja_last_change` (`database/ddl/10_attendance/05_attendance_live_version_index_patch.sql`,
+  idempotent, run by all build scripts) serves the version cursor.
+- **Rate limit (fix 1, 2026-11-01):** `GET /pujas/{pk}/live` has its own limit,
+  `LIVE_ATTENDANCE_RATE_LIMIT` (default `120/minute`), counted **per signed-in user** (JWT `sub`; client IP when
+  there is no valid token) instead of the global per-IP `RATE_LIMIT` — so a whole Sakha polling from one WiFi IP
+  no longer shares one budget (`api/rate_limit.py`). The adaptive cadence (fix 2, 2026-11-02) is built into the page.
 
 ---
 

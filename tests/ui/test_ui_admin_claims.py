@@ -10,6 +10,8 @@ Fixtures used:
   - base_url: http://localhost:8001
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
@@ -39,9 +41,22 @@ def _navigate_to_claims_tab(admin_page, base_url):
     admin_page.wait_for_timeout(1000)
 
 
+def _pill(admin_page, status: str):
+    """
+    A status pill scoped to the claims tab. admin.html has several other
+    .tab-pills groups (change requests: "Pending ...", correspondence:
+    "Pending Action") that stay in the DOM while hidden, so an unscoped
+    `.tab-pill:has-text("Pending")` matches more than one element and fails
+    Playwright's strict mode.
+    """
+    return admin_page.locator('[x-show="activeTab === \'claims\'"]').locator(
+        ".tab-pill", has_text=re.compile(rf"^\s*{status}\b")
+    )
+
+
 def _click_status_pill(admin_page, status: str):
     """Click a status filter pill (Pending, Approved, Rejected)."""
-    pill = admin_page.locator(f'.tab-pill:has-text("{status}")')
+    pill = _pill(admin_page, status)
     pill.click()
     admin_page.wait_for_timeout(500)
 
@@ -58,14 +73,14 @@ class TestAdminClaims:
         _navigate_to_claims_tab(admin_page, base_url)
 
         # The claims tab has status pills: Pending, Approved, Rejected
-        pending_pill = admin_page.locator('.tab-pill:has-text("Pending")')
+        pending_pill = _pill(admin_page, "Pending")
         expect(pending_pill).to_be_visible(timeout=5000)
 
     def test_claims_pending_tab_default(self, admin_page, base_url):
         """The Pending status pill should be active by default."""
         _navigate_to_claims_tab(admin_page, base_url)
 
-        pending_pill = admin_page.locator('.tab-pill:has-text("Pending")')
+        pending_pill = _pill(admin_page, "Pending")
         expect(pending_pill).to_be_visible(timeout=5000)
 
         classes = pending_pill.get_attribute("class") or ""
@@ -79,13 +94,13 @@ class TestAdminClaims:
 
         # Switch to Approved
         _click_status_pill(admin_page, "Approved")
-        approved_pill = admin_page.locator('.tab-pill:has-text("Approved")')
+        approved_pill = _pill(admin_page, "Approved")
         classes = approved_pill.get_attribute("class") or ""
         assert "active" in classes, "Approved pill should be active after clicking"
 
         # Switch to Rejected
         _click_status_pill(admin_page, "Rejected")
-        rejected_pill = admin_page.locator('.tab-pill:has-text("Rejected")')
+        rejected_pill = _pill(admin_page, "Rejected")
         classes = rejected_pill.get_attribute("class") or ""
         assert "active" in classes, "Rejected pill should be active after clicking"
 

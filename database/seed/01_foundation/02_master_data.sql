@@ -2,6 +2,9 @@
 -- NSS ERP
 -- Module: Foundation
 -- Seed File: 02_master_data.sql
+-- Version: 1.3 — add CORRESPONDENCE_MEDIUM / CORRESPONDENCE_STATUS values
+--          (Tier 6, 2026-10-17): filling a seed gap for value lists already
+--          ERP-FROZEN in business rules §10.1 / §6.1 — not a new decision.
 -- Version: 1.2 — ON CONFLICT DO NOTHING (2026-10-05): a re-run must never
 --          overwrite a row an admin has since edited through the UI
 --          (e.g. a renamed master-data label). Insert-if-missing only.
@@ -181,7 +184,9 @@ ON CONFLICT (master_category_pk, value_code) DO NOTHING;
 
 -- -------------------------------------------------
 -- ORGANIZATION_TYPE values
--- (13 types per NSS Bye-Law hierarchy + preamble)
+-- (14 types: 13 per NSS Bye-Law hierarchy + preamble, plus the singleton
+-- ADVISORY_BOARD — owner decision 2026-10-30; its organization row is seeded
+-- by 02_organization/07_advisory_board_organization_patch.sql)
 -- -------------------------------------------------
 
 INSERT INTO nss.master_data (master_category_pk, value_code, value_name, description, display_order)
@@ -200,7 +205,8 @@ CROSS JOIN (VALUES
     ('PATHA_CHAKRA',     'Patha Chakra',       'Study Circle',                                                        10),
     ('KUMARI_SANGHA',    'Kumari Sangha',      'Kumari Sangha — unmarried female participants organization (Kumari Module §24)', 11),
     ('SEVAK_SANGHA',     'Sevak Sangha',       'Sevak Sangha — service-oriented wing organization',                     12),
-    ('MAHILA_SANGHA',    'Mahila Sangha',      'Mahila Sangha — women''s wing organization (NSS Mahila Sangha Bye-Law)', 13)
+    ('MAHILA_SANGHA',    'Mahila Sangha',      'Mahila Sangha — women''s wing organization (NSS Mahila Sangha Bye-Law)', 13),
+    ('ADVISORY_BOARD',   'Advisory Board',     'Advisory Board — singleton organization under the Kendra that owns the Advisory Board''s correspondence register (the governance body of the same name is a separate NULL-organization record)', 14)
 ) AS v(value_code, value_name, description, display_order)
 WHERE mc.category_code = 'ORGANIZATION_TYPE'
 ON CONFLICT (master_category_pk, value_code) DO NOTHING;
@@ -228,4 +234,116 @@ CROSS JOIN (VALUES
     ('O_NEGATIVE',  'O-',  8)
 ) AS v(value_code, value_name, display_order)
 WHERE mc.category_code = 'BLOOD_GROUP'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE values
+-- (correspondence_finance_reference.relationship_type_master_data_pk —
+--  SOL-ADMIN-009 §6.5, owner-confirmed 2026-10-17)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('PAYMENT',    'Payment',    1),
+    ('RECEIPT',    'Receipt',    2),
+    ('REFUND',     'Refund',     3),
+    ('TAX',        'Tax',        4),
+    ('ADJUSTMENT', 'Adjustment', 5),
+    ('OTHER',      'Other',      6)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- CORRESPONDENCE_MEDIUM values
+-- (correspondence.medium_master_data_pk — business rules §10.1, ERP-FROZEN)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('POST',          'Post',          1),
+    ('EMAIL',         'Email',         2),
+    ('HAND_DELIVERY', 'Hand Delivery', 3),
+    ('CIRCULAR',      'Circular',      4),
+    ('FAX',           'Fax',           5),
+    ('COURIER',       'Courier',       6)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'CORRESPONDENCE_MEDIUM'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- CORRESPONDENCE_STATUS values
+-- (correspondence.status_master_data_pk — business rules §6.1, ERP-FROZEN)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('REGISTERED',      'Registered',      1),
+    ('PENDING_ACTION',  'Pending Action',  2),
+    ('ACTIONED',        'Actioned',        3),
+    ('CLOSED',          'Closed',          4)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'CORRESPONDENCE_STATUS'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- ATTENDANCE_STATUS values
+-- (weekly_sangha_puja_attendance.attendance_status_master_data_pk —
+--  frozen set, SOL-ATT-004 §5 / §17, business rules ATT-006/007/008)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('PRESENT',          'Present',          1),
+    ('ABSENT',           'Absent',           2),
+    ('EXCUSED_ABSENCE',  'Excused Absence',  3)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'ATTENDANCE_STATUS'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- ATTENDANCE_REVIEW_STATUS values
+-- (attendance_review.review_status_master_data_pk — frozen set,
+--  SOL-ATT-005 §15 / §18, business rules ATT-018)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('OPEN',                     'Open',                      1),
+    ('DEFERRED',                 'Deferred',                  2),
+    ('CLOSED',                   'Closed',                    3),
+    ('ESCALATED_TO_PRESIDENT',   'Escalated to President',    4),
+    ('ESCALATED_TO_PARICHALAK',  'Escalated to Parichalak',   5)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'ATTENDANCE_REVIEW_STATUS'
+ON CONFLICT (master_category_pk, value_code) DO NOTHING;
+
+-- -------------------------------------------------
+-- ATTENDANCE_EXCEPTION_TYPE values
+-- (attendance_exception.exception_type_master_data_pk — NOT frozen to this
+--  exact list, SOL-ATT-004 §11: "catalogue may be extended through approved
+--  project governance." These four are sensible defaults, editable/
+--  extensible like any other master-data category via Reference Data.)
+-- -------------------------------------------------
+
+INSERT INTO nss.master_data (master_category_pk, value_code, value_name, display_order)
+SELECT mc.master_category_pk, v.value_code, v.value_name, v.display_order
+FROM nss.master_category mc
+CROSS JOIN (VALUES
+    ('MEDICAL',          'Medical',          1),
+    ('TRAVEL',           'Travel',           2),
+    ('FAMILY_EMERGENCY', 'Family Emergency', 3),
+    ('OTHER',            'Other',            4)
+) AS v(value_code, value_name, display_order)
+WHERE mc.category_code = 'ATTENDANCE_EXCEPTION_TYPE'
 ON CONFLICT (master_category_pk, value_code) DO NOTHING;

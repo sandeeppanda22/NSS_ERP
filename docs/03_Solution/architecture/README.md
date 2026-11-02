@@ -62,10 +62,10 @@ Overall solution architecture documentation (cross-module, above the per-module 
   operational refinement, not source-derived; no dedicated counter column planned, threshold is
   derivable from existing attendance records).
 - **`IMPLEMENTATION_DEPENDENCY_ORDER.md`** (`SOL-ARCH-008` / `IMPLEMENTATION-TIER-001`) —
-  12-tier build order across all 22 modules (Programme & Events sits at Tier 7; Assets &
-  Property sits at Tier 6). Status: FROZEN per the document's own header and
-  §44 — **note:** its closing §79 status summary was not updated by that freeze and
-  still reads DRAFT/v0.1.0/21-modules, contradicting the header; needs its own follow-up fix.
+  unified 0–13 build order across all 22 modules (Organization at Tier 2, Person at Tier 3,
+  Heritage at Tier 7, Programme & Events at Tier 8, Finance at Tier 12; Assets & Property sits
+  at Tier 6). Status: FROZEN per the document's own header and §44; its closing §79 status
+  summary now carries the unified tier model (FROZEN/v1.0.0/22-modules, 14 tiers 0–13).
 - **`FK_DEPENDENCY_GRAPH.md`** (`SOL-ARCH-009`) — Physical FK dependency
   graph ("Gate 8") across all 86 frozen/executable tables (+7 Programme & Events candidate
   tables, not yet executable). Resolves the audit-actor circular-dependency problem
@@ -120,15 +120,15 @@ Overall solution architecture documentation (cross-module, above the per-module 
 
 The Django-to-FastAPI migration (`TECH_STACK_DECISIONS.md` v1.3) has landed: the Django
 prototype was fully removed and FastAPI is the sole API layer (`api/`: 137 endpoints across 12
-routers, raw psycopg2, no ORM). Released through `v0.11.0` on
+routers at v0.11.0; 252 across 17 routers on `feature/tier6-governance`; raw psycopg2, no ORM). Released through `v0.11.0` on
 `main`; **Tier 5 (Authentication + Administration, v0.11.0)** — JWT/RBAC, a second write-capable
 `nss_db_writer` pool, registration + claim approval, admin/audit routers, a DB-level audit
 trigger, a CSP, and a login/register/dashboard/admin frontend (Tailwind/DaisyUI pre-built via
 Tailwind CLI, Alpine.js from CDN) that replaced the six standalone Tier 0-4 verification pages.
-Implemented SQL covers 47 tables across Bootstrap RBAC (3), Foundation (15), Organization (1),
-Person (2), Family (6), Membership (14), Authentication (4) and Administration (2); a fresh
+Implemented SQL covers 48 tables at v0.11.0 (71 in the working tree after Tier 6 Governance/Correspondence/Attendance/re-parent approvals) across Bootstrap RBAC (3), Foundation (15), Organization (1),
+Person (2), Family (6), Membership (14), Authentication (5) and Administration (2); a fresh
 build seeds no demo Person/Family/Membership data (only 175 real Sakha branches and one admin
-superuser). The pytest suite (921 test functions; counts in `tests/README.md`) spans `tests/api/`, `tests/db/`, `tests/security/`
+superuser). The pytest suite (3979 items collected as of 2026-11-02, 2738 `test_*` functions; per-file counts in `tests/README.md`; the newest suites have never been run against a DB) spans `tests/api/`, `tests/db/`, `tests/security/`
 and a Playwright `tests/ui/` layer. Deployment infrastructure (`render.yaml`,
 `render_build.sh`) exists but has not yet run in production.
 

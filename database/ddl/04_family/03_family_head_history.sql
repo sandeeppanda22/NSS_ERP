@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS nss.family_head_history
 
     created_by_sangha_sevi_pk UUID NULL,
 
+    updated_at TIMESTAMPTZ NULL,
+
+    updated_by_sangha_sevi_pk UUID NULL,
+
     -- ── Constraints ─────────────────────────────────────
 
     CONSTRAINT fk_family_head_family_group

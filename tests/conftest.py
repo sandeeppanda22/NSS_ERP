@@ -25,11 +25,17 @@ Usage:
   pytest tests/test_bootstrap.py  # run specific file
 """
 
+from contextlib import contextmanager
+from uuid import uuid4
+
+import psycopg2
+import psycopg2.extensions
 import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app, limiter
-from api.database import get_connection, get_write_connection, get_write_pool
+from api.database import get_connection, get_write_pool
+from api.dependencies.auth import get_write_connection
 
 
 # ── Session-scoped connection ──────────────────────────────────────────
@@ -70,8 +76,66 @@ def _module_savepoint(_db_conn):
         cur.execute("SAVEPOINT test_module_sp")
     yield
     if not _db_conn.closed:
+        try:
+            with _db_conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+        except psycopg2.Error:
+            # A test fully rolled the transaction back (conn.rollback()); nothing
+            # left to undo, but the connection must be usable for the next module.
+            _db_conn.rollback()
+
+
+# ── Per-test SAVEPOINT: contain a DB error to the test that caused it ───
+
+@pytest.fixture(autouse=True)
+def _test_savepoint(_db_conn):
+    """
+    Stop one DB error from cascading through the rest of the module.
+
+    All tests of a module share ONE connection/transaction, so a single
+    constraint/trigger violation leaves it aborted and every later test then
+    fails with InFailedSqlTransaction. Each test therefore runs inside its own
+    nested SAVEPOINT:
+
+      * test passed (transaction healthy)  -> RELEASE: its rows are KEPT, so
+        module-scoped fixtures and tests that build on earlier tests' data keep
+        working exactly as before;
+      * test left the transaction aborted  -> ROLLBACK TO the savepoint: only
+        that test's own writes are undone and the connection is usable again.
+
+    Module-scoped fixtures are instantiated before this function-scoped one, so
+    their data is never inside a per-test savepoint. The module-level SAVEPOINT
+    (`_module_savepoint`) still discards everything at module teardown.
+    """
+    name = "test_fn_sp"
+    armed = False
+    if not _db_conn.closed:
+        try:
+            with _db_conn.cursor() as cur:
+                cur.execute(f"SAVEPOINT {name}")
+            armed = True
+        except psycopg2.Error:
+            armed = False  # already aborted by a failing module fixture: leave as is
+    yield
+    if not armed or _db_conn.closed:
+        return
+    try:
+        aborted = (
+            _db_conn.get_transaction_status()
+            == psycopg2.extensions.TRANSACTION_STATUS_INERROR
+        )
         with _db_conn.cursor() as cur:
-            cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+            if aborted:
+                cur.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            cur.execute(f"RELEASE SAVEPOINT {name}")
+    except psycopg2.Error:
+        # The test itself rolled back past the savepoint (ROLLBACK TO the module
+        # savepoint, or a full conn.rollback()): make the connection usable again.
+        try:
+            with _db_conn.cursor() as cur:
+                cur.execute("ROLLBACK TO SAVEPOINT test_module_sp")
+        except psycopg2.Error:
+            _db_conn.rollback()
 
 
 # ── FastAPI dependency overrides ───────────────────────────────────────
@@ -126,6 +190,34 @@ def write_conn(_db_conn):
     module finishes.
     """
     return _db_conn
+
+
+# ── Per-request SAVEPOINT isolation for tests that provoke a DB error ───
+
+@pytest.fixture
+def isolated_savepoint(write_conn):
+    """
+    Context-manager factory: `with isolated_savepoint(): client.post(...)`.
+
+    A request that trips a constraint (unique/FK/CHECK) aborts the shared
+    session transaction, because the app's per-request rollback does not run
+    under the dependency overrides above. Wrapping that one request in its
+    own SAVEPOINT (rolled back on exit, whatever the outcome) keeps the rest
+    of the module's tests usable. Everything the request wrote is undone too,
+    so only use it around requests that are expected to fail.
+    """
+
+    @contextmanager
+    def _savepoint():
+        name = f"t_sp_{uuid4().hex[:10]}"
+        cur = write_conn.cursor()
+        cur.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        finally:
+            cur.execute(f"ROLLBACK TO SAVEPOINT {name}")
+
+    return _savepoint
 
 
 # ── Authenticated client (admin with all _VIEW permissions) ────────────

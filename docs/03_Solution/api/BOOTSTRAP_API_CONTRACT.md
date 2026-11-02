@@ -24,6 +24,14 @@ SELECT-only privileges.
 > design" / "always returns empty list" statements in §5-§7 below describe the original Tier 0
 > state and are superseded. Write/management of roles and permissions lives in the
 > Administration router (`/api/v1/admin/users/{pk}/roles`), not here.
+>
+> **2026-10-09 update:** `role_master` now seeds **10** roles — `NSS_ERP_ADVISORY_BOARD_ADMIN`
+> (scope `ADVISORY_BOARD`) was added as part of the §63 composite auto-grant rule. The "9 roles"
+> statement above describes the Tier 5 state at that time and is now superseded; see §4 below.
+> `permission_master` now seeds **23** permissions — Tier 6 added `GOVERNANCE_VIEW` and
+> `GOVERNANCE_MANAGE` (module `GOVERNANCE`; `GOVERNANCE_VIEW` to the org-scoped admins and
+> `NSS_ERP_AUDITOR`, `GOVERNANCE_MANAGE` to `NSS_ERP_ADMIN`, `NSS_ERP_KENDRA_ADMIN` and
+> `NSS_ERP_SAKHA_ADMIN`), and the new role's `role_class` is `ORGANIZATIONAL`.
 
 Bootstrap exposes the RBAC foundation: roles, permissions, and their mappings.
 These are infrastructure tables — the API serves verification and future
@@ -116,7 +124,7 @@ Returns all active roles from `nss.role_master`.
 ]
 ```
 
-**Tier 0 state:** 8 frozen roles at v0.6.0; **9 in Tier 5** (see the update note in §1).
+**Tier 0 state:** 8 frozen roles at v0.6.0; 9 in Tier 5; **10 since 2026-10-09** (see the update note in §1).
 
 **SQL Pattern:**
 
@@ -159,7 +167,7 @@ Returns all active permissions from `nss.permission_master`.
 ]
 ```
 
-**Tier 0 state:** Empty by design at v0.6.0; **populated in Tier 5** (see the update note in §1).
+**Tier 0 state:** Empty by design at v0.6.0; **populated in Tier 5** (21 permissions); **23 since Tier 6** (`GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`; see the update note in §1).
 
 **SQL Pattern:**
 

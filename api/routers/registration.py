@@ -31,10 +31,17 @@ Business rules (AUTH-BR-081 through AUTH-BR-098):
     password is discarded, not persisted anywhere.
   - No sangha_sevi or membership_sakha_affiliation created at registration
   - Membership intent stored in nss.registration_claim table
-  - Local Sakha Number: required for every membership type, incl. Darshaka —
-    Darshak members are enrolled in a separate short_code+marker namespace
-    (MBR-030C) at approval, not exempted from having a number at all.
-  - Local Sakha Number is NOT validated at registration (admin verifies)
+  - Local Sakha Number (GDR-009, owner 2026-11-01): the registrant states
+    explicitly whether they were ALREADY a member before this system
+    (is_legacy_member). Legacy -> claimed_local_sakha_number is required
+    (the number on their card); not legacy -> it must be blank and the
+    system auto-generates the next number at admin approval (Regular/
+    Associate series, or the Darshak series for a Darshaka). The same
+    question is asked separately for an attendance Sakha
+    (darshak_is_legacy_member). One shared validator:
+    api/helpers.py::validate_claim_local_numbers().
+  - The number is only shape-checked here; whether it is the right one (and
+    not already taken) is verified by the admin at approval
   - PENDING_APPROVAL accounts cannot login
   - Sakha admin approves claim → creates membership records → activates account
 
@@ -43,7 +50,7 @@ Authority: SOL-AUTH-001, SOL-AUTH-002, SOL-AUTH-006, SOL-AUTH-007
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -51,7 +58,7 @@ from pydantic import BaseModel, Field
 from api.config import settings
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
-from api.helpers import log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_mobile, validate_email, get_master_data_pk, is_probationary_membership_type
+from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_claim_local_numbers, resolve_legacy_patra_number, patra_card_type_for_membership_type, require_non_darshaka_for_attendance, validate_mobile, validate_email, get_master_data_pk
 from api.services.auth_service import hash_password, validate_password_policy
 from api.routers.foundation import fetch_countries, fetch_states, fetch_districts, fetch_cities, fetch_postal_codes, fetch_post_offices, fetch_master_data
 from api.routers.organization import fetch_organizations
@@ -142,19 +149,23 @@ class RegisterRequest(BaseModel):
     )
     joining_date: Optional["date"] = None
 
-    # Local Sakha Number (shown after sakha selection) — required for every
-    # membership type, including Darshaka (see module docstring).
+    # Legacy vs new (GDR-009): "Were you already a member of NSS before this
+    # system?" — Regular/Associate OR Darshak. Explicit, never inferred.
+    is_legacy_member: bool = Field(
+        default=False,
+        description="True if already a member before this system; then claimed_local_sakha_number is required, otherwise it must be blank (auto-generated at approval).",
+    )
     claimed_local_sakha_number: str | None = Field(
         None, max_length=20,
-        description="Local Sakha Number — required for all membership types, including Darshaka",
+        description="Existing Local Sakha Number on the member's card — required when is_legacy_member is true, must be blank otherwise",
     )
 
-    # Existing Parichaya Patra / Anumati Patra document number, for a
-    # registrant who already holds one (legacy member). Optional — omit to
-    # have a new one auto-generated at approval time for the current FY.
+    # Existing Parichaya Patra / Anumati Patra number — GDR-009 §2A: required
+    # for a legacy member (is_legacy_member), must be blank for everyone else
+    # (auto-generated at approval).
     claimed_credential_document_number: str | None = Field(
         None, max_length=30,
-        description="Existing Parichaya/Anumati Patra number, if already issued. Omit to auto-generate a new one at approval.",
+        description="Existing Parichaya/Anumati Patra number (<seq>/<yyyy>/<yyyy+1>, e.g. 345/2026/2027) — required when is_legacy_member is true, must be blank otherwise (auto-generated at approval).",
     )
 
     # Darshak attendance at another Sangha (optional)
@@ -165,9 +176,13 @@ class RegisterRequest(BaseModel):
     darshak_organization_pk: str | None = Field(
         None, description="UUID of Sakha the user is attending as Darshak",
     )
+    darshak_is_legacy_member: bool = Field(
+        default=False,
+        description="True if already a Darshak at the attending Sakha before this system; then darshak_local_sakha_number is required, otherwise it must be blank (auto-generated at approval).",
+    )
     darshak_local_sakha_number: str | None = Field(
         None, max_length=20,
-        description="Local Sakha Number at the darshak (attending) Sakha — required when is_attending_as_darshak is True",
+        description="Existing Darshak Local Sakha Number at the attending Sakha — required when darshak_is_legacy_member is true, must be blank otherwise",
     )
 
     # Password
@@ -180,6 +195,28 @@ class RegisterResponse(BaseModel):
     person_id: str
     person_name: str
     message: str
+
+
+def _resolve_claim_credential_fields(cur, body) -> str | None:
+    """
+    Membership-type-dependent checks of a registration claim, shared by
+    POST /register and POST /register/claim:
+      * GDR-009 §2B — a Darshaka cannot claim an attendance Sakha (422);
+      * GDR-009 §2A — the claimed Parichaya/Anumati Patra number: legacy ->
+        the card's existing number is required, format-checked and not
+        already issued (409); new -> it must be blank (422) and the number
+        (Anumati or Parichaya) is auto-minted at approval.
+        Rule: helpers.resolve_legacy_patra_number().
+    Returns the number to store (None for a new member).
+    """
+    # GDR-009 §2B: a Darshaka cannot attend another Sakha (must transfer).
+    if body.is_attending_as_darshak:
+        require_non_darshaka_for_attendance(cur, body.membership_type_master_data_pk)
+    return resolve_legacy_patra_number(
+        cur, body.is_legacy_member, body.claimed_credential_document_number,
+        card_type=patra_card_type_for_membership_type(cur, body.membership_type_master_data_pk),
+        issuing_organization_pk=body.organization_pk,
+    )
 
 
 from datetime import date  # noqa: E402 — needed for forward ref resolution
@@ -273,10 +310,20 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
     """
     Shared identity + eligibility check for the lookup and claim endpoints.
 
-    Returns (person_pk, person_id, person_name). Raises HTTPException if the
-    person_id/DOB pair doesn't match, or if this person already has an
-    account, a pending claim, or an active Sangha Sevi — all of which mean
-    this flow no longer applies to them.
+    Returns (person_pk, person_id, person_name, existing_account) where
+    *existing_account* is None, or (user_account_pk, is_active) of a row that
+    claim_existing() must REUSE (uq_user_account_person is a plain UNIQUE, so
+    a second INSERT for the same person always fails):
+      - an active PENDING_APPROVAL account whose claim was REJECTED
+        (AUTH-BR-093: the rejected claimant keeps the person + account and
+        "may submit a new registration_claim"), or
+      - a soft-deleted account (reactivated, like POST /admin/users does).
+
+    Raises HTTPException if the person_id/DOB pair doesn't match, or if this
+    person already has a live account, a pending claim, or an active Sangha
+    Sevi — all of which mean this flow no longer applies to them. The 409s
+    are only reachable AFTER person_id + DOB both match, i.e. they disclose
+    nothing to a caller who has not already proven the pair.
     """
     cur.execute(
         """
@@ -296,16 +343,6 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
     person_pk, resolved_person_id, person_name = row
 
     cur.execute(
-        "SELECT 1 FROM nss.user_account WHERE person_pk = %s AND is_active = TRUE LIMIT 1",
-        (str(person_pk),),
-    )
-    if cur.fetchone() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This Person ID already has a registered account. Use the login page, or Forgot Password.",
-        )
-
-    cur.execute(
         """
         SELECT 1 FROM nss.registration_claim
         WHERE person_pk = %s AND claim_status = 'PENDING' AND is_active = TRUE
@@ -320,6 +357,35 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
         )
 
     cur.execute(
+        "SELECT user_account_pk, is_active, account_status FROM nss.user_account WHERE person_pk = %s",
+        (str(person_pk),),
+    )
+    account = cur.fetchone()
+    existing_account = None
+    if account is not None:
+        ua_pk, ua_active, ua_status = account
+        if not ua_active:
+            existing_account = (ua_pk, False)
+        else:
+            # AUTH-BR-093: only a PENDING_APPROVAL account that has a REJECTED
+            # claim (and, checked above, no pending one) may resubmit.
+            cur.execute(
+                """
+                SELECT 1 FROM nss.registration_claim
+                WHERE user_account_pk = %s AND claim_status = 'REJECTED' AND is_active = TRUE
+                LIMIT 1
+                """,
+                (str(ua_pk),),
+            )
+            if ua_status == "PENDING_APPROVAL" and cur.fetchone() is not None:
+                existing_account = (ua_pk, True)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This Person ID already has a registered account. Use the login page, or Forgot Password.",
+                )
+
+    cur.execute(
         "SELECT 1 FROM nss.sangha_sevi WHERE person_pk = %s AND is_active = TRUE LIMIT 1",
         (str(person_pk),),
     )
@@ -329,7 +395,7 @@ def _verify_existing_person_for_claim(cur, person_id: str, dob) -> tuple:
             detail="This Person ID is already a Sangha Sevi. Please log in.",
         )
 
-    return person_pk, resolved_person_id, person_name
+    return person_pk, resolved_person_id, person_name, existing_account
 
 
 @router.post("/lookup-existing", response_model=LookupExistingResponse)
@@ -343,7 +409,7 @@ def lookup_existing(
     membership step instead of re-asking for personal details.
     """
     with conn.cursor() as cur:
-        person_pk, person_id, person_name = _verify_existing_person_for_claim(
+        person_pk, person_id, person_name, _ = _verify_existing_person_for_claim(
             cur, body.person_id, body.date_of_birth
         )
     return LookupExistingResponse(
@@ -362,10 +428,12 @@ class ClaimExistingRequest(BaseModel):
     membership_type_master_data_pk: str = Field(..., min_length=1)
     organization_pk: str = Field(..., min_length=1)
     joining_date: Optional["date"] = None
+    is_legacy_member: bool = False
     claimed_local_sakha_number: str | None = Field(None, max_length=20)
     claimed_credential_document_number: str | None = Field(None, max_length=30)
     is_attending_as_darshak: bool = False
     darshak_organization_pk: str | None = None
+    darshak_is_legacy_member: bool = False
     darshak_local_sakha_number: str | None = Field(None, max_length=20)
 
     password: str = Field(..., min_length=8, max_length=128)
@@ -389,35 +457,29 @@ def claim_existing(
             detail=violations,
         )
 
-    if not body.claimed_local_sakha_number:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Local Sakha Number is required.",
-        )
-
     if body.is_attending_as_darshak:
         if not body.darshak_organization_pk:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="darshak_organization_pk is required when is_attending_as_darshak is True.",
             )
-        if not body.darshak_local_sakha_number:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="darshak_local_sakha_number is required when is_attending_as_darshak is True.",
-            )
+    # GDR-009: legacy members state their existing number(s); everyone else
+    # leaves them blank and is auto-numbered at approval.
+    claimed_local_number, darshak_local_number = validate_claim_local_numbers(
+        is_legacy_member=body.is_legacy_member,
+        claimed_local_sakha_number=body.claimed_local_sakha_number,
+        darshak_organization_pk=body.darshak_organization_pk if body.is_attending_as_darshak else None,
+        darshak_is_legacy_member=body.darshak_is_legacy_member if body.is_attending_as_darshak else False,
+        darshak_local_sakha_number=body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+    )
 
     with conn.cursor() as cur:
-        person_pk, person_id, person_name = _verify_existing_person_for_claim(
+        person_pk, person_id, person_name, existing_account = _verify_existing_person_for_claim(
             cur, body.person_id, body.date_of_birth
         )
 
-        if not is_probationary_membership_type(cur, body.membership_type_master_data_pk):
-            if not body.claimed_credential_document_number or not body.claimed_credential_document_number.strip():
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="claimed_credential_document_number (Parichaya Patra Number) is required for this membership type.",
-                )
+        # Patra number follows the same legacy rule (GDR-009 §2A).
+        claimed_credential_number = _resolve_claim_credential_fields(cur, body)
 
         require_sakha_organization(cur, body.organization_pk)
 
@@ -426,30 +488,64 @@ def claim_existing(
             days=settings.PASSWORD_EXPIRY_DAYS
         )
 
-        cur.execute(
-            """
-            INSERT INTO nss.user_account (
-                person_pk,
-                password_hash,
-                account_status,
-                force_password_change,
-                password_expires_at
-            ) VALUES (%s, %s, 'PENDING_APPROVAL', FALSE, %s)
-            RETURNING user_account_pk
-            """,
-            (str(person_pk), password_hash_val, password_expires_at),
-        )
-        user_account_pk = cur.fetchone()[0]
+        if existing_account is not None:
+            # Reuse the one-and-only account row for this person
+            # (uq_user_account_person): AUTH-BR-093 resubmission after a
+            # rejection, or a soft-deleted account — reactivated in place,
+            # same shape as POST /admin/users' reactivation branch.
+            user_account_pk = existing_account[0]
+            cur.execute(
+                """
+                UPDATE nss.user_account
+                SET is_active = TRUE,
+                    deleted_at = NULL,
+                    account_status = 'PENDING_APPROVAL',
+                    password_hash = %s,
+                    force_password_change = FALSE,
+                    password_changed_at = NOW(),
+                    password_expires_at = %s,
+                    failed_login_attempts = 0,
+                    locked_until = NULL,
+                    last_failed_login_at = NULL,
+                    updated_at = NOW()
+                WHERE user_account_pk = %s
+                """,
+                (password_hash_val, password_expires_at, str(user_account_pk)),
+            )
+            log_audit(
+                cur,
+                action="REACTIVATE" if not existing_account[1] else "UPDATE",
+                table_name="user_account",
+                record_pk=str(user_account_pk),
+                actor_user_account_pk=str(user_account_pk),
+                module="registration",
+                summary="Reused user account for a resubmitted membership claim",
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO nss.user_account (
+                    person_pk,
+                    password_hash,
+                    account_status,
+                    force_password_change,
+                    password_expires_at
+                ) VALUES (%s, %s, 'PENDING_APPROVAL', FALSE, %s)
+                RETURNING user_account_pk
+                """,
+                (str(person_pk), password_hash_val, password_expires_at),
+            )
+            user_account_pk = cur.fetchone()[0]
 
-        log_audit(
-            cur,
-            action="CREATE",
-            table_name="user_account",
-            record_pk=str(user_account_pk),
-            actor_user_account_pk=str(user_account_pk),
-            module="registration",
-            summary="Created user account via previously-registered membership claim",
-        )
+            log_audit(
+                cur,
+                action="CREATE",
+                table_name="user_account",
+                record_pk=str(user_account_pk),
+                actor_user_account_pk=str(user_account_pk),
+                module="registration",
+                summary="Created user account via previously-registered membership claim",
+            )
 
         record_password_history(cur, str(user_account_pk), password_hash_val, "INITIAL")
 
@@ -460,13 +556,15 @@ def claim_existing(
                 person_pk,
                 claimed_organization_pk,
                 claimed_membership_type_master_data_pk,
+                is_legacy_member,
                 claimed_local_sakha_number,
                 claimed_credential_document_number,
                 claimed_joining_date,
                 darshak_organization_pk,
+                darshak_is_legacy_member,
                 darshak_local_sakha_number,
                 claim_status
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
             RETURNING registration_claim_pk
             """,
             (
@@ -474,11 +572,13 @@ def claim_existing(
                 str(person_pk),
                 body.organization_pk,
                 body.membership_type_master_data_pk,
-                body.claimed_local_sakha_number,
-                body.claimed_credential_document_number,
+                body.is_legacy_member,
+                claimed_local_number,
+                claimed_credential_number,
                 body.joining_date,
                 body.darshak_organization_pk if body.is_attending_as_darshak else None,
-                body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+                bool(body.is_attending_as_darshak and body.darshak_is_legacy_member),
+                darshak_local_number,
             ),
         )
         claim_pk = cur.fetchone()[0]
@@ -540,7 +640,7 @@ def get_register_reference_data(
         marital_statuses = fetch_master_data(cur, category_code="MARITAL_STATUS")
         blood_groups = fetch_master_data(cur, category_code="BLOOD_GROUP")
         membership_types = fetch_master_data(cur, category_code="MEMBERSHIP_TYPE")
-        sakhas = fetch_organizations(cur, type_code="SAKHA_SANGHA", limit=500)
+        sakhas = fetch_organizations(cur, type_codes=list(SAKHA_LIKE_ORG_TYPES), limit=500)
     return RegisterReferenceDataResponse(
         countries=countries,
         genders=genders,
@@ -606,11 +706,18 @@ def get_register_cities(
 def get_register_postal_codes(
     state_pk: UUID | None = Query(None, description="Filter by state"),
     country_pk: UUID | None = Query(None, description="Filter by country"),
+    district_pk: UUID | None = Query(None, description="Narrow to PINs seen in this district (via approved city_village rows)"),
+    q: str | None = Query(None, max_length=10, description="PIN prefix"),
     conn=Depends(get_connection),
 ) -> list[PostalCodeResponse]:
-    """Public postal-codes lookup for the registration page's location cascade."""
+    """Public postal-codes lookup for the registration page's location cascade.
+
+    district_pk narrows via nss.city_village (postal_code has no district
+    column), so a district with a sparse city_village seed lists few PINs;
+    clients must still allow typing a new PIN.
+    """
     with conn.cursor() as cur:
-        return fetch_postal_codes(cur, state_pk, country_pk)
+        return fetch_postal_codes(cur, state_pk, country_pk, district_pk, q)
 
 
 @router.get("/post-offices", response_model=list[PostOfficeResponse])
@@ -627,6 +734,19 @@ def get_register_post_offices(
     """
     with conn.cursor() as cur:
         return fetch_post_offices(cur, postal_code_pk)
+
+
+@router.get("/address-types", response_model=list[MasterDataResponse])
+def get_register_address_types(
+    conn=Depends(get_connection),
+) -> list[MasterDataResponse]:
+    """
+    Public ADDRESS_TYPE master-data lookup. Same rationale as /countries:
+    the dashboard's member self-service address form must not require the
+    admin-only FOUNDATION_VIEW permission that /foundation/master-data does.
+    """
+    with conn.cursor() as cur:
+        return fetch_master_data(cur, category_code="ADDRESS_TYPE")
 
 
 @router.get("/sakhas", response_model=list[OrganizationResponse])
@@ -649,7 +769,7 @@ def get_register_sakhas(
     """
     with conn.cursor() as cur:
         return fetch_organizations(
-            cur, type_code="SAKHA_SANGHA", country_pk=country_pk, state_pk=state_pk,
+            cur, type_codes=list(SAKHA_LIKE_ORG_TYPES), country_pk=country_pk, state_pk=state_pk,
             district_pk=district_pk, postal_code_pk=postal_code_pk, limit=500,
         )
 
@@ -707,11 +827,19 @@ def register(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="darshak_organization_pk is required when is_attending_as_darshak is True.",
             )
-        if not body.darshak_local_sakha_number:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="darshak_local_sakha_number is required when is_attending_as_darshak is True.",
-            )
+
+    # ── 3b2. Legacy-vs-new Local Sakha Numbers (GDR-009) ────────────────
+    #   Legacy -> the existing number is required; new -> it must be blank
+    #   and is auto-generated at approval. Only meaningful with a claim.
+    claimed_local_number = darshak_local_number = None
+    if body.has_membership:
+        claimed_local_number, darshak_local_number = validate_claim_local_numbers(
+            is_legacy_member=body.is_legacy_member,
+            claimed_local_sakha_number=body.claimed_local_sakha_number,
+            darshak_organization_pk=body.darshak_organization_pk if body.is_attending_as_darshak else None,
+            darshak_is_legacy_member=body.darshak_is_legacy_member if body.is_attending_as_darshak else False,
+            darshak_local_sakha_number=body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+        )
 
     # ── 3c. Validate address fields (user decision, 2026-10-03) ─────────
     # Pydantic's `...` only guards presence/type, not a blank string — a UI
@@ -737,15 +865,11 @@ def register(
 
     with conn.cursor() as cur:
 
-        # ── 3d. Parichaya Patra Number is mandatory for every membership
-        # type except Darshaka (PROBATIONARY) — Darshak members hold an
-        # Anumati Patra issued later, not claimed at registration.
-        if body.has_membership and not is_probationary_membership_type(cur, body.membership_type_master_data_pk):
-            if not body.claimed_credential_document_number or not body.claimed_credential_document_number.strip():
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="claimed_credential_document_number (Parichaya Patra Number) is required for this membership type.",
-                )
+        # ── 3d. Patra number: legacy -> required + validated; new -> blank
+        # and auto-generated at approval (GDR-009 §2A). Only with a claim.
+        claimed_credential_number = (
+            _resolve_claim_credential_fields(cur, body) if body.has_membership else None
+        )
 
         # ── 4. Check duplicate mobile + email ──────────────────────────
         check_duplicate_contact(
@@ -762,51 +886,28 @@ def register(
         if body.has_membership and body.organization_pk:
             require_sakha_organization(cur, body.organization_pk)
 
-        # ── 5b. Validate Local Sakha Number requirement (AUTH-BR-086) ────
-        #   Required for every membership type, including Darshaka — see
-        #   module docstring.
-        if body.has_membership and not body.claimed_local_sakha_number:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Local Sakha Number is required.",
-            )
-
         # ── 6. Generate person_id ───────────────────────────────────────
         person_id = next_id(cur, "PERSON")
 
-        # ── 6b. Resolve city_village_name → city_village_pk ────────────
-        city_village_pk = None
-        if body.city_village_name and body.district_pk:
-            cv_name = body.city_village_name.strip()
-            if cv_name:
-                city_village_pk = resolve_or_create_city_village(
-                    cur, cv_name, body.district_pk,
-                )
-
-        # Resolve postal code from text value (lookup/create)
-        resolved_postal_code_pk = body.postal_code_pk or None
-        if body.postal_code_value and body.state_pk and body.country_pk:
-            pc_val = body.postal_code_value.strip()
-            if pc_val:
-                resolved_postal_code_pk = resolve_or_create_postal_code(
-                    cur, pc_val, body.state_pk, body.country_pk,
-                )
-
-        # ── 6c. Resolve post_office_name → post_office_pk (optional) ───
-        # Scoped to the resolved PIN — a post office cannot exist without
-        # one, so this is skipped entirely until postal_code_pk resolves.
-        resolved_post_office_pk = None
-        if body.post_office_name and resolved_postal_code_pk:
-            po_name = body.post_office_name.strip()
-            if po_name:
-                resolved_post_office_pk = resolve_or_create_post_office(
-                    cur, po_name, resolved_postal_code_pk,
-                )
+        # ── 6a. Pre-generate person_pk (2026-10-21, Registration-Time
+        # Geography Creation) ───────────────────────────────────────────
+        # person_pk is normally left to the column's gen_random_uuid()
+        # DEFAULT and read back via RETURNING after the INSERT (below).
+        # Here it is generated client-side INSTEAD, before the person row
+        # exists, so it can be threaded into the city_village/postal_code/
+        # post_office auto-create calls just below — those genuinely-new
+        # geo rows are stamped PENDING + submitted_by_person_pk=<this
+        # value> (surfaced later in the submitting person's eventual
+        # Sakha's Location-Approvals queue), while the person row itself
+        # still gets this exact pk at INSERT time (explicit value instead
+        # of the DEFAULT). Ordering is otherwise unchanged.
+        person_pk = str(uuid4())
 
         # ── 7. Insert person ────────────────────────────────────────────
         cur.execute(
             """
             INSERT INTO nss.person (
+                person_pk,
                 person_id,
                 first_name,
                 middle_name,
@@ -823,10 +924,11 @@ def register(
                 district_pk,
                 city_village_pk,
                 postal_code_pk
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING person_pk
             """,
             (
+                person_pk,
                 person_id,
                 body.first_name.strip().title(),
                 body.middle_name.strip().title() if body.middle_name else None,
@@ -841,11 +943,66 @@ def register(
                 body.country_pk or None,
                 body.state_pk or None,
                 body.district_pk or None,
-                city_village_pk,
-                resolved_postal_code_pk,
+                None,  # city_village_pk — set below, once the geo rows exist
+                None,  # postal_code_pk — set below
             ),
         )
         person_pk = cur.fetchone()[0]
+
+        # ── 7a. Resolve geography AFTER the person row exists ──────────
+        # Newly created city_village/postal_code/post_office rows carry
+        # submitted_by_person_pk=<person_pk> with an immediate FK to
+        # nss.person (16_foundation_audit_fk.sql), so the person row must
+        # already be inserted when they are created; the person's own
+        # city_village_pk/postal_code_pk are then filled in by the UPDATE.
+        # ── 6b. Resolve postal code from text value (lookup/create) ────
+        # Resolved BEFORE city_village (2026-10-21): the PIN disambiguates
+        # the village lookup. Village names repeat within a district (e.g.
+        # 18 distinct "Hosahalli" villages in Tumakuru, one per PIN), so
+        # resolving the village on (name, district) alone would bind the
+        # registrant to an arbitrary one — potentially carrying a PIN that
+        # contradicts the one they just typed.
+        resolved_postal_code_pk = body.postal_code_pk or None
+        if body.postal_code_value and body.state_pk and body.country_pk:
+            pc_val = body.postal_code_value.strip()
+            if pc_val:
+                resolved_postal_code_pk = resolve_or_create_postal_code(
+                    cur, pc_val, body.state_pk, body.country_pk,
+                    pending_submitter_person_pk=person_pk,
+                )
+
+        # ── 6c. Resolve city_village_name → city_village_pk ────────────
+        city_village_pk = None
+        if body.city_village_name and body.district_pk:
+            cv_name = body.city_village_name.strip()
+            if cv_name:
+                city_village_pk = resolve_or_create_city_village(
+                    cur, cv_name, body.district_pk,
+                    pending_submitter_person_pk=person_pk,
+                    postal_code_pk=resolved_postal_code_pk,
+                )
+
+        # ── 6d. Resolve post_office_name → post_office_pk (optional) ───
+        # Scoped to the resolved PIN — a post office cannot exist without
+        # one, so this is skipped entirely until postal_code_pk resolves.
+        resolved_post_office_pk = None
+        if body.post_office_name and resolved_postal_code_pk:
+            po_name = body.post_office_name.strip()
+            if po_name:
+                resolved_post_office_pk = resolve_or_create_post_office(
+                    cur, po_name, resolved_postal_code_pk,
+                    pending_submitter_person_pk=person_pk,
+                )
+
+        if city_village_pk or resolved_postal_code_pk:
+            cur.execute(
+                """
+                UPDATE nss.person
+                   SET city_village_pk = %s, postal_code_pk = %s
+                 WHERE person_pk = %s
+                """,
+                (city_village_pk, resolved_postal_code_pk, person_pk),
+            )
 
         log_audit(
             cur,
@@ -958,13 +1115,15 @@ def register(
                     person_pk,
                     claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
+                    is_legacy_member,
                     claimed_local_sakha_number,
                     claimed_credential_document_number,
                     claimed_joining_date,
                     darshak_organization_pk,
+                    darshak_is_legacy_member,
                     darshak_local_sakha_number,
                     claim_status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
                 RETURNING registration_claim_pk
                 """,
                 (
@@ -972,11 +1131,13 @@ def register(
                     str(person_pk),
                     body.organization_pk,
                     body.membership_type_master_data_pk,
-                    body.claimed_local_sakha_number,
-                    body.claimed_credential_document_number,
+                    body.is_legacy_member,
+                    claimed_local_number,
+                    claimed_credential_number,
                     body.joining_date,
                     body.darshak_organization_pk if body.is_attending_as_darshak else None,
-                    body.darshak_local_sakha_number if body.is_attending_as_darshak else None,
+                    bool(body.is_attending_as_darshak and body.darshak_is_legacy_member),
+                    darshak_local_number,
                 ),
             )
             claim_pk = cur.fetchone()[0]

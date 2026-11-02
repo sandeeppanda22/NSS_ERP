@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-12 routers (137 endpoints); the endpoint inventory and per-router counts live in
+17 routers (252 endpoints; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -45,8 +45,9 @@ api/
 │                        outermost, so security headers wrap everything — CSP is emitted by that
 │                        same security-headers middleware, not a separate layer), registers the
 │                        `error_handlers.py` handlers (validation / `psycopg2.IntegrityError` /
-│                        catch-all), includes all 12 routers (the six Tier 0-4 ones plus, Tier 5,
-│                        `auth`/`admin`/`registration`/`claim_approval`/`audit`/`geo_approval`),
+│                        catch-all), includes all 17 routers (the six Tier 0-4 ones plus, Tier 5,
+│                        `auth`/`admin`/`registration`/`claim_approval`/`audit`/`geo_approval`, then Tier 6
+│                        `governance`/`membership_change_request`/`correspondence`),
 │                        mounts `frontend/assets/` at `/assets`. A `lifespan` hook logs a
 │                        startup warning for each insecure dev setting left on (`DEBUG_MODE`,
 │                        `CSP_ENABLED=false`, `CSP_REPORT_ONLY`) and closes both DB pools on
@@ -74,7 +75,7 @@ api/
 │                        (default localhost), DB_PORT (5432), API_PORT (8001 — read but not
 │                        used anywhere in `api/`; the port comes from the uvicorn command line),
 │                        DISABLE_DOCS, CORS_ORIGINS (comma-separated, default empty),
-│                        RATE_LIMIT (default `60/minute`), DEBUG_MODE, pool sizes
+│                        RATE_LIMIT (default `300/minute`), DEBUG_MODE, pool sizes
 │                        DB_READ_POOL_MIN/MAX (2/15) and DB_WRITE_POOL_MIN/MAX (1/5), and the
 │                        Content-Security-Policy knobs CSP_ENABLED (default true),
 │                        CSP_REPORT_ONLY (default false), CSP_SCRIPT_SRC_EXTRA/
@@ -116,10 +117,31 @@ api/
 │                        `financial_year_bounds()`, `next_credential_document_number()`
 │                        (Kendra/Anumati `<seq>/<fy_start>/<fy_end>` counter via
 │                        `credential_sequence_counter`); membership —
-│                        `compose_local_sakha_erp_id()`, `insert_sakha_affiliation()`,
-│                        `issue_membership_credential()`, `is_probationary_membership_type()`,
+│                        `compose_local_sakha_erp_id()`, `local_sakha_id_prefix()`,
+│                        `create_sangha_sevi_with_home_affiliation()` (the ONE creator of a Sangha Sevi + its home
+│                        affiliation/Local Sakha ID; used by admin create_user/create_sangha_sevi and claim approval),
+│                        `insert_sakha_affiliation()`, legacy-vs-new Local Sakha Number rule (GDR-009) —
+│                        `resolve_legacy_local_number()` (the one validator), `validate_claim_local_numbers()`
+│                        (home + attendance number of a claim), `ensure_darshak_attendance_affiliation()`
+│                        (claim approval step 7; skip only if an OPEN affiliation exists, else 409),
+│                        Patra number rule (GDR-009 §2A) — `resolve_legacy_patra_number()`, `parse_legacy_patra_number()`,
+│                        `patra_number_exists()`, `patra_card_type_for_membership_type()`,
+│                        `issue_credential_at_enrolment()` (legacy number recorded, else minted),
+│                        `require_non_darshaka_for_attendance()` (§2B),
+│                        `issue_membership_credential()` (`is_legacy=`), `is_probationary_membership_type()`,
 │                        `require_sakha_organization()`, `resolve_scoped_sakha()`,
 │                        `resolve_kumari_sevak_parent_sakha()`, `get_kendra_organization_pk()`;
+│                        Tier 6 additions — `next_sakha_local_number()` (atomic Local Sakha
+│                        number per `(organization, REGULAR|DARSHAK)` namespace via
+│                        `sakha_local_number_counter`, no financial-year reset, MBR-030C/048),
+│                        `close_sakha_affiliation()` (sets `effective_to` + `ARCHIVED`; the
+│                        counterpart to `insert_sakha_affiliation()`, which now takes an optional
+│                        `local_number` and a `source_event_type` of ENROLLMENT/TRANSFER/
+│                        REACTIVATION), `log_patra_history()` (single writer for
+│                        `parichaya_patra_history`/`anumati_patra_history`),
+│                        `set_membership_credential_status()` (retire a Patra to EXPIRED/
+│                        CANCELLED/REPLACED and log the history row; used by the Darshaka to
+│                        Regular promotion);
 │                        lookups/get-or-create — `get_system_setting()`,
 │                        `resolve_or_create_city_village()`, `resolve_or_create_postal_code()`,
 │                        `get_active_status_pk()`; guards — `require_entity()` (404 on a missing/
@@ -129,7 +151,7 @@ api/
 │                        `validate_and_hash_password()`; audit — `log_audit()` (writes a row to
 │                        `nss.system_event_log` — see Audit trail below). **Also 5 shared SQL
 │                        fragment constants**, each spliced (via an f-string) into 2+ routers'
-│                        queries rather than copy-pasted: `FAMILY_MAJORITY_CTE_SQL` (the FAM-036
+│                        queries rather than copy-pasted: `SAKHA_LIKE_ORG_TYPES`/`SAKHA_LIKE_ORG_TYPES_SQL`/`is_sakha_like()` (Sakha + Sakha Asana, the single Python definition of "is this a Sakha?"; also the wing-parent set in `ALLOWED_PARENT_TYPES`, GDR-008), `FAMILY_MAJORITY_CTE_SQL` (the FAM-036
 │                        majority-rule CTE, shared by `organization.py`'s `/children-stats` +
 │                        `/stats` and `family.py`'s `_FAMILY_SELECT`),
 │                        `ORGANIZATION_ADDRESS_JOINS_SQL` (shared by `organization.py`'s
@@ -141,6 +163,9 @@ api/
 │                        membership + pending-claim joins). Plus constants
 │                        `DARSHAK_LOCAL_ID_MARKER_SETTING`,
 │                        `PROBATIONARY_MEMBERSHIP_TYPE_CODE`
+├── rate_limit.py        the shared SlowAPI `Limiter` (global per-IP `RATE_LIMIT`) + `user_or_ip_key` (JWT `sub`,
+│                        else client IP) for per-user route limits, e.g. `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance
+│                        `/live` poll; `api/main.py` only wires it into the app
 ├── middleware.py        `add_security_headers(request, call_next)` — sets
 │                        `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/
 │                        `Permissions-Policy` on every response, plus `Cache-Control: no-store`
@@ -149,7 +174,7 @@ api/
 │                        the `-Report-Only` variant when CSP_REPORT_ONLY is set; nothing when
 │                        CSP_ENABLED is false), skipping `CSP_EXEMPT_PATHS` — `/docs`, `/redoc`,
 │                        `/openapi.json` — because Swagger UI embeds an inline script
-├── routers/             12 routers; module docstrings of `foundation.py`,
+├── routers/             17 routers; module docstrings of `foundation.py`,
 │   │                    `membership.py`, `person.py`, `admin.py`, `auth.py`, `registration.py`
 │   │                    and `family.py` still describe their original/partial endpoint set — see
 │   │                    "Known gaps" at the bottom of this file
@@ -166,7 +191,7 @@ api/
 │   │                    `FOUNDATION_CALENDAR_MANAGE`, NSS_ERP_ADMIN only) in Tier 5. Also
 │   │                    exports `fetch_countries()`/`fetch_states()`/`fetch_districts()`/
 │   │                    `fetch_postal_codes()`/`fetch_master_data()`, reused by `registration.py`
-│   ├── organization.py  11 endpoints under /api/v1/organization across 3 tables — reference
+│   ├── organization.py  12 endpoints under /api/v1/organization across 3 tables — reference
 │   │                    data (types, statuses), core organizations (list/detail/children — the
 │   │                    list query is a shared `fetch_organizations()` function, also called by
 │   │                    `registration.py`'s public reference-data endpoints), children-stats
@@ -178,8 +203,10 @@ api/
 │   │                    `/organizations/{pk}/wings` + `/wings/{wing_type_code}/members`
 │   │                    (wing-body summary/roster). All gated by `require_permission("ORGANIZATION_VIEW")`
 │   │                    except `/organizations/selectable` (member-facing dropdown lookup;
-│   │                    `get_current_user` only)
-│   ├── person.py        5 endpoints under /api/v1/person across 2 tables — person list
+│   │                    `get_current_user` only); `/organizations/in-scope` is the
+│   │                    scope-filtered (`actor_scope_org_pks`) searchable list behind the
+│   │                    admin Correspondence organization pickers
+│   ├── person.py        8 endpoints under /api/v1/person across 2 tables — person list
 │   │                    (with gender/marital-status/blood-group filters + pagination) and
 │   │                    trigram-based (`pg_trgm`) search, both gated by
 │   │                    `require_permission("PERSON_VIEW")`; `/search-selectable` (same search,
@@ -203,24 +230,30 @@ api/
 │   │                    override** — a deliberate design choice per the router's own module
 │   │                    docstring, not a gap. `tests/api/test_family_ownership.py` (20 tests)
 │   │                    covers the ownership path for the write endpoints plus `/graph`;
-│   │                    `/person/{pk}/membership-summary` still has no coverage
+│   │                    `/family/person/{pk}/membership-summary` is covered by
+│   │                    `TestPersonMembershipSummary` in that file
 │   ├── membership.py    8 endpoints under /api/v1/membership — member list, search and
 │   │                    `/organizations/{pk}/darshak-summary` (per-org Darshak counts for the
 │   │                    Org Dashboard tab) gated by `require_permission("MEMBERSHIP_VIEW")`;
 │   │                    member detail, Sakha affiliations, Parichaya Patra, Anumati Patra and
 │   │                    journey events use an ownership model instead (`get_current_user` plus
 │   │                    either `MEMBERSHIP_VIEW` or being the member themself, via a shared
-│   │                    `_require_member_view()` → `require_self_or_permission()`)
+│   │                    `_require_member_view()` → `require_self_or_permission()`). Tier 6:
+│   │                    `/search` takes an optional `organization_pk` (subtree-aware on
+│   │                    `sangha_sevi.organization_pk`) so governance nominee/voter pickers only
+│   │                    offer members from a body's own subtree
 │   ├── auth.py          Tier 5 — 10 endpoints under /api/v1/auth: login, refresh,
 │   │                    logout, sessions (list), sessions/{pk} (revoke), change-password, forgot-password, reset-password, /me, /profile
-│   ├── admin.py         Tier 5 — 28 endpoints under /api/v1/admin: user list/
+│   ├── admin.py         Tier 5/6 — 32 endpoints under /api/v1/admin: user list/
 │   │                    create/detail/check-account, reset-password/status/delete; role
 │   │                    assignment; `POST /persons` + `GET /persons/check-contact` + `GET`/`PATCH /persons/{pk}` (profile-details correction) + `PATCH /patra/{patra_type}/{patra_pk}/document-number` (MBR-030H); Sangha Sevi
 │   │                    provisioning (create, check, check-batch, without-account); organization
 │   │                    list/create/PATCH/short-code plus 5 creation-helper GETs
 │   │                    (`kumari-sevak-sakha-options`, `sakha-scope-options`,
-│   │                    `code-availability`, `next-code`); `dashboard-stats`.
-│   │                    `PATCH /organizations/{pk}` also accepts `parent_organization_pk`
+│   │                    `code-availability`, `next-code`); `dashboard-stats`; Tier 6: 4 member-credential endpoints under
+│   │                    `/credentials/members` (health list, `/{sangha_sevi_pk}/timeline`, `/issue`,
+│   │                    `/promote`). `GET /users/{pk}` also returns read-only `auto_granted_scopes`
+│   │                    (§63). `PATCH /organizations/{pk}` also accepts `parent_organization_pk`
 │   │                    (re-parenting, backs the "Assign Sakhas" admin tab). Module-level
 │   │                    `_ALLOWED_PARENT_TYPES`/`_NO_ADDRESS_TYPES`/`_SAKHA_GATED_TYPES`
 │   │                    constants are shared by create/update rather than re-defined per function
@@ -240,6 +273,33 @@ api/
 │   ├── geo_approval.py   Tier 5 — 4 endpoints under /api/v1/admin/geo-entries: review queue for
 │   │                     member-proposed district/postal-code/post-office/city-village rows
 │   │                     (list, detail, approve, correct), `FOUNDATION_MANAGE` + admin scope
+│   ├── governance.py     Tier 6 — 56 endpoints under /api/v1/governance: body-type/position
+│   │                     catalogues, bodies, member + acting assignments (incl. forced-removal
+│   │                     request/approve/reject), elections, nominations, votes (officer-recorded,
+│   │                     self-service, reset), tally, results and result apply, plus two
+│   │                     any-login public panels. `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`, admin scope
+│   ├── correspondence.py Tier 6 — 19 endpoints under /api/v1/correspondence: register,
+│   │                     list (scoped), detail, history, status transition (§6.2), responsible-party,
+│   │                     document and finance-reference sub-resources, `/dispatch`, `/broadcast`,
+│   │                     member-facing `/my-applications`, `/addressed-to-me`, `/my-involvements`,
+│   │                     `/approval-steps/pending-for-me` + `/{step_pk}/decision`; `CORRESPONDENCE_VIEW`/
+│   │                     `CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk`;
+│   │                     reference numbers via `helpers.next_correspondence_reference_number()`
+│   ├── org_reparent.py   Tier 6 — 4 endpoints under /api/v1/org-reparent: Sakha re-parent
+│   │                     approvals (list, detail, `/{pk}/steps/{step_pk}/decide`, `/{pk}/cancel`);
+│   │                     login-only, authority to decide = live President seat (no admin override; NSS_ERP_ADMIN and Kendra GB members re-parent directly instead); requests
+│   │                     are filed by `PATCH /admin/organizations/{pk}` (HTTP 202) — logic in
+│   │                     `services/org_reparent_service.py`, seat lookups in `services/seat_service.py`
+│   ├── attendance.py     Tier 6 — 21 endpoints under /api/v1/attendance: Weekly Sangha Puja
+│   │                     (`/pujas`, `/pujas/{pk}/attendance` (optimistic `expected_version` -> 409 conflicts), `/pujas/{pk}/live` (adaptive poll, 2 s active, ETag/304), `/records`), `/exceptions`, Attendance
+│   │                     Review workflow (`/reviews*`: close/defer/revisit/escalate-to-president/
+│   │                     escalate-to-parichalak/reopen/override), `/watch-list`, `/stats/*`.
+│   │                     `ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE` + admin scope; review/exception
+│   │                     authority = live Secretary/President seat (`_require_review_authority`)
+│   ├── membership_change_request.py Tier 6 — 5 endpoints under
+│   │                     /api/v1/membership/change-requests: Sakha Transfer / Apply for Darshak
+│   │                     two-step release/accept workflow (MBR-048/049); write-pool counterpart to
+│   │                     the read-only `membership.py`
 │   └── audit.py          Tier 5 — 1 endpoint under /api/v1/audit: `GET /change-log`,
 │                          a filterable/paginated view over `nss.field_change_log` (one row per
 │                          field per CREATE/UPDATE/DELETE, with actor and timestamp), gated by
@@ -276,7 +336,11 @@ api/
 │                        `NSS_ERP_ADMIN` role (the sole blanket authority; every other role is
 │                        scope-bounded). Scope-check helpers: `actor_scope_org_pks()`,
 │                        `org_in_scope()`, `require_org_in_scope()`, `require_person_in_scope()`,
-│                        `require_account_in_scope()`
+│                        `require_account_in_scope()`.
+│                        Tier 6: `ScopeInfo.user_role_pk` may now be `None`, and
+│                        `load_composite_grants(cur, person_pk)` (public) returns the §63 composite
+│                        auto-grant scopes + permissions derived live from governance positions
+│                        (substantive plus acting holders); `load_user_context()` merges them in
 └── schemas/
     ├── bootstrap.py      Pydantic response models (RoleResponse, PermissionResponse,
     │                     HealthResponse) — audit columns deliberately excluded
@@ -316,8 +380,21 @@ api/
     │                     UpdateStatusRequest, AssignRoleRequest, CreateSanghaSeviRequest,
     │                     UserAccountResponse, UserListResponse, UserDetailResponse,
     │                     RoleAssignmentResponse, CreateSanghaSeviResponse,
-    │                     AccountlessSanghaSeviResponse/ListResponse (organization-create/update
+    │                     AccountlessSanghaSeviResponse/ListResponse, `AutoGrantedScopeResponse` (Tier 6, §63) (organization-create/update
     │                     and other request bodies are defined inline in `routers/admin.py`)
+    ├── governance.py     Tier 6 — Create/Update request + response models for body types,
+    │                     positions, bodies, assignments (incl. removal requests), acting
+    │                     assignments, elections, nominations, votes (`CastVoteRequest`,
+    │                     `SelfCastVoteRequest`, `ResetBallotsRequest`), tally, results
+    ├── correspondence.py Tier 6 — CorrespondenceCreate/Response/ListResponse,
+    │                     StatusTransitionRequest, ResponsiblePartyAssignRequest,
+    │                     DocumentAssociation*, FinanceReference*
+    ├── org_reparent.py   Tier 6 — ReparentRequestResponse/ReparentStepResponse, ReparentDecisionRequest
+                          (remarks required on REJECT), ReparentCancelRequest
+    ├── attendance.py     Tier 6 — Puja/AttendanceRecord/Exception/Review request + response
+    │                     models, WatchList*, Org/Member attendance stats
+    ├── membership_change_request.py Tier 6 — ChangeRequestCreate, SourceDecisionRequest,
+    │                     DestinationDecisionRequest, ChangeRequestResponse/ListResponse
     └── audit.py          Tier 5 — FieldChangeLogResponse (the one schema in this
                           codebase that deliberately includes audit-actor columns, since the
                           whole point of this endpoint is exposing them)
@@ -357,7 +434,7 @@ exact `require_permission`/`require_any_permission` arguments in each router.
 | DELETE | `/api/v1/admin/users/{pk}/roles/{user_role_pk}` | `ADMIN_ROLE_MANAGE` | Revoke a role assignment |
 | POST | `/api/v1/admin/persons` | `PERSON_MANAGE` | Admin creates a person directly (no account) |
 | GET | `/api/v1/admin/persons/check-contact` | any of `ADMIN_USER_MANAGE`/`PERSON_MANAGE` | Advisory duplicate lookup by mobile/email |
-| POST | `/api/v1/admin/sangha-sevi` | any of `ADMIN_USER_MANAGE`/`PERSON_MANAGE` | Create a standalone Sangha Sevi record, decoupled from user-account creation; scope-checked |
+| POST | `/api/v1/admin/sangha-sevi` | any of `ADMIN_USER_MANAGE`/`PERSON_MANAGE` | Create a standalone Sangha Sevi record, decoupled from user-account creation; scope-checked. Always opens the home `membership_sakha_affiliation`: `is_legacy_member` (default false) + `local_sakha_erp_id` and `credential_document_number`: legacy ⇒ both required (Patra number `<seq>/<yyyy>/<yyyy+1>`), otherwise both blank — Local number and the Anumati/Parichaya number auto-generated (GDR-009 §2A; 422 on mismatch or if the Sakha has no `short_code`; 409 if a typed number is taken) |
 | GET | `/api/v1/admin/sangha-sevi/check/{person_pk}` | any of `ADMIN_USER_VIEW`/`ADMIN_USER_MANAGE`/`MEMBERSHIP_APPROVE` | Whether a person already has an active Sangha Sevi record |
 | POST | `/api/v1/admin/sangha-sevi/check-batch` | same | Batch check up to 100 persons for an active Sangha Sevi or a pending registration claim |
 | GET | `/api/v1/admin/sangha-sevi/without-account` | any of `ADMIN_USER_VIEW`/`ADMIN_USER_MANAGE`/`MEMBERSHIP_APPROVE` | Paginated, searchable Sangha Sevis with an SS ID but no usable login (Create Account picker) |
@@ -380,7 +457,7 @@ exact `require_permission`/`require_any_permission` arguments in each router.
 | POST | `/api/v1/register` | none | Self-registration — creates `person` + `user_account(PENDING_APPROVAL)` + optional `registration_claim` |
 | POST | `/api/v1/register/check-duplicate` | none | JSON body `{mobile_number, country_phone_code, email}` → `{mobile_exists, email_exists}` pre-submit check |
 | GET | `/api/v1/register/reference-data` | none | Countries + gender/marital-status/blood-group/membership-type master-data + the Sakha list, bundled into one call for the public registration page |
-| GET | `/api/v1/register/countries`/`/states`/`/districts`/`/cities`/`/postal-codes`/`/post-offices`/`/sakhas` | none | Public location-cascade and Sakha lookups, thin wrappers over `foundation.py`'s `fetch_*()` functions and `organization.py`'s `fetch_organizations()` |
+| GET | `/api/v1/register/countries`/`/states`/`/districts`/`/cities`/`/postal-codes`/`/post-offices`/`/address-types`/`/sakhas` | none | Public location-cascade and Sakha lookups, thin wrappers over `foundation.py`'s `fetch_*()` functions and `organization.py`'s `fetch_organizations()` |
 | GET | `/api/v1/admin/claims` | any of `MEMBERSHIP_APPROVE`/`ADMIN_USER_MANAGE`, scoped | List registration claims (`claim_status` filter, default `PENDING`; `page`/`page_size` pagination) |
 | GET/PATCH | `/api/v1/admin/claims/{pk}` | same | Claim detail / admin edits before approval |
 | POST | `/api/v1/admin/claims/{pk}/approve` | same | Creates `sangha_sevi` + affiliation (+ mandatory credential for a new Sangha Sevi), activates the account |
@@ -396,6 +473,83 @@ gap list has been separately tracked for Tier 5 yet — see `tests/README.md`.
 
 See `docs/PROJECT_DOCUMENTATION.md` → Key Workflow #9 for the full registration → approval →
 login → RBAC flow this layer implements.
+
+## Endpoints (Tier 6 — Governance, committed on `feature/tier6-governance`)
+
+All write endpoints use the auditing `api/dependencies/auth.py::get_write_connection`; reads use
+`get_connection`. "View" = `require_any_permission("GOVERNANCE_VIEW","GOVERNANCE_MANAGE")`,
+"Manage" = `require_permission("GOVERNANCE_MANAGE")`, "Login" = `get_current_user` only. A body or
+election with `organization_pk IS NULL` is NSS-wide and manageable only by `NSS_ERP_ADMIN`/NSS-WIDE;
+org-scoped ones go through the subtree scope check (ADMIN-BR-076/077).
+
+**`/api/v1/governance`** (`routers/governance.py`, 56 endpoints; paths relative to the prefix)
+
+| Method | Path | Auth | Returns |
+|--------|------|------|---------|
+| GET | `/bodies/sakha-scope-options` | Manage | Parent-Sakha picker for Sakha-anchored bodies (scoped; must precede `/bodies/{body_master_pk}`) |
+| GET | `/me/parichalak-status` | Login | Whether the caller holds the NSS-wide Parichalak seat (GOV-BR-043-A) |
+| GET/POST | `/body-types` | View / Manage | Body-type catalogue / create |
+| PATCH/DELETE | `/body-types/{body_type_master_pk}` | Manage | Update / soft-deactivate |
+| GET/POST | `/positions` | View / Manage | Position catalogue / create |
+| PATCH/DELETE | `/positions/{position_master_pk}` | Manage | Update / soft-deactivate |
+| GET | `/bodies`, `/bodies/{body_master_pk}` | View | Body list / detail |
+| POST | `/bodies` | Manage | Create a body |
+| PATCH/DELETE | `/bodies/{body_master_pk}` | Manage | Update / soft-deactivate |
+| GET | `/public/national-bodies` | Login | Kendra GB, Advisory Board, central Mahila Parichalana Mandali and the viewer's own Sakha GB with current composition |
+| GET | `/public/sakha-office-bearers` | Login | Per-Sakha President and Secretary (with mobile) for the Find-a-Sakha directory |
+| GET | `/bodies/{body_master_pk}/assignments` | View | Member assignments |
+| GET | `/bodies/{body_master_pk}/allowed-positions` | View | Allowed positions, seat limit, seats filled |
+| GET | `/bodies/{body_master_pk}/inherited-positions` | View | Read-only holders inherited from another body |
+| GET | `/advisory-board/missing-nominations` | View | Active Sakhas with no current Advisory Board MEMBER nomination (NSS-wide admins and the Advisory Board admin) |
+| GET | `/advisory-board/dashboard` | View | One-read Advisory Board dashboard: member roster (name, Sakha, position), seats/vacancies, office bearers, live acting cover, Sakhas without a representative (NSS-wide admins and the Advisory Board admin; no meetings/decisions — not modelled yet) |
+| GET | `/mukhya-pujaka` | View | The NSS-wide Mukhya Pujaka seat and current holder |
+| POST | `/bodies/{body_master_pk}/assignments` | Manage | Assign a member (composition, singleton, membership and seat-limit checks) |
+| POST | `/assignments/{body_member_assignment_pk}/end` | Manage | End an assignment |
+| POST | `/assignments/{body_member_assignment_pk}/resign` | Login | Voluntary self-withdrawal; only the person on the assignment (no override); `RESIGNED` |
+| POST | `/assignments/{body_member_assignment_pk}/request-removal` | Manage | Forced-removal request for a Sakha-nominated seat (super-admin only; `PENDING_REMOVAL`) |
+| POST | `/assignments/{body_member_assignment_pk}/approve-removal`, `/reject-removal` | Manage | Decision by the body's own sitting President |
+| GET/POST | `/bodies/{body_master_pk}/acting-assignments` | View / Manage | Acting assignments / create |
+| POST | `/acting-assignments/{acting_position_assignment_pk}/end` | Manage | End an acting assignment |
+| GET | `/elections` | View | Election list |
+| GET | `/elections/open-for-voting` | Login | Elections in VOTING this member may vote in (must stay registered before `/elections/{election_pk}`) |
+| GET | `/elections/{election_pk}` | View | Election detail |
+| POST | `/elections` | Manage | Create an election |
+| PATCH | `/elections/{election_pk}/status` | Manage | Advance election status |
+| GET/POST | `/elections/{election_pk}/nominations` | View / Manage | Nominations / file one |
+| PATCH | `/nominations/{election_nomination_pk}/status` | Manage | Accept/reject a nomination |
+| POST | `/elections/{election_pk}/votes` | Manage | Officer-recorded vote |
+| POST | `/elections/{election_pk}/votes/self` | Login | Member's own ballot (voter from session; GOV-BR-043/045) |
+| POST | `/elections/{election_pk}/votes/reset` | Manage | Hard-delete cast ballots (President unilateral, or admin with recorded President approval) |
+| GET | `/elections/{election_pk}/tally` | View | Tally |
+| GET/POST | `/elections/{election_pk}/results` | View / Manage | Results / declare one |
+| POST | `/results/{election_result_pk}/apply` | Manage | Hand a declared winner into a live `body_member_assignment` |
+
+**`/api/v1/membership/change-requests`** (`routers/membership_change_request.py`, 5 endpoints)
+
+| Method | Path | Auth | Returns |
+|--------|------|------|---------|
+| POST | `` | `get_current_user`; self, or `MEMBERSHIP_MANAGE` for another member | File a `TRANSFER` or `DARSHAK` request (201) |
+| GET | `` | `get_current_user`; `MEMBERSHIP_VIEW`/`MEMBERSHIP_APPROVE` = scoped admin view, else own rows only | Paginated list (`status`, `organization_pk`, `page`, `page_size`) |
+| GET | `/{change_request_pk}` | `get_current_user` | Detail |
+| POST | `/{change_request_pk}/source-decision` | `MEMBERSHIP_APPROVE` + old Sakha in scope | `RELEASE`/`REJECT` while `PENDING_SOURCE_RELEASE` |
+| POST | `/{change_request_pk}/destination-decision` | `MEMBERSHIP_APPROVE` + new Sakha in scope | `ACCEPT`/`REJECT` while `PENDING_DESTINATION_ACCEPT`; auto-numbered via `next_sakha_local_number()` unless `is_legacy_import` + `new_local_number` |
+
+**`/api/v1/admin/credentials/members`** (`routers/admin.py`, 4 endpoints)
+
+| Method | Path | Auth | Returns |
+|--------|------|------|---------|
+| GET | `` | any of `MEMBERSHIP_VIEW`/`MEMBERSHIP_MANAGE`/`ADMIN_USER_MANAGE`, scoped | Per-member credential health OK/EXPIRING/LAPSED/MISSING (`state`, `membership_type`, `search`, `page`, `page_size`) |
+| GET | `/{sangha_sevi_pk}/timeline` | same | Full Anumati + Parichaya history |
+| POST | `/{sangha_sevi_pk}/issue` | any of `MEMBERSHIP_MANAGE`/`ADMIN_USER_MANAGE` | Issue/renew the expected credential, optional manual number (MBR-030H) |
+| POST | `/{sangha_sevi_pk}/promote` | same | Darshaka to Regular: expire Anumati, issue Parichaya (MBR-010) |
+
+**§63 composite auto-grant:** `rbac_service.load_composite_grants()` derives admin scopes live
+from governance positions (no stored rows): Kendra GB members -> `NSS_ERP_KENDRA_ADMIN`;
+Advisory Board President/Secretary -> `NSS_ERP_ADVISORY_BOARD_ADMIN`; Sakha GB, Sevak Sangha
+Executive, Anchalika/Zilla/Patha Chakra GB President/Secretary -> the matching org-scoped admin
+role; Mahila Parichalana Mandali President/Joint Secretary -> `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN`
+(central) or `NSS_ERP_SAKHA_ADMIN` (per Sakha). Acting holders are added only when not already
+covered. `GET /api/v1/membership/search` also accepts an optional `organization_pk` (subtree-aware).
 
 ## Audit trail (v0.11.0)
 
@@ -421,8 +575,10 @@ Registered in `api/main.py`. Starlette runs the **last-registered** middleware o
 the effective request order is security headers → CORS → rate limiting → route:
 
 1. **Rate limiting** (`slowapi`) — `Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])`
-   registered via `SlowAPIMiddleware`; default `60/minute` per client IP, global (no per-route
-   `@limiter.limit` overrides exist anywhere in `api/`). Returns 429 once the limit trips.
+   (defined in `api/rate_limit.py`, wired by `main.py` via `SlowAPIMiddleware`); default `300/minute`
+   per client IP, global. The one per-route override is `@limiter.limit(settings.LIVE_ATTENDANCE_RATE_LIMIT,
+   key_func=user_or_ip_key)` on `attendance.py::live_attendance` (per user, replaces the global limit).
+   Returns 429 once a limit trips.
    `POST /auth/forgot-password`'s 3-per-hour cap is a separate, DB-backed check on
    `password_reset_token`, not this limiter.
 2. **CORS** (`fastapi.middleware.cors.CORSMiddleware`) — only added `if settings.CORS_ORIGINS:`;
@@ -474,7 +630,7 @@ Swagger UI: `http://localhost:8001/docs` (set `DISABLE_DOCS=true` in `api/.env` 
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/api/v1/bootstrap/health` | `{"status", "database"}` — liveness/DB-connectivity probe |
-| GET | `/api/v1/bootstrap/roles` | The 9 frozen roles from `nss.role_master` |
+| GET | `/api/v1/bootstrap/roles` | The 11 frozen roles from `nss.role_master` |
 | GET | `/api/v1/bootstrap/permissions` | `nss.permission_master` rows — was empty by design through Tier 4; **now returns real rows in Tier 5**, since the catalogue is seeded |
 | GET | `/api/v1/bootstrap/roles/{role_pk}/permissions` | Permissions mapped to a role — same, no longer empty for roles with real `role_permission` mappings; 404 if `role_pk` doesn't match an active role |
 
@@ -513,7 +669,7 @@ tests (`tests/api/test_foundation.py`, `tests/api/test_geo_approval.py`; some of
 
 ## Endpoints (Tier 2)
 
-11 endpoints under `/api/v1/organization` (table below lists the original 8; `/organizations/selectable`, `/organizations/{pk}/wings`, `/organizations/{pk}/wings/{wing_type_code}/members` are documented in API_CONTRACT.md) — no ORM,
+12 endpoints under `/api/v1/organization` (table below lists the original 8; `/organizations/selectable`, `/organizations/in-scope`, `/organizations/{pk}/wings`, `/organizations/{pk}/wings/{wing_type_code}/members` are documented in API_CONTRACT.md) — no ORM,
 parameterized SQL. **Gated by `require_permission("ORGANIZATION_VIEW")` in Tier 5**
 (read-only/no-auth through Tier 4). Organization type values come from Foundation `master_data`
 (category `ORGANIZATION_TYPE`). Status values come from the unified ERP-wide
@@ -523,7 +679,7 @@ for address resolution, since those FKs are nullable.
 
 | Method | Path | Returns |
 |--------|------|---------|
-| GET | `/api/v1/organization/types` | The 13 frozen organization types from `nss.master_data` (category `ORGANIZATION_TYPE`) |
+| GET | `/api/v1/organization/types` | The 14 organization types (13 frozen + the singleton `ADVISORY_BOARD`, 2026-10-30) from `nss.master_data` (category `ORGANIZATION_TYPE`) |
 | GET | `/api/v1/organization/statuses` | The 7 Organization-applicable statuses out of the unified `STATUS` category's 16 total values from `nss.master_data` |
 | GET | `/api/v1/organization/organizations` | Organizations with resolved type/status/parent/geography context; optional `type_code`/`status_code` filters, `limit`/`offset` pagination (default 100, max 500) |
 | GET | `/api/v1/organization/organizations/{organization_pk}` | Single organization detail; 404 if missing/inactive |
@@ -541,7 +697,7 @@ integration tests (`tests/api/test_organization.py`; some of the original 72 wer
 
 ## Endpoints (Tier 3)
 
-5 endpoints under `/api/v1/person` (plus `/search-selectable`, see API_CONTRACT.md) — no ORM, raw parameterized SQL. **Gated on the Tier 5
+8 endpoints under `/api/v1/person` (5 read incl. `/search-selectable`, see API_CONTRACT.md, plus 3 address writes) — no ORM, raw parameterized SQL. **Gated on the Tier 5
 branch** (read-only/no-auth through Tier 4): `/persons` and `/search` by
 `require_permission("PERSON_VIEW")`; `/persons/{person_pk}` and
 `/persons/{person_pk}/addresses` by `get_current_user` + `require_self_or_permission()` (a
@@ -556,6 +712,9 @@ against Foundation's `master_data`. Trigram search relies on `pg_trgm` (installe
 | GET | `/api/v1/person/persons` | Active persons (compact summary — no Aadhaar/emergency/photo fields); optional `gender_code`/`marital_status_code`/`blood_group_code` filters, `limit`/`offset` pagination (default 100, max 500) |
 | GET | `/api/v1/person/persons/{person_pk}` | Single person detail with full resolved context, incl. masked `aadhaar_last4`; 404 if missing/inactive |
 | GET | `/api/v1/person/persons/{person_pk}/addresses` | Active addresses for a person, with resolved address type + city/village/postal-code/district/state/country chain; 404 if the person doesn't exist |
+| POST | `/api/v1/person/persons/{person_pk}/addresses` | Add an address (201 `PersonAddressResponse`); the person themself or `PERSON_MANAGE` in admin scope. `address_type_master_data_pk` must be an `ADDRESS_TYPE` value; city/village, postal code and post office must be APPROVED, or PENDING and proposed by this person; first address is auto-primary, `is_primary=true` demotes the previous primary |
+| PATCH | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Partial update (only fields sent change; explicit null clears optional ones); same auth/geo rules; un-primarying the primary address is 409 |
+| DELETE | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Soft delete (`is_active=false`, `deleted_at`); 409 on the primary address while other active addresses exist; 404 if the row is not this person's |
 | GET | `/api/v1/person/search` | Trigram similarity search (`pg_trgm`) on first/last name, plus prefix match on `person_id`/`mobile_number`; capped at 50 results |
 
 `aadhaar_encrypted` and `aadhaar_hash` are never returned by any endpoint — only
@@ -585,13 +744,13 @@ authenticated — see above):
 | GET | `/api/v1/family/families/{family_group_pk}/head-history` | Family head history (current member or `FAMILY_VIEW`) |
 | GET | `/api/v1/family/families/{family_group_pk}/graph?viewer_person_pk=` | Dynamic relationship-label computation via BFS traversal over `nss.family_link` edges (`api/services/family_graph.py`); covered by `tests/api/test_family_ownership.py`; current member or `FAMILY_VIEW` |
 | GET | `/api/v1/family/families/{family_group_pk}/sakha-alignment` | FAM-036 majority-rule "effective Sakha" computation — `is_aligned` is hardcoded `True` by design; per-member `is_home_sakha` flags surface real mismatches; current member or `FAMILY_VIEW` |
-| GET | `/api/v1/family/person/{person_pk}/membership-summary` | Bridges family context to membership context for a UI panel; self, a current relative, or `FAMILY_VIEW`; no test coverage yet |
+| GET | `/api/v1/family/person/{person_pk}/membership-summary` | Bridges family context to membership context for a UI panel; self, a current relative, or `FAMILY_VIEW` |
 
 Full contract: `docs/03_Solution/api/API_CONTRACT.md` (documents these 7 only, not yet updated
 for the 9 below). Verified by 52 pytest integration tests
 (`tests/api/test_family.py`, admin-token path; some of the original 67 were extracted into
 `tests/security/`) plus 20 in `tests/api/test_family_ownership.py` (role-less JWT path, incl.
-`/graph`) — `/person/{pk}/membership-summary` is the one endpoint with no coverage.
+`/graph`, `/family/person/{pk}/membership-summary`).
 
 **Family (Tier 5 additions, released in v0.11.0) — 9 more endpoints, all requiring
 `get_current_user` (JWT); the 2 `GET`s use the read pool, the 7 `POST`/`DELETE`s use

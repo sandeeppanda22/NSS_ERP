@@ -4,6 +4,18 @@
 -- File: 02_admin_scope.sql
 -- Table: nss.admin_scope
 -- Depth: 4 (depends on user_role, organization)
+-- Version: 1.1 — chk_admin_scope_org_consistency: added KENDRA and
+--          KENDRA_MAHILA_SANGHA to the NULL-organization_pk exemption
+--          (§63 composite auto-grant rule, owner-confirmed 2026-10-09),
+--          mirroring the already-approved ADVISORY_BOARD precedent.
+--          Fixes a dormant inconsistency with this file's own header
+--          comment below ("NULL for NSS_WIDE scope (ADMIN + KENDRA
+--          roles)"): NSS_ERP_KENDRA_ADMIN and
+--          NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN attach to bodies seeded
+--          with organization_pk = NULL (Kendra GB and the central
+--          Mahila Parichalana Mandali; see 03_body_master.sql), so
+--          their admin_scope rows must likewise carry NULL
+--          organization_pk.
 -- Version: 1.0
 -- Authority: SOL-ADMIN-004 §12, SOL-AUTH-004 §13,
 --            Tier 5 decisions (2026-09-15)
@@ -75,16 +87,19 @@ CREATE TABLE IF NOT EXISTS nss.admin_scope
     -- ── CHECK Constraints ───────────────────────────────
 
     CONSTRAINT chk_admin_scope_level
-        CHECK (scope_level IN ('NSS-WIDE', 'KENDRA', 'ANCHALIKA', 'ZILLA', 'SAKHA', 'PATHA_CHAKRA', 'KENDRA_MAHILA_SANGHA')),
+        CHECK (scope_level IN ('NSS-WIDE', 'KENDRA', 'ANCHALIKA', 'ZILLA', 'SAKHA', 'PATHA_CHAKRA', 'KENDRA_MAHILA_SANGHA', 'ADVISORY_BOARD')),
 
-    -- NSS-WIDE scope must have NULL organization_pk;
-    -- all other scopes must have a non-NULL organization_pk
+    -- NSS-WIDE, KENDRA, KENDRA_MAHILA_SANGHA, and ADVISORY_BOARD scopes must
+    -- have NULL organization_pk (all four correspond to bodies with
+    -- organization_pk IS NULL in body_master — see 03_body_master.sql: Kendra
+    -- Governing Body, the central Mahila Parichalana Mandali, and the
+    -- Advisory Board); all other scopes must have a non-NULL organization_pk
     CONSTRAINT chk_admin_scope_org_consistency
         CHECK
         (
-            (scope_level = 'NSS-WIDE' AND organization_pk IS NULL)
+            (scope_level IN ('NSS-WIDE', 'KENDRA', 'KENDRA_MAHILA_SANGHA', 'ADVISORY_BOARD') AND organization_pk IS NULL)
             OR
-            (scope_level != 'NSS-WIDE' AND organization_pk IS NOT NULL)
+            (scope_level NOT IN ('NSS-WIDE', 'KENDRA', 'KENDRA_MAHILA_SANGHA', 'ADVISORY_BOARD') AND organization_pk IS NOT NULL)
         ),
 
     CONSTRAINT chk_admin_scope_soft_delete

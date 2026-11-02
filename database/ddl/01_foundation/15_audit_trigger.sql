@@ -9,10 +9,17 @@
 --          row per field, for all three operations) to
 --          field_change_log — all automatically, so no
 --          application code can bypass it.
--- Version: 1.2
+-- Version: 1.3
 -- Authority: SOL-AUDIT-004
 -- Owner: NSS_ERP_ADMIN
 -- Depends: 14_system_event_log.sql, 07_field_change_log.sql
+--
+-- PK resolution: reads the table's real single-column primary key from
+-- pg_constraint/pg_attribute rather than assuming the <table>_pk naming
+-- convention — nss.weekly_sangha_puja_attendance (attendance_pk),
+-- nss.attendance_exception (exception_pk) and nss.attendance_review
+-- (review_pk) deliberately deviate from it. Falls back to the
+-- convention-based name only if no single-column PK is found.
 --
 -- Actor resolution: the trigger reads session variables
 --   nss.actor_sangha_sevi_pk
@@ -67,8 +74,28 @@ BEGIN
         v_action := 'DELETE';
     END IF;
 
-    -- ── Resolve the PK column (convention: <table>_pk) ──
-    v_pk_col := TG_TABLE_NAME || '_pk';
+    -- ── Resolve the PK column ───────────────────────
+    -- Most tables follow the <table>_pk naming convention, but a few
+    -- (nss.weekly_sangha_puja_attendance.attendance_pk,
+    -- nss.attendance_exception.exception_pk,
+    -- nss.attendance_review.review_pk — deliberate, see their DDL notes)
+    -- do not. Read the real single-column primary key from the catalog
+    -- instead of assuming the convention, so the trigger works for every
+    -- table regardless of its PK column name. Falls back to the
+    -- convention if, for any reason, no single-column PK is found.
+    SELECT a.attname
+      INTO v_pk_col
+      FROM pg_constraint c
+      JOIN pg_attribute a
+        ON a.attrelid = c.conrelid
+       AND a.attnum = c.conkey[1]
+     WHERE c.contype = 'p'
+       AND c.conrelid = TG_RELID
+       AND array_length(c.conkey, 1) = 1;
+
+    IF v_pk_col IS NULL THEN
+        v_pk_col := TG_TABLE_NAME || '_pk';
+    END IF;
 
     -- ── Extract record PK ───────────────────────────
     IF TG_OP = 'DELETE' THEN

@@ -16,6 +16,8 @@ NOTE: cleanup is automatic via transaction rollback in conftest.py.
 import pytest
 from uuid import uuid4
 
+from tests.registration_support import registration_address
+
 
 pytestmark = pytest.mark.integration
 
@@ -49,19 +51,70 @@ def gender_pk(write_conn):
     return str(row[0])
 
 
+@pytest.fixture(scope="module")
+def reg_address(write_conn):
+    """Mandatory address block for POST /register (see tests/registration_support.py)."""
+    return registration_address(write_conn.cursor())
+
+
+@pytest.fixture(scope="module")
+def membership_claim_pks(write_conn):
+    """(Darshaka membership type pk, any Sakha pk) for a registration that creates an account."""
+    cur = write_conn.cursor()
+    cur.execute("""
+        SELECT md.master_data_pk
+        FROM nss.master_data md
+        JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+        WHERE mc.category_code = 'MEMBERSHIP_TYPE' AND md.value_code = 'PROBATIONARY'
+          AND md.is_active = TRUE
+        LIMIT 1
+    """)
+    type_row = cur.fetchone()
+    cur.execute("""
+        SELECT o.organization_pk
+        FROM nss.organization o
+        JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+        WHERE md.value_code = 'SAKHA_SANGHA' AND o.is_active = TRUE
+        LIMIT 1
+    """)
+    org_row = cur.fetchone()
+    if type_row is None or org_row is None:
+        pytest.skip("Need a PROBATIONARY membership type and a Sakha organization.")
+    return str(type_row[0]), str(org_row[0])
+
+
 # ── Registration Tests ──────────────────────────────────────────────────
 
 class TestRegistration:
     """POST /api/v1/register — claim-based registration."""
 
-    def test_register_weak_password_fails(self, client):
-        """Registration with weak password returns 422."""
+    def test_register_weak_password_fails(self, client, gender_pk, reg_address):
+        """A well-formed registration with a policy-violating password returns 422
+        from the password policy itself (not from a missing field)."""
         response = client.post("/api/v1/register", json={
             "first_name": "WeakPw",
-            "email": "weakpw@test.example",
-            "password": "short1",
+            "last_name": "Test",
+            "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}weakpw@test.example",
+            "password": "alllowercase1",
+            **reg_address,
         })
         assert response.status_code == 422
+        assert any("uppercase" in v for v in response.json()["detail"])
+
+    def test_register_is_public_and_needs_no_token(self, client, gender_pk, reg_address):
+        """Self-registration is one of the deliberately unauthenticated endpoints."""
+        response = client.post("/api/v1/register", json={
+            "first_name": "Public",
+            "last_name": "Registrant",
+            "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}public@test.example",
+            "password": TEST_PASSWORD,
+            **reg_address,
+        })
+        assert response.status_code == 201
 
 
 # ── Login blocked for PENDING_APPROVAL ──────────────────────────────────
@@ -69,9 +122,11 @@ class TestRegistration:
 class TestPendingLoginBlocked:
     """PENDING_APPROVAL accounts cannot login (AUTH-BR-089)."""
 
-    def test_pending_account_cannot_login(self, client, gender_pk, write_conn):
-        """Login attempt for PENDING_APPROVAL account returns 401."""
-        # Register a fresh user
+    def test_pending_account_cannot_login(
+        self, client, gender_pk, write_conn, reg_address, membership_claim_pks
+    ):
+        """Login attempt for a PENDING_APPROVAL account is refused."""
+        membership_type_pk, org_pk = membership_claim_pks
         response = client.post("/api/v1/register", json={
             "first_name": "LoginBlocked",
             "last_name": "Test",
@@ -79,27 +134,56 @@ class TestPendingLoginBlocked:
             "gender_master_data_pk": gender_pk,
             "email": f"{TEST_EMAIL_PREFIX}blocked@test.example",
             "password": TEST_PASSWORD,
-            "has_membership": False,
+            **reg_address,
+            "has_membership": True,
+            "membership_type_master_data_pk": membership_type_pk,
+            "organization_pk": org_pk,
+            "claimed_local_sakha_number": "SEC1",
+            "is_legacy_member": True,
+            "claimed_credential_document_number": "900001/2025/2026",
         })
-        assert response.status_code == 201
+        assert response.status_code == 201, response.json()
         data = response.json()
 
         with write_conn.cursor() as cur:
             cur.execute(
-                "SELECT user_account_pk FROM nss.user_account WHERE person_pk = %s",
+                "SELECT account_status FROM nss.user_account WHERE person_pk = %s",
                 (data["person_pk"],),
             )
-            ua_pk = cur.fetchone()[0]
+            assert cur.fetchone()[0] == "PENDING_APPROVAL"
 
-        # Try to login — should fail because there's no sangha_sevi_id for this person
-        # (PENDING_APPROVAL accounts don't have one yet)
-        # The login endpoint looks up by sangha_sevi_id, so login_id won't match anything
+        # No Sangha Sevi ID exists until approval, so the Person ID is not a valid
+        # login. 401 = unknown ID, 403 = known but PENDING_APPROVAL; both block.
         response = client.post("/api/v1/auth/login", json={
             "login_id": data["person_id"],
             "password": TEST_PASSWORD,
         })
-        # 401 = unknown ID, 403 = known but PENDING_APPROVAL; both are valid blocks
         assert response.status_code in (401, 403)
+
+    def test_registration_without_membership_creates_no_account(
+        self, client, gender_pk, write_conn, reg_address
+    ):
+        """A membership-less registrant gets a person only — an account with no path
+        to a Sangha Sevi could never log in, and the typed password is not persisted."""
+        response = client.post("/api/v1/register", json={
+            "first_name": "NoAccount",
+            "last_name": "Test",
+            "date_of_birth": TEST_DOB,
+            "gender_master_data_pk": gender_pk,
+            "email": f"{TEST_EMAIL_PREFIX}noaccount@test.example",
+            "password": TEST_PASSWORD,
+            **reg_address,
+            "has_membership": False,
+        })
+        assert response.status_code == 201
+        data = response.json()
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM nss.user_account WHERE person_pk = %s", (data["person_pk"],))
+            assert cur.fetchone() is None
+        login = client.post("/api/v1/auth/login", json={
+            "login_id": data["person_id"], "password": TEST_PASSWORD,
+        })
+        assert login.status_code == 401
 
 
 # ── Claim Approval Tests ───────────────────────────────────────────────
@@ -111,3 +195,119 @@ class TestClaimApproval:
         """Unauthenticated request to claims endpoint returns 401."""
         response = client.get("/api/v1/admin/claims")
         assert response.status_code == 401
+
+
+# ── Previously-registered lookup / claim: public, non-enumerating ───────
+
+def _orphan_person(write_conn, label):
+    """Throwaway person with TEST_DOB and no account / claim / Sangha Sevi."""
+    suffix = uuid4().hex[:10].upper()
+    with write_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO nss.person (person_id, first_name, last_name, email, date_of_birth) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING person_pk, person_id",
+            (f"TSL{label}{suffix}", f"Sec{label}", suffix,
+             f"tsl.{label.lower()}.{suffix.lower()}@example.test", TEST_DOB),
+        )
+        person_pk, person_id = cur.fetchone()
+    return {"person_pk": str(person_pk), "person_id": person_id}
+
+
+class TestLookupAndClaimPublicSurface:
+    """POST /register/lookup-existing and /register/claim are unauthenticated by design."""
+
+    LOOKUP = "/api/v1/register/lookup-existing"
+    CLAIM = "/api/v1/register/claim"
+
+    def test_lookup_needs_no_token_and_ignores_a_bad_one(self, anon_client, write_conn):
+        person = _orphan_person(write_conn, "PUB")
+        body = {"person_id": person["person_id"], "date_of_birth": TEST_DOB}
+        assert anon_client.post(self.LOOKUP, json=body).status_code == 200
+        # A garbage Authorization header must not turn a public endpoint into a 401.
+        resp = anon_client.post(
+            self.LOOKUP, json=body, headers={"Authorization": "Bearer not.a.jwt"}
+        )
+        assert resp.status_code == 200, resp.text
+
+    def test_claim_needs_no_token(self, anon_client, write_conn, membership_claim_pks):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "CLM")
+        resp = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 201, resp.text
+
+    def test_wrong_dob_and_unknown_person_are_indistinguishable(
+        self, anon_client, write_conn
+    ):
+        """No person-id enumeration: both failures return the same 404 and detail."""
+        person = _orphan_person(write_conn, "ENUM")
+        wrong_dob = anon_client.post(self.LOOKUP, json={
+            "person_id": person["person_id"], "date_of_birth": "1990-12-31",
+        })
+        unknown = anon_client.post(self.LOOKUP, json={
+            "person_id": f"NOSUCH{uuid4().hex[:10].upper()}", "date_of_birth": TEST_DOB,
+        })
+        assert wrong_dob.status_code == unknown.status_code == 404
+        assert wrong_dob.json() == unknown.json()
+
+    def test_claim_re_verifies_dob_and_creates_nothing(
+        self, anon_client, write_conn, membership_claim_pks
+    ):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "BADDOB")
+        resp = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": "1990-12-31",
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 404, resp.text
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM nss.user_account WHERE person_pk = %s", (person["person_pk"],)
+            )
+            assert cur.fetchone() is None
+
+    def test_responses_never_leak_credentials(
+        self, anon_client, write_conn, membership_claim_pks
+    ):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "LEAK")
+        look = anon_client.post(self.LOOKUP, json={
+            "person_id": person["person_id"], "date_of_birth": TEST_DOB,
+        })
+        claim = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        for resp in (look, claim):
+            text = resp.text.lower()
+            assert "password" not in text and "argon2" not in text
+            assert "access_token" not in text
+
+    def test_claimant_cannot_login_until_approved(
+        self, anon_client, write_conn, membership_claim_pks
+    ):
+        type_pk, org_pk = membership_claim_pks
+        person = _orphan_person(write_conn, "NOLOGIN")
+        resp = anon_client.post(self.CLAIM, json={
+            "person_id": person["person_id"],
+            "date_of_birth": TEST_DOB,
+            "membership_type_master_data_pk": type_pk,
+            "organization_pk": org_pk,
+            "password": TEST_PASSWORD,
+        })
+        assert resp.status_code == 201, resp.text
+        login = anon_client.post("/api/v1/auth/login", json={
+            "login_id": person["person_id"], "password": TEST_PASSWORD,
+        })
+        assert login.status_code == 401

@@ -36,7 +36,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import log_audit, row_to_model, rows_to_models
+from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, require_entity, row_to_model, rows_to_models
 from api.services.rbac_service import UserContext
 from api.schemas.foundation import (
     CategoryResponse,
@@ -1085,7 +1085,7 @@ def list_sakha_postal_codes(
     List Sakha Sangha branches linked to a postal code.
 
     The link is `organization.postal_code_pk` (set from the branch's
-    address PIN). Only active SAKHA_SANGHA organizations that have a
+    address PIN). Only active Sakha-like (SAKHA_SANGHA/SAKHA_ASANA) organizations that have a
     resolved postal code are returned. Optionally filter by state,
     district (via city_village.district_pk — see fetch_postal_codes), or
     a specific postal code.
@@ -1099,11 +1099,11 @@ def list_sakha_postal_codes(
                ON md.master_data_pk = o.organization_type_master_data_pk
         JOIN   nss.postal_code pc ON pc.postal_code_pk = o.postal_code_pk
         JOIN   nss.state s ON s.state_pk = pc.state_pk
-        WHERE  md.value_code = 'SAKHA_SANGHA'
+        WHERE  md.value_code = ANY(%s)
           AND  o.is_active = TRUE
           AND  o.postal_code_pk IS NOT NULL
     """
-    params: list = []
+    params: list = [list(SAKHA_LIKE_ORG_TYPES)]
 
     if district_pk is not None:
         base_sql += """
@@ -1492,6 +1492,7 @@ def propose_district(
     district_name = body.district_name.strip()
 
     with conn.cursor() as cur:
+        require_entity(cur, "state", str(body.state_pk), label="State")
         cur.execute(
             """
             SELECT district_pk, state_pk, district_code, district_name,
@@ -1554,6 +1555,22 @@ def propose_postal_code(
         raise HTTPException(status_code=422, detail="postal_code must be exactly 6 digits.")
 
     with conn.cursor() as cur:
+        require_entity(cur, "state", str(body.state_pk), label="State")
+        # The PIN is already a canonical (APPROVED) row: nothing to propose.
+        cur.execute(
+            """
+            SELECT 1 FROM nss.postal_code
+            WHERE  postal_code = %s
+              AND  entry_status = 'APPROVED'
+              AND  is_active = TRUE
+            """,
+            (pin,),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Postal code {pin} already exists.",
+            )
         cur.execute(
             """
             SELECT postal_code_pk, state_pk, postal_code,
@@ -1610,12 +1627,7 @@ def propose_post_office(
     post_office_name = body.post_office_name.strip()
 
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM nss.postal_code WHERE postal_code_pk = %s AND is_active = TRUE",
-            (str(body.postal_code_pk),),
-        )
-        if cur.fetchone() is None:
-            raise HTTPException(status_code=404, detail="Postal code not found.")
+        require_entity(cur, "postal_code", str(body.postal_code_pk), label="Postal code")
 
         cur.execute(
             """
@@ -1689,6 +1701,10 @@ def propose_city_village(
     cv_name = body.city_village_name.strip()
 
     with conn.cursor() as cur:
+        if body.district_pk is not None:
+            require_entity(cur, "district", str(body.district_pk), label="District")
+        if body.postal_code_pk is not None:
+            require_entity(cur, "postal_code", str(body.postal_code_pk), label="Postal code")
         cur.execute(
             """
             SELECT city_village_pk, district_pk, postal_code_pk,

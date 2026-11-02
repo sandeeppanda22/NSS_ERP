@@ -42,8 +42,8 @@ ever seeded is the admin account from `database/seed/04_admin/` (Phase 13).
   this table existing).
 - **`registration_claim`** — self-declared membership intent captured at self-registration
   (`POST /api/v1/register`), pending Sakha-admin review: claimed organization, membership type,
-  Local Sakha Number (`claimed_local_sakha_number`, not validated at registration time), and
-  optional Darshak-attendance organization. Lifecycle `PENDING → APPROVED | REJECTED`; a partial
+  Local Sakha Number (`claimed_local_sakha_number`, not checked against `sangha_sevi` at registration; present iff the explicit `is_legacy_member` flag is set — GDR-009, with `darshak_is_legacy_member` for the attendance Sakha; patch `06_registration_claim_legacy_member_patch.sql` carries the columns/CHECKs to existing DBs), and
+  optional Darshak-attendance organization (Regular/Associate only — GDR-009 §2B). The claimed Patra number `claimed_credential_document_number` is non-NULL only for a legacy member (same flag, GDR-009 §2A; application-enforced, no DDL change). Lifecycle `PENDING → APPROVED | REJECTED`; a partial
   unique index enforces at most one `PENDING` claim per `user_account`. Approval (`api/routers/
   claim_approval.py`) is what actually creates the `sangha_sevi`/`membership_sakha_affiliation`
   rows — this table itself never does.

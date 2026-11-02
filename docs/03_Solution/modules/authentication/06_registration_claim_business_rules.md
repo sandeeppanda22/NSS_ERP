@@ -106,6 +106,8 @@ person resubmits with corrected information.
 
 **Status:** SOURCE-ALIGNED
 
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the registration form first asks "Were you already a member of NSS before this system? (Regular or Darshak)" (after the Sakha is selected); the Local Sakha Number field is shown and required only for *Yes*, and for *No* a note says the number is assigned automatically. The question is asked again, separately, for an attendance Sakha.
+
 The registration form shall ask for "Local Sakha Number" instead of
 "SS ID" or "Sangha Sevi ID". The field is presented after the
 registrant selects their Sakha.
@@ -119,6 +121,12 @@ because at registration time the identity has not yet been verified.
 ## AUTH-BR-086 — Local Sakha Number Requirement by Membership Type
 
 **Status:** SOURCE-ALIGNED
+
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the requirement below is replaced by the legacy-vs-new rule. A registrant who was ALREADY a member (Regular/Associate or Darshak/Darshaka) before this system existed is a *legacy member* (`registration_claim.is_legacy_member = TRUE`) and MUST supply the Local Sakha Number on their card; anyone else is a *new* member (`FALSE`), supplies none (a number sent with `FALSE` is a 422), and receives an auto-generated number at approval — next in the Regular/Associate series, or the Darshak series for a Darshaka. This applies to Regular, Associate and Darshaka alike. "Non-Darshaka REQUIRED / Darshaka OPTIONAL" no longer applies; the only remaining 422 is a *legacy* claim with no number. The cross-Sakha attendance affiliation follows the same rule at the attended Sakha, with its own flag (`darshak_is_legacy_member`). The admin verifies (and may correct, via claim edit) the flags and numbers at approval.
+
+> **Amendment (2026-11-01, owner-directed, GDR-009):** the **Parichaya / Anumati Patra ("Kendra") number** claimed at registration (`registration_claim.claimed_credential_document_number`; previously REQUIRED for every non-Darshaka claim and optional for a Darshaka, and not covered by a numbered AUTH rule) follows the SAME explicit flag and the SAME legacy-vs-new split as the Local Sakha Number — there is no separate Patra flag, because a person who already holds a card is by definition already a member. A *legacy* claim (`is_legacy_member = TRUE`) MUST carry the number printed on the member's card, in the MBR-030A form `<seq>/<yyyy>/<yyyy+1>` (Parichaya Patra for Regular/Associate, Anumati Patra for a Darshaka); a *new* claim carries none (a number sent with `FALSE` is a 422) and the system mints one at approval (Anumati Patra for a Darshaka, Parichaya Patra for Regular/Associate — every member holds exactly one credential). The format is checked at registration, claim edit and approval, and a number already issued is a 409; the approver verifies and may correct it via claim edit. Rule text: MBR-030A (amended) and GDR-009 §2A.
+
+> **Amendment (2026-11-01, owner-directed, GDR-009 §2B):** the registration claim's cross-Sakha attendance Sakha (`darshak_organization_pk`, `darshak_is_legacy_member`, `darshak_local_sakha_number`) is available to Regular/Associate registrants only. A Darshaka (PROBATIONARY) claim that carries one is refused with 422 ("A Darshaka who attends another Sakha must transfer to it; use Sakha Transfer") at registration, claim edit (a Darshaka claim's stored attendance Sakha is removed by the edit) and approval.
 
 Local Sakha Number requirement depends on membership type:
 
@@ -135,6 +143,8 @@ Local Sakha Number requirement depends on membership type:
 ## AUTH-BR-087 — Local Sakha Number Is Not Validated at Registration
 
 **Status:** SOURCE-ALIGNED
+
+> **Amendment (2026-11-01, owner-directed, GDR-009):** unchanged in substance — the number is never checked against existing `sangha_sevi` records at registration — but registration does enforce the legacy rule's *shape* (legacy ⇒ a well-formed number is required; new ⇒ none may be sent). Uniqueness (409) and correctness remain the approver's / the database's job.
 
 The Local Sakha Number provided during registration is stored as a
 claim only. The system shall NOT validate it against existing

@@ -175,6 +175,75 @@ class MemberListResponse(BaseModel):
     total: int
 
 
+class MemberDirectoryResponse(BaseModel):
+    """
+    One row of the general-member-facing Member Directory (GET
+    /membership/directory, any logged-in user — not admin-only).
+
+    Deliberately NOT MemberResponse: a general member sees a smaller,
+    owner-approved field set (2026-10-27) — full name, Sakha affiliation,
+    membership type/status, city/district, and contact details (phone,
+    mobile, email). It excludes anything MemberResponse carries that
+    wasn't approved for this audience (e.g. darshak cross-Sakha
+    attendance, local_sakha_erp_id, master-data PKs) and adds the two
+    location fields MemberResponse has no use for (district_name,
+    city_village_name, from person.district_pk/city_village_pk —
+    ORG-BR-099-adjacent "quick reference" location, not person_address).
+    membership_type_code/status_code are included (unlike MemberResponse's
+    *_master_data_pk) only so the frontend can reuse NSS.typeBadgeClass/
+    statusBadgeClass — the same badge convention as every other member
+    list in the app — rather than inventing a name-keyed badge map.
+    photo_document_master_pk is carried through for forward
+    compatibility; no document-serving endpoint renders it yet.
+
+    position_code/position_name (owner ask 2026-10-27): the member's
+    current PRESIDENT or SECRETARY seat, if any, on ANY governance body
+    (Sakha GB, Mahila PM, Advisory Board, ...) — deliberately only these
+    two position codes, not every office a member might hold, per the
+    owner's "president and secretary only" ask. None/None when the
+    member holds neither. A member holding both somehow (not possible
+    today — one person, one Sakha, one GB) would show PRESIDENT first
+    (position_master.display_order).
+
+    sangha_sevi_pk (added 2026-10-27): the internal PK, needed by callers
+    that must act on a specific member afterwards (e.g. attendance
+    marking posts sangha_sevi_pk, not the business ID) — not itself
+    sensitive, unlike the fields deliberately excluded above.
+    """
+
+    sangha_sevi_pk: UUID
+    sangha_sevi_id: str
+    person_id: str
+    first_name: str
+    middle_name: str | None
+    last_name: str | None
+    photo_document_master_pk: UUID | None
+    position_code: str | None
+    position_name: str | None
+
+    organization_pk: UUID
+    organization_name: str
+    local_sakha_erp_id: str | None
+    membership_type_code: str
+    membership_type_name: str
+    status_code: str
+    status_name: str
+
+    district_name: str | None
+    city_village_name: str | None
+
+    country_phone_code: str | None
+    mobile_number: str | None
+    email: str | None
+
+
+class MemberDirectoryListResponse(BaseModel):
+    """Envelope for /membership/directory — same total/len(members) contract as MemberListResponse."""
+
+    members: list[MemberDirectoryResponse]
+    total: int
+
+
 class OrgDarshakSummaryResponse(BaseModel):
     """
     Darshak (probationary + cross-Sakha attendance) summary for one

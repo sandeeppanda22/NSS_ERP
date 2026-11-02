@@ -55,6 +55,23 @@ CREATE TABLE IF NOT EXISTS nss.city_village
 
     submitted_by_sangha_sevi_pk UUID NULL,
 
+    -- Geography Auto-Create at Registration + Bulk-Seed Attribution
+    -- (2026-10-21): records which PERSON caused this row to be created,
+    -- for the registration-time auto-create path (api/helpers.py
+    -- resolve_or_create_*) where the submitter has no JWT/sangha_sevi
+    -- yet — person exists, sangha_sevi does not. Logically separate
+    -- from submitted_by_sangha_sevi_pk (the member-authenticated
+    -- "propose" flow in foundation.py); a row is stamped by at most one
+    -- of the two. Also backfilled onto bulk-reference-seeded rows
+    -- (Foundation Phase 2) post-build, pointing at the NSS Admin's
+    -- person_pk (see the post-Phase-13 backfill step in
+    -- database/scripts/02_build.sh / .ps1 / render_build.sh) for
+    -- attribution consistency, since nobody "submitted" those via the
+    -- app. No FK here (person doesn't exist yet in Phase 1) — the real
+    -- FK is added by 05_membership/16_foundation_audit_fk.sql, same
+    -- deferred-FK pattern as submitted_by_sangha_sevi_pk.
+    submitted_by_person_pk UUID NULL,
+
     reviewed_by_sangha_sevi_pk UUID NULL,
 
     reviewed_at TIMESTAMPTZ NULL,
@@ -118,6 +135,14 @@ CREATE TABLE IF NOT EXISTS nss.city_village
         )
 );
 
+-- Idempotent safety net: tables created before submitted_by_person_pk was
+-- added to the CREATE TABLE above never get it via CREATE TABLE IF NOT
+-- EXISTS alone (that clause is a no-op when the table already exists).
+-- This ALTER guarantees the column exists either way (same pattern as
+-- master_data.applicable_modules / organization.has_own_premises).
+ALTER TABLE nss.city_village
+    ADD COLUMN IF NOT EXISTS submitted_by_person_pk UUID NULL;
+
 CREATE INDEX IF NOT EXISTS idx_city_village_district
     ON nss.city_village (district_pk);
 
@@ -138,10 +163,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_city_village_district_code_approved
     ON nss.city_village (district_pk, city_village_code)
     WHERE entry_status = 'APPROVED' AND is_active = TRUE;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_city_village_district_name_approved
-    ON nss.city_village (district_pk, city_village_name)
-    WHERE entry_status = 'APPROVED' AND is_active = TRUE;
+-- Version 3.1 (2026-10-21, owner-confirmed) — the two name-based
+-- uniqueness rules were wrong about real Indian geography and were
+-- silently discarding genuine villages at seed time (blind
+-- `ON CONFLICT DO NOTHING`, no explicit target, in the seed file).
+--
+--   * uq_city_village_district_name_approved (district_pk, name) —
+--     REMOVED outright. Verified against the loaded data: Tumakuru holds
+--     18 distinct villages named "Hosahalli" (one per PIN), Mayurbhanj 15
+--     "Rangamatia". ~45,000 real rows were being dropped on this alone.
+--
+--   * uq_city_village_postal_code_name_approved (postal_code_pk, name) —
+--     WIDENED to include district_pk. PIN areas straddle district
+--     borders, so 555 further groups of genuinely distinguishable
+--     villages (same PIN + name, different district/state) were being
+--     dropped too. Adding district_pk recovers them while still deduping
+--     the ~13,799 rows that differ ONLY by LGD code and are therefore
+--     identical in every field this ERP displays or uses.
+--
+-- city_village_code (the LGD code) is retained as reference data for
+-- future re-sync against government releases, but is no longer the sole
+-- canonical key; (district_pk, postal_code_pk, city_village_name) is.
+-- Index drops are not covered by table-level existence-gating, so the
+-- explicit DROPs below are required for already-built environments.
+DROP INDEX IF EXISTS nss.uq_city_village_district_name_approved;
+DROP INDEX IF EXISTS nss.uq_city_village_postal_code_name_approved;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_city_village_postal_code_name_approved
-    ON nss.city_village (postal_code_pk, city_village_name)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_city_village_pin_name_district_approved
+    ON nss.city_village (postal_code_pk, city_village_name, district_pk)
     WHERE entry_status = 'APPROVED' AND is_active = TRUE;

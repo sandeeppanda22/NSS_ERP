@@ -17,6 +17,9 @@ pytestmark = pytest.mark.ui
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
+USERS_TAB = '[x-show="activeTab === \'users\'"]'
+
+
 def _goto_users_tab(admin_page, base_url):
     """Navigate to admin page and activate the Users tab."""
     admin_page.goto(f"{base_url}/admin")
@@ -43,7 +46,9 @@ def test_users_tab_active(admin_page, base_url):
     """Clicking User Accounts tab activates it and shows the user table."""
     _goto_users_tab(admin_page, base_url)
 
-    table = admin_page.locator(".admin-table")
+    # Scope to the users tab: other tabs keep their own (hidden) .admin-table
+    # in the DOM, so a bare ".admin-table" is a strict-mode violation.
+    table = admin_page.locator(USERS_TAB).locator(".admin-table")
     expect(table).to_be_visible()
 
 
@@ -170,7 +175,7 @@ def test_users_detail_back_to_list(admin_page, base_url):
     admin_page.wait_for_timeout(500)
 
     # User table should be visible again
-    table = admin_page.locator(".admin-table")
+    table = admin_page.locator(USERS_TAB).locator(".admin-table")
     expect(table).to_be_visible()
 
 

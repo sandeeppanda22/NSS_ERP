@@ -80,6 +80,7 @@ Records an official inward or outward communication registered by NSS.
 | Column | Type | Nullable | Notes |
 |--------|------|----------|-------|
 | correspondence_pk | UUID | NOT NULL | PK |
+| register_organization_pk | UUID | NOT NULL | FK → organization.organization_pk. Whose register this is filed under — drives the per-org reference-number counter (CORR-BR-003) and the admin-scope boundary. Always populated; distinct from sender/recipient/responsible org |
 | reference_number | VARCHAR | NOT NULL | System-generated, immutable, UNIQUE |
 | direction | VARCHAR | NOT NULL | Controlled: INWARD / OUTWARD |
 | correspondence_date | DATE | NOT NULL | Date on the communication |
@@ -92,6 +93,9 @@ Records an official inward or outward communication registered by NSS.
 | sender_organization_pk | UUID | NULL | FK → organization.organization_pk |
 | sender_external_name | VARCHAR | NULL | Free text — external party name |
 | sender_external_organization | VARCHAR | NULL | Free text — external party organization |
+| sender_person_capacity | VARCHAR | NULL | Controlled: PERSONAL / ORGANIZATIONAL. Only populated when sender_type = 'PERSON' (owner-confirmed 2026-10-17) |
+| sender_person_organization_pk | UUID | NULL | FK → organization.organization_pk. Required when sender_person_capacity = 'ORGANIZATIONAL', else NULL |
+| sender_sakha_erp_id_snapshot | VARCHAR | NULL | Point-in-time snapshot of sender's Local Sakha ID, if an active Sangha Sevi at the time. Mirrors parichaya_patra.local_sakha_erp_id snapshot pattern — not a live FK |
 | recipient_type | VARCHAR | NOT NULL | Controlled: PERSON / ORGANIZATION / EXTERNAL |
 | recipient_person_pk | UUID | NULL | FK → person.person_pk |
 | recipient_organization_pk | UUID | NULL | FK → organization.organization_pk |
@@ -113,8 +117,10 @@ Records an official inward or outward communication registered by NSS.
 
 | Column | References |
 |--------|-----------|
+| register_organization_pk | organization.organization_pk |
 | sender_person_pk | person.person_pk |
 | sender_organization_pk | organization.organization_pk |
+| sender_person_organization_pk | organization.organization_pk |
 | recipient_person_pk | person.person_pk |
 | recipient_organization_pk | organization.organization_pk |
 | responsible_person_pk | person.person_pk |
@@ -175,6 +181,26 @@ Records an official inward or outward communication registered by NSS.
             -- recipient_external_organization remains optional for EXTERNAL
     )
 
+    -- Sender person-detail integrity (owner-confirmed 2026-10-17):
+    -- sender_person_capacity / sender_person_organization_pk /
+    -- sender_sakha_erp_id_snapshot only apply when sender_type = 'PERSON'.
+    CHECK (
+        sender_person_capacity IN ('PERSONAL', 'ORGANIZATIONAL')
+    )
+    CHECK (
+        (sender_type = 'PERSON' AND sender_person_capacity IS NOT NULL)
+        OR
+        (sender_type <> 'PERSON'
+            AND sender_person_capacity IS NULL
+            AND sender_person_organization_pk IS NULL
+            AND sender_sakha_erp_id_snapshot IS NULL)
+    )
+    CHECK (
+        sender_person_capacity IS NULL
+        OR (sender_person_capacity = 'ORGANIZATIONAL' AND sender_person_organization_pk IS NOT NULL)
+        OR (sender_person_capacity = 'PERSONAL' AND sender_person_organization_pk IS NULL)
+    )
+
 ## 4.7 Application-Enforced Constraints
 
 The following constraints are enforced at the application level in addition to the database CHECK constraints:
@@ -187,6 +213,13 @@ Rationale: Date-future validation depends on current time (not a static row cons
 
 ## 4.8 Indexes
 
+    idx_correspondence_register_direction_date — (register_organization_pk, direction,
+                                                 correspondence_date DESC) — primary access
+                                                 path: one org's inward/outward register,
+                                                 newest first. Also serves bare
+                                                 register_organization_pk lookups and the
+                                                 admin-scope filter (leading column), so no
+                                                 separate single-column index is created
     idx_correspondence_reference_number        — reference_number (covered by UNIQUE)
     idx_correspondence_direction               — direction
     idx_correspondence_status                  — status_master_data_pk
@@ -194,16 +227,32 @@ Rationale: Date-future validation depends on current time (not a static row cons
     idx_correspondence_responsible_org         — responsible_organization_pk
     idx_correspondence_correspondence_date     — correspondence_date
     idx_correspondence_sender_person           — sender_person_pk
+    idx_correspondence_sender_sakha_snapshot   — sender_sakha_erp_id_snapshot (partial, WHERE NOT NULL)
     idx_correspondence_recipient_person        — recipient_person_pk
 
 ## 4.9 Reference Number Generation
 
 - Generated by application service using Foundation id_sequence_master at record creation
-- Format: NSS/{IN|OUT}/YYYY-YY/NNN
-- Separate sequences per direction per annual period
+- Format: `<ORG_SHORT_CODE>/{IN|OUT}/YYYY-YY/NNN` (CORR-EXT-001, ERP-FROZEN; supersedes the
+  earlier global `NSS/{IN|OUT}/YYYY-YY/NNN` format shown in a prior draft of this section)
+- Separate sequences per direction, per annual period, **per organization** (CORR-BR-003/CORR-EXT-001)
 - Immutable after assignment
 - No FK from correspondence to id_sequence_master — the service reads the sequence configuration and writes the formatted reference_number as a VARCHAR value
 - Exact sequence implementation (PostgreSQL SEQUENCE, advisory lock, application counter) is a DDL-phase decision
+- **OPEN GAP — RESOLVED (owner-confirmed 2026-10-17):** per-organization numbering needs an
+  always-populated "whose register is this" column. Added as
+  `register_organization_pk UUID NOT NULL FK → organization` (§4.3/§4.4). It is deliberately
+  separate from `sender_organization_pk`/`recipient_organization_pk` (conditional — NULL unless
+  the corresponding `*_type = 'ORGANIZATION'`) and from `responsible_organization_pk` (who must
+  act, not whose register it is). The reference-number service reads
+  `organization.short_code` for this organization to build the prefix. Kendra Sangha is seeded
+  with `short_code = 'NSS'` (owner-confirmed 2026-10-17; `database/seed/02_organization/03_organization.sql`)
+  so its register reads `NSS/{IN|OUT}/YYYY-YY/NNN`, unlike other organizations/Sakhas whose
+  `short_code` is left NULL for later admin-UI assignment.
+- Access control: the register is scoped by `register_organization_pk` using the existing
+  `admin_scope` subtree pattern (ADMIN-BR-076/077) — an org admin sees their own scope's **inward
+  and outward** register only (owner-confirmed 2026-10-17). API-layer concern; recorded here
+  because it derives from this column.
 
 ---
 
@@ -279,7 +328,7 @@ Any Finance transaction type may be referenced. Finance remains the authoritativ
 | correspondence_finance_reference_pk | UUID | NOT NULL | PK |
 | correspondence_pk | UUID | NOT NULL | FK → correspondence.correspondence_pk |
 | financial_transaction_pk | UUID | NOT NULL | FK → financial_transaction.financial_transaction_pk |
-| relationship_type | VARCHAR | NOT NULL | Controlled value (PENDING — values TBD) |
+| relationship_type_master_data_pk | UUID | NOT NULL | FK → master_data.master_data_pk (RESOLVED — owner-confirmed 2026-10-17) |
 | remarks | TEXT | NULL | Optional context |
 | is_active | BOOLEAN | NOT NULL | DEFAULT TRUE |
 | created_at | TIMESTAMPTZ | NOT NULL | |
@@ -294,13 +343,21 @@ Any Finance transaction type may be referenced. Finance remains the authoritativ
 | Column | References |
 |--------|-----------|
 | correspondence_pk | correspondence.correspondence_pk |
-| financial_transaction_pk | financial_transaction.financial_transaction_pk |
+| financial_transaction_pk | financial_transaction.financial_transaction_pk (deferred — Pass 2, Finance/Tier 12) |
+| relationship_type_master_data_pk | master_data.master_data_pk |
 
 ## 6.5 CHECK Constraints
 
-    relationship_type — mechanism deferred (CHECK or master_data)
+RESOLVED (owner-confirmed 2026-10-17): implemented as a master_data FK
+(`relationship_type_master_data_pk`), not a CHECK constraint — consistent
+with the sibling controlled-value columns on `correspondence`
+(`medium_master_data_pk`, `status_master_data_pk`) and the project's
+Configuration Over Hardcoding principle. New relationship types can be
+added via master_data without a DDL change.
 
-Candidate values (PENDING until Finance model frozen):
+Seeded under master_category `CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE`
+(`database/seed/01_foundation/01_master_category.sql`,
+`02_master_data.sql`):
 
     PAYMENT
     RECEIPT
@@ -311,7 +368,7 @@ Candidate values (PENDING until Finance model frozen):
 
 ## 6.6 Unique Constraints
 
-    UNIQUE (correspondence_pk, financial_transaction_pk, relationship_type)
+    UNIQUE (correspondence_pk, financial_transaction_pk, relationship_type_master_data_pk)
 
 Rationale: Prevents duplicate references of the same type. A single correspondence may reference the same transaction with different relationship types if semantically justified.
 
@@ -319,6 +376,7 @@ Rationale: Prevents duplicate references of the same type. A single corresponden
 
     idx_corr_fin_ref_correspondence     — correspondence_pk
     idx_corr_fin_ref_transaction        — financial_transaction_pk
+    idx_corr_fin_ref_relationship_type  — relationship_type_master_data_pk
 
 ## 6.8 Optional Dependency
 
@@ -337,7 +395,7 @@ The FK to financial_transaction is an optional cross-module dependency:
 | Target Table | Owner | Required For |
 |-------------|-------|-------------|
 | person | Person | sender/recipient/responsible FKs |
-| organization | Organization | sender/recipient/responsible FKs |
+| organization | Organization | register (owning) + sender/recipient/responsible/sender_person_organization FKs; `short_code` also feeds the reference-number prefix |
 | master_data | Foundation | medium, status FKs |
 | document_master | Foundation | correspondence_document FK |
 
@@ -443,7 +501,7 @@ These tables should be introduced only when:
 | direction | CHECK constraint | Fixed binary set — will not change |
 | sender_type / recipient_type | CHECK constraint (within compound CHECK) | Fixed ternary set — will not change |
 | document_purpose | CHECK constraint | Small, stable set |
-| relationship_type | TBD (CHECK or master_data) | PENDING — depends on Finance model |
+| relationship_type | FK to master_data (RESOLVED 2026-10-17) | Extensible set — consistent with medium/status |
 | medium | FK to master_data | Extensible set — new mediums expected |
 | status | FK to master_data | Extensible set — lifecycle states |
 
@@ -474,7 +532,7 @@ This table design does not introduce:
 | Exact PostgreSQL sequence strategy for reference_number | DDL phase |
 | Exact VARCHAR lengths (or use TEXT) | DDL phase |
 | Exact index types (btree, GIN for text search) | DDL phase |
-| relationship_type enforcement mechanism (CHECK vs master_data FK) | Depends on Finance model |
+| relationship_type enforcement mechanism (CHECK vs master_data FK) | RESOLVED 2026-10-17 — master_data FK |
 | Partitioning strategy (if volume warrants) | DDL phase |
 | Audit actor FK target table (sangha_sevi vs user_account) | Project-wide decision |
 
@@ -484,9 +542,9 @@ This table design does not introduce:
 
 | Table | Columns (excl. audit) | FKs | Key Constraints |
 |-------|----------------------|-----|-----------------|
-| correspondence | 20 | 8 mandatory + 3 deferred | UNIQUE(reference_number), CHECK(direction), CHECK(sender conditional), CHECK(recipient conditional) |
+| correspondence | 24 | 10 mandatory + 3 deferred | UNIQUE(reference_number), CHECK(direction), CHECK(sender conditional), CHECK(recipient conditional), CHECK(sender person-detail conditional) |
 | correspondence_document | 4 | 2 | UNIQUE(correspondence_pk, document_master_pk, document_purpose), CHECK(document_purpose) |
-| correspondence_finance_reference | 4 | 2 | UNIQUE(correspondence_pk, financial_transaction_pk, relationship_type) |
+| correspondence_finance_reference | 4 | 2 mandatory + 1 deferred | UNIQUE(correspondence_pk, financial_transaction_pk, relationship_type_master_data_pk) |
 
 ---
 

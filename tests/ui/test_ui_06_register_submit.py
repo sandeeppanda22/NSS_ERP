@@ -14,10 +14,14 @@ Run order: 06 (after verification pages — registration creates new DB rows).
 """
 
 import pytest
-import time
 from playwright.sync_api import Page, expect
 
 from tests.ui.conftest import BASE_URL
+from tests.ui.register_support import (
+    fill_step1,
+    select_country,
+    unique_suffix as _unique_suffix,
+)
 
 pytestmark = pytest.mark.ui
 
@@ -30,8 +34,6 @@ FIRST_NAME_SEL = '[x-model="form.first_name"]'
 MIDDLE_NAME_SEL = '[x-model="form.middle_name"]'
 LAST_NAME_SEL = '[x-model="form.last_name"]'
 MOBILE_SEL = '[x-model="form.mobile_number"]'
-EMAIL_SEL = '[x-model="form.email"]'
-GENDER_SEL = '[x-model="form.gender_master_data_pk"]'
 HAS_MEMBERSHIP_SEL = '[x-model="form.has_membership"]'
 MEMBERSHIP_TYPE_SEL = '[x-model="form.membership_type_master_data_pk"]'
 SAKHA_SEL = '[x-model="form.organization_pk"]'
@@ -39,18 +41,10 @@ LOCAL_SAKHA_NUM_SEL = '[x-model="form.claimed_local_sakha_number"]'
 CREDENTIAL_NUM_SEL = '[x-model="form.claimed_credential_document_number"]'
 DARSHAK_TOGGLE_SEL = '[x-model="form.is_attending_as_darshak"]'
 DARSHAK_ORG_SEL = '[x-model="form.darshak_organization_pk"]'
+LEGACY_YES_SEL = 'input[name="legacy_choice"][value="yes"]'
+LEGACY_NO_SEL = 'input[name="legacy_choice"][value="no"]'
+DARSHAK_LEGACY_YES_SEL = 'input[name="darshak_legacy_choice"][value="yes"]'
 DARSHAK_LOCAL_NUM_SEL = '[x-model="form.darshak_local_sakha_number"]'
-# DOB uses the shared nssDatePicker. The picker root carries a
-# data-nss-dp="<model path>" hook stamped by nss-datepicker.js; the visible
-# input inside it has x-model="display" and placeholder="DD/MM/YYYY".
-# onInput() auto-formats and writes ISO (YYYY-MM-DD) to form.date_of_birth.
-#
-# Do NOT match on the x-data text: the picker is declared as
-# nssDatePicker('form.date_of_birth', { maxToday: true }), so a substring
-# ending in "date_of_birth')" never matches — _fill_dob() would no-op and
-# every test that leaves Step 1 would fail on the disabled Next button.
-DOB_PICKER_SEL = '[data-nss-dp="form.date_of_birth"]'
-DOB_INPUT_SEL = f'{DOB_PICKER_SEL} input[x-model="display"]'
 COUNTRY_SEL = '[x-model="form.country_pk"]'
 STATE_SEL = '[x-model="form.state_pk"]'
 DISTRICT_SEL = '[x-model="form.district_pk"]'
@@ -69,66 +63,9 @@ def _goto_register(page: Page):
     page.wait_for_selector(FIRST_NAME_SEL, state="visible", timeout=10000)
 
 
-def _unique_suffix():
-    """Generate a unique suffix for test data to avoid collisions."""
-    return str(int(time.time()))[-6:]
-
-
-def _fill_dob(page: Page, dd_mm_yyyy: str):
-    """
-    Fill the nssDatePicker DOB field.
-
-    The picker binds @input="onInput($event)" which reads event.target.value,
-    auto-formats DD/MM/YYYY, and writes ISO to form.date_of_birth.
-    Using page.type() triggers real keystrokes so Alpine's @input fires correctly.
-    """
-    dob_input = page.locator(DOB_INPUT_SEL)
-    if dob_input.count() == 0:
-        return
-    dob_input.first.click()
-    page.wait_for_timeout(200)
-    # Clear any existing value first
-    dob_input.first.fill("")
-    page.wait_for_timeout(100)
-    # Type character-by-character so @input fires on each keystroke
-    # and onInput() auto-inserts slashes and writes the ISO date to the model
-    digits = dd_mm_yyyy.replace("/", "")  # e.g. "15061995"
-    dob_input.first.type(digits, delay=50)
-    page.wait_for_timeout(300)
-    # Close calendar popup if it opened
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(200)
-
-
-def _wait_for_gender_options(page: Page, timeout: int = 15000):
-    """Wait for the async init() to populate the gender dropdown.
-
-    init() fires loadMasterData("GENDER", "genders") which is an API call;
-    under load (multiple tests) the response can take a few seconds.
-    """
-    page.wait_for_function(
-        'document.querySelector(\'[x-model="form.gender_master_data_pk"]\')?.options?.length > 1',
-        timeout=timeout,
-    )
-
-
 def _fill_step1(page: Page, suffix: str):
-    """Fill all step 1 fields with unique data."""
-    page.fill(FIRST_NAME_SEL, f"TestReg{suffix}")
-    page.fill(LAST_NAME_SEL, f"User{suffix}")
-
-    # DOB — nssDatePicker expects DD/MM/YYYY typed as digits (auto-slashed)
-    _fill_dob(page, "15/06/1995")
-
-    # Wait for gender dropdown to be populated by async init()
-    _wait_for_gender_options(page)
-    gender = page.locator(GENDER_SEL)
-    if gender.is_visible():
-        gender.select_option(index=1)
-
-    # Email (unique)
-    page.fill(EMAIL_SEL, f"testreg{suffix}@example.com")
-    page.wait_for_timeout(300)
+    """Fill all step 1 fields (personal, contact, address) with unique data."""
+    fill_step1(page, suffix)
 
 
 def _click_visible_next(page: Page, btn_selector: str):
@@ -217,9 +154,9 @@ class TestRegisterStep2Membership:
         assert options.count() > 10, "Sakha dropdown should have many options (175 branches)"
 
     def test_local_sakha_number_required_marker(self, page: Page):
-        """Local Sakha Number is now required for every membership type,
-        including Darshaka — no longer marked optional once a Sakha is
-        selected (AUTH-BR-086)."""
+        """GDR-009: once a Sakha is selected the 'already a member before this
+        system?' question appears; the Local Sakha Number input is revealed
+        only by answering Yes (and hidden with an auto-assign note on No)."""
         _goto_register(page)
         _fill_step1(page, _unique_suffix())
         _advance_step1_to_step2(page)
@@ -236,13 +173,23 @@ class TestRegisterStep2Membership:
         sakha_sel.select_option(index=1)
         page.wait_for_timeout(500)
 
-        local_num = page.locator(LOCAL_SAKHA_NUM_SEL)
-        assert local_num.count() > 0, "Local Sakha Number field should appear once a Sakha is selected"
+        assert page.locator(LEGACY_YES_SEL).count() > 0, "legacy question should appear once a Sakha is selected"
+        assert page.locator(LOCAL_SAKHA_NUM_SEL).count() == 0, "number hidden until the member answers Yes"
+        page.locator(LEGACY_NO_SEL).check()
+        page.wait_for_timeout(300)
+        assert page.locator(LOCAL_SAKHA_NUM_SEL).count() == 0, "No -> number stays hidden (auto-assigned)"
+        page.locator(LEGACY_YES_SEL).check()
+        page.wait_for_timeout(300)
+        assert page.locator(LOCAL_SAKHA_NUM_SEL).count() > 0, "Yes reveals the Local Sakha Number field"
 
         credential_num = page.locator(CREDENTIAL_NUM_SEL)
         assert credential_num.count() > 0, (
-            "Parichaya/Anumati Patra number field should appear once a Sakha is selected"
+            "Parichaya/Anumati Patra number field should appear with the Local Sakha Number "
+            "once the member answers Yes (GDR-009 §2A)"
         )
+        page.locator(LEGACY_NO_SEL).check()
+        page.wait_for_timeout(300)
+        assert page.locator(CREDENTIAL_NUM_SEL).count() == 0, "No -> Patra number hidden (issued automatically)"
 
     def test_darshak_attendance_reveals_own_local_number(self, page: Page):
         """Toggling 'Attending another Sangha as Darshak?' reveals a Darshak
@@ -265,8 +212,13 @@ class TestRegisterStep2Membership:
         page.wait_for_timeout(500)
 
         assert page.locator(DARSHAK_ORG_SEL).count() > 0, "Darshak Sakha selector should appear"
+        assert page.locator(DARSHAK_LEGACY_YES_SEL).count() > 0, (
+            "The attendance Sakha asks its own 'already a Darshak there?' question"
+        )
+        page.locator(DARSHAK_LEGACY_YES_SEL).check()
+        page.wait_for_timeout(300)
         assert page.locator(DARSHAK_LOCAL_NUM_SEL).count() > 0, (
-            "Darshak Sakha's own Local Sakha Number field should appear"
+            "Yes reveals the Darshak Sakha's own Local Sakha Number field"
         )
 
 
@@ -304,8 +256,7 @@ class TestRegisterStep2Address:
         if country_sel.count() == 0:
             pytest.skip("Country selector not found")
 
-        # Select first country (India)
-        country_sel.select_option(index=1)
+        select_country(page)
         # Wait for states to load (async cascade via @change="onRegCountryChange()")
         page.wait_for_function(
             'document.querySelector(\'[x-model="form.state_pk"]\')?.options?.length > 1',
@@ -371,21 +322,8 @@ class TestRegisterFullSubmission:
         suffix = _unique_suffix()
         _goto_register(page)
 
-        # Use a different email to avoid collision with previous test
-        page.fill(FIRST_NAME_SEL, f"Success{suffix}")
-        page.fill(LAST_NAME_SEL, f"Test{suffix}")
-
-        # DOB — use the shared helper
-        _fill_dob(page, "20/03/1990")
-
-        # Wait for gender options before selecting
-        _wait_for_gender_options(page)
-        gender = page.locator(GENDER_SEL)
-        if gender.is_visible():
-            gender.select_option(index=1)
-
-        page.fill(EMAIL_SEL, f"success{suffix}@example.com")
-        page.wait_for_timeout(300)
+        # Distinct suffix/DOB/email from the previous test to avoid collisions
+        fill_step1(page, f"Success{suffix}", dob="20/03/1990")
 
         # Navigate through steps using step-specific buttons
         _advance_step1_to_step2(page)

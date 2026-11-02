@@ -4,6 +4,9 @@ Version: 1.0
 
 Status: FROZEN
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-005):** the `ORGANIZATION_TYPE` master-data category (live in `nss.master_data`; the `organization_type_master` list in §4 below is the original sketch) gains its 14th value, `ADVISORY_BOARD` ("Advisory Board"), a singleton organization type. See GDR-005.
+
 ---
 
 # 1. Purpose

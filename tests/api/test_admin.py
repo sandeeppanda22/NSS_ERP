@@ -25,6 +25,8 @@ Requires an admin user with ADMIN_USER_MANAGE, ADMIN_USER_VIEW,
 ADMIN_ROLE_MANAGE, and PERSON_MANAGE permissions.
 """
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 from uuid import uuid4
@@ -716,7 +718,8 @@ class TestUpdateStatusPendingClaimGuard:
     """PATCH /api/v1/admin/users/{pk}/status — PENDING_APPROVAL + claim guard."""
 
     @pytest.fixture(scope="class")
-    def sakha_org_and_type(self, write_conn):
+    @classmethod
+    def sakha_org_and_type(cls, write_conn):
         cur = write_conn.cursor()
         cur.execute("""
             SELECT o.organization_pk
@@ -775,8 +778,8 @@ class TestUpdateStatusPendingClaimGuard:
                 INSERT INTO nss.registration_claim (
                     user_account_pk, person_pk, claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
-                    claimed_local_sakha_number, claim_status
-                ) VALUES (%s, %s, %s, %s, %s, 'PENDING')
+                    claimed_local_sakha_number, is_legacy_member, claim_status
+                ) VALUES (%s, %s, %s, %s, %s, TRUE, 'PENDING')
                 """,
                 (user_account_pk, person_pk, sakha_org_and_type["org_pk"],
                  sakha_org_and_type["membership_type_pk"], uuid4().hex[:6]),
@@ -815,15 +818,62 @@ class TestUpdateStatusPendingClaimGuard:
             )
             assert cur.fetchone()[0] == 0, "Blocked activation must not create a sangha_sevi."
 
+    def test_activate_pending_approval_without_claim_or_sevi_is_422(
+        self, client, admin_headers, write_conn, sakha_org_and_type
+    ):
+        """An account whose person has no active Sangha Sevi can never log in,
+        so activation is refused even with no outstanding claim."""
+        user_account_pk = self._make_pending_person_with_claim(
+            write_conn, sakha_org_and_type, with_claim=False
+        )
+        response = client.patch(
+            f"/api/v1/admin/users/{user_account_pk}/status",
+            headers=admin_headers,
+            json={"account_status": "ACTIVE"},
+        )
+        assert response.status_code == 422
+        assert "sangha sevi" in response.json()["detail"].lower()
+        with write_conn.cursor() as cur:
+            cur.execute(
+                "SELECT account_status FROM nss.user_account WHERE user_account_pk = %s",
+                (user_account_pk,),
+            )
+            assert cur.fetchone()[0] == "PENDING_APPROVAL"
+
     def test_activate_pending_approval_without_claim_succeeds(
         self, client, admin_headers, write_conn, sakha_org_and_type
     ):
         """Activating a PENDING_APPROVAL account with NO claim (e.g. an
-        admin-created account, or has_membership=False at registration)
-        just flips the status — no sangha_sevi is invented for it."""
+        admin-created account) but WITH an existing active Sangha Sevi just
+        flips the status — update_status() never invents a sangha_sevi."""
         user_account_pk = self._make_pending_person_with_claim(
             write_conn, sakha_org_and_type, with_claim=False
         )
+        with write_conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT md.master_data_pk
+                FROM nss.master_data md
+                JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+                WHERE mc.category_code = 'STATUS' AND md.value_code = 'ACTIVE'
+                  AND md.is_active = TRUE
+                LIMIT 1
+                """
+            )
+            status_pk = cur.fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO nss.sangha_sevi (
+                    sangha_sevi_id, person_pk, membership_type_master_data_pk,
+                    membership_status_master_data_pk, organization_pk, joining_date
+                )
+                SELECT %s, ua.person_pk, %s, %s, %s, DATE '2020-04-01'
+                FROM nss.user_account ua WHERE ua.user_account_pk = %s
+                """,
+                (f"TSSPC{uuid4().hex[:10].upper()}",
+                 sakha_org_and_type["membership_type_pk"], str(status_pk),
+                 sakha_org_and_type["org_pk"], user_account_pk),
+            )
 
         response = client.patch(
             f"/api/v1/admin/users/{user_account_pk}/status",
@@ -844,7 +894,7 @@ class TestUpdateStatusPendingClaimGuard:
                 "(SELECT person_pk FROM nss.user_account WHERE user_account_pk = %s)",
                 (user_account_pk,),
             )
-            assert cur.fetchone()[0] == 0, "update_status() must never create a sangha_sevi."
+            assert cur.fetchone()[0] == 1, "update_status() must not create a second sangha_sevi."
 
 
 # ── Delete user tests ─────────────────────────────────────────────────
@@ -925,7 +975,26 @@ class TestSelfProtection:
             headers=admin_headers,
         )
         assert r.status_code == 422
-        assert "own role" in r.json()["detail"].lower()
+
+    def test_cannot_assign_role_to_self_unless_kendra_admin(
+        self, client, admin_headers, admin_user
+    ):
+        """A non-Kendra admin cannot grant a role to their own account (403)."""
+        own_pk = admin_user["user_account_pk"]
+        roles = client.get(
+            f"/api/v1/admin/users/{own_pk}/roles", headers=admin_headers,
+        ).json()
+        if any(r.get("is_active", True) and r["role_code"] == "NSS_ERP_KENDRA_ADMIN"
+               for r in roles):
+            pytest.skip("Test admin is a Kendra Administrator, who may self-assign.")
+        r = client.post(
+            f"/api/v1/admin/users/{own_pk}/roles",
+            headers=admin_headers,
+            json={"role_code": "NSS_ERP_AUDITOR", "scope_level": "NSS-WIDE"},
+        )
+        assert r.status_code == 403
+        assert "own account" in r.json()["detail"].lower()
+        assert "assign a role" in r.json()["detail"].lower()
 
 
 # ── Organization listing tests ────────────────────────────────────────
@@ -999,10 +1068,13 @@ class TestUpdateOrganization:
     def _get_first_org_pk(self, client, admin_headers):
         """Helper: get the PK of the first organization."""
         resp = client.get(
-            "/api/v1/admin/organizations?page_size=1",
+            "/api/v1/admin/organizations?page_size=10",
             headers=admin_headers,
         )
-        orgs = resp.json().get("organizations", [])
+        # The Advisory Board's name is immutable, so never pick it for the
+        # name-edit test (it sorts first by code: ADB).
+        orgs = [o for o in resp.json().get("organizations", [])
+                if o.get("type_code") != "ADVISORY_BOARD"]
         if not orgs:
             pytest.skip("No organizations in database.")
         return orgs[0]["organization_pk"]
@@ -1045,6 +1117,37 @@ class TestUpdateOrganization:
             json={},
         )
         assert response.status_code == 422
+
+    def _advisory_board_pk(self, client, admin_headers):
+        resp = client.get(
+            "/api/v1/admin/organizations?type_code=ADVISORY_BOARD&page_size=1",
+            headers=admin_headers,
+        )
+        orgs = resp.json().get("organizations", [])
+        if not orgs:
+            pytest.skip("Advisory Board organization not seeded.")
+        return orgs[0]["organization_pk"], orgs[0]["organization_name"]
+
+    def test_advisory_board_name_is_immutable_even_for_nss_erp_admin(self, client, admin_headers):
+        """ADVISORY_BOARD organization_name cannot change for any actor (422)."""
+        org_pk, name = self._advisory_board_pk(client, admin_headers)
+        response = client.patch(
+            f"/api/v1/admin/organizations/{org_pk}",
+            headers=admin_headers,
+            json={"organization_name": f"{name} Renamed"},
+        )
+        assert response.status_code == 422, response.text
+        assert "fixed" in response.text
+
+    def test_advisory_board_contact_fields_and_same_name_stay_editable(self, client, admin_headers):
+        org_pk, name = self._advisory_board_pk(client, admin_headers)
+        response = client.patch(
+            f"/api/v1/admin/organizations/{org_pk}",
+            headers=admin_headers,
+            json={"organization_name": name, "phone_number": "0674-7654321"},
+        )
+        assert response.status_code == 200, response.text
+        assert "phone_number" in response.json()["updated_fields"]
 
     def test_update_org_not_found(self, client, admin_headers):
         """Updating a non-existent org returns 404."""
@@ -1203,7 +1306,8 @@ class TestCreateOrganization:
     """POST /api/v1/admin/organizations"""
 
     @pytest.fixture(scope="class")
-    def org_helpers(self, write_conn):
+    @classmethod
+    def org_helpers(cls, write_conn):
         """Get master data PKs needed for org creation."""
         cur = write_conn.cursor()
         # Get India country_pk
@@ -1238,7 +1342,8 @@ class TestCreateOrganization:
         }
 
     @pytest.fixture(scope="class")
-    def parent_anchalika_pk(self, client, admin_headers, write_conn, org_helpers):
+    @classmethod
+    def parent_anchalika_pk(cls, client, admin_headers, write_conn, org_helpers):
         """
         Throwaway ANCHALIKA_SANGHA to act as the parent of the SAKHA_SANGHA
         under test.
@@ -1333,6 +1438,19 @@ class TestCreateOrganization:
             },
         )
         assert response.status_code == 422
+
+    @pytest.mark.parametrize("type_code", [
+        "ADVISORY_BOARD", "KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA",
+    ])
+    def test_create_org_refuses_singleton_types(self, client, admin_headers, type_code):
+        """Singleton org types (incl. the Advisory Board, 2026-10-30) are seeded, never created."""
+        response = client.post(
+            "/api/v1/admin/organizations",
+            headers=admin_headers,
+            json={"organization_name": f"Second {type_code}", "organization_type_code": type_code},
+        )
+        assert response.status_code == 422, response.text
+        assert "unique and already exists" in response.json()["detail"]
 
     def test_create_org_missing_name_fails(self, client, admin_headers):
         """Missing organization_name returns 422."""
@@ -1429,7 +1547,8 @@ class TestKumariSevakInheritsFromParent:
     """
 
     @pytest.fixture(scope="class")
-    def parent_sakha(self, client, admin_headers, write_conn, india_state_district_pks):
+    @classmethod
+    def parent_sakha(cls, client, admin_headers, write_conn, india_state_district_pks):
         """A Sakha with a known code and a full location/contact detail set,
         so the wing's inheritance can be asserted field-by-field."""
         cur = write_conn.cursor()
@@ -1539,10 +1658,13 @@ class TestUpdateShortCode:
     def _get_first_org_pk(self, client, admin_headers):
         """Helper: get the PK of the first organization."""
         resp = client.get(
-            "/api/v1/admin/organizations?page_size=1",
+            "/api/v1/admin/organizations?page_size=10",
             headers=admin_headers,
         )
-        orgs = resp.json().get("organizations", [])
+        # The Advisory Board's name is immutable, so never pick it for the
+        # name-edit test (it sorts first by code: ADB).
+        orgs = [o for o in resp.json().get("organizations", [])
+                if o.get("type_code") != "ADVISORY_BOARD"]
         if not orgs:
             pytest.skip("No organizations in database.")
         return orgs[0]["organization_pk"]
@@ -1581,6 +1703,26 @@ class TestUpdateShortCode:
         )
         assert response.status_code == 422
 
+    @pytest.mark.parametrize("value", [123, True, ["ABC"], {"a": 1}])
+    def test_non_string_short_code_is_422(self, client, admin_headers, value):
+        """The body is a Pydantic schema: a non-string is a 422, not a crash/coercion."""
+        org_pk = self._get_first_org_pk(client, admin_headers)
+        response = client.patch(
+            f"/api/v1/admin/organizations/{org_pk}/short-code",
+            headers=admin_headers,
+            json={"short_code": value},
+        )
+        assert response.status_code == 422
+
+    def test_non_object_body_is_422(self, client, admin_headers):
+        org_pk = self._get_first_org_pk(client, admin_headers)
+        response = client.patch(
+            f"/api/v1/admin/organizations/{org_pk}/short-code",
+            headers=admin_headers,
+            json=["ABC"],
+        )
+        assert response.status_code == 422
+
     def test_short_code_nonexistent_org(self, client, admin_headers):
         """Updating short_code on non-existent org returns 404."""
         response = client.patch(
@@ -1597,7 +1739,8 @@ class TestCreateUserWithSanghaSevi:
     """POST /api/v1/admin/users with create_sangha_sevi=True"""
 
     @pytest.fixture(scope="class")
-    def ss_helpers(self, write_conn):
+    @classmethod
+    def ss_helpers(cls, write_conn):
         """Get master data PKs needed for sangha sevi creation."""
         cur = write_conn.cursor()
 
@@ -1632,7 +1775,8 @@ class TestCreateUserWithSanghaSevi:
         }
 
     @pytest.fixture(scope="class")
-    def ss_target_person_pk(self, write_conn):
+    @classmethod
+    def ss_target_person_pk(cls, write_conn):
         """
         Create a dedicated throwaway person (guaranteed no user account)
         for the create-user-with-sangha-sevi test. See target_person_pk
@@ -1815,7 +1959,8 @@ class TestSakhaScopeAutoSelect:
     """
 
     @pytest.fixture(scope="class")
-    def regular_type_pk(self, write_conn):
+    @classmethod
+    def regular_type_pk(cls, write_conn):
         cur = write_conn.cursor()
         cur.execute("""
             SELECT md.master_data_pk
@@ -1910,7 +2055,8 @@ class TestKumariSevakSakhaOptions:
     """
 
     @pytest.fixture(scope="class")
-    def report_viewer_headers(self, client, write_conn, two_sakhas):
+    @classmethod
+    def report_viewer_headers(cls, client, write_conn, two_sakhas):
         """A role with neither ADMIN_USER_MANAGE nor PERSON_MANAGE.
 
         Login is via sangha_sevi_id (there is no user_account.login_id
@@ -2134,16 +2280,12 @@ class TestCreateSanghaSeviWithAccount:
 
 class TestCreateSanghaSeviCredentialNumber:
     """
-    POST /admin/sangha-sevi — legacy credential document_number handling.
-
-    Decided 2026-10-01: no one, legacy or new, is ever asked to supply a
-    year. The shared credential writer issue_membership_credential() stores
-    a caller-supplied ("legacy", already-issued) document_number verbatim,
-    exactly as written on the old paper register — no format or year is
-    required or validated (MBR-030D retired). A bare sequence like "1" is a
-    perfectly valid legacy number. The auto-generate path (no
-    document_number) is unaffected and still mints a well-formed FY
-    composite.
+    POST /admin/sangha-sevi — Parichaya/Anumati Patra number handling under
+    GDR-009 §2A (owner 2026-11-01), the same legacy flag as the Local Sakha
+    Number: a LEGACY member supplies the existing card number, strictly
+    <seq>/<yyyy>/<yyyy+1> (any past/current year pair); anyone else sends none.
+    Otherwise the number is minted at creation (Anumati for a Darshaka,
+    Parichaya for Regular/Associate).
     """
 
     def _make_person(self, write_conn):
@@ -2170,141 +2312,179 @@ class TestCreateSanghaSeviCredentialNumber:
         cur.close()
         return row[0] if row else None
 
-    # parichaya_patra.document_number is globally UNIQUE and these rows
-    # persist, so the literals cannot be hardcoded or the suite only passes
-    # once per database. Each case is a SHAPE with a run-scoped sequence
-    # substituted for "{s}" — the assertion is verbatim storage, so the shape
-    # is what carries the meaning, not the specific digits.
-    @pytest.mark.parametrize("legacy_shape", [
-        "{s}",                  # bare sequence — the whole point of the fix
-        "{s}345",               # any bare sequence
-        "{s}/2026",             # partial year info is fine too
-        "{s}/25/26",            # two-digit years, fine
-        "abc{s}",               # non-numeric, fine — stored verbatim
-        "{s}/2026/2027/2028",   # extra segment, fine
-        " {s}/2026/2027 ",      # whitespace is just part of the string
-    ])
-    def test_legacy_number_stored_verbatim_no_format_or_year_required(
-        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn, legacy_shape
-    ):
-        if not regular_membership_type_pk or not two_sakhas:
-            pytest.skip("Missing reference data.")
-        legacy_number = legacy_shape.format(s=_RUN_DIGITS)
-        person_pk = self._make_person(write_conn)
-        resp = client.post("/api/v1/admin/sangha-sevi", headers=admin_headers, json={
-            "person_pk": person_pk,
-            "membership_type_pk": regular_membership_type_pk,
-            "organization_pk": two_sakhas[0],
-            "joining_date": "2024-04-01",
-            "credential_document_number": legacy_number,
-        })
-        assert resp.status_code == 201, resp.json()
-        assert self._parichaya_document_number(write_conn, person_pk) == legacy_number
-
-    def test_valid_legacy_number_accepted_and_stored_verbatim(
-        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
-    ):
-        if not regular_membership_type_pk or not two_sakhas:
-            pytest.skip("Missing reference data.")
-        person_pk = self._make_person(write_conn)
-        # No year requirement (MBR-030D retired, 2026-10-01) — any FY-shaped
-        # number, past, present, or future, is accepted and stored as-is.
-        from datetime import date
-
-        from api.helpers import financial_year_bounds
-
-        fy_start, fy_end, fy_valid_from, fy_valid_to = financial_year_bounds(date.today())
-        # Unique 6-digit sequence so the composite can't collide (409) with
-        # seed data or a sibling test's credential in the same transaction.
-        seq = str(uuid4().int % 900000 + 100000)
-        doc = f"{seq}/{fy_start}/{fy_end}"
-        resp = client.post("/api/v1/admin/sangha-sevi", headers=admin_headers, json={
-            "person_pk": person_pk,
-            "membership_type_pk": regular_membership_type_pk,
-            "organization_pk": two_sakhas[0],
-            "joining_date": "2024-04-01",
-            "credential_document_number": doc,
-            "credential_valid_from": fy_valid_from.isoformat(),
-            "credential_valid_to": fy_valid_to.isoformat(),
-        })
-        assert resp.status_code == 201, resp.json()
-        # REGULAR membership => Parichaya Patra; the number is stored verbatim.
-        assert self._parichaya_document_number(write_conn, person_pk) == doc
-
-    def test_omitted_number_autogenerates_valid_composite(
-        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
-    ):
-        """No document_number => a well-formed FY composite is auto-generated."""
-        if not regular_membership_type_pk or not two_sakhas:
-            pytest.skip("Missing reference data.")
-        person_pk = self._make_person(write_conn)
-        resp = client.post("/api/v1/admin/sangha-sevi", headers=admin_headers, json={
-            "person_pk": person_pk,
-            "membership_type_pk": regular_membership_type_pk,
-            "organization_pk": two_sakhas[0],
-            "joining_date": "2024-04-01",
-        })
-        assert resp.status_code == 201, resp.json()
-        stored = self._parichaya_document_number(write_conn, person_pk)
-        assert stored is not None, "Parichaya Patra should have been issued"
-        parts = stored.split("/")
-        assert len(parts) == 3, stored
-        assert parts[0].isdigit(), stored
-        assert len(parts[1]) == 4 and parts[1].isdigit(), stored
-        assert len(parts[2]) == 4 and parts[2].isdigit(), stored
-
-    def test_autogenerated_validity_window_follows_dola_purnima(
-        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
-    ):
-        """
-        SOL-ARCH-013 FC-DECISION-01: valid_from/valid_to are decoupled from
-        the FY-based document_number — they must land on confirmed Dola
-        Purnima dates (the "Dola Purnima membership year"), not on the
-        1 April/31 March financial-year bounds that still govern the
-        document_number itself.
-        """
-        from datetime import date
-
-        from api.helpers import festival_date_for_year, financial_year_bounds
-
-        if not regular_membership_type_pk or not two_sakhas:
-            pytest.skip("Missing reference data.")
-        person_pk = self._make_person(write_conn)
-        resp = client.post("/api/v1/admin/sangha-sevi", headers=admin_headers, json={
-            "person_pk": person_pk,
-            "membership_type_pk": regular_membership_type_pk,
-            "organization_pk": two_sakhas[0],
-            "joining_date": "2024-04-01",
-        })
-        assert resp.status_code == 201, resp.json()
-
+    def _issue_year(self, write_conn, person_pk):
         cur = write_conn.cursor()
         cur.execute("""
-            SELECT pp.document_number, pp.valid_from, pp.valid_to
+            SELECT pp.issue_date
             FROM nss.parichaya_patra pp
             JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = pp.sangha_sevi_pk
             WHERE ss.person_pk = %s
         """, (person_pk,))
-        document_number, valid_from, valid_to = cur.fetchone()
-
-        # document_number is still FY-based (MBR-030A) ...
-        seq_str, fy_start_str, fy_end_str = document_number.split("/")
-        assert int(fy_end_str) == int(fy_start_str) + 1
-
-        # ... and valid_from/valid_to (and issue_date, implicitly) are the
-        # Dola Purnima dates of that SAME financial year — the document
-        # number's fy_start year to fy_start+1 — not whatever Dola Purnima
-        # happens to fall next after today's raw date (2026-10-03 refinement:
-        # no credential is ever anchored on today(), only on a Dola Purnima
-        # tied to the membership year being issued).
-        anchor_year = financial_year_bounds(date.today())[0]
-        assert int(fy_start_str) == anchor_year
-        expected_from = festival_date_for_year(cur, "DOLA_PURNIMA", anchor_year)
-        expected_to = festival_date_for_year(cur, "DOLA_PURNIMA", anchor_year + 1)
+        row = cur.fetchone()
         cur.close()
+        return row[0].year
 
-        assert valid_from == expected_from
-        assert valid_to == expected_to
+    def _create(self, client, admin_headers, regular_membership_type_pk, two_sakhas, number,
+                legacy=True, **extra):
+        body = {
+            "person_pk": number["person_pk"],
+            "membership_type_pk": regular_membership_type_pk,
+            "organization_pk": two_sakhas[0],
+            "joining_date": "2024-04-01",
+            "is_legacy_member": legacy,
+        }
+        if legacy:
+            body["local_sakha_erp_id"] = str(9_000_000 + int(uuid4().int % 900_000))
+        if number.get("value") is not None:
+            body["credential_document_number"] = number["value"]
+        body.update(extra)
+        return client.post("/api/v1/admin/sangha-sevi", headers=admin_headers, json=body)
+
+    @staticmethod
+    def _legacy_card(offset=0, year=2025):
+        """A run-scoped, per-case card number in the strict MBR-030A form."""
+        return f"{int(_RUN_DIGITS) + 10 + offset}/{year}/{year + 1}"
+
+    @pytest.mark.parametrize("shape", ["{c}", " {c} "])
+    def test_legacy_number_is_stored_as_given_even_from_a_previous_year(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn, shape
+    ):
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        card = self._legacy_card(offset=len(shape))
+        person_pk = self._make_person(write_conn)
+        resp = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                            {"person_pk": person_pk, "value": shape.format(c=card)})
+        assert resp.status_code == 201, resp.json()
+        assert resp.json()["credential_document_number"] == card
+        assert self._parichaya_document_number(write_conn, person_pk) == card
+
+    @pytest.mark.parametrize("bad", [
+        "{s}",                  # bare number: a legacy card carries its years
+        "{s}/2026",             # partial year
+        "abc{s}/2026/2027",     # non-numeric sequence
+        "{s}/25/26",            # two-digit years
+        "{s}/2026/2027/2028",   # extra segment
+        "{s}/2026/2028",        # years not consecutive
+        "{s}/2027/2026",        # reversed
+        "0{s}/2026/2027",       # leading zero
+    ])
+    def test_malformed_legacy_number_is_422(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn, bad
+    ):
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        person_pk = self._make_person(write_conn)
+        resp = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                            {"person_pk": person_pk, "value": bad.format(s=int(_RUN_DIGITS) + 30)})
+        assert resp.status_code == 422, resp.json()
+        assert "credential_document_number" in resp.json()["detail"]
+
+    def test_legacy_member_without_a_number_is_422(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
+    ):
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        person_pk = self._make_person(write_conn)
+        resp = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                            {"person_pk": person_pk, "value": None})
+        assert resp.status_code == 422, resp.json()
+        assert "credential_document_number" in resp.json()["detail"]
+
+    def test_new_member_sending_a_number_is_422(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
+    ):
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        person_pk = self._make_person(write_conn)
+        resp = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                            {"person_pk": person_pk, "value": self._legacy_card(offset=40)},
+                            legacy=False)
+        assert resp.status_code == 422, resp.json()
+        assert "must be blank" in resp.json()["detail"]
+
+    def test_duplicate_legacy_number_is_409(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
+    ):
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        card = self._legacy_card(offset=50)
+        first = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                             {"person_pk": self._make_person(write_conn), "value": card})
+        assert first.status_code == 201, first.json()
+        again = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                             {"person_pk": self._make_person(write_conn), "value": card})
+        assert again.status_code == 409, again.json()
+
+    def test_new_regular_member_gets_a_minted_parichaya_patra(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
+    ):
+        """GDR-009 §2A: every member holds a credential — a new Regular's is minted."""
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        person_pk = self._make_person(write_conn)
+        resp = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                            {"person_pk": person_pk, "value": None}, legacy=False)
+        assert resp.status_code == 201, resp.json()
+        assert resp.json()["credential_type"] == "PARICHAYA_PATRA"
+        stored = self._parichaya_document_number(write_conn, person_pk)
+        assert stored == resp.json()["credential_document_number"]
+        assert re.fullmatch(r"[1-9]\d*/\d{4}/\d{4}", stored)
+
+    def test_new_darshaka_gets_a_minted_anumati_patra(
+        self, client, admin_headers, two_sakhas, write_conn
+    ):
+        if not two_sakhas:
+            pytest.skip("Missing reference data.")
+        cur = write_conn.cursor()
+        cur.execute("""
+            SELECT md.master_data_pk FROM nss.master_data md
+            JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+            WHERE mc.category_code = 'MEMBERSHIP_TYPE' AND md.value_code = 'PROBATIONARY'
+              AND md.is_active = TRUE LIMIT 1
+        """)
+        row = cur.fetchone()
+        cur.close()
+        if row is None:
+            pytest.skip("No PROBATIONARY membership type.")
+        person_pk = self._make_person(write_conn)
+        resp = self._create(client, admin_headers, str(row[0]), two_sakhas,
+                            {"person_pk": person_pk, "value": None}, legacy=False)
+        assert resp.status_code == 201, resp.json()
+        assert resp.json()["credential_type"] == "ANUMATI_PATRA"
+        assert re.fullmatch(r"[1-9]\d*/\d{4}/\d{4}", resp.json()["credential_document_number"])
+
+    def test_minted_parichaya_validity_follows_dola_purnima(
+        self, client, admin_headers, regular_membership_type_pk, two_sakhas, write_conn
+    ):
+        """
+        SOL-ARCH-013 FC-DECISION-01: the minted Parichaya Patra's issue date
+        and valid_from/valid_to land on confirmed Dola Purnima dates (the
+        "Dola Purnima membership year"), not on the 1 April/31 March bounds;
+        the document_number year pair is the issue date's calendar year.
+        """
+        from api.helpers import festival_date_for_year
+
+        if not regular_membership_type_pk or not two_sakhas:
+            pytest.skip("Missing reference data.")
+        person_pk = self._make_person(write_conn)
+        created = self._create(client, admin_headers, regular_membership_type_pk, two_sakhas,
+                               {"person_pk": person_pk, "value": None}, legacy=False)
+        assert created.status_code == 201, created.json()
+
+        cur = write_conn.cursor()
+        cur.execute("""
+            SELECT pp.document_number, pp.issue_date, pp.valid_from, pp.valid_to
+            FROM nss.parichaya_patra pp
+            JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = pp.sangha_sevi_pk
+            WHERE ss.person_pk = %s
+        """, (person_pk,))
+        document_number, issue_date, valid_from, valid_to = cur.fetchone()
+        _seq, year_start, year_end = document_number.split("/")
+        assert int(year_end) == int(year_start) + 1 and int(year_start) == issue_date.year
+        assert issue_date == festival_date_for_year(cur, "DOLA_PURNIMA", issue_date.year)
+        assert valid_from == issue_date
+        cur.close()
         assert valid_to.year == valid_from.year + 1
 
 
@@ -2344,7 +2524,8 @@ class TestLocalSakhaNumberUniqueness:
     """
 
     @pytest.fixture(scope="class")
-    def num_helpers(self, write_conn):
+    @classmethod
+    def num_helpers(cls, write_conn):
         """
         Resolve the REGULAR and PROBATIONARY (Darshaka) membership types and
         a Sakha org that has a short_code — compose_local_sakha_erp_id raises
@@ -2432,6 +2613,10 @@ class TestLocalSakhaNumberUniqueness:
                 "organization_pk": helpers["organization_pk"],
                 "joining_date": "2024-04-01",
                 "local_sakha_erp_id": local_number,
+                "is_legacy_member": True,
+                # GDR-009 §2A: a legacy member also states the card number
+                # (Regular: Parichaya; Darshaka: Anumati — unique per call).
+                "credential_document_number": f"{int(uuid4().int % 900_000) + 100_000}/2025/2026",
             },
         )
 

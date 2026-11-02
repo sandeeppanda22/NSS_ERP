@@ -4,6 +4,8 @@
 -- File: 05_family_link.sql
 -- Table: nss.family_link
 -- Depth: 3 (depends on family_group, person)
+-- Version: 1.1 — added SIBLING_OF link_type (owner decision, 2026-10-22);
+--          see the link_type semantics note below.
 -- Version: 1.0
 -- Authority: ERP-DECISION — Graph-based dynamic
 --            relationship model
@@ -15,9 +17,29 @@
 --       traversal relative to the viewer.
 --
 --       link_type semantics:
---         PARENT_OF — person_a is parent of person_b
---         SPOUSE_OF — person_a and person_b are spouses
---                     (bidirectional; store one row)
+--         PARENT_OF  — person_a is parent of person_b
+--                      (directed)
+--         SPOUSE_OF  — person_a and person_b are spouses
+--                      (bidirectional; store one row)
+--         SIBLING_OF — person_a and person_b are siblings
+--                      (bidirectional; store one row).
+--                      Added 2026-10-22 (owner decision):
+--                      a member adding a Brother/Sister via
+--                      the dashboard previously only got a
+--                      family_relationship row — with no
+--                      family_link edge when they had no
+--                      parent yet in the graph, they were
+--                      invisible in the tree view. SIBLING_OF
+--                      lets a direct sibling edge be created
+--                      without requiring a parent first.
+--                      Symmetric like SPOUSE_OF, not
+--                      directional like PARENT_OF — same
+--                      "store one row, either direction"
+--                      convention. See api/services/
+--                      family_graph.py for how a SIBLING_OF
+--                      edge is labelled (and how it composes
+--                      with shared-parent-derived sibling
+--                      paths without double-counting).
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS nss.family_link
@@ -37,7 +59,7 @@ CREATE TABLE IF NOT EXISTS nss.family_link
     -- The "to" person in the directed edge
     person_b_pk UUID NOT NULL,
 
-    -- Only two link types allowed
+    -- PARENT_OF, SPOUSE_OF or SIBLING_OF — see header note
     link_type VARCHAR(20) NOT NULL,
 
     -- ── Effective Period ────────────────────────────────
@@ -75,7 +97,7 @@ CREATE TABLE IF NOT EXISTS nss.family_link
         REFERENCES nss.person (person_pk),
 
     CONSTRAINT chk_family_link_type
-        CHECK (link_type IN ('PARENT_OF', 'SPOUSE_OF')),
+        CHECK (link_type IN ('PARENT_OF', 'SPOUSE_OF', 'SIBLING_OF')),
 
     CONSTRAINT chk_family_link_no_self
         CHECK (person_a_pk <> person_b_pk),
@@ -95,6 +117,22 @@ CREATE TABLE IF NOT EXISTS nss.family_link
             (is_current = FALSE AND effective_to IS NOT NULL)
         )
 );
+
+-- Idempotent safety net: on a database bootstrapped before SIBLING_OF was
+-- added, CREATE TABLE IF NOT EXISTS above is a no-op (the table already
+-- exists), so chk_family_link_type would still only allow PARENT_OF/
+-- SPOUSE_OF. This ALTER guarantees the widened CHECK either way. NOTE:
+-- under this project's existence-gated build (run_ddl / Invoke-Ddl — see
+-- database/scripts/02_build.sh), the ENTIRE file is skipped once
+-- nss.family_link already exists, so this ALTER (like the CREATE TABLE
+-- above it) will NOT run on an already-bootstrapped environment either —
+-- a full hard rebuild is required there. This safety net only protects a
+-- genuinely fresh install.
+ALTER TABLE nss.family_link
+    DROP CONSTRAINT IF EXISTS chk_family_link_type;
+ALTER TABLE nss.family_link
+    ADD CONSTRAINT chk_family_link_type
+        CHECK (link_type IN ('PARENT_OF', 'SPOUSE_OF', 'SIBLING_OF'));
 
 -- ── Indexes ─────────────────────────────────────────────
 

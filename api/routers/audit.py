@@ -129,7 +129,10 @@ def list_field_change_log(
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
 
-    sql += " ORDER BY fcl.changed_at DESC"
+    # field_change_log_pk breaks ties among rows sharing a timestamp (one
+    # statement logs one row per field in the same transaction), so
+    # LIMIT/OFFSET paging is deterministic.
+    sql += " ORDER BY fcl.changed_at DESC, fcl.field_change_log_pk DESC"
     sql += " LIMIT %s OFFSET %s"
     params.extend([limit, offset])
 

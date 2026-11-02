@@ -203,12 +203,21 @@ class TestPersonListSorting:
         assert client.get(f"{BASE}/persons").status_code == 200
 
     def test_asc_and_desc_are_actual_reverses(self, client):
-        asc = _list_persons(client, sort_by="person_id", sort_dir="asc")
-        desc = _list_persons(client, sort_by="person_id", sort_dir="desc")
-        if len(asc) < 2:
+        # Paginated list: compare the FIRST page of asc with the LAST page of
+        # desc (offset = total - n); on a DB larger than a page the two first
+        # pages are opposite ends, not reverses.
+        n = 5
+        first = client.get(f"{BASE}/persons", params={
+            "sort_by": "person_id", "sort_dir": "asc", "limit": n}).json()
+        total = first["total"]
+        if total < 2:
             pytest.skip("needs at least two persons")
-        ids_asc = [p["person_id"] for p in asc]
-        ids_desc = [p["person_id"] for p in desc]
+        n = min(n, total)
+        tail = client.get(f"{BASE}/persons", params={
+            "sort_by": "person_id", "sort_dir": "desc",
+            "limit": n, "offset": total - n}).json()
+        ids_asc = [p["person_id"] for p in first["persons"]][:n]
+        ids_desc = [p["person_id"] for p in tail["persons"]]
         assert ids_asc == list(reversed(ids_desc))
 
     def test_person_id_sorts_numerically_not_as_text(self, client):

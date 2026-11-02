@@ -10,9 +10,17 @@
 | Document ID | SOL-ATT-003 |
 | Domain | Attendance |
 | Repository Path | docs/03_Solution/modules/attendance/03_attendance_business_rules.md |
-| Version | 1.0.0 |
-| Status | DRAFT |
+| Version | 1.1.0 |
+| Status | FROZEN |
 | Parent Document | 01_attendance_module_overview.md |
+
+---
+
+> **Amendment (2026-10-27, owner-confirmed):** adds ATT-041 through
+> ATT-044 (§16) recording the Attendance Marker role and the real-seat
+> Review authority check, both implementation decisions made at build
+> time. See 01_attendance_module_overview.md's amendment block for the
+> full decision set (detection mechanism, Darshak decoupling, UI scope).
 
 ---
 
@@ -390,6 +398,48 @@ Attendance records shall not be physically deleted.
 ## ATT-040 — Review History
 
 Attendance Review history shall remain traceable.
+
+---
+
+# 13A. Attendance Operational Authority (Amendment, 2026-10-27)
+
+## ATT-041 — Attendance Marker Role
+
+A Sakha may designate multiple members as Attendance Markers, in
+addition to its Sakha admin, to record Weekly Sangha Puja attendance.
+This authority is distinct from, and narrower than, Attendance Review
+authority (ATT-015/016/017) — an Attendance Marker may mark attendance
+but has no Review authority of any kind.
+
+---
+
+## ATT-042 — Attendance Review Authority Is the Real Governance Seat
+
+Attendance Review authority (create/close/defer/escalate/approve excused
+absence/reopen/override) is held by whoever currently occupies the
+Secretary or President seat on the relevant Sakha's Governing Body
+(`SAKHA_GOVERNING_BODY`) — not by the Sakha admin RBAC role, and not by
+the Attendance Marker role. Authority is checked against the live
+governance assignment, never cached, so it automatically follows an
+election or reassignment.
+
+---
+
+## ATT-043 — Marking Does Not Confer Review Authority
+
+Holding the Attendance Marker role or the Sakha admin role does not, by
+itself, confer Attendance Review authority. A Sakha admin who is not the
+elected Secretary or President cannot close, defer, escalate, reopen, or
+override a review.
+
+---
+
+## ATT-044 — Global Oversight
+
+An NSS-wide administrator (NSS_ERP_ADMIN) retains the ability to view
+every Attendance Review NSS-wide, consistent with the global oversight
+this role already holds across every other module; this is a reporting/
+oversight capability, not a substitute for Secretary/President action.
 
 ---
 

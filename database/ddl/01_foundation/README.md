@@ -128,7 +128,7 @@ unpadded IDs (`{prefix}{current_value}`, e.g. `SKH1`), but no currently
 seeded sequence has `padding_length = 0` yet — see
 `database/seed/01_foundation/README.md` for the actual per-sequence values.
 
-Unique organizations (KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA) do not use
+Unique organizations (KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA, and the singleton ADVISORY_BOARD) do not use
 sequences — they receive fixed codes directly from seed data.
 
 | Column | Type | Constraint | Purpose |

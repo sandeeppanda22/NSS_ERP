@@ -45,6 +45,35 @@ const DASHBOARD_LEVELS = [
     { typeCode: "MAHILA_SANGHA", label: "Mahila Parichalana Mandali" },
 ];
 
+// Correspondence register tabs (owner 2026-10-26: "when tab is anchalika, we
+// should have a dropdown to select the anchalika, not a tab for each
+// anchalika, and it should be Anchalika/Zilla"). One tab per org TYPE GROUP,
+// not per org: the tab picks the tier, a dropdown inside it picks which org
+// of that tier when the admin can file for more than one. Anchalika and Zilla
+// share a single tab — they are the same tier of the frozen hierarchy
+// (Kendra -> Anchalika/Zilla -> Sakha) and an admin thinks of them as one
+// choice. NILACHALA_KUTIRA/SMRUTI_MANDIRA are deliberately absent (apex
+// singletons that keep no correspondence register of their own). The singleton
+// ADVISORY_BOARD organization (owner 2026-10-30) DOES keep one — its own tab.
+const CORR_REGISTER_TAB_GROUPS = [
+    { key: "KENDRA", label: "Kendra", typeCodes: ["KENDRA"] },
+    { key: "ANCHALIKA_ZILLA", label: "Anchalika/Zilla", typeCodes: ["ANCHALIKA_SANGHA", "ZILLA_SANGHA"] },
+    { key: "PATHA_CHAKRA", label: "Patha Chakra", typeCodes: ["PATHA_CHAKRA"] },
+    { key: "SAKHA_SANGHA", label: "Sakha", typeCodes: NSS.SAKHA_LIKE_ORG_TYPES },
+    { key: "MAHILA_SANGHA", label: "Mahila Sangha", typeCodes: ["MAHILA_SANGHA"] },
+    { key: "ADVISORY_BOARD", label: "Advisory Board", typeCodes: ["ADVISORY_BOARD"] },
+];
+
+// NULL-organization scope levels that nonetheless reach organizations by TYPE.
+// Mirrors api/services/rbac_service.py::NULL_ORG_SCOPE_ORG_TYPE — keep in step.
+// The server-resolved reach arrives in /auth/me admin_scope_org_pks; this map
+// only says which organizations of that reach a scope level contributes as
+// correspondence registers.
+const NULL_ORG_SCOPE_ORG_TYPE = {
+    KENDRA_MAHILA_SANGHA: "MAHILA_SANGHA",
+    ADVISORY_BOARD: "ADVISORY_BOARD",
+};
+
 function adminApp() {
     // Resolve the initial tab synchronously from the URL hash (e.g.
     // /admin#orgHierarchy) so the page renders the right tab immediately
@@ -57,7 +86,13 @@ function adminApp() {
         : _initialHash.startsWith("orgDashboard/") ? "orgDashboard"
         : (_initialHash || "users");
 
-    return {
+    // NSSAttendanceRegister.install() adds the shared attendance-register
+    // members (permission getters, roster rows, tallies, filter,
+    // search-to-add, submit) that this panel and the member dashboard both
+    // run — see assets/js/attendance-register.js. install() never
+    // overwrites a property defined below, which is how the
+    // `_afterAttendanceSaved` hook further down wins.
+    return NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -102,10 +137,10 @@ function adminApp() {
             // (e.g. a person who isn't becoming a member right now).
             sangha_sevi_pk: "", sangha_sevi_skipped: false,
             membership_type_pk: "", organization_pk: "",
-            joining_date: "", local_sakha_number: "",
+            joining_date: "", is_legacy_member: false, local_sakha_number: "",
             // Mandatory credential (MBR-010/014/019A/B) — see
             // credentialLabelFor(). Same fields/defaults as ssForm above.
-            credential_is_legacy: false, credential_document_number: "",
+            credential_document_number: "",
         },
         createLoading: false,
         createSSLoading: false,
@@ -167,12 +202,11 @@ function adminApp() {
         // ── Create Sangha Sevi ────────────────────────────────
         ssForm: {
             person_pk: "", membership_type_pk: "", organization_pk: "",
-            joining_date: "", local_sakha_number: "",
+            joining_date: "", is_legacy_member: false, local_sakha_number: "",
             // Mandatory credential (MBR-010/014/019A/B) — see
-            // credentialLabelFor(). Leave credential_is_legacy false (the
-            // default) to auto-generate a new FY document number; check it
-            // to record an already-issued legacy credential by hand.
-            credential_is_legacy: false, credential_document_number: "",
+            // credentialLabelFor(). Entered only for a legacy member
+            // (is_legacy_member above); otherwise auto-generated (GDR-009 §2A).
+            credential_document_number: "",
             // Optional bundled login-account creation. Login is by
             // sangha_sevi_id, so the SS flow is the right place to offer it.
             create_user_account: false, password: "", force_password_change: true,
@@ -218,6 +252,7 @@ function adminApp() {
 
         // ── Role assignment ────────────────────────────────────
         roleForm: { role_code: "", scope_level: "NSS-WIDE", organization_pk: "" },
+        roleTargetHomeOrgPk: "",
         roleLoading: false,
         roleError: "",
         roleSuccess: "",
@@ -282,6 +317,7 @@ function adminApp() {
         createOrgStates: [],
         createOrgDistricts: [],
         createOrgCities: [],
+        createOrgPostalCodes: [],
         // Kumari/Sevak Sakha-scoped parent selection (ORG-BR-101/102).
         // { mode: 'choose'|'locked', auto_select_pk, sakhas: [...] }
         kumariSevakScope: { mode: "choose", auto_select_pk: null, sakhas: [] },
@@ -306,6 +342,307 @@ function adminApp() {
         locationStates: [],
         locationDistricts: [],
         locationCities: [],
+        locationPostalCodes: [],
+
+        // ── Governance (Tier 6) ─────────────────────────────────
+        govCatalogLoading: false,
+        govCatalogError: "",
+        govBodyTypes: [],
+        govPositions: [],
+        govBodyTypeForm: { show: false, saving: false, error: "", body_type_code: "", body_type_name: "", description: "" },
+        govBodyTypeEdit: { pk: null, body_type_name: "", description: "", saving: false, error: "" },
+        govPositionForm: { show: false, saving: false, error: "", position_code: "", position_name: "", description: "", display_order: 0 },
+        govPositionEdit: { pk: null, position_name: "", description: "", display_order: 0, saving: false, error: "" },
+
+        govBodiesLoading: false,
+        govBodiesError: "",
+        govBodies: [],
+        // Unfiltered copy of the same fetch — the Assignments tab's body
+        // picker (govSelectedBodyPk) must always offer every body the
+        // admin can see, independent of whatever body_type_master_pk
+        // filter is set on the Bodies tab's own list (govBodies). Those
+        // two previously shared one filtered array, so narrowing the
+        // Bodies tab to e.g. "Mahila Parichalana Mandali" silently hid
+        // every other body from the Assignments picker too.
+        govBodiesAll: [],
+        govBodyTypeFilter: "",
+        govBodyForm: {
+            show: false, saving: false, error: "", body_type_master_pk: "", body_code: "", body_name: "",
+            description: "", organization_pk: "", effective_from: "",
+            orgQuery: "", orgResults: [], orgSearching: false, selectedOrg: null,
+        },
+        // Scoped Sakha picker state for the Sakha-anchored body types in
+        // govScopedSakhaBodyTypes (requirement: auto-select the admin's
+        // own Sakha when unambiguous, else a dropdown restricted to only
+        // their scoped Sakhas) — same shape/mechanism as kumariSevakScope.
+        govBodySakhaScope: { mode: "choose", auto_select_pk: null, sakhas: [] },
+        govBodySakhaScopeLoading: false,
+        // Which Organization type a Governance Body's org-picker should
+        // search within, keyed by body_type_code. Kendra Governing Body
+        // and Advisory Board are NSS-wide (no org — field stays blank).
+        // SEVAK_SANGHA_EXECUTIVE (display label "Sevak Sangha") is a
+        // local/per-Sakha body, same pattern as Mahila Parichalana
+        // Mandali below — it maps to SAKHA_SANGHA too.
+        //
+        // MAHILA_PARICHALANA_MANDALI and SEVAK_SANGHA_EXECUTIVE both map
+        // to SAKHA_SANGHA, not a separate "Mahila Sangha"/"Sevak Sangha"
+        // organization — confirmed against the backend (api/routers/
+        // admin.py create_organization): MAHILA_SANGHA has no entry in
+        // _ALLOWED_PARENT_TYPES/_STANDARD_CREATABLE_TYPES/
+        // _SAKHA_GATED_TYPES, i.e. there is no creation path for a
+        // standalone Mahila Sangha org row per Sakha. A Sakha's Mahila
+        // Parichalana Mandali (and its Sevak Sangha executive) is a
+        // second/third governance body attached to that SAME Sakha
+        // organization, not to a distinct org. (The one genuinely
+        // separate Mahila Sangha — the central Nilachala Saraswata
+        // Mahila Sangha at Puri — is NSS-wide and already auto-seeded
+        // with organization_pk NULL; see 03_body_master.sql.)
+        govBodyOrgTypeByBodyType: {
+            SAKHA_GOVERNING_BODY: NSS.SAKHA_LIKE_ORG_TYPES,
+            MAHILA_PARICHALANA_MANDALI: NSS.SAKHA_LIKE_ORG_TYPES,
+            SEVAK_SANGHA_EXECUTIVE: NSS.SAKHA_LIKE_ORG_TYPES,
+        },
+        // Code-generation suffix per body_type_code, used instead of the
+        // raw body_type_code when it would be redundant with the org
+        // itself being a Sakha (e.g. "SKH1_SAKHA_GOVERNING_BODY" →
+        // "SKH1_GOVERNING_BODY"). Falls back to the full body_type_code
+        // for any type not listed here.
+        govBodyCodeSuffixByBodyType: {
+            SAKHA_GOVERNING_BODY: "GOVERNING_BODY",
+            MAHILA_PARICHALANA_MANDALI: "MAHILA_PARICHALANA_MANDALI",
+            SEVAK_SANGHA_EXECUTIVE: "SEVAK_SANGHA",
+        },
+        // Sakha-anchored body types whose org-picker should use the
+        // scoped auto-select/locked-dropdown UX (requirement: admin's
+        // own Sakha scope), same mechanism as loadKumariSevakScope.
+        govScopedSakhaBodyTypes: [
+            "SAKHA_GOVERNING_BODY", "MAHILA_PARICHALANA_MANDALI", "SEVAK_SANGHA_EXECUTIVE",
+        ],
+        govBodyEdit: { pk: null, body_name: "", description: "", body_status: "", effective_from: "", effective_to: "", saving: false, error: "" },
+
+        govSelectedBodyPk: "",
+        govAssignmentsLoading: false,
+        govAssignmentsError: "",
+        govAssignments: [],
+        // Current Assignments list is capped at NSS.GOV_MEMBER_CAP (9) rows
+        // with a "Show all N" toggle, matching the governance-body cards
+        // elsewhere (owner ask #2, 2026-10-24). Reset to collapsed whenever
+        // the body or the Sakha filter changes (see onGovBodyChange /
+        // _applyGovSakhaFilterDefault / the dropdown's @change).
+        govAssignmentsShowAll: false,
+        // Sakha filter (owner ask #3): a sakha_organization_pk, "" = All
+        // Sakhas. Auto-select/lock follows the universal Sakha-scope rule
+        // mirrored from govAssignableBodies (isGovNssWideAdmin +
+        // currentUser.admin_scope_org_pks).
+        govSakhaFilter: "",
+
+        govAllowedPositions: [],
+        govSeatLimit: null,
+        govSeatsFilled: 0,
+        govInheritedPositions: [],
+        govAssignFromResults: [],
+        govAssignFromResultsLoading: false,
+        govAssignOfficersFromMembers: false,
+        govAssignOrgPk: null,
+        govMissingNominations: [],
+        govMissingNominationsLoading: false,
+        govMissingNominationsError: "",
+        govAssignForm: {
+            show: false, saving: false, error: "",
+            position_master_pk: "", effective_from: "",
+            personQuery: "", personResults: [], personSearching: false,
+            selectedPerson: null,
+        },
+
+        // ── Acting / Interim Cover (GOV-BR-018/019/020) — a separate table
+        // from body_member_assignment, no composition/seat-limit check, and
+        // its own position list (allowed-positions?exclude_filled=false:
+        // interim cover is legitimate WHILE a seat is vacant or unavailable,
+        // so an already-filled position must still be offered).
+        govActingLoading: false,
+        govActingError: "",
+        govActing: [],
+        govActingPositions: [],
+        govActingForm: {
+            show: false, saving: false, error: "",
+            position_master_pk: "", effective_from: "", effective_to: "",
+            reason: "", remarks: "",
+            personQuery: "", personResults: [], personSearching: false,
+            selectedPerson: null,
+        },
+
+        // ── Governance Elections (Tier 6 voting slice, GOV-BR-045) ──
+        govElectionsLoading: false,
+        govElectionsError: "",
+        govElections: [],
+        govElectionForm: {
+            show: false, saving: false, error: "",
+            body_master_pk: "", election_code: "", election_name: "",
+            election_type: "ELECTION",
+            election_date: "", nomination_start_date: "", nomination_end_date: "",
+            voting_start_date: "", voting_end_date: "", is_secret_ballot: false,
+            description: "", remarks: "",
+        },
+        govSelectedElectionPk: "",
+        govSelectedElection: null,
+        govElectionBusy: false,
+        govElectionActionError: "",
+        govElectionPositions: [],
+        govNominations: [],
+        govNominationsLoading: false,
+        govNominationForm: {
+            show: false, saving: false, error: "",
+            position_master_pk: "", nomination_date: "", remarks: "",
+            candidateQuery: "", candidateResults: [], candidateSearching: false, selectedCandidate: null,
+            proposerQuery: "", proposerResults: [], proposerSearching: false, selectedProposer: null,
+        },
+        govVoteForm: {
+            show: false, saving: false, error: "",
+            election_nomination_pk: "",
+            voterQuery: "", voterResults: [], voterSearching: false, selectedVoter: null,
+            remarks: "",
+        },
+        govSelfVote: { saving: false, error: "", notice: "", election_nomination_pk: "" },
+        govTally: [],
+        govTallyLoading: false,
+        govTallyError: "",
+        govResults: [],
+        govResultsLoading: false,
+        govResultForm: {
+            show: false, saving: false, error: "",
+            position_master_pk: "", winning_nomination_pk: "", result_status: "DECLARED", remarks: "",
+        },
+        govResetForm: {
+            show: false, saving: false, error: "",
+            reset_mode: "PRESIDENT_UNILATERAL", position_master_pk: "", reason: "",
+            presidentQuery: "", presidentResults: [], presidentSearching: false, selectedPresident: null,
+        },
+        _govTypeTimers: {},
+
+        // ── Correspondence Register (Tier 6, SOL-ADMIN-009) ─────
+        // Mirrors the Governance tabs' loading/error/form conventions
+        // above. A "picker" is the shared shape used for every person/
+        // organization type-ahead field: { query, results, searching,
+        // selected }. Debounce timers live on the picker object itself
+        // (picker._timer) rather than a shared keyed dict.
+        corrLoading: false,
+        corrError: "",
+        corrItems: [],
+        corrTotal: 0,
+        corrPage: 1,
+        corrPageSize: 20,
+        corrDirectionFilter: "",
+        corrStatusFilter: "",
+        corrOrgFilter: { pk: "", query: "", results: [], searching: false, selected: null },
+
+        corrMediums: [],
+        corrFinanceRelationshipTypes: [],
+        corrCatalogLoaded: false,
+
+        // GET /foundation/documents needs FOUNDATION_VIEW, which a
+        // Correspondence-only admin may not hold — handled as a graceful
+        // degrade (manual document_master_pk entry) rather than a hard
+        // dependency; see corrLoadDocumentOptions().
+        corrDocumentOptions: [],
+        corrDocumentOptionsError: "",
+
+        corrSelected: null,
+        corrDetailLoading: false,
+        corrDetailError: "",
+
+        corrDocuments: [],
+        corrDocumentsLoading: false,
+        corrDocumentsError: "",
+        corrFinanceRefs: [],
+        corrFinanceRefsLoading: false,
+        corrFinanceRefsError: "",
+
+        // History + reply-thread "path tracker" (owner 2026-10-26: "can we
+        // add history with path tracker for correspondance?") — events is
+        // the full nss.system_event_log activity log for this one record
+        // (status transitions, manual or the 2026-10-26 auto ones, dispatch,
+        // responsible-party reassignment); ancestors/descendants are the
+        // reply thread (in_reply_to_correspondence_pk) walked both ways.
+        corrHistory: { events: [], ancestors: [], descendants: [] },
+        corrHistoryLoading: false,
+        corrHistoryError: "",
+
+        // Simplified create form (owner request, 2026-10-25: "make the ui
+        // simpler for send/receive application/letter"). The insight that
+        // drives the simplification: an admin filing correspondence
+        // through THIS form is always filing it FOR their own
+        // organization — so whichever party that implies (sender for a
+        // Send/OUTWARD letter, recipient for a Receive/INWARD letter) is
+        // silently defaulted to ORGANIZATION = the register organization,
+        // instead of asking the admin to pick it every time. The genuinely
+        // open question is always the OTHER party, which stays fully
+        // visible. usPartyOverride reveals the full original Person/
+        // Organization/External picker for "our" side too, for the rare
+        // case it wasn't the organization generally (e.g. a specific
+        // office-bearer signed it personally). Direction itself is no
+        // longer a form field — toggleCorrCreateForm() already fixes it
+        // from which quick-action button was clicked.
+        corrCreateForm: {
+            show: false, saving: false, error: "",
+            org: { query: "", results: [], searching: false, selected: null },
+            orgAutoResolved: false, orgPickerExpanded: false,
+            orgTabGroups: [], orgMultipleChoices: false,
+            activeOrgTab: "", activeOrgPk: "",
+            direction: "INWARD",
+            // Single collapsed date (defaults to today in
+            // corrResetCreateForm/toggleCorrCreateForm); splitDates reveals
+            // the original two independent fields for the rare case a
+            // letter's written date and received/sent date differ.
+            date: "", splitDates: false,
+            correspondence_date: "", received_or_sent_date: "", follow_up_date: "",
+            subject: "", remarks: "", medium: "",
+
+            // Circular (owner request, 2026-10-26: "sometimes, kendra/
+            // anchalika/zilla send letter to all sakhas under it") — OUTWARD
+            // only, posts to POST /correspondence/broadcast instead of the
+            // single-letter endpoint. No sender override: a circular is
+            // always sent BY the organization (see createBroadcastCorrespondence()).
+            isBroadcast: false, broadcastRecipientTypeCode: "",
+
+            moreOptions: false,
+            usPartyOverride: false,
+
+            sender_type: "PERSON",
+            sender_person_capacity: "",
+            senderPerson: { query: "", results: [], searching: false, selected: null },
+            senderPersonOrg: { query: "", results: [], searching: false, selected: null },
+            senderOrg: { query: "", results: [], searching: false, selected: null },
+            sender_external_name: "", sender_external_organization: "",
+
+            recipient_type: "ORGANIZATION",
+            recipientPerson: { query: "", results: [], searching: false, selected: null },
+            recipientOrg: { query: "", results: [], searching: false, selected: null },
+            recipient_external_name: "", recipient_external_organization: "",
+
+            // Optional responsible-party-at-creation (schema allows it) —
+            // separate pickers so clearing one doesn't disturb sender/
+            // recipient state.
+            responsiblePerson: { query: "", results: [], searching: false, selected: null },
+            responsibleOrg: { query: "", results: [], searching: false, selected: null },
+
+            // Reply threading (v1.2, owner 2026-10-26: "we should also add
+            // reply option to letter too") — set only via replyToCorrespondence()
+            // prefill, carried through to the create payload as
+            // in_reply_to_correspondence_pk. replyingToReference is display-only
+            // (the banner above the form); the pk is what's actually submitted.
+            inReplyToPk: "", replyingToReference: "",
+        },
+
+        corrDispatchForm: { saving: false, error: "" },
+
+        corrResponsibleForm: {
+            show: false, saving: false, error: "", mode: "person",
+            person: { query: "", results: [], searching: false, selected: null },
+            org: { query: "", results: [], searching: false, selected: null },
+        },
+
+        corrDocumentForm: { show: false, saving: false, error: "", document_master_pk: "", document_purpose: "ORIGINAL", remarks: "" },
+        corrFinanceForm: { show: false, saving: false, error: "", financial_transaction_pk: "", relationship_type: "", remarks: "" },
 
         // ── Computed helpers ───────────────────────────────────
         get totalPages() {
@@ -348,6 +685,17 @@ function adminApp() {
                 this.currentUser.permissions.includes("FOUNDATION_MANAGE");
         },
 
+        // GEO_ENTRY_APPROVE (2026-10-21): narrower than FOUNDATION_MANAGE —
+        // lets a Sakha admin reach the Location Approvals tab for their own
+        // Sakha's geography proposals without the broader master-data
+        // authority. geo_approval.py accepts either permission on every
+        // /admin/geo-entries endpoint.
+        get canApproveGeoEntries() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("GEO_ENTRY_APPROVE") ||
+                 this.currentUser.permissions.includes("FOUNDATION_MANAGE"));
+        },
+
         // SOL-ARCH-013: adding/confirming festival calendar dates is a
         // narrower authority than general Foundation settings — only
         // NSS_ERP_ADMIN holds FOUNDATION_CALENDAR_MANAGE.
@@ -361,26 +709,604 @@ function adminApp() {
                 (this.currentUser.permissions.includes("MEMBERSHIP_APPROVE"));
         },
 
+        // Sakha Transfer / Apply for Darshak queue (MBR-048/MBR-049) —
+        // mirrors the GET /api/v1/membership/change-requests admin-view
+        // gate (MEMBERSHIP_VIEW or MEMBERSHIP_APPROVE).
+        get canViewChangeRequests() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("MEMBERSHIP_VIEW") ||
+                 this.currentUser.permissions.includes("MEMBERSHIP_APPROVE"));
+        },
+
+        // Member Credentials tab (MBR-010/MBR-019B/MBR-030H) — view gate
+        // mirrors GET /api/v1/admin/credentials/members; manage gate mirrors
+        // the issue/promote POST endpoints.
+        get canViewCredentials() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("MEMBERSHIP_VIEW") ||
+                 this.currentUser.permissions.includes("MEMBERSHIP_MANAGE") ||
+                 this.currentUser.permissions.includes("ADMIN_USER_MANAGE"));
+        },
+
+        get canManageCredentials() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("MEMBERSHIP_MANAGE") ||
+                 this.currentUser.permissions.includes("ADMIN_USER_MANAGE"));
+        },
+
         get isNssAdmin() {
             return this.currentUser &&
                 this.currentUser.scopes &&
                 this.currentUser.scopes.some(s => s.role_code === "NSS_ERP_ADMIN");
         },
 
+        // A Sakha-scoped admin (NSS_ERP_SAKHA_ADMIN or any other role holding
+        // a SAKHA-level scope). Single source of truth — was previously
+        // inlined in creatableOrgTypes alone; now also gates the Create
+        // Organization nav item (2026-10-27), so it needs to live here.
+        get hasSakhaScope() {
+            return !!(this.currentUser && (this.currentUser.scopes || []).some(
+                s => s.scope_level === "SAKHA"
+            ));
+        },
+
+        // ── Governance (Tier 6) permissions ──────────────────────
+        get canViewGovernance() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("GOVERNANCE_VIEW") ||
+                 this.currentUser.permissions.includes("GOVERNANCE_MANAGE"));
+        },
+
+        get canManageGovernance() {
+            return this.currentUser &&
+                this.currentUser.permissions.includes("GOVERNANCE_MANAGE");
+        },
+
+        // Same test the page-entry guard in init() applies: any ADMIN_* permission
+        // or MEMBERSHIP_APPROVE (the gate on the users/organizations/claims
+        // endpoints behind the People / Organizations / Directories / Settings
+        // groups). A role holding neither — NSS_ERP_ADVISORY_BOARD_ADMIN — gets a
+        // governance-only panel instead of groups whose every call would 403.
+        get hasGeneralAdminAccess() {
+            const perms = (this.currentUser && this.currentUser.permissions) || [];
+            return perms.some(p => p.startsWith("ADMIN_") || p === "MEMBERSHIP_APPROVE");
+        },
+
+        // ADVISORY_BOARD scope (NSS_ERP_ADVISORY_BOARD_ADMIN): the governance BODY is
+        // NULL-organization, and (2026-10-30) the scope level also reaches the
+        // singleton ADVISORY_BOARD organization — its own correspondence register —
+        // so /auth/me's admin_scope_org_pks is no longer empty for it. "Only an
+        // Advisory Board admin" is therefore decided from the scope rows: every
+        // scope the holder has is ADVISORY_BOARD. Mirrors the server rule
+        // (rbac_service.NULL_ORG_SCOPE_BODY_TYPES): such an admin manages only
+        // Advisory Board seats/acting cover — never bodies, catalogues or elections.
+        get isAdvisoryBoardOnlyAdmin() {
+            const scopes = (this.currentUser && this.currentUser.scopes) || [];
+            return scopes.length > 0 && !this.isGovNssWideAdmin
+                && scopes.every(s => s.scope_level === "ADVISORY_BOARD");
+        },
+
+        // Body create/edit (Governance Bodies tab) — GOVERNANCE_MANAGE, minus the
+        // Advisory-Board-only admin, whom the server refuses there.
+        get canManageGovBodies() {
+            return this.canManageGovernance && !this.isAdvisoryBoardOnlyAdmin;
+        },
+
+        // Attendance is Sakha-level (Weekly Sangha Puja). Only an admin whose
+        // reach can include a Sakha sees it: a global admin, or one with an
+        // organization-anchored scope (Sakha, or an Anchalika/Zilla above Sakhas).
+        // KENDRA_MAHILA_SANGHA / ADVISORY_BOARD scopes hold no organization_pk and
+        // reach no Sakha, so the group would be permanently empty for them.
+        get hasSakhaReach() {
+            return !!(this.currentUser && (this.isGovNssWideAdmin ||
+                (this.currentUser.scopes || []).some(s => s.organization_pk)));
+        },
+
+        // ── Attendance (Tier 6, 2026-10-27) ───────────────────────
+        // canViewAttendance / canManageAttendance and the whole
+        // mark-attendance grid (rows, tallies, filter, search-to-add,
+        // submit) come from the shared NSSAttendanceRegister mixin
+        // installed on this component — the member dashboard runs the
+        // identical register, so that logic lives exactly once, in
+        // assets/js/attendance-register.js.
+
+        // ── Attendance state (Tier 6) ──────────────────────────────
+        attPujas: [], attPujasTotal: 0, attPujasLoading: false, attPujasError: "",
+        attPujaOrgFilter: "", attPujaSakhaOptions: [],
+        attPujaForm: { show: false, saving: false, error: "", sakha_pk: "", puja_date: "", remarks: "" },
+
+        // Host hook for the shared register — the puja list's
+        // marked/present/absent tallies just changed, so reload it.
+        _afterAttendanceSaved() {
+            return this.loadAttPujas();
+        },
+
+
+        // Host hook for the live poller: the register panel lives in the
+        // Attendance > Pujas tab, so polling pauses while another tab is open.
+        _attRegisterShown() {
+            return this.activeTab === "attPujas";
+        },
+
+        // When the admin's scope resolves to exactly one Sakha, the puja
+        // form / filters / stats pick it automatically and show it as
+        // plain text instead of a one-option dropdown (owner ask
+        // 2026-10-27). null for a multi-Sakha or NSS-wide admin.
+        get attSingleSakha() {
+            return this.attPujaSakhaOptions.length === 1 ? this.attPujaSakhaOptions[0] : null;
+        },
+
+        attReviews: [], attReviewsTotal: 0, attReviewsLoading: false, attReviewsError: "",
+        attReviewStatusFilter: "", attReviewActionBusy: null, attReviewActionError: {},
+
+        attWatchList: [], attWatchListLoading: false, attWatchListError: "",
+
+        attOrgStatsOrgPk: "", attOrgStats: null, attOrgStatsLoading: false, attOrgStatsError: "",
+        attMemberStatsQuery: "", attMemberStatsResults: [], attMemberStats: null,
+        attMemberStatsLoading: false, attMemberStatsError: "",
+
+        attExceptionForm: {
+            show: false, saving: false, error: "", sangha_sevi_pk: "", person_label: "",
+            exception_type_code: "MEDICAL", from_date: "", to_date: "", remarks: "",
+        },
+        attExceptionMemberResults: [],
+
+        // Bug fix (owner report, 2026-10-27): this previously called the
+        // PUBLIC /organization/organizations/selectable endpoint, which
+        // has no admin_scope filtering by design (it's the unauthenticated
+        // self-registration Sakha picker) — every admin, including the
+        // narrowest Sakha admin, saw all 175 Sakhas nationwide in the
+        // puja/stats Sakha picker. Reuses _fetchAllAdminOrganizations
+        // (already scoped via /admin/organizations -> _actor_scope_org_pks,
+        // the same helper loadAssignSakhaData uses) instead of a second,
+        // unscoped data source.
+        async _loadAttSakhaOptions() {
+            if (this.attPujaSakhaOptions.length) return;
+            try {
+                const orgs = await this._fetchAllAdminOrganizations(NSS.SAKHA_LIKE_ORG_TYPES);
+                this.attPujaSakhaOptions = orgs.slice().sort(
+                    (a, b) => (a.organization_name || "").localeCompare(b.organization_name || "")
+                );
+                // Single-Sakha admin: pre-select it everywhere (form,
+                // list filter, org-stats picker) so the UI can render it
+                // as text instead of a one-option dropdown.
+                if (this.attPujaSakhaOptions.length === 1) {
+                    const only = this.attPujaSakhaOptions[0].organization_pk;
+                    this.attPujaForm.sakha_pk = only;
+                    this.attOrgStatsOrgPk = only;
+                }
+            } catch (e) {
+                console.error("Failed to load Sakha list for Attendance", e);
+            }
+        },
+
+        async loadAttPujas() {
+            await this._loadAttSakhaOptions();
+            this.attPujasLoading = true;
+            this.attPujasError = "";
+            try {
+                const params = new URLSearchParams({ page_size: "50" });
+                if (this.attPujaOrgFilter) params.set("organization_pk", this.attPujaOrgFilter);
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/pujas?${params}`);
+                if (!res.ok) throw new Error("Failed to load Weekly Sangha Puja events.");
+                const data = await res.json();
+                this.attPujas = data.pujas || [];
+                this.attPujasTotal = data.total || 0;
+            } catch (e) {
+                this.attPujasError = e.message || "Failed to load Weekly Sangha Puja events.";
+                this.attPujas = [];
+            } finally {
+                this.attPujasLoading = false;
+            }
+        },
+
+        async submitCreatePuja() {
+            if (!this.attPujaForm.sakha_pk || !this.attPujaForm.puja_date) return;
+            this.attPujaForm.saving = true;
+            this.attPujaForm.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/pujas", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        sakha_pk: this.attPujaForm.sakha_pk,
+                        puja_date: this.attPujaForm.puja_date,
+                        remarks: this.attPujaForm.remarks || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attPujaForm = { show: false, saving: false, error: "", sakha_pk: "", puja_date: "", remarks: "" };
+                await this.loadAttPujas();
+            } catch (e) {
+                this.attPujaForm.error = e.message || "Failed to create puja event.";
+            } finally {
+                this.attPujaForm.saving = false;
+            }
+        },
+
+        async loadAttReviews() {
+            this.attReviewsLoading = true;
+            this.attReviewsError = "";
+            try {
+                const params = new URLSearchParams({ page_size: "50" });
+                if (this.attReviewStatusFilter) params.set("review_status", this.attReviewStatusFilter);
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/reviews?${params}`);
+                if (!res.ok) throw new Error("Failed to load Attendance Reviews.");
+                const data = await res.json();
+                this.attReviews = data.reviews || [];
+                this.attReviewsTotal = data.total || 0;
+            } catch (e) {
+                this.attReviewsError = e.message || "Failed to load Attendance Reviews.";
+                this.attReviews = [];
+            } finally {
+                this.attReviewsLoading = false;
+            }
+        },
+
+        // action in {close, defer, revisit, 'escalate-to-president',
+        // 'escalate-to-parichalak', reopen}. Buttons are shown to anyone
+        // with ATTENDANCE_VIEW (entry gate); the real Secretary/President
+        // seat check happens server-side (ATT-042) and surfaces as a 403
+        // here if the caller isn't the seated office-holder.
+        async actOnReview(review, action) {
+            this.attReviewActionBusy = review.review_pk;
+            this.attReviewActionError = { ...this.attReviewActionError, [review.review_pk]: "" };
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/reviews/${review.review_pk}/${action}`, {
+                    method: "POST",
+                    body: JSON.stringify({ remarks: null }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                await this.loadAttReviews();
+            } catch (e) {
+                this.attReviewActionError = {
+                    ...this.attReviewActionError,
+                    [review.review_pk]: e.message || "Action failed.",
+                };
+            } finally {
+                this.attReviewActionBusy = null;
+            }
+        },
+
+        // Searches Member Directory for the attExceptionForm's target
+        // member — same pattern as searchAttMemberStats, reused rather
+        // than duplicated by a shared results array keyed per-form-use.
+        async searchAttExceptionMember() {
+            const q = (this.attExceptionForm.person_label || "").trim();
+            if (q.length < 2 || this.attExceptionForm.sangha_sevi_pk) { this.attExceptionMemberResults = []; return; }
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/directory?q=${encodeURIComponent(q)}&limit=10`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.attExceptionMemberResults = data.members || [];
+                }
+            } catch (e) {
+                console.error("Exception-form member search failed", e);
+            }
+        },
+
+        pickAttExceptionMember(m) {
+            this.attExceptionForm.sangha_sevi_pk = m.sangha_sevi_pk;
+            this.attExceptionForm.person_label =
+                [m.first_name, m.middle_name, m.last_name].filter(Boolean).join(" ") + " (" + m.sangha_sevi_id + ")";
+            this.attExceptionMemberResults = [];
+        },
+
+        async submitCreateException() {
+            if (!this.attExceptionForm.sangha_sevi_pk || !this.attExceptionForm.from_date) return;
+            this.attExceptionForm.saving = true;
+            this.attExceptionForm.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/exceptions", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        sangha_sevi_pk: this.attExceptionForm.sangha_sevi_pk,
+                        exception_type_code: this.attExceptionForm.exception_type_code,
+                        from_date: this.attExceptionForm.from_date,
+                        to_date: this.attExceptionForm.to_date || null,
+                        remarks: this.attExceptionForm.remarks || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attExceptionForm = {
+                    show: false, saving: false, error: "", sangha_sevi_pk: "", person_label: "",
+                    exception_type_code: "MEDICAL", from_date: "", to_date: "", remarks: "",
+                };
+            } catch (e) {
+                this.attExceptionForm.error = e.message || "Failed to approve exception.";
+            } finally {
+                this.attExceptionForm.saving = false;
+            }
+        },
+
+        async loadAttWatchList() {
+            await this._loadAttSakhaOptions();
+            this.attWatchListLoading = true;
+            this.attWatchListError = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/attendance/watch-list");
+                if (!res.ok) throw new Error("Failed to load the Attendance watch list.");
+                const data = await res.json();
+                this.attWatchList = data.items || [];
+            } catch (e) {
+                this.attWatchListError = e.message || "Failed to load the Attendance watch list.";
+                this.attWatchList = [];
+            } finally {
+                this.attWatchListLoading = false;
+            }
+        },
+
+        async loadAttOrgStats() {
+            await this._loadAttSakhaOptions();  // single-Sakha admin auto-selects attOrgStatsOrgPk here
+            if (!this.attOrgStatsOrgPk) { this.attOrgStats = null; return; }
+            this.attOrgStatsLoading = true;
+            this.attOrgStatsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/stats/organizations/${this.attOrgStatsOrgPk}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attOrgStats = data;
+            } catch (e) {
+                this.attOrgStatsError = e.message || "Failed to load attendance statistics.";
+                this.attOrgStats = null;
+            } finally {
+                this.attOrgStatsLoading = false;
+            }
+        },
+
+        async searchAttMemberStats() {
+            const q = (this.attMemberStatsQuery || "").trim();
+            if (q.length < 2) { this.attMemberStatsResults = []; return; }
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/directory?q=${encodeURIComponent(q)}&limit=10`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.attMemberStatsResults = data.members || [];
+                }
+            } catch (e) {
+                console.error("Member stats search failed", e);
+            }
+        },
+
+        async loadAttMemberStats(sangha_sevi_pk) {
+            this.attMemberStatsLoading = true;
+            this.attMemberStatsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/attendance/stats/members/${sangha_sevi_pk}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(NSS.errorMessage(data, res.status));
+                this.attMemberStats = data;
+            } catch (e) {
+                this.attMemberStatsError = e.message || "Failed to load member attendance statistics.";
+                this.attMemberStats = null;
+            } finally {
+                this.attMemberStatsLoading = false;
+            }
+        },
+
+        // body_type_code of the currently-selected governance body — feeds
+        // NSS.govBodyCardClass/Title/ButtonClass() for the Current
+        // Assignments / Acting-Interim-Cover panels (owner ask, 2026-10-24:
+        // per-body-type colours on the assignment page too, not just the
+        // read-only Governance tab cards).
+        get govSelectedBodyType() {
+            const b = (this.govBodiesAll || [])
+                .find(x => x.body_master_pk === this.govSelectedBodyPk);
+            return b ? b.body_type_code : null;
+        },
+
+        // "Absent — Acting" indicator (owner ask #3, 2026-10-24) for the
+        // Current Assignments table — admin already has GOVERNANCE_VIEW/
+        // MANAGE, so the existing GET /bodies/{pk}/acting-assignments call
+        // (loadGovActing(), this.govActing) is reused as-is, no new fetch.
+        // Matched by position_code, same as the public-panel version in
+        // governance.py::_assemble_bodies_with_members. Only an ACTIVE row
+        // whose effective window actually covers today counts — govActing
+        // (is_active=TRUE) also still contains ENDED rows (ending only
+        // flips acting_status, never is_active) and can contain a
+        // not-yet-started or already-finished bounded-date delegation
+        // (bug found 2026-10-25 server-side; mirrored here too so a
+        // future/past delegation never shows as "currently acting").
+        govActingFor(a) {
+            const today = new Date().toISOString().slice(0, 10);
+            const row = (this.govActing || []).find(x =>
+                x.position_code === a.position_code && x.acting_status === "ACTIVE" &&
+                x.effective_from <= today && (!x.effective_to || x.effective_to >= today)
+            );
+            return row ? row.person_name : null;
+        },
+
+        // ── Assignments: Sakha filter (owner ask #3) + 9-row cap (ask #2),
+        // 2026-10-24. The assignment rows carry the holder's home Sakha
+        // (sakha_name / sakha_organization_pk, added server-side in
+        // _ASSIGNMENT_SELECT_SQL). All client-side over the already-loaded
+        // govAssignments — no new fetch. Inherited rows (govInheritedPositions)
+        // have no home Sakha and are unaffected by either control. ──────────
+
+        // Distinct home Sakhas across ALL loaded rows, ignoring admin scope —
+        // decides whether a body has enough Sakha variety to warrant the
+        // filter at all (0/1 for Kendra GB etc. whose seats aren't
+        // Sakha-nominated → dropdown hidden).
+        get govAssignmentDistinctSakhaCount() {
+            const seen = new Set();
+            for (const a of (this.govAssignments || [])) {
+                if (a.sakha_organization_pk) seen.add(a.sakha_organization_pk);
+            }
+            return seen.size;
+        },
+
+        // Only offer the filter when there are ≥2 distinct Sakhas among the
+        // rows (hide it entirely for non-Sakha-bearing bodies).
+        get govShowSakhaFilter() {
+            return this.govAssignmentDistinctSakhaCount >= 2;
+        },
+
+        // The dropdown's options: distinct Sakhas present in govAssignments,
+        // but narrowed to the admin's own scoped Sakha(s) when they are not
+        // NSS-wide — mirrors the isGovNssWideAdmin + admin_scope_org_pks test
+        // govAssignableBodies already uses in this tab.
+        get govAssignmentSakhaOptions() {
+            const seen = new Map();
+            for (const a of (this.govAssignments || [])) {
+                if (a.sakha_organization_pk && a.sakha_name && !seen.has(a.sakha_organization_pk)) {
+                    seen.set(a.sakha_organization_pk, {
+                        organization_pk: a.sakha_organization_pk,
+                        organization_name: a.sakha_name,
+                    });
+                }
+            }
+            let opts = [...seen.values()];
+            const scopeOrgPks = this.currentUser ? this.currentUser.admin_scope_org_pks : null;
+            if (!this.isGovNssWideAdmin && scopeOrgPks != null) {
+                opts = opts.filter(o => scopeOrgPks.includes(o.organization_pk));
+            }
+            return opts.sort((x, y) =>
+                (x.organization_name || "").localeCompare(y.organization_name || ""));
+        },
+
+        // A single-Sakha-scoped admin has their Sakha auto-selected AND the
+        // dropdown locked (they may only ever see their own Sakha's rows).
+        get govSakhaFilterLocked() {
+            const scopeOrgPks = this.currentUser ? this.currentUser.admin_scope_org_pks : null;
+            return !this.isGovNssWideAdmin && scopeOrgPks != null
+                && this.govAssignmentSakhaOptions.length === 1;
+        },
+
+        // govAssignments narrowed by the Sakha filter (ask #3).
+        get govAssignmentsFiltered() {
+            if (!this.govSakhaFilter) return this.govAssignments || [];
+            return (this.govAssignments || []).filter(
+                a => a.sakha_organization_pk === this.govSakhaFilter);
+        },
+
+        // True when the filtered list exceeds the cap — drives "Show all N".
+        get govAssignmentsHasMore() {
+            return this.govAssignmentsFiltered.length > NSS.GOV_MEMBER_CAP;
+        },
+
+        // Rows actually rendered: filtered (ask #3), then capped at
+        // NSS.GOV_MEMBER_CAP (ask #2) unless expanded via "Show all".
+        govAssignmentsDisplayed() {
+            const list = this.govAssignmentsFiltered;
+            return this.govAssignmentsShowAll ? list : list.slice(0, NSS.GOV_MEMBER_CAP);
+        },
+
+        // Default the Sakha filter after a load: a single-Sakha-scoped admin
+        // gets their Sakha pre-selected (and locked via govSakhaFilterLocked);
+        // NSS-wide and multi-scoped admins default to "All Sakhas". Always
+        // collapses the "Show all" expansion.
+        _applyGovSakhaFilterDefault() {
+            this.govAssignmentsShowAll = false;
+            const opts = this.govAssignmentSakhaOptions;
+            this.govSakhaFilter = (this.govSakhaFilterLocked && opts.length === 1)
+                ? opts[0].organization_pk
+                : "";
+        },
+
+        // Dropdown @change — switching Sakha starts the list collapsed again.
+        onGovSakhaFilterChange() {
+            this.govAssignmentsShowAll = false;
+        },
+
+
+        // ── Correspondence Register (Tier 6, SOL-ADMIN-009) permissions ──
+        get canViewCorrespondence() {
+            return this.currentUser &&
+                (this.currentUser.permissions.includes("CORRESPONDENCE_VIEW") ||
+                 this.currentUser.permissions.includes("CORRESPONDENCE_MANAGE"));
+        },
+
+        get canManageCorrespondence() {
+            return this.currentUser &&
+                this.currentUser.permissions.includes("CORRESPONDENCE_MANAGE");
+        },
+
+        // Mirrors governance.py's _SAKHA_NOMINATED_BODY_TYPES — the only
+        // body type where a scope-bounded admin has a legitimate secondary
+        // capability (nominate) over an NSS-wide body. Client-side only
+        // for a UI label switch ("Nominate" vs "Add Assignment"); the
+        // actual nomination authority is enforced server-side.
+        GOV_SAKHA_NOMINATED_BODY_TYPES: ["ADVISORY_BOARD"],
+
+        // Mirrors rbac_service.NULL_ORG_SCOPE_BODY_TYPES: NSS-wide (no
+        // organization) body types a NULL-organization scope level may manage.
+        GOV_NULL_ORG_SCOPE_BODY_TYPES: {
+            ADVISORY_BOARD: ["ADVISORY_BOARD"],
+            KENDRA_MAHILA_SANGHA: ["MAHILA_PARICHALANA_MANDALI"],
+        },
+
+        // Bug fix: a Sakha-scoped admin was seeing (and could attempt to
+        // fill) every NSS-wide/Kendra-level governance body in the
+        // Assignments tab's body picker — Kendra Governing Body, the
+        // central Mahila Parichalana Mandali, etc. — because that picker
+        // used the unfiltered govBodiesAll. The backend write guards
+        // (_require_scope_for_org_or_nss_wide / _require_nominating_sakha_scope
+        // in governance.py) already correctly reject those actions; this
+        // is a frontend-only visibility narrowing so the picker only ever
+        // offers what the admin could actually act on:
+        //   - NSS-wide/global admin: every body, unfiltered.
+        //   - Otherwise: bodies anchored (organization_pk) within the
+        //     admin's own scope subtree (admin_scope_org_pks from GET
+        //     /auth/me), PLUS the small allowlist of NSS-wide body types
+        //     a scope-bounded admin may still nominate into (currently
+        //     just Advisory Board) — those are flagged isNominationBody
+        //     so the template can render "Nominate" instead of "Add
+        //     Assignment" for them.
+        //
+        // isGovNssWideAdmin: same "is this admin global" test, exposed as its
+        // own getter — used to gate NSS-wide-only governance UI (the
+        // Advisory Board missing-nominations panel, and excluding the
+        // Sakha-nominated MEMBER seat from a direct-assignment dropdown).
+        get isGovNssWideAdmin() {
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22:
+            // "NSS = KENDRA = NSS_WIDE") — mirrors
+            // api/services/rbac_service.py::UserContext.is_nss_wide().
+            return !!(this.currentUser && (
+                this.isNssAdmin ||
+                (this.currentUser.scopes || []).some(s => s.scope_level === "NSS-WIDE" || s.scope_level === "KENDRA")
+            ));
+        },
+        get govAssignableBodies() {
+            const isGlobal = this.isGovNssWideAdmin;
+            const scopeOrgPks = this.currentUser ? this.currentUser.admin_scope_org_pks : null;
+            // An Advisory-Board-only admin (no org reach) manages the Advisory Board's
+            // own office-bearers and acting cover — it sees ONLY that body, and it is
+            // NOT a "nominate" body for it (the Sakha-nominated MEMBER seat stays with
+            // the nominating Sakha; the server refuses everything else).
+            if (this.isAdvisoryBoardOnlyAdmin) {
+                return (this.govBodiesAll || [])
+                    .filter(b => b.body_type_code === "ADVISORY_BOARD")
+                    .map(b => ({ ...b, isNominationBody: false }));
+            }
+            const nullOrgManaged = (this.currentUser?.scopes || []).flatMap(
+                sc => this.GOV_NULL_ORG_SCOPE_BODY_TYPES[sc.scope_level] || []
+            );
+            return (this.govBodiesAll || []).filter(b => {
+                if (isGlobal || scopeOrgPks == null) return true;
+                const inScope = b.organization_pk && scopeOrgPks.includes(b.organization_pk);
+                const nominable = this.GOV_SAKHA_NOMINATED_BODY_TYPES.includes(b.body_type_code);
+                const managedNull = !b.organization_pk && nullOrgManaged.includes(b.body_type_code);
+                return inScope || nominable || managedNull;
+            }).map(b => ({
+                ...b,
+                isNominationBody: !isGlobal && !(
+                    b.organization_pk && scopeOrgPks != null && scopeOrgPks.includes(b.organization_pk)
+                ) && this.GOV_SAKHA_NOMINATED_BODY_TYPES.includes(b.body_type_code),
+            }));
+        },
+
         canEditOrg(org) {
             if (!this.currentUser) return false;
-            // ORGANIZATION_MANAGE = can edit any org (NSS Admin, Kendra Admin)
-            if (this.currentUser.permissions.includes("ORGANIZATION_MANAGE")) return true;
-            // Scoped admins: can edit orgs within their own scope SUBTREE
-            // (their org + descendants) — matches the backend's subtree-aware
-            // org_in_scope()/_require_org_in_scope(), not just an exact match
-            // on their own org row (that was the pre-existing gap: a Zilla/
-            // Anchalika admin could edit their own org but the button never
-            // even showed for their child Sakhas).
-            if (!this.currentUser.scopes) return false;
-            return this.currentUser.scopes.some(
-                s => s.organization_pk && this.isOrgOrDescendantOf(org, s.organization_pk)
-            );
+            // The server gates every org edit on the actor's scope subtree
+            // (_require_org_in_scope), whatever permission they hold —
+            // ORGANIZATION_MANAGE alone is NOT global reach (the Mahila admin
+            // holds it but only reaches Mahila Sanghas). scopeOrgPkSet is the
+            // client mirror of that subtree: null = global, else the exact set.
+            const inScope = this.scopeOrgPkSet;
+            if (inScope === null) return true;
+            return inScope.has(org.organization_pk);
         },
 
         // Walks org's parent chain (via the flat this.organizations list,
@@ -399,29 +1325,68 @@ function adminApp() {
             return false;
         },
 
+        // Active roles the target user already holds (shown in the modal).
+        get roleTargetActiveRoles() {
+            return (this.roleTargetRoles || []).filter(r => r.is_active);
+        },
+
+        // Scope levels whose roles are unique across NSS and carry no
+        // organization — mirrors api/routers/admin.py::_NULL_ORG_SCOPE_LEVELS
+        // (the backend 422s if an organization_pk is sent for these).
+        _scopeNeedsOrg(level) {
+            return !["NSS-WIDE", "KENDRA", "KENDRA_MAHILA_SANGHA", "ADVISORY_BOARD"].includes(level);
+        },
+
+        get roleScopeNeedsOrg() {
+            return this._scopeNeedsOrg(this.roleForm.scope_level);
+        },
+
+        // Org pks where the target already holds `roleCode` (active).
+        _heldOrgPks(roleCode) {
+            return new Set(
+                this.roleTargetActiveRoles
+                    .filter(r => r.role_code === roleCode && r.organization_pk)
+                    .map(r => r.organization_pk)
+            );
+        },
+
         // Roles offered in the Assign-Role modal, minus roles that would be a
-        // guaranteed duplicate for this target user. Every role now has a
-        // single fixed scope_level (enforced server-side too — see
-        // assign_role() in api/routers/admin.py), so a SYSTEM role
-        // (NSS_ERP_ADMIN/AUDITOR/REPORT_VIEWER — always NSS-WIDE, no org) can
-        // only ever be held once; offering it again would just 409. An
-        // ORGANIZATIONAL role (e.g. SAKHA_ADMIN) stays offered even if
-        // already held, since the same role at a different org scope is a
-        // legitimate, frozen-by-design assignment (SOL-ADMIN-004 §8.7).
+        // guaranteed duplicate for this target user (a held org-less role —
+        // SYSTEM, Kendra, Kendra Mahila Sangha, Advisory Board — can only
+        // exist once). An org-scoped role (e.g. SAKHA_ADMIN) stays offered
+        // while at least one organization of its level is still free: the
+        // same role at a different org scope is a legitimate, frozen-by-
+        // design assignment (SOL-ADMIN-004 §8.7).
         get assignableRoles() {
-            const heldSystemRoleCodes = new Set(
-                (this.roleTargetRoles || [])
-                    .filter(r => r.is_active)
-                    .map(r => r.role_code)
-            );
-            return this.availableRoles.filter(role =>
-                role.role_class !== "SYSTEM" || !heldSystemRoleCodes.has(role.role_code)
-            );
+            const heldCodes = new Set(this.roleTargetActiveRoles.map(r => r.role_code));
+            return this.availableRoles.filter(role => {
+                if (!heldCodes.has(role.role_code)) return true;
+                if (!this._scopeNeedsOrg(role.scope_level)) return false;
+                return this._orgsForScope(role.scope_level, role.role_code).length > 0;
+            });
+        },
+
+        // Sakha-level role: suggest the target member's own Sakha, if it is
+        // among the selectable orgs and not already chosen.
+        get roleSuggestedOrg() {
+            if (this.roleForm.scope_level !== "SAKHA" || !this.roleTargetHomeOrgPk) return null;
+            if (this.roleForm.organization_pk === this.roleTargetHomeOrgPk) return null;
+            return this.scopeFilteredOrgs.find(o => o.organization_pk === this.roleTargetHomeOrgPk) || null;
         },
 
         // Orgs filtered by the selected scope level in role assignment modal
         get scopeFilteredOrgs() {
-            const level = this.roleForm.scope_level;
+            return this._orgsForScope(this.roleForm.scope_level, this.roleForm.role_code);
+        },
+
+        // Orgs of a scope level, minus those where the target already holds
+        // `roleCode`.
+        _orgsForScope(level, roleCode) {
+            const held = this._heldOrgPks(roleCode);
+            return this._orgsOfLevel(level).filter(o => !held.has(o.organization_pk));
+        },
+
+        _orgsOfLevel(level) {
             if (!level || level === "NSS-WIDE") return [];
             // KENDRA_MAHILA_SANGHA is not its own organization_type_code —
             // it's the single MAHILA_SANGHA row whose parent is KENDRA
@@ -438,7 +1403,7 @@ function adminApp() {
                 KENDRA: ["KENDRA"],
                 ZILLA: ["ZILLA_SANGHA"],
                 ANCHALIKA: ["ANCHALIKA_SANGHA"],
-                SAKHA: ["SAKHA_SANGHA"],
+                SAKHA: NSS.SAKHA_LIKE_ORG_TYPES,
                 PATHA_CHAKRA: ["PATHA_CHAKRA"],
             };
             const allowedTypes = scopeToType[level];
@@ -456,12 +1421,32 @@ function adminApp() {
 
             // ── Authorization guard: admin permissions required ────
             // Redirect non-admin users to the dashboard.
-            const perms = this.currentUser.permissions || [];
-            const hasAdminAccess = perms.some(p =>
-                p.startsWith("ADMIN_") || p === "MEMBERSHIP_APPROVE"
-            );
-            if (!hasAdminAccess) {
+            // GOVERNANCE_VIEW/MANAGE also qualifies (NSS_ERP_ADVISORY_BOARD_ADMIN holds
+            // neither ADMIN_* nor MEMBERSHIP_APPROVE) — that role gets the
+            // governance-only panel below.
+            if (!this.hasGeneralAdminAccess && !this.canViewGovernance) {
                 window.location.href = "/dashboard";
+                return;
+            }
+
+            // Governance-only admin: none of the general reference loaders below
+            // (users, organizations, membership types, claims, ...) are permitted
+            // to it, so skip them rather than fire a wall of 403s, and open on the
+            // Assignments tab (or the Bodies tab if the URL names it).
+            if (!this.hasGeneralAdminAccess) {
+                const govHash = window.location.hash.replace("#", "");
+                // The Advisory Board admin's own Correspondence register (2026-10-30)
+                // is built from the organization tree + the ORGANIZATION_TYPE
+                // catalogue (ORGANIZATION_VIEW / FOUNDATION_VIEW, both granted to it).
+                const corrOnly = govHash === "correspondence" && this.canViewCorrespondence;
+                if (this.canViewCorrespondence) {
+                    await Promise.all([this.fetchOrganizations(), this.loadOrgTypes()]);
+                }
+                this.activeTab = corrOnly ? "correspondence"
+                    : govHash === "govBodies" ? "govBodies" : "govAssignments";
+                if (this.activeTab === "correspondence") await this.loadCorrespondence();
+                else if (this.activeTab === "govBodies") await this.loadGovBodies();
+                else await this.loadGovAssignments();
                 return;
             }
 
@@ -520,6 +1505,15 @@ function adminApp() {
                     geography: () => this.loadGeography(),
                     geoApprovals: () => this.loadGeoEntries(),
                     sysSettings: () => this.loadSystemSettings(),
+                    govCatalog: () => { if (this.isGovNssWideAdmin) this.loadGovCatalog(); },
+                    govBodies: () => { if (this.canViewGovernance) this.loadGovBodies(); },
+                    govAssignments: () => { if (this.canViewGovernance) this.loadGovAssignments(); },
+                    govElections: () => { if (this.canViewGovernance) this.loadGovElections(); },
+                    attPujas: () => { if (this.canViewAttendance) this.loadAttPujas(); },
+                    attReviews: () => { if (this.canViewAttendance) this.loadAttReviews(); },
+                    attWatchList: () => { if (this.canViewAttendance) { this.loadAttWatchList(); this.loadAttOrgStats(); } },
+                    credentials: () => this.loadCredentials(),
+                    correspondence: () => this.loadCorrespondence(),
                 };
                 if (tabLoaders[hash]) tabLoaders[hash]();
             }
@@ -892,12 +1886,25 @@ function adminApp() {
         // the server resolves the issue date itself (a Parichaya Patra on the
         // governing Dola Purnima, an Anumati Patra on the day of application —
         // SOL-ARCH-013 FC-DECISION-01). Only the legacy number is sent, and
-        // only when the operator checked "already has one" and typed it in.
+        // only for a legacy member (the same is_legacy_member flag as the Local
+        // Sakha Number — GDR-009 §2A); the server 422s a number sent without it.
         _credentialPayloadFields(form) {
             const fields = {};
-            if (form.credential_is_legacy) {
+            if (form.is_legacy_member) {
                 const num = String(form.credential_document_number || "").trim();
                 if (num) fields.credential_document_number = num;
+            }
+            return fields;
+        },
+
+        // Legacy-vs-new Local Sakha Number (GDR-009), shared by Create User
+        // step 2 and Create Sangha Sevi: the explicit flag is always sent; the
+        // number only for a legacy member (the server 422s a number sent
+        // with legacy=false and a legacy member without one).
+        _localNumberPayloadFields(form) {
+            const fields = { is_legacy_member: !!form.is_legacy_member };
+            if (form.is_legacy_member) {
+                fields.local_sakha_erp_id = String(form.local_sakha_number || "").trim();
             }
             return fields;
         },
@@ -914,9 +1921,8 @@ function adminApp() {
                     organization_pk: f.organization_pk,
                     joining_date: f.joining_date,
                     ...this._credentialPayloadFields(f),
+                    ...this._localNumberPayloadFields(f),
                 };
-                const num = String(f.local_sakha_number || "").trim();
-                if (num) payload.local_sakha_erp_id = num;
 
                 const res = await NSSAuth.apiFetch("/api/v1/admin/sangha-sevi", {
                     method: "POST",
@@ -973,8 +1979,8 @@ function adminApp() {
                     person_pk: "", password: "", force_password_change: true,
                     sangha_sevi_pk: "", sangha_sevi_skipped: false,
                     membership_type_pk: "", organization_pk: "",
-                    joining_date: "", local_sakha_number: "",
-                    credential_is_legacy: false, credential_document_number: "",
+                    joining_date: "", is_legacy_member: false, local_sakha_number: "",
+                    credential_document_number: "",
                 };
                 this.selectedPersonDisplay = {};
                 this.personSearchResults = [];
@@ -1111,12 +2117,9 @@ function adminApp() {
                     organization_pk: this.ssForm.organization_pk,
                     joining_date: this.ssForm.joining_date,
                     ...this._credentialPayloadFields(this.ssForm),
+                    // Raw local number (legacy only) — backend composes <short_code><number>
+                    ...this._localNumberPayloadFields(this.ssForm),
                 };
-                // Send raw local number — backend composes <short_code><number>
-                const num = String(this.ssForm.local_sakha_number || "").trim();
-                if (num) {
-                    payload.local_sakha_erp_id = num;
-                }
 
                 // Optional bundled login-account creation (requires the
                 // caller to hold ADMIN_USER_MANAGE — the backend enforces it
@@ -1147,8 +2150,8 @@ function adminApp() {
                 // Reset form
                 this.ssForm = {
                     person_pk: "", membership_type_pk: "", organization_pk: "",
-                    joining_date: "", local_sakha_number: "",
-                    credential_is_legacy: false, credential_document_number: "",
+                    joining_date: "", is_legacy_member: false, local_sakha_number: "",
+                    credential_document_number: "",
                     create_user_account: false, password: "", force_password_change: true,
                 };
                 this.ssSelectedPerson = {};
@@ -1165,17 +2168,16 @@ function adminApp() {
 
         // ── Reset password modal ───────────────────────────────
 
-        // ── Membership-change entry points (Governance module) ──
-        // Sakha transfer and Darshak-at-another-Sangha are membership-change
-        // workflows whose approval routing and Local Sakha ERP ID handling are
-        // implemented in the Governance module. These announce that so the
-        // action is discoverable now instead of posting to a missing endpoint.
-        // Both take the specific member (mdSelected on the Member Directory
-        // detail card) so the notice names who the request would be for.
+        // ── Membership-change entry points (MBR-048/MBR-049) ────
+        // Sakha transfer and Darshak-at-another-Sangha are member
+        // self-service actions (filed from the member's own dashboard);
+        // these Member-Directory buttons stay as a discoverability notice
+        // pointing an admin to where the request gets filed and where it
+        // gets reviewed, rather than posting on the member's behalf.
         requestSakhaTransfer(member) {
             const name = member ? (this.mdMemberName(member) || member.sangha_sevi_id) : "this member";
             NSSDialog.alert(
-                `Sakha transfer moves ${name}'s affiliation to a receiving Sakha, subject to approval. This workflow is processed through the Governance module (coming soon).`,
+                `Sakha transfer moves ${name}'s affiliation to a receiving Sakha, subject to that Sakha's release and the destination Sakha's acceptance. The member files this themself from their dashboard (Membership tab → Request Sakha Transfer); review it here under "Sakha Transfer / Darshak".`,
                 "Sakha Transfer"
             );
         },
@@ -1183,7 +2185,7 @@ function adminApp() {
         applyDarshak(member) {
             const name = member ? (this.mdMemberName(member) || member.sangha_sevi_id) : "this member";
             NSSDialog.alert(
-                `A Darshak attends another Sangha without transferring membership — ${name} would retain their base Sakha and Local Sakha ERP ID. This workflow is processed through the Governance module (coming soon).`,
+                `A Darshak attends another Sangha without transferring membership — ${name} would retain their base Sakha and Local Sakha ERP ID. The member files this themself from their dashboard (Membership tab → Apply for Darshak); review it here under "Sakha Transfer / Darshak".`,
                 "Apply for Darshak"
             );
         },
@@ -1392,8 +2394,10 @@ function adminApp() {
 
         openRoleModal(user) {
             this.roleTargetPk = user.user_account_pk;
-            this.roleTargetName = user.sangha_sevi_id || user.person_name || "User";
+            const name = user.person_name || user.sangha_sevi_id || "User";
+            this.roleTargetName = user.organization_name ? `${name} (${user.organization_name})` : name;
             this.roleTargetRoles = user.roles || [];
+            this.roleTargetHomeOrgPk = user.organization_pk || "";
             this.roleForm = { role_code: "", scope_level: "NSS-WIDE", organization_pk: "" };
             this.roleError = "";
             this.roleSuccess = "";
@@ -1419,7 +2423,7 @@ function adminApp() {
                 const body = {
                     role_code: this.roleForm.role_code,
                     scope_level: this.roleForm.scope_level,
-                    organization_pk: this.roleForm.scope_level === "NSS-WIDE"
+                    organization_pk: !this.roleScopeNeedsOrg
                         ? null
                         : (this.roleForm.organization_pk || null),
                 };
@@ -1808,6 +2812,7 @@ function adminApp() {
             }
             if (org.district_pk) {
                 this.loadLocationCities(org.district_pk);
+                this.loadLocationPostalCodes(org.district_pk);
             }
         },
 
@@ -1820,6 +2825,7 @@ function adminApp() {
                 states: 'locationStates',
                 districts: 'locationDistricts',
                 cities: 'locationCities',
+                postalCodes: 'locationPostalCodes',
             },
             form: 'editOrgForm',
         }),
@@ -1828,6 +2834,7 @@ function adminApp() {
         async loadLocationStates(pk)   { await this._editLocCascade.loadStates(this, pk); },
         async loadLocationDistricts(pk){ await this._editLocCascade.loadDistricts(this, pk); },
         async loadLocationCities(pk)   { await this._editLocCascade.loadCities(this, pk); },
+        async loadLocationPostalCodes(pk) { await this._editLocCascade.loadPostalCodes(this, pk); },
         onCountryChange()              { this._editLocCascade.onCountryChange(this); },
         onStateChange()                { this._editLocCascade.onStateChange(this); },
         onDistrictChange()             { this._editLocCascade.onDistrictChange(this); },
@@ -1866,6 +2873,10 @@ function adminApp() {
             // for their own parent selection — those entries below stay for
             // completeness/parity with the backend map, not because this
             // form dispatches through them.
+            // Wing parents (Kumari/Sevak/local Mahila/Paribarik Asana) are
+            // the shared Sakha-like set: a Sakha Asana hosts every wing a
+            // Sakha Sangha can (owner 2026-10-31, GDR-008).
+            const sakhaLike = NSS.SAKHA_LIKE_ORG_TYPES;
             const allowedParentTypes = {
                 ANCHALIKA_SANGHA: ["KENDRA"],
                 ZILLA_SANGHA: ["KENDRA"],
@@ -1873,10 +2884,11 @@ function adminApp() {
                 PARIBARIK_SANGHA: ["KENDRA"],
                 SAKHA_SANGHA: ["ANCHALIKA_SANGHA", "ZILLA_SANGHA"],
                 SAKHA_ASANA: ["ANCHALIKA_SANGHA", "ZILLA_SANGHA"],
-                KUMARI_SANGHA: ["SAKHA_SANGHA"],
-                SEVAK_SANGHA: ["SAKHA_SANGHA"],
-                MAHILA_SANGHA: ["KENDRA", "SAKHA_SANGHA"],
-                PARIBARIK_ASANA: ["SAKHA_SANGHA"],
+                KUMARI_SANGHA: sakhaLike,
+                SEVAK_SANGHA: sakhaLike,
+                MAHILA_SANGHA: ["KENDRA", ...sakhaLike],
+                PARIBARIK_ASANA: sakhaLike,
+                ADVISORY_BOARD: ["KENDRA"],   // singleton, seeded — mirrors admin.py _ALLOWED_PARENT_TYPES
             };
 
             const allowed = allowedParentTypes[typeCode];
@@ -1898,9 +2910,13 @@ function adminApp() {
          *     Mandir), outside the membership hierarchy by convention.
          *
          *   KUMARI_SANGHA, SEVAK_SANGHA, MAHILA_SANGHA — wing bodies
-         *     that hang off a Sakha Sangha (see the parent-type map in
+         *     that hang off a Sakha Sangha or Sakha Asana (see the parent-type map in
          *     `parentOrgs`); membership is conventionally held at the
          *     Sakha, so the Sakha is the unit of selection.
+         *
+         *   ADVISORY_BOARD — singleton organization that only owns the
+         *     Advisory Board's correspondence register (2026-10-30); it holds
+         *     no members.
          *
          *   PARIBARIK_ASANA — attaches to a `sangha_sevi`, not to an
          *     organization (ORG-BR-094); its `parent_organization_pk` is
@@ -1932,6 +2948,7 @@ function adminApp() {
             "SEVAK_SANGHA",
             "MAHILA_SANGHA",
             "PARIBARIK_ASANA",
+            "ADVISORY_BOARD",
         ],
 
         /**
@@ -1948,8 +2965,8 @@ function adminApp() {
 
         // Org types for Create Org. ORG-BR-096: only these four are
         // creatable directly through the standard flow. Apex peers
-        // (KENDRA / NILACHALA_KUTIRA / SMRUTI_MANDIRA) are singletons that
-        // are never created; MAHILA_SANGHA is auto-created with its parent
+        // (KENDRA / NILACHALA_KUTIRA / SMRUTI_MANDIRA) and ADVISORY_BOARD are
+        // singletons that are never created (admin.py _SINGLETON_ORG_TYPES); MAHILA_SANGHA is auto-created with its parent
         // Sakha; SAKHA_ASANA is not a distinct type (it is a SAKHA_SANGHA
         // with has_own_premises = FALSE, ORG-BR-098).
         get creatableOrgTypes() {
@@ -1959,10 +2976,7 @@ function adminApp() {
             // (ORG-BR-096, ORG-BR-101/102): offered only to NSS admins or
             // Sakha-scoped admins, parented by a Sakha the operator is
             // scoped to (see loadKumariSevakScope + backend gate).
-            const hasSakhaScope = (this.currentUser?.scopes || []).some(
-                s => s.scope_level === "SAKHA"
-            );
-            if (this.isNssAdmin || hasSakhaScope) {
+            if (this.isNssAdmin || this.hasSakhaScope) {
                 allowed.push("KUMARI_SANGHA", "SEVAK_SANGHA");
             }
             return this.orgTypes.filter(t => allowed.includes(t.value_code));
@@ -2016,10 +3030,14 @@ function adminApp() {
         // (organizations/scopes still loading).
         get myOrgDashboardPk() {
             const scopes = this.currentUser?.scopes || [];
-            const isNssWide = this.isNssAdmin || scopes.some(s => s.scope_level === "NSS-WIDE");
-            if (isNssWide) return this.kendraOrg?.organization_pk || null;
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) return this.kendraOrg?.organization_pk || null;
             const scoped = scopes.find(s => s.organization_pk);
-            return scoped ? scoped.organization_pk : null;
+            if (scoped) return scoped.organization_pk;
+            // No organization-anchored scope (KENDRA_MAHILA_SANGHA): land on the
+            // first tier dashboardLevels derives from the server-resolved reach.
+            const first = this.dashboardLevels[0];
+            return first ? first.orgs[0].organization_pk : null;
         },
 
         // The sidebar nav item's own label — matches the org-dashboard tab's
@@ -2027,9 +3045,10 @@ function adminApp() {
         // rather than a generic "Org Dashboard", per design request.
         get myOrgDashboardLabel() {
             const scopes = this.currentUser?.scopes || [];
-            const isNssWide = this.isNssAdmin || scopes.some(s => s.scope_level === "NSS-WIDE");
-            if (isNssWide) return "Kendra Dashboard";
-            const scoped = scopes.find(s => s.organization_pk);
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) return "Kendra Dashboard";
+            const scoped = scopes.find(s => s.organization_pk)
+                || scopes.find(s => ROLE_ORG_LABELS[s.role_code]);
             return (scoped && ROLE_ORG_LABELS[scoped.role_code]) || "Org Dashboard";
         },
 
@@ -2044,8 +3063,17 @@ function adminApp() {
         // not just the Zilla's own.
         get scopeOrgPkSet() {
             const scopes = this.currentUser?.scopes || [];
-            if (this.isNssAdmin || scopes.some(s => s.scope_level === "NSS-WIDE")) {
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) {
                 return null;
+            }
+            // Prefer the server's own resolution (/auth/me admin_scope_org_pks =
+            // actor_scope_org_pks()): it already includes type-resolved reach
+            // (KENDRA_MAHILA_SANGHA -> every Mahila Sangha org) that no client-side
+            // walk of the scope rows could see, and an empty array for an
+            // ADVISORY_BOARD scope.
+            if (Array.isArray(this.currentUser?.admin_scope_org_pks)) {
+                return new Set(this.currentUser.admin_scope_org_pks);
             }
             const roots = scopes.filter(s => s.organization_pk).map(s => s.organization_pk);
             if (!roots.length) return new Set();
@@ -2076,8 +3104,9 @@ function adminApp() {
         dashboardOrgsFor(typeCode) {
             if (!typeCode) return [];
             const inScope = this.scopeOrgPkSet;
+            const levelTypes = NSS.orgLevelTypes(typeCode);
             return this.organizations
-                .filter(o => o.organization_type_code === typeCode)
+                .filter(o => levelTypes.includes(o.organization_type_code))
                 .filter(o => inScope === null || inScope.has(o.organization_pk))
                 .sort((a, b) => (a.organization_name || "").localeCompare(b.organization_name || ""));
         },
@@ -2098,7 +3127,7 @@ function adminApp() {
         // Zilla into one of its Sakhas retitles the page correctly.
         get viewingOrgDashboardLabel() {
             const lvl = DASHBOARD_LEVELS.find(
-                l => l.typeCode === this.viewingOrgTypeCode
+                l => NSS.orgLevelTypes(l.typeCode).includes(this.viewingOrgTypeCode)
             );
             return lvl ? `${lvl.label} Dashboard` : this.myOrgDashboardLabel;
         },
@@ -2157,12 +3186,12 @@ function adminApp() {
         // Sakha orgs only (for SS creation dropdown), scoped by admin's org
         get sakhaOrgs() {
             const allSakha = this.organizations.filter(
-                o => o.organization_type_code === "SAKHA_SANGHA"
+                o => NSS.isSakhaLike(o.organization_type_code)
             );
             // NSS-WIDE or full admin: show all
             if (this.isNssAdmin || !this.currentUser?.scopes) return allSakha;
-            const isNssWide = this.currentUser.scopes.some(s => s.scope_level === "NSS-WIDE");
-            if (isNssWide) return allSakha;
+            // KENDRA scope is NSS-wide-equivalent (owner-confirmed 2026-10-22).
+            if (this.isGovNssWideAdmin) return allSakha;
             // Scoped admin: filter to only their assigned org(s)
             const scopedPks = new Set(
                 this.currentUser.scopes
@@ -2250,15 +3279,19 @@ function adminApp() {
         // when unambiguous. Mirrors loadSakhaScope for member-attach forms.
         async loadKumariSevakScope(typeCode) {
             this.kumariSevakScopeLoading = true;
+            // Stale guard: the org type may change while this is in flight.
+            const stale = () => this.createOrgForm.organization_type_code !== typeCode;
             try {
                 const res = await NSSAuth.apiFetch(
                     `/api/v1/admin/organizations/kumari-sevak-sakha-options?type_code=${encodeURIComponent(typeCode)}`
                 );
+                if (stale()) return;
                 if (!res.ok) {
                     this.kumariSevakScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
                     return;
                 }
                 const data = await res.json();
+                if (stale()) return;
                 this.kumariSevakScope = {
                     mode: data.mode || "choose",
                     auto_select_pk: data.auto_select_pk || null,
@@ -2268,9 +3301,9 @@ function adminApp() {
                     this.createOrgForm.parent_organization_pk = this.kumariSevakScope.auto_select_pk;
                 }
             } catch (_) {
-                this.kumariSevakScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
+                if (!stale()) this.kumariSevakScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
             } finally {
-                this.kumariSevakScopeLoading = false;
+                if (!stale()) this.kumariSevakScopeLoading = false;
             }
         },
 
@@ -2298,6 +3331,7 @@ function adminApp() {
                 states: 'createOrgStates',
                 districts: 'createOrgDistricts',
                 cities: 'createOrgCities',
+                postalCodes: 'createOrgPostalCodes',
             },
             form: 'createOrgForm',
         }),
@@ -2310,6 +3344,7 @@ function adminApp() {
         async loadCreateOrgStates(pk)      { await this._createLocCascade.loadStates(this, pk); },
         async loadCreateOrgDistricts(pk)   { await this._createLocCascade.loadDistricts(this, pk); },
         async loadCreateOrgCities(pk)      { await this._createLocCascade.loadCities(this, pk); },
+        async loadCreateOrgPostalCodes(pk) { await this._createLocCascade.loadPostalCodes(this, pk); },
         onCreateOrgCountryChange()         { this._createLocCascade.onCountryChange(this); },
         onCreateOrgStateChange()           { this._createLocCascade.onStateChange(this); },
         onCreateOrgDistrictChange()        { this._createLocCascade.onDistrictChange(this); },
@@ -2718,7 +3753,7 @@ function adminApp() {
         async loadClaimSakhas() {
             try {
                 const res = await NSSAuth.apiFetch(
-                    `/api/v1/organization/organizations?type_code=SAKHA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`
+                    `/api/v1/organization/organizations?${NSS.SAKHA_LIKE_ORG_TYPES.map(t => "type_code=" + t).join("&")}&limit=${NSS.MAX_PAGE_SIZE}`
                 );
                 if (res.ok) {
                     const data = await res.json();
@@ -2821,9 +3856,11 @@ function adminApp() {
                 last_name: nameParts.length > 1 ? nameParts[nameParts.length - 1] : "",
                 claimed_organization_pk: c.claimed_organization_pk || "",
                 claimed_membership_type_master_data_pk: c.claimed_membership_type_master_data_pk || "",
+                is_legacy_member: !!c.is_legacy_member,
                 claimed_local_sakha_number: c.claimed_local_sakha_number || "",
                 claimed_credential_document_number: c.claimed_credential_document_number || "",
                 claimed_joining_date: c.claimed_joining_date || "",
+                darshak_is_legacy_member: !!c.darshak_is_legacy_member,
                 darshak_local_sakha_number: c.darshak_local_sakha_number || "",
                 country_phone_code: c.country_phone_code || NSS.DEFAULT_COUNTRY_CODE,
                 mobile_number: c.mobile_number || "",
@@ -2866,12 +3903,23 @@ function adminApp() {
                     payload.claimed_organization_pk = f.claimed_organization_pk;
                 if (f.claimed_membership_type_master_data_pk !== (c.claimed_membership_type_master_data_pk || ""))
                     payload.claimed_membership_type_master_data_pk = f.claimed_membership_type_master_data_pk;
+                // Legacy rule (GDR-009): an unchecked flag means NO number — the
+                // server validates flag+number together, so send them together.
+                if (!f.is_legacy_member) {
+                    f.claimed_local_sakha_number = "";
+                    f.claimed_credential_document_number = "";
+                }
+                if (!f.darshak_is_legacy_member) f.darshak_local_sakha_number = "";
+                if (f.is_legacy_member !== !!c.is_legacy_member)
+                    payload.is_legacy_member = f.is_legacy_member;
                 if (f.claimed_local_sakha_number !== (c.claimed_local_sakha_number || ""))
                     payload.claimed_local_sakha_number = f.claimed_local_sakha_number;
                 if (f.claimed_credential_document_number !== (c.claimed_credential_document_number || ""))
                     payload.claimed_credential_document_number = f.claimed_credential_document_number;
                 if (f.claimed_joining_date !== (c.claimed_joining_date || ""))
                     payload.claimed_joining_date = f.claimed_joining_date;
+                if (f.darshak_is_legacy_member !== !!c.darshak_is_legacy_member)
+                    payload.darshak_is_legacy_member = f.darshak_is_legacy_member;
                 if (f.darshak_local_sakha_number !== (c.darshak_local_sakha_number || ""))
                     payload.darshak_local_sakha_number = f.darshak_local_sakha_number;
 
@@ -2909,6 +3957,190 @@ function adminApp() {
                 this.claimEditError = "Unable to connect to server.";
             } finally {
                 this.claimEditLoading = false;
+            }
+        },
+
+        // ── Sakha Transfer / Apply for Darshak change requests
+        //    (MBR-048/MBR-049) ──────────────────────────────────
+        // Mirrors the Registration Claims queue above. The backend status
+        // filter only matches a single mcr.status value, so there is no
+        // single "REJECTED" status — the UI's Rejected pill merges the two
+        // terminal rejection statuses with two parallel fetches below.
+        changeRequests: [],
+        changeRequestsTotal: 0,
+        changeRequestsPage: 1,
+        changeRequestsPageSize: 20,
+        changeRequestsLoading: false,
+        changeRequestsStatusFilter: "PENDING_SOURCE_RELEASE",
+        changeRequestsPendingCount: 0,
+
+        selectedChangeRequest: null,
+        changeRequestActionRemarks: "",
+        changeRequestActionLoading: false,
+        changeRequestActionError: "",
+        changeRequestIsLegacyImport: false,
+        changeRequestNewLocalNumber: "",
+
+        get changeRequestsStatusFilterLabel() {
+            const labels = {
+                PENDING_SOURCE_RELEASE: "Pending Release",
+                PENDING_DESTINATION_ACCEPT: "Pending Accept",
+                COMPLETED: "Completed",
+                REJECTED: "Rejected",
+            };
+            return labels[this.changeRequestsStatusFilter] || this.changeRequestsStatusFilter;
+        },
+
+        async loadChangeRequests() {
+            this.changeRequestsLoading = true;
+            try {
+                if (this.changeRequestsStatusFilter === "REJECTED") {
+                    // No single backend status covers both rejection
+                    // outcomes — fetch each and merge client-side.
+                    const [resSrc, resDest] = await Promise.all([
+                        NSSAuth.apiFetch(`/api/v1/membership/change-requests?status=REJECTED_BY_SOURCE&page=1&page_size=${this.changeRequestsPageSize}`),
+                        NSSAuth.apiFetch(`/api/v1/membership/change-requests?status=REJECTED_BY_DESTINATION&page=1&page_size=${this.changeRequestsPageSize}`),
+                    ]);
+                    const dataSrc = resSrc.ok ? await resSrc.json() : { requests: [], total: 0 };
+                    const dataDest = resDest.ok ? await resDest.json() : { requests: [], total: 0 };
+                    this.changeRequests = [...dataSrc.requests, ...dataDest.requests]
+                        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    this.changeRequestsTotal = dataSrc.total + dataDest.total;
+                    return;
+                }
+                const params = new URLSearchParams({
+                    status: this.changeRequestsStatusFilter,
+                    page: this.changeRequestsPage,
+                    page_size: this.changeRequestsPageSize,
+                });
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/change-requests?${params}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.changeRequests = data.requests;
+                    this.changeRequestsTotal = data.total;
+                } else if (res.status === 403) {
+                    this.changeRequests = [];
+                    this.changeRequestsTotal = 0;
+                }
+            } catch (err) {
+                console.error("Failed to load change requests:", err);
+            } finally {
+                this.changeRequestsLoading = false;
+            }
+        },
+
+        async loadChangeRequestsPendingCount() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/membership/change-requests?status=PENDING_SOURCE_RELEASE&page_size=1");
+                if (res.ok) {
+                    const data = await res.json();
+                    this.changeRequestsPendingCount = data.total;
+                }
+            } catch { /* ignore */ }
+        },
+
+        async viewChangeRequest(pk) {
+            this.changeRequestActionError = "";
+            this.changeRequestActionRemarks = "";
+            this.changeRequestIsLegacyImport = false;
+            this.changeRequestNewLocalNumber = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership/change-requests/${pk}`);
+                if (res.ok) {
+                    this.selectedChangeRequest = await res.json();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    await NSSDialog.alert(data.detail || "Failed to load change request details.");
+                }
+            } catch {
+                await NSSDialog.alert("Failed to load change request details.");
+            }
+        },
+
+        async releaseChangeRequest() {
+            await this._changeRequestSourceDecision("RELEASE");
+        },
+
+        async rejectSourceChangeRequest() {
+            if (!this.changeRequestActionRemarks.trim()) {
+                this.changeRequestActionError = "A reason is required to reject.";
+                return;
+            }
+            await this._changeRequestSourceDecision("REJECT");
+        },
+
+        async _changeRequestSourceDecision(decision) {
+            this.changeRequestActionError = "";
+            this.changeRequestActionLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/membership/change-requests/${this.selectedChangeRequest.membership_change_request_pk}/source-decision`,
+                    {
+                        method: "POST",
+                        body: JSON.stringify({ decision, remarks: this.changeRequestActionRemarks.trim() || null }),
+                    }
+                );
+                if (res.ok) {
+                    this.selectedChangeRequest = await res.json();
+                    this.changeRequestActionRemarks = "";
+                    await this.loadChangeRequestsPendingCount();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    this.changeRequestActionError = NSS.errorMessage ? NSS.errorMessage(data, res.status) : (data.detail || "Action failed.");
+                }
+            } catch {
+                this.changeRequestActionError = "Unable to connect to server.";
+            } finally {
+                this.changeRequestActionLoading = false;
+            }
+        },
+
+        async acceptChangeRequest() {
+            if (this.changeRequestIsLegacyImport && !this.changeRequestNewLocalNumber.trim()) {
+                this.changeRequestActionError = "Enter the legacy Local Sakha Number, or uncheck legacy-import to auto-number it.";
+                return;
+            }
+            await this._changeRequestDestinationDecision("ACCEPT");
+        },
+
+        async rejectDestinationChangeRequest() {
+            if (!this.changeRequestActionRemarks.trim()) {
+                this.changeRequestActionError = "A reason is required to reject.";
+                return;
+            }
+            await this._changeRequestDestinationDecision("REJECT");
+        },
+
+        async _changeRequestDestinationDecision(decision) {
+            this.changeRequestActionError = "";
+            this.changeRequestActionLoading = true;
+            try {
+                const body = {
+                    decision,
+                    remarks: this.changeRequestActionRemarks.trim() || null,
+                };
+                if (decision === "ACCEPT" && this.changeRequestIsLegacyImport) {
+                    body.is_legacy_import = true;
+                    body.new_local_number = this.changeRequestNewLocalNumber.trim();
+                }
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/membership/change-requests/${this.selectedChangeRequest.membership_change_request_pk}/destination-decision`,
+                    { method: "POST", body: JSON.stringify(body) }
+                );
+                if (res.ok) {
+                    this.selectedChangeRequest = await res.json();
+                    this.changeRequestActionRemarks = "";
+                    this.changeRequestIsLegacyImport = false;
+                    this.changeRequestNewLocalNumber = "";
+                    await this.loadChangeRequestsPendingCount();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    this.changeRequestActionError = NSS.errorMessage ? NSS.errorMessage(data, res.status) : (data.detail || "Action failed.");
+                }
+            } catch {
+                this.changeRequestActionError = "Unable to connect to server.";
+            } finally {
+                this.changeRequestActionLoading = false;
             }
         },
 
@@ -3317,6 +4549,163 @@ function adminApp() {
                 this.patraCorrect.error = err.message || "Failed to correct the number.";
             } finally {
                 this.patraCorrect.loading = false;
+            }
+        },
+
+        // ═══════════════════════════════════════════════════════
+        //  MEMBER CREDENTIALS  (MBR-010 / MBR-019B / MBR-030H)
+        //  GET /api/v1/admin/credentials/members[...]/timeline
+        //  POST .../issue, POST .../promote
+        // ═══════════════════════════════════════════════════════
+        credsMembers: [],
+        credsTotal: 0,
+        credsPage: 1,
+        credsPageSize: 50,
+        credsLoading: false,
+        credsError: "",
+        credsSearch: "",
+        credsStateFilter: "",
+        credsTypeFilter: "",
+        credsLapsedCount: 0,
+
+        async loadCredentials(page = 1) {
+            this.credsPage = page;
+            this.credsLoading = true;
+            this.credsError = "";
+            try {
+                const params = new URLSearchParams({ page: this.credsPage, page_size: this.credsPageSize });
+                if (this.credsSearch.trim()) params.set("search", this.credsSearch.trim());
+                if (this.credsStateFilter) params.set("state", this.credsStateFilter);
+                if (this.credsTypeFilter) params.set("membership_type", this.credsTypeFilter);
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/credentials/members?${params}`);
+                if (res.status === 403) { this.credsError = "You do not have permission to view member credentials."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const data = await res.json();
+                this.credsMembers = data.members;
+                this.credsTotal = data.total;
+            } catch (err) {
+                this.credsError = err.message || "Failed to load member credentials.";
+            } finally {
+                this.credsLoading = false;
+            }
+            this.refreshCredsLapsedCount();
+        },
+
+        async refreshCredsLapsedCount() {
+            // Lightweight nav-badge count — reuses the same list endpoint
+            // rather than standing up a second summary endpoint.
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/admin/credentials/members?state=LAPSED&page=1&page_size=1");
+                if (res.ok) {
+                    const data = await res.json();
+                    this.credsLapsedCount = data.total;
+                }
+            } catch { /* non-fatal — badge just stays at its last value */ }
+        },
+
+        clearCredentialFilters() {
+            this.credsSearch = "";
+            this.credsStateFilter = "";
+            this.credsTypeFilter = "";
+            this.loadCredentials(1);
+        },
+
+        // ── Credential Timeline viewer ───────────────────────────
+        showCredTimelineModal: false,
+        credTimelineMember: null,
+        credTimelineEntries: [],
+        credTimelineLoading: false,
+        credTimelineError: "",
+
+        async openCredentialTimeline(m) {
+            this.credTimelineMember = m;
+            this.credTimelineEntries = [];
+            this.credTimelineError = "";
+            this.credTimelineLoading = true;
+            this.showCredTimelineModal = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/credentials/members/${m.sangha_sevi_pk}/timeline`);
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const data = await res.json();
+                this.credTimelineEntries = data.entries;
+            } catch (err) {
+                this.credTimelineError = err.message || "Failed to load the credential timeline.";
+            } finally {
+                this.credTimelineLoading = false;
+            }
+        },
+
+        // ── Issue / renew credential ──────────────────────────────
+        showIssueCredentialModal: false,
+        issueCredMember: null,
+        issueCredForm: { document_number: "", president_override: false, remarks: "" },
+        issueCredLoading: false,
+        issueCredError: "",
+
+        openIssueCredentialModal(m) {
+            this.issueCredMember = m;
+            this.issueCredForm = { document_number: "", president_override: false, remarks: "" };
+            this.issueCredError = "";
+            this.showIssueCredentialModal = true;
+        },
+
+        async submitIssueCredential() {
+            this.issueCredLoading = true;
+            this.issueCredError = "";
+            try {
+                const body = {
+                    document_number: this.issueCredForm.document_number.trim() || null,
+                    president_override: !!this.issueCredForm.president_override,
+                    remarks: this.issueCredForm.remarks.trim() || null,
+                };
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/admin/credentials/members/${this.issueCredMember.sangha_sevi_pk}/issue`,
+                    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+                );
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.showIssueCredentialModal = false;
+                await this.loadCredentials(this.credsPage);
+            } catch (err) {
+                this.issueCredError = err.message || "Failed to issue the credential.";
+            } finally {
+                this.issueCredLoading = false;
+            }
+        },
+
+        // ── Promote Darshaka → Regular ────────────────────────────
+        showPromoteModal: false,
+        promoteMember: null,
+        promoteForm: { effective_date: "", document_number: "", remarks: "" },
+        promoteLoading: false,
+        promoteError: "",
+
+        openPromoteModal(m) {
+            this.promoteMember = m;
+            this.promoteForm = { effective_date: "", document_number: "", remarks: "" };
+            this.promoteError = "";
+            this.showPromoteModal = true;
+        },
+
+        async submitPromote() {
+            this.promoteLoading = true;
+            this.promoteError = "";
+            try {
+                const body = {
+                    effective_date: this.promoteForm.effective_date || null,
+                    document_number: this.promoteForm.document_number.trim() || null,
+                    remarks: this.promoteForm.remarks.trim() || null,
+                };
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/admin/credentials/members/${this.promoteMember.sangha_sevi_pk}/promote`,
+                    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+                );
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.showPromoteModal = false;
+                await this.loadCredentials(this.credsPage);
+            } catch (err) {
+                this.promoteError = err.message || "Failed to promote this member.";
+            } finally {
+                this.promoteLoading = false;
             }
         },
 
@@ -3906,14 +5295,48 @@ function adminApp() {
         geoPostOffices: [],
         geoPostOfficesLoading: false,
 
+        // Monotonic token for the Geography drill-down: every selection
+        // handler takes a new one and discards its responses if a later
+        // selection has started meanwhile (stale-response guard).
+        _geoSeq: 0,
+        _geoSearchSeq: 0,
+
+        // Clears everything at/below a level: "country" | "state" | "district".
+        // Shared by geoSelectCountry/State/District so the dependent resets
+        // (selections, lists, post offices, search boxes) cannot drift apart.
+        _geoResetBelow(level) {
+            this.geoPostalCodePk = "";
+            this.geoCityPk = "";
+            this.geoPostOffices = [];
+            this.geoPostOfficesLoading = false;
+            this.geoCitiesFallbackNotice = "";
+            this.geoPostalCodeQuery = "";
+            this.geoCityQuery = "";
+            this.geoSakhaQuery = "";
+            this.geoCities = [];
+            this.geoPostalCodes = [];
+            this.geoSakhas = [];
+            if (level === "country" || level === "state") {
+                this.geoDistrictPk = "";
+                this.geoDistricts = [];
+            }
+            if (level === "country") {
+                this.geoStatePk = "";
+                this.geoStates = [];
+            }
+        },
+
         async geoLoadPostOffices(postalCodePk) {
+            const seq = this._geoSeq;
             if (!postalCodePk) { this.geoPostOffices = []; return; }
             this.geoPostOfficesLoading = true;
             try {
-                this.geoPostOffices = await NSSAuth.apiFetch(`/api/v1/foundation/post-offices?postal_code_pk=${postalCodePk}`)
+                const rows = await NSSAuth.apiFetch(`/api/v1/foundation/post-offices?postal_code_pk=${postalCodePk}`)
                     .then(r => r.ok ? r.json() : []).catch(() => []);
+                if (seq !== this._geoSeq || this.geoPostalCodePk !== postalCodePk) return;
+                this.geoPostOffices = rows;
             } finally {
-                this.geoPostOfficesLoading = false;
+                if (seq === this._geoSeq) this.geoPostOfficesLoading = false;
             }
         },
 
@@ -4055,12 +5478,17 @@ function adminApp() {
             // unfiltered scope rather than firing a rejected request.
             const q = (this.geoPostalCodeQuery || "").trim();
             const qs = q.length >= 2 ? `${scope}&q=${encodeURIComponent(q)}` : scope;
+            const seq = this._geoSeq;
+            const myQuery = ++this._geoSearchSeq;
             this.geoPostalCodeSearching = true;
             try {
-                this.geoPostalCodes = await NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?${qs}`)
+                const rows = await NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?${qs}`)
                     .then(r => r.ok ? r.json() : []).catch(() => []);
+                // Drop the result if the drill scope changed or a newer search started.
+                if (seq !== this._geoSeq || myQuery !== this._geoSearchSeq) return;
+                this.geoPostalCodes = rows;
             } finally {
-                this.geoPostalCodeSearching = false;
+                if (myQuery === this._geoSearchSeq) this.geoPostalCodeSearching = false;
             }
         },
 
@@ -4149,44 +5577,50 @@ function adminApp() {
         },
 
         async geoSelectCountry(countryPk) {
+            const seq = ++this._geoSeq;
             this.geoCountryPk = countryPk;
-            this.geoStatePk = "";
-            this.geoDistrictPk = "";
-            this.geoCityPk = "";
-            this.geoStates = [];
-            this.geoDistricts = [];
-            this.geoCities = [];
-            this.geoPostalCodes = [];
-            this.geoSakhas = [];
+            this._geoResetBelow("country");
             if (!countryPk) return;
             // Only load the next level (states). Postal codes wait for a state selection.
             const res = await NSSAuth.apiFetch(`/api/v1/foundation/states?country_pk=${countryPk}`);
-            this.geoStates = res.ok ? await res.json() : [];
+            const rows = res.ok ? await res.json() : [];
+            if (seq !== this._geoSeq) return;
+            this.geoStates = rows;
         },
 
         async geoSelectState(statePk) {
+            const seq = ++this._geoSeq;
             this.geoStatePk = statePk;
-            this.geoDistrictPk = "";
-            this.geoCityPk = "";
-            this.geoPostalCodePk = "";
-            this.geoDistricts = [];
-            this.geoCities = [];
-            this.geoPostalCodes = [];
-            this.geoSakhas = [];
-            this.geoPostalCodeQuery = "";
-            this.geoCityQuery = "";
-            this.geoSakhaQuery = "";
+            this._geoResetBelow("state");
             if (!statePk) return;
             // Load this state's districts, its postal codes, and the Sakha
-            // branches linked to those PINs (all scoped to the state).
+            // branches linked to those PINs (all scoped to the state). The
+            // state-wide PIN list is only a browse view; it narrows to the
+            // district as soon as one is chosen.
             const [dist, pc, sk] = await Promise.all([
                 NSSAuth.apiFetch(`/api/v1/foundation/districts?state_pk=${statePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
                 NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?state_pk=${statePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
                 NSSAuth.apiFetch(`/api/v1/foundation/sakha-postal-codes?state_pk=${statePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
             ]);
+            if (seq !== this._geoSeq) return;
             this.geoDistricts = dist;
             this.geoPostalCodes = pc;
             this.geoSakhas = sk;
+        },
+
+        // Re-load the state-wide PIN + Sakha lists (district cleared / PIN
+        // cleared with no district). Returns false when superseded.
+        async _geoLoadStateScope(seq) {
+            if (!this.geoStatePk) return true;
+            const statePk = this.geoStatePk;
+            const [pc, sk] = await Promise.all([
+                NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?state_pk=${statePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
+                NSSAuth.apiFetch(`/api/v1/foundation/sakha-postal-codes?state_pk=${statePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
+            ]);
+            if (seq !== this._geoSeq) return false;
+            this.geoPostalCodes = pc;
+            this.geoSakhas = sk;
+            return true;
         },
 
         // Picking a district now narrows all three panels together
@@ -4195,23 +5629,12 @@ function adminApp() {
         // narrowed — the three were not actually "interconnected" before
         // this fix (SOL-ARCH-010 Amendment, 2026-10-01).
         async geoSelectDistrict(districtPk) {
+            const seq = ++this._geoSeq;
             this.geoDistrictPk = districtPk;
-            this.geoCityPk = "";
-            this.geoPostalCodePk = "";
-            this.geoCities = [];
-            this.geoCityQuery = "";
-            this.geoPostalCodeQuery = "";
-            this.geoCitiesFallbackNotice = "";
+            this._geoResetBelow("district");
             if (!districtPk) {
                 // Cleared back to state scope — reload state-wide lists.
-                if (this.geoStatePk) {
-                    const [pc, sk] = await Promise.all([
-                        NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?state_pk=${this.geoStatePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
-                        NSSAuth.apiFetch(`/api/v1/foundation/sakha-postal-codes?state_pk=${this.geoStatePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
-                    ]);
-                    this.geoPostalCodes = pc;
-                    this.geoSakhas = sk;
-                }
+                await this._geoLoadStateScope(seq);
                 return;
             }
             const [cv, pc, sk] = await Promise.all([
@@ -4219,6 +5642,7 @@ function adminApp() {
                 NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?district_pk=${districtPk}`).then(r => r.ok ? r.json() : []).catch(() => []),
                 NSSAuth.apiFetch(`/api/v1/foundation/sakha-postal-codes?district_pk=${districtPk}`).then(r => r.ok ? r.json() : []).catch(() => []),
             ]);
+            if (seq !== this._geoSeq) return;
             this.geoCities = cv;
             this.geoPostalCodes = pc;
             this.geoSakhas = sk;
@@ -4230,6 +5654,7 @@ function adminApp() {
         // organization) re-narrows both Cities/Villages and Sakha Branches
         // to that exact PIN, instead of leaving them at state/district scope.
         async geoSelectPostalCode(postalCodePk) {
+            const seq = ++this._geoSeq;
             this.geoPostalCodePk = postalCodePk;
             this.geoCityQuery = "";
             this.geoSakhaQuery = "";
@@ -4245,14 +5670,7 @@ function adminApp() {
                     await this.geoSelectDistrict(this.geoDistrictPk);
                 } else {
                     this.geoCities = [];
-                    if (this.geoStatePk) {
-                        const [pc, sk] = await Promise.all([
-                            NSSAuth.apiFetch(`/api/v1/foundation/postal-codes?state_pk=${this.geoStatePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
-                            NSSAuth.apiFetch(`/api/v1/foundation/sakha-postal-codes?state_pk=${this.geoStatePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
-                        ]);
-                        this.geoPostalCodes = pc;
-                        this.geoSakhas = sk;
-                    }
+                    await this._geoLoadStateScope(seq);
                 }
                 return;
             }
@@ -4260,6 +5678,7 @@ function adminApp() {
                 NSSAuth.apiFetch(`/api/v1/foundation/cities?postal_code_pk=${postalCodePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
                 NSSAuth.apiFetch(`/api/v1/foundation/sakha-postal-codes?postal_code_pk=${postalCodePk}`).then(r => r.ok ? r.json() : []).catch(() => []),
             ]);
+            if (seq !== this._geoSeq) return;
             if (cv.length === 0 && this.geoDistrictPk) {
                 // No city/village row is directly anchored to this exact
                 // PIN. Very common for a multi-PIN city/town — e.g. a PIN
@@ -4268,8 +5687,10 @@ function adminApp() {
                 // representative PIN 751001 instead. Fall back to the
                 // district-wide list rather than showing a false "empty"
                 // result, and say so.
-                this.geoCities = await NSSAuth.apiFetch(`/api/v1/foundation/cities?district_pk=${this.geoDistrictPk}`)
+                const all = await NSSAuth.apiFetch(`/api/v1/foundation/cities?district_pk=${this.geoDistrictPk}`)
                     .then(r => r.ok ? r.json() : []).catch(() => []);
+                if (seq !== this._geoSeq) return;
+                this.geoCities = all;
                 this.geoCitiesFallbackNotice =
                     "No city/village record is anchored to this exact PIN " +
                     "(common for a locality that spans several post offices) " +
@@ -4409,6 +5830,15 @@ function adminApp() {
         assignSakhaSaving: null,    // organization_pk currently being saved, or null
         assignSakhaError: "",
         assignSakhaSuccess: "",
+        // Sakha re-parent approval workflow (owner rule 2026-10-30): the
+        // server answers 202 + a request payload instead of changing the
+        // parent unless the actor is a Kendra Governing Body member or the
+        // NSS_ERP_ADMIN super administrator (applies to Sakha Sangha and
+        // Sakha Asana alike).
+        // sakha organization_pk -> its latest visible re-parent request
+        // (pending takes precedence over decided ones).
+        assignSakhaNotice: "",
+        assignSakhaRequests: {},
         assignSakhaSearch: "",
         assignSakhaOnlyUnassigned: false,
 
@@ -4422,31 +5852,136 @@ function adminApp() {
             this.assignSakhaLoading = true;
             this.assignSakhaError = "";
             try {
-                const [sakhaRes, ancRes, zilRes] = await Promise.all([
-                    NSSAuth.apiFetch(`/api/v1/organization/organizations?type_code=SAKHA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`),
-                    NSSAuth.apiFetch(`/api/v1/organization/organizations?type_code=ANCHALIKA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`),
-                    NSSAuth.apiFetch(`/api/v1/organization/organizations?type_code=ZILLA_SANGHA&limit=${NSS.MAX_PAGE_SIZE}`),
-                ]);
-                if (!sakhaRes.ok || !ancRes.ok || !zilRes.ok) {
-                    this.assignSakhaError = "Failed to load Sakha/Anchalika/Zilla organizations.";
-                    return;
-                }
-                const [sakhas, ancs, zils] = await Promise.all([
-                    sakhaRes.json(), ancRes.json(), zilRes.json(),
+                // Two different scopes on purpose (see the per-call comment
+                // below): the SAKHA list uses the admin-scoped
+                // /admin/organizations (you only re-parent Sakhas you
+                // administer); the Anchalika/Zilla PARENT options use the
+                // nationwide selectable list (a Sakha admin must be able to
+                // pick any Anchalika as the new parent).
+                // The SAKHA list (what you may RE-PARENT) stays admin-scoped
+                // — you can only move Sakhas within your own admin scope.
+                // But the Anchalika/Zilla PARENT options must be nationwide:
+                // a Sakha admin's scope subtree is their own Sakha (downward
+                // only), so the scoped /admin/organizations returns ZERO
+                // Anchalikas and the parent dropdown was empty — a Sakha
+                // admin literally could not assign their Sakha under a newly
+                // created Anchalika (owner report, 2026-10-27). The valid
+                // PARENTS are the whole NSS regardless of the caller's
+                // downward scope, so the parent options come from the
+                // authenticated-but-unscoped /organization/organizations/
+                // selectable list (same source find-a-Sakha uses). The
+                // backend PATCH (update_organization) authorizes the write on
+                // the SAKHA being edited (in scope) and only validates the
+                // parent's TYPE, not its scope — so this is purely restoring
+                // the missing options, not widening write authority.
+                const [sakhas, parentOrgs] = await Promise.all([
+                    // Sakha Asana is a Sakha without its own building and is
+                    // re-parented under the same rule (owner 2026-10-30).
+                    this._fetchAllAdminOrganizations(NSS.SAKHA_LIKE_ORG_TYPES),
+                    NSSAuth.apiFetch(
+                        "/api/v1/organization/organizations/selectable?type_code=ANCHALIKA_SANGHA&type_code=ZILLA_SANGHA&limit=" + NSS.MAX_PAGE_SIZE
+                    ).then(r => r.ok ? r.json() : []).catch(() => []),
                 ]);
                 this.assignSakhaList = sakhas;
-                this.anchalikaZillaOptions = [...ancs, ...zils].sort(
+                this.anchalikaZillaOptions = (parentOrgs || []).slice().sort(
                     (a, b) => a.organization_name.localeCompare(b.organization_name)
                 );
                 // Pre-select each row's dropdown to its current parent.
                 const targets = {};
                 for (const s of sakhas) targets[s.organization_pk] = s.parent_organization_pk || "";
                 this.assignSakhaTarget = targets;
+                await this._loadAssignSakhaRequests();
             } catch (err) {
-                this.assignSakhaError = "Failed to load Sakha/Anchalika/Zilla organizations.";
+                this.assignSakhaError = err.message || "Failed to load Sakha/Anchalika/Zilla organizations.";
             } finally {
                 this.assignSakhaLoading = false;
             }
+        },
+
+        // Visible re-parent requests, keyed by Sakha. Two fetches so an old
+        // still-pending request is never pushed off the first page by newer
+        // decided ones; PENDING wins over decided for the same Sakha.
+        async _loadAssignSakhaRequests() {
+            const map = {};
+            try {
+                for (const qs of ["request_status=PENDING&page_size=100", "page_size=100"]) {
+                    const res = await NSSAuth.apiFetch(`/api/v1/org-reparent?${qs}`);
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    for (const r of data.items || []) {
+                        if (!map[r.sakha_organization_pk]) map[r.sakha_organization_pk] = r;
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load re-parent requests", err);
+            }
+            this.assignSakhaRequests = map;
+        },
+
+        assignSakhaRequestFor(s) {
+            return this.assignSakhaRequests[s.organization_pk] || null;
+        },
+
+        assignSakhaIsPending(s) {
+            const r = this.assignSakhaRequestFor(s);
+            return !!r && r.request_status === "PENDING";
+        },
+
+        async cancelAssignSakhaRequest(s) {
+            const r = this.assignSakhaRequestFor(s);
+            if (!r || r.request_status !== "PENDING") return;
+            this.assignSakhaSaving = s.organization_pk;
+            this.assignSakhaError = "";
+            this.assignSakhaNotice = "";
+            this.assignSakhaSuccess = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/org-reparent/${r.organization_reparent_request_pk}/cancel`,
+                    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
+                );
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.assignSakhaError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.assignSakhaRequests = { ...this.assignSakhaRequests, [s.organization_pk]: data };
+                this.assignSakhaSuccess = `Re-parent request for ${s.organization_name} cancelled.`;
+            } catch (err) {
+                this.assignSakhaError = err.message || "Failed to cancel the request.";
+            } finally {
+                this.assignSakhaSaving = null;
+            }
+        },
+
+        // Fetches every page of /api/v1/admin/organizations for one
+        // organization type (page_size is capped at 200 server-side, below
+        // NSS.MAX_PAGE_SIZE, so a single page can't be assumed complete).
+        // Throws on a non-OK response so loadAssignSakhaData's catch can
+        // report the failure the same way it did for the old bare-array
+        // endpoint.
+        // typeCode: one organization type code or an array of them (the API
+        // accepts type_code repeated).
+        async _fetchAllAdminOrganizations(typeCode) {
+            const typeCodes = Array.isArray(typeCode) ? typeCode : [typeCode];
+            const pageSize = 200;
+            let page = 1;
+            let all = [];
+            while (true) {
+                const params = new URLSearchParams({
+                    page: String(page),
+                    page_size: String(pageSize),
+                });
+                for (const tc of typeCodes) params.append("type_code", tc);
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/organizations?${params}`);
+                if (!res.ok) {
+                    throw new Error(`Failed to load ${typeCode} organizations.`);
+                }
+                const data = await res.json();
+                all = all.concat(data.organizations || []);
+                if (all.length >= data.total || !(data.organizations || []).length) break;
+                page += 1;
+            }
+            return all;
         },
 
         // A Sakha still parented directly under Kendra (i.e. not yet under
@@ -4470,6 +6005,7 @@ function adminApp() {
             if (!newParentPk || newParentPk === s.parent_organization_pk) return;
             this.assignSakhaSaving = s.organization_pk;
             this.assignSakhaError = "";
+            this.assignSakhaNotice = "";
             this.assignSakhaSuccess = "";
             try {
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/organizations/${s.organization_pk}`, {
@@ -4477,9 +6013,22 @@ function adminApp() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ parent_organization_pk: newParentPk }),
                 });
+                const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
                     this.assignSakhaError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                if (res.status === 202 && data.reparent_request) {
+                    // Deferred: the parent has NOT changed. Show the
+                    // approval chain instead of a success message, and keep
+                    // the row on its current parent.
+                    const req = data.reparent_request;
+                    this.assignSakhaRequests = { ...this.assignSakhaRequests, [s.organization_pk]: req };
+                    this.assignSakhaTarget[s.organization_pk] = s.parent_organization_pk || "";
+                    this.assignSakhaNotice =
+                        `${s.organization_name}: moving to ${req.to_parent_organization_name} was submitted for approval ` +
+                        "and has NOT been applied yet. Approval chain: " +
+                        (req.steps || []).map(st => NSS.reparentStepLabel(st)).join("; ") + ".";
                     return;
                 }
                 const newParent = this.anchalikaZillaOptions.find(p => p.organization_pk === newParentPk);
@@ -4490,11 +6039,2623 @@ function adminApp() {
                 // loadOrgHierarchy() always refetches on tab open, so just
                 // clear the cached tree to avoid a stale flash if it's visible.
                 this.orgTree = [];
+                // A direct (Kendra GB / NSS_ERP_ADMIN) change supersedes any open request.
+                await this._loadAssignSakhaRequests();
             } catch (err) {
                 this.assignSakhaError = err.message || "Failed to assign organization.";
             } finally {
                 this.assignSakhaSaving = null;
             }
         },
-    };
+
+        // ── Governance (Tier 6): Body Types & Positions catalog ──
+
+        async loadGovCatalog() {
+            if (this.govCatalogLoading) return;
+            this.govCatalogLoading = true;
+            this.govCatalogError = "";
+            try {
+                const [bt, p] = await Promise.all([
+                    NSSAuth.apiFetch("/api/v1/governance/body-types"),
+                    NSSAuth.apiFetch("/api/v1/governance/positions"),
+                ]);
+                if (bt.status === 403 || p.status === 403) {
+                    this.govCatalogError = "You do not have permission to view the Governance catalog.";
+                    return;
+                }
+                this.govBodyTypes = bt.ok ? await bt.json() : [];
+                this.govPositions = p.ok ? await p.json() : [];
+            } catch (err) {
+                this.govCatalogError = err.message || "Failed to load the Governance catalog.";
+            } finally {
+                this.govCatalogLoading = false;
+            }
+        },
+
+        async createGovBodyType() {
+            const f = this.govBodyTypeForm;
+            f.error = "";
+            if (!f.body_type_code.trim() || !f.body_type_name.trim()) {
+                f.error = "Code and name are required.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/body-types", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        body_type_code: f.body_type_code.trim().toUpperCase(),
+                        body_type_name: f.body_type_name.trim(),
+                        description: f.description.trim() || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govBodyTypes.push(await res.json());
+                f.show = false;
+                f.body_type_code = ""; f.body_type_name = ""; f.description = "";
+            } catch (err) {
+                f.error = err.message || "Failed to create body type.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        startEditGovBodyType(bt) {
+            this.govBodyTypeEdit = {
+                pk: bt.body_type_master_pk, body_type_name: bt.body_type_name,
+                description: bt.description || "", saving: false, error: "",
+            };
+        },
+
+        async saveGovBodyType() {
+            const e = this.govBodyTypeEdit;
+            e.saving = true; e.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/body-types/${e.pk}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ body_type_name: e.body_type_name.trim(), description: e.description.trim() || null }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    e.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govBodyTypes.findIndex(x => x.body_type_master_pk === e.pk);
+                if (idx !== -1) this.govBodyTypes[idx] = updated;
+                this.govBodyTypeEdit.pk = null;
+            } catch (err) {
+                e.error = err.message || "Failed to save body type.";
+            } finally {
+                e.saving = false;
+            }
+        },
+
+        async createGovPosition() {
+            const f = this.govPositionForm;
+            f.error = "";
+            if (!f.position_code.trim() || !f.position_name.trim()) {
+                f.error = "Code and name are required.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/positions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        position_code: f.position_code.trim().toUpperCase(),
+                        position_name: f.position_name.trim(),
+                        description: f.description.trim() || null,
+                        display_order: Number(f.display_order) || 0,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govPositions.push(await res.json());
+                this.govPositions.sort((a, b) => a.display_order - b.display_order);
+                f.show = false;
+                f.position_code = ""; f.position_name = ""; f.description = ""; f.display_order = 0;
+            } catch (err) {
+                f.error = err.message || "Failed to create position.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        startEditGovPosition(p) {
+            this.govPositionEdit = {
+                pk: p.position_master_pk, position_name: p.position_name,
+                description: p.description || "", display_order: p.display_order,
+                saving: false, error: "",
+            };
+        },
+
+        async saveGovPosition() {
+            const e = this.govPositionEdit;
+            e.saving = true; e.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/positions/${e.pk}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        position_name: e.position_name.trim(),
+                        description: e.description.trim() || null,
+                        display_order: Number(e.display_order) || 0,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    e.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govPositions.findIndex(x => x.position_master_pk === e.pk);
+                if (idx !== -1) this.govPositions[idx] = updated;
+                this.govPositions.sort((a, b) => a.display_order - b.display_order);
+                this.govPositionEdit.pk = null;
+            } catch (err) {
+                e.error = err.message || "Failed to save position.";
+            } finally {
+                e.saving = false;
+            }
+        },
+
+        // ── Governance: Bodies ────────────────────────────────────
+
+        async loadGovBodies() {
+            if (this.govBodiesLoading) return;
+            this.govBodiesLoading = true;
+            this.govBodiesError = "";
+            try {
+                if (this.govBodyTypes.length === 0) {
+                    const bt = await NSSAuth.apiFetch("/api/v1/governance/body-types");
+                    if (bt.ok) this.govBodyTypes = await bt.json();
+                }
+                // page_size is capped at 100 server-side (Query(..., le=100));
+                // the endpoint has no body_type_master_pk filter, so that's
+                // applied client-side below instead.
+                const params = new URLSearchParams({ page: 1, page_size: 100 });
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies?${params}`);
+                if (res.status === 403) { this.govBodiesError = "You do not have permission to view Governance Bodies."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const data = await res.json();
+                this.govBodiesAll = data.items;
+                this.govBodies = this.govBodyTypeFilter
+                    ? data.items.filter(b => b.body_type_master_pk === this.govBodyTypeFilter)
+                    : data.items;
+                // The selected body must still be one the admin can assign
+                // against; otherwise drop it (and everything derived from it)
+                // before defaulting to the first available body.
+                const assignable = this.govAssignableBodies;
+                if (this.govSelectedBodyPk && !assignable.some(b => b.body_master_pk === this.govSelectedBodyPk)) {
+                    this.govSelectedBodyPk = "";
+                    this._resetGovBodyDependents();
+                }
+                if (!this.govSelectedBodyPk && assignable.length) {
+                    this.govSelectedBodyPk = assignable[0].body_master_pk;
+                }
+            } catch (err) {
+                this.govBodiesError = err.message || "Failed to load Governance Bodies.";
+            } finally {
+                this.govBodiesLoading = false;
+            }
+        },
+
+        async createGovBody() {
+            const f = this.govBodyForm;
+            f.error = "";
+            if (!f.body_type_master_pk || !f.body_code.trim() || !f.body_name.trim()) {
+                f.error = "Body type, code, and name are required.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/bodies", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        body_type_master_pk: f.body_type_master_pk,
+                        body_code: f.body_code.trim().toUpperCase(),
+                        body_name: f.body_name.trim(),
+                        description: f.description.trim() || null,
+                        organization_pk: f.organization_pk || null,
+                        effective_from: f.effective_from || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const created = await res.json();
+                this.govBodies.push(created);
+                this.govBodiesAll.push(created);
+                f.show = false;
+                f.body_type_master_pk = ""; f.body_code = ""; f.body_name = "";
+                f.description = ""; f.organization_pk = ""; f.effective_from = "";
+                f.orgQuery = ""; f.orgResults = []; f.selectedOrg = null;
+            } catch (err) {
+                f.error = err.message || "Failed to create Governance Body.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        startEditGovBody(b) {
+            this.govBodyEdit = {
+                pk: b.body_master_pk, body_name: b.body_name, description: b.description || "",
+                body_status: b.body_status, effective_from: b.effective_from || "",
+                effective_to: b.effective_to || "", saving: false, error: "",
+            };
+        },
+
+        async saveGovBody() {
+            const e = this.govBodyEdit;
+            e.saving = true; e.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${e.pk}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        body_name: e.body_name.trim(), description: e.description.trim() || null,
+                        body_status: e.body_status || null,
+                        effective_from: e.effective_from || null, effective_to: e.effective_to || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    e.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govBodies.findIndex(x => x.body_master_pk === e.pk);
+                if (idx !== -1) this.govBodies[idx] = updated;
+                const idxAll = this.govBodiesAll.findIndex(x => x.body_master_pk === e.pk);
+                if (idxAll !== -1) this.govBodiesAll[idxAll] = updated;
+                this.govBodyEdit.pk = null;
+            } catch (err) {
+                e.error = err.message || "Failed to save Governance Body.";
+            } finally {
+                e.saving = false;
+            }
+        },
+
+        // Body types an admin may manually create via "Add Body". Kendra
+        // Governing Body / Advisory Board / the central Mahila Parichalana
+        // Mandali are NSS-wide singletons that are auto-created by the
+        // 03_body_master.sql seed instead (owner-confirmed 2026-10-07) —
+        // they never appear in this picker. Everything else (Sakha
+        // Governing Body, per-Sakha Mahila Parichalana Mandali, Sevak
+        // Sangha Executive — Sakha level only) stays manually creatable.
+        get govBodyTypesCreatable() {
+            return this.govBodyTypes.filter(bt => !["KENDRA_GOVERNING_BODY", "ADVISORY_BOARD"].includes(bt.body_type_code));
+        },
+
+        // Auto-fills Code/Name from the chosen Body Type so the admin
+        // doesn't have to invent either by hand. For NSS-wide singleton
+        // types (Kendra Governing Body / Advisory Board) the type's own
+        // name/code IS the body's name/code — there's only ever one.
+        // For per-organization types, this prefills with just the type's
+        // code/name for now; selectGovBodyOrg() below re-derives both
+        // once an Organization is picked, since that's what disambiguates
+        // one Sakha's body from another's.
+        onGovBodyTypeChange() {
+            const f = this.govBodyForm;
+            const bt = this.govBodyTypes.find(x => x.body_type_master_pk === f.body_type_master_pk);
+            if (!bt) {
+                f.body_code = "";
+                f.body_name = "";
+                f.organization_pk = "";
+                f.selectedOrg = null;
+                f.orgQuery = "";
+                f.orgResults = [];
+                this.govBodySakhaScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
+                return;
+            }
+            f.body_code = bt.body_type_code;
+            f.body_name = bt.body_type_name;
+            f.organization_pk = "";
+            f.selectedOrg = null;
+            f.orgQuery = "";
+            f.orgResults = [];
+            if (this.govScopedSakhaBodyTypes.includes(bt.body_type_code)) {
+                this.loadGovBodySakhaScope(f.body_type_master_pk);
+            } else {
+                this.govBodySakhaScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
+            }
+        },
+
+        // Same auto-select/locked-dropdown UX as loadKumariSevakScope,
+        // for the "Add Body" form's org-picker when the chosen body type
+        // is Sakha-anchored (SAKHA_GOVERNING_BODY, MAHILA_PARICHALANA_MANDALI,
+        // SEVAK_SANGHA_EXECUTIVE) — the admin should only ever attach one
+        // of these to a Sakha within their own admin scope.
+        isGovScopedSakhaBodyType() {
+            const bt = this.govBodyTypes.find(x => x.body_type_master_pk === this.govBodyForm.body_type_master_pk);
+            return !!bt && this.govScopedSakhaBodyTypes.includes(bt.body_type_code);
+        },
+
+        async loadGovBodySakhaScope(bodyTypeMasterPk) {
+            this.govBodySakhaScopeLoading = true;
+            // Stale guard: the Add Body form's type may change while this is in flight.
+            const stale = () => this.govBodyForm.body_type_master_pk !== bodyTypeMasterPk;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/bodies/sakha-scope-options?body_type_master_pk=${encodeURIComponent(bodyTypeMasterPk)}`
+                );
+                if (stale()) return;
+                if (!res.ok) {
+                    this.govBodySakhaScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
+                    return;
+                }
+                const data = await res.json();
+                if (stale()) return;
+                this.govBodySakhaScope = {
+                    mode: data.mode || "choose",
+                    auto_select_pk: data.auto_select_pk || null,
+                    sakhas: data.sakhas || [],
+                };
+                if (this.govBodySakhaScope.mode === "locked" && this.govBodySakhaScope.auto_select_pk) {
+                    const org = this.govBodySakhaScope.sakhas.find(
+                        s => s.organization_pk === this.govBodySakhaScope.auto_select_pk
+                    );
+                    if (org) this.selectGovBodyOrg({ ...org, type_code: org.organization_type_code || "SAKHA_SANGHA" });
+                }
+            } catch (_) {
+                if (!stale()) this.govBodySakhaScope = { mode: "choose", auto_select_pk: null, sakhas: [] };
+            } finally {
+                if (!stale()) this.govBodySakhaScopeLoading = false;
+            }
+        },
+
+        onGovBodySakhaScopeSelect(organizationPk) {
+            const org = this.govBodySakhaScope.sakhas.find(s => s.organization_pk === organizationPk);
+            if (org) this.selectGovBodyOrg({ ...org, type_code: org.organization_type_code || "SAKHA_SANGHA" });
+        },
+
+        // Debounced type-ahead org picker for the Add Body form — mirrors
+        // onGovPersonQueryInput()/searchGovPerson() below, so an admin
+        // picks a Sakha/Mahila Sangha by NAME instead of pasting a PK.
+        // Scoped to the org type implied by the chosen Body Type where
+        // one is known (govBodyOrgTypeByBodyType); otherwise unfiltered.
+        _govBodyOrgSearchTimer: null,
+        onGovBodyOrgQueryInput() {
+            clearTimeout(this._govBodyOrgSearchTimer);
+            this.govBodyForm.selectedOrg = null;
+            this.govBodyForm.organization_pk = "";
+            const q = this.govBodyForm.orgQuery.trim();
+            if (q.length < 2) { this.govBodyForm.orgResults = []; return; }
+            this._govBodyOrgSearchTimer = setTimeout(() => this.searchGovBodyOrg(q), 300);
+        },
+
+        async searchGovBodyOrg(q) {
+            this.govBodyForm.orgSearching = true;
+            try {
+                const bt = this.govBodyTypes.find(x => x.body_type_master_pk === this.govBodyForm.body_type_master_pk);
+                const typeCode = bt ? this.govBodyOrgTypeByBodyType[bt.body_type_code] : null;
+                const params = new URLSearchParams({ search: q, page_size: 20 });
+                if (typeCode) [].concat(typeCode).forEach(t => params.append("type_code", t));
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/organizations?${params}`);
+                this.govBodyForm.orgResults = res.ok ? (await res.json()).organizations : [];
+            } catch {
+                this.govBodyForm.orgResults = [];
+            } finally {
+                this.govBodyForm.orgSearching = false;
+            }
+        },
+
+        selectGovBodyOrg(org) {
+            this.govBodyForm.selectedOrg = org;
+            this.govBodyForm.organization_pk = org.organization_pk;
+            this.govBodyForm.orgQuery = `${org.organization_name} (${org.type_name || org.type_code})`;
+            this.govBodyForm.orgResults = [];
+            // Re-derive Code/Name now that we know WHICH org this instance
+            // belongs to — e.g. "Puri Sakha Governing Body" / a
+            // "<ORG_CODE>_<BODY_TYPE_CODE>" code, so two Sakhas' bodies
+            // never collide on the auto-filled default from onGovBodyTypeChange().
+            const bt = this.govBodyTypes.find(x => x.body_type_master_pk === this.govBodyForm.body_type_master_pk);
+            if (bt) {
+                const orgTag = org.organization_code || org.short_code || org.organization_name;
+                const codeSuffix = this.govBodyCodeSuffixByBodyType[bt.body_type_code] || bt.body_type_code;
+                this.govBodyForm.body_code = `${orgTag}_${codeSuffix}`.toUpperCase();
+                this.govBodyForm.body_name = `${org.organization_name} ${bt.body_type_name}`;
+            }
+        },
+
+        // ── Governance: Assignments ───────────────────────────────
+
+        async loadGovAssignments() {
+            // The assign-form's Position dropdown needs govPositions, which
+            // only the Body Types & Positions tab normally loads — fetch it
+            // here too so Assignments works as a standalone entry point.
+            if (this.govPositions.length === 0) {
+                const p = await NSSAuth.apiFetch("/api/v1/governance/positions");
+                if (p.ok) this.govPositions = await p.json();
+            }
+            // "Which Sakhas haven't nominated their Advisory Board rep" is
+            // body-independent (NSS-wide-only) — load it once per tab visit.
+            if (this.isGovNssWideAdmin) this.loadGovMissingNominations();
+            if (!this.govSelectedBodyPk) {
+                if (this.govBodies.length === 0) await this.loadGovBodies();
+                if (!this.govSelectedBodyPk) return;
+            }
+            this._loadGovAllowedPositions();
+            this._loadGovActingPositions();
+            this.loadGovActing();
+            const bodyPk = this.govSelectedBodyPk;
+            this.govAssignmentsLoading = true;
+            this.govAssignmentsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${bodyPk}/assignments`);
+                if (bodyPk !== this.govSelectedBodyPk) return;   // body changed mid-flight
+                if (res.status === 403) { this.govAssignmentsError = "You do not have permission to view assignments."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const data = await res.json();
+                if (bodyPk !== this.govSelectedBodyPk) return;
+                this.govAssignments = data.items;
+                this._applyGovSakhaFilterDefault();
+            } catch (err) {
+                if (bodyPk === this.govSelectedBodyPk) this.govAssignmentsError = err.message || "Failed to load assignments.";
+            } finally {
+                if (bodyPk === this.govSelectedBodyPk) this.govAssignmentsLoading = false;
+            }
+        },
+
+        // NSS-admin-only: active Sakha Sanghas with no current Advisory
+        // Board representative. Backend 403s a Sakha-scoped admin, so only
+        // fetch for a global admin (isGovNssWideAdmin).
+        async loadGovMissingNominations() {
+            this.govMissingNominationsLoading = true;
+            this.govMissingNominationsError = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/governance/advisory-board/missing-nominations");
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govMissingNominationsError = NSS.errorMessage(data, res.status);
+                    this.govMissingNominations = [];
+                    return;
+                }
+                const data = await res.json();
+                this.govMissingNominations = data.items || [];
+            } catch (err) {
+                this.govMissingNominationsError = err.message || "Failed to load missing nominations.";
+                this.govMissingNominations = [];
+            } finally {
+                this.govMissingNominationsLoading = false;
+            }
+        },
+
+        // Everything on the Assignments tab that belongs to ONE body: the
+        // lists, allowed/inherited positions, and both entry forms (position,
+        // chosen person and person query — person search scope depends on the
+        // body, so a person picked for the old body must never carry over).
+        _resetGovBodyDependents() {
+            clearTimeout(this._govPersonSearchTimer);
+            clearTimeout(this._govActingPersonSearchTimer);
+            this.govAssignments = [];
+            this.govActing = [];
+            this.govActingPositions = [];
+            this.govSakhaFilter = "";
+            this.govAssignmentsShowAll = false;
+            this.govAllowedPositions = [];
+            this.govSeatLimit = null;
+            this.govSeatsFilled = 0;
+            this.govInheritedPositions = [];
+            this.govAssignFromResults = [];
+            this.govAssignOfficersFromMembers = false;
+            this.govAssignOrgPk = null;
+            this.govAssignForm = {
+                show: false, saving: false, error: "",
+                position_master_pk: "", effective_from: "",
+                personQuery: "", personResults: [], personSearching: false,
+                selectedPerson: null,
+            };
+            this.govActingForm = {
+                show: false, saving: false, error: "",
+                position_master_pk: "", effective_from: "", effective_to: "",
+                reason: "", remarks: "",
+                personQuery: "", personResults: [], personSearching: false,
+                selectedPerson: null,
+            };
+        },
+
+        onGovBodyChange() {
+            this._resetGovBodyDependents();
+            this.loadGovAssignments();
+        },
+
+        // Positions valid for the selected body's type (GOV-BR-011A) —
+        // drives the assign-form Position dropdown.
+        async _loadGovAllowedPositions() {
+            this.govAllowedPositions = [];
+            this.govSeatLimit = null;
+            this.govSeatsFilled = 0;
+            this.govInheritedPositions = [];
+            this.govAssignFromResults = [];
+            this.govAssignOfficersFromMembers = false;
+            this.govAssignOrgPk = null;
+            if (!this.govSelectedBodyPk) return;
+            const bodyPk = this.govSelectedBodyPk;
+            const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${bodyPk}/allowed-positions`);
+            if (bodyPk !== this.govSelectedBodyPk) return;   // stale: body changed
+            if (res.ok) {
+                const data = await res.json();
+                if (bodyPk !== this.govSelectedBodyPk) return;
+                this.govAllowedPositions = data.positions;
+                this.govSeatLimit = data.seat_limit;
+                this.govSeatsFilled = data.seats_filled;
+                // Drives the Member-search scope in the Add Assignment form:
+                // a body whose officers are chosen from among its own existing
+                // members (Advisory Board President/Secretary) must search
+                // only this body's current members; an org-scoped body
+                // searches its own org subtree; an NSS-wide body with neither
+                // searches everyone. See onGovPersonQueryInput().
+                this.govAssignOfficersFromMembers = !!data.officers_from_members;
+                this.govAssignOrgPk = data.organization_pk || null;
+            }
+            // Read-only office-holders inherited from another body (e.g. the
+            // Mahila Parichalana Mandali inherits the Kendra GB's Parichalak).
+            const inh = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${bodyPk}/inherited-positions`);
+            if (bodyPk !== this.govSelectedBodyPk) return;
+            if (inh.ok) {
+                const idata = await inh.json();
+                if (bodyPk !== this.govSelectedBodyPk) return;
+                this.govInheritedPositions = idata.inherited || [];
+            }
+            this._loadGovAssignFromResults();
+        },
+
+        // Declared election results (DECLARED/UNCONTESTED with a winner) for
+        // elections held on the currently-selected body, restricted to
+        // positions this admin's dropdown actually offers (govAllowedPositions
+        // — for Advisory Board that is President/Secretary once the
+        // Sakha-nominated Member seat is excluded for an NSS-wide admin, see
+        // list_allowed_positions in governance.py). Drives a one-click
+        // "assign winner" action alongside the normal manual person search,
+        // for the Advisory Board President/Secretary + any other elected body.
+        async _loadGovAssignFromResults() {
+            this.govAssignFromResults = [];
+            if (!this.govSelectedBodyPk || !(this.govAllowedPositions || []).length) return;
+            this.govAssignFromResultsLoading = true;
+            try {
+                const er = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections?body_master_pk=${this.govSelectedBodyPk}&page=1&page_size=${NSS.MAX_PAGE_SIZE}`);
+                if (!er.ok) return;
+                const elections = (await er.json()).items || [];
+                const allowedPks = new Set(this.govAllowedPositions.map(p => String(p.position_master_pk)));
+                const out = [];
+                for (const e of elections) {
+                    const rr = await NSSAuth.apiFetch(`/api/v1/governance/elections/${e.election_pk}/results`);
+                    if (!rr.ok) continue;
+                    const items = (await rr.json()).items || [];
+                    for (const r of items) {
+                        if (!r.is_active || !r.winner_person_pk) continue;
+                        if (!["DECLARED", "UNCONTESTED"].includes(r.result_status)) continue;
+                        if (!allowedPks.has(String(r.position_master_pk))) continue;
+                        out.push(r);
+                    }
+                }
+                this.govAssignFromResults = out;
+            } catch {
+                this.govAssignFromResults = [];
+            } finally {
+                this.govAssignFromResultsLoading = false;
+            }
+        },
+
+        // One-click "assign from election result" for the Assignments tab —
+        // same POST /results/{pk}/apply the Elections tab's applyGovResult()
+        // uses. If the position already has a holder (e.g. replacing a prior
+        // Advisory Board President/Secretary), end that assignment first and
+        // retry — the update/replace path the backend otherwise requires as
+        // two explicit calls (End, then Apply/Add Assignment).
+        async assignGovResultWinner(result) {
+            const ok = await NSSDialog.confirm(
+                `Assign ${result.winner_name || "the declared winner"} as ${result.position_name} from this election result?`,
+                { title: "Assign Winner", confirmText: "Assign", confirmClass: "primary" }
+            );
+            if (!ok) return;
+            this.govAssignmentsError = "";
+            try {
+                let res = await NSSAuth.apiFetch(`/api/v1/governance/results/${result.election_result_pk}/apply`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({}),
+                });
+                if (res.status === 409) {
+                    const existing = (this.govAssignments || []).find(
+                        a => String(a.position_master_pk) === String(result.position_master_pk) && a.is_active
+                    );
+                    if (!existing) {
+                        const data = await res.json().catch(() => ({}));
+                        this.govAssignmentsError = NSS.errorMessage(data, res.status);
+                        return;
+                    }
+                    const replaceOk = await NSSDialog.confirm(
+                        `${existing.person_name || "The current holder"} currently holds ${result.position_name}. End their assignment and assign ${result.winner_name} instead?`,
+                        { title: "Replace Office-Bearer", confirmText: "End & Assign", confirmClass: "danger" }
+                    );
+                    if (!replaceOk) {
+                        return;
+                    }
+                    const today = new Date().toISOString().slice(0, 10);
+                    const endRes = await NSSAuth.apiFetch(`/api/v1/governance/assignments/${existing.body_member_assignment_pk}/end`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ effective_to: today }),
+                    });
+                    if (!endRes.ok) {
+                        const data = await endRes.json().catch(() => ({}));
+                        this.govAssignmentsError = NSS.errorMessage(data, endRes.status);
+                        return;
+                    }
+                    res = await NSSAuth.apiFetch(`/api/v1/governance/results/${result.election_result_pk}/apply`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({}),
+                    });
+                }
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govAssignmentsError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                await this.loadGovAssignments();
+            } catch (err) {
+                this.govAssignmentsError = err.message || "Failed to assign from election result.";
+            }
+        },
+
+        // Debounced type-ahead against the membership search endpoint —
+        // returns sangha_sevi_pk alongside person_pk, which is exactly
+        // what a governance assignment needs (GOV-BR-056/074: the holder
+        // must be an active member, not just a Person). Scoped so the
+        // results are actually eligible candidates for the position chosen,
+        // not every member in NSS (same bug class as the election
+        // typeahead, which already scopes via _govSearchMembers/orgPk):
+        //   - officers-from-members body (Advisory Board President/
+        //     Secretary — GOV-BR-033/034) -> only this body's own current
+        //     members (member_of_body_pk), since the officer must already
+        //     be seated as Member here;
+        //   - org-scoped body (Sakha GB, Sevak Sangha Executive, ...) ->
+        //     that org's own subtree (organization_pk), same as everywhere
+        //     else this pattern is used;
+        //   - NSS-wide body with no such rule (Kendra GB, Advisory Board's
+        //     own MEMBER seat, which is filled via nomination not body
+        //     membership) -> unscoped, any active member.
+        // Changing the position re-scopes who may fill it (officers are drawn
+        // from members, MEMBER from anyone) and may invalidate the person
+        // already picked, so clear the person for the given form
+        // ("govAssignForm" | "govActingForm").
+        onGovPositionChange(formName) {
+            const f = this[formName];
+            if (!f) return;
+            clearTimeout(this._govPersonSearchTimer);
+            clearTimeout(this._govActingPersonSearchTimer);
+            f.selectedPerson = null;
+            f.personQuery = "";
+            f.personResults = [];
+            f.personSearching = false;
+        },
+
+        _govPersonSearchTimer: null,
+        onGovPersonQueryInput() {
+            clearTimeout(this._govPersonSearchTimer);
+            this.govAssignForm.selectedPerson = null;
+            const q = this.govAssignForm.personQuery.trim();
+            if (q.length < 2) { this.govAssignForm.personResults = []; return; }
+            this._govPersonSearchTimer = setTimeout(() => this.searchGovPerson(q), 300);
+        },
+
+        get govAssignSelectedPositionCode() {
+            const p = (this.govAllowedPositions || [])
+                .find(p => p.position_master_pk === this.govAssignForm.position_master_pk);
+            return p ? p.position_code : null;
+        },
+
+        async searchGovPerson(q) {
+            const bodyPk = this.govSelectedBodyPk;
+            this.govAssignForm.personSearching = true;
+            try {
+                let url = `/api/v1/membership/search?q=${encodeURIComponent(q)}`;
+                if (this.govAssignOfficersFromMembers && this.govAssignSelectedPositionCode !== "MEMBER") {
+                    url += `&member_of_body_pk=${encodeURIComponent(this.govSelectedBodyPk)}`;
+                } else if (this.govAssignOrgPk) {
+                    url += `&organization_pk=${encodeURIComponent(this.govAssignOrgPk)}`;
+                }
+                const res = await NSSAuth.apiFetch(url);
+                const members = res.ok ? (await res.json()).members : [];
+                if (bodyPk !== this.govSelectedBodyPk) return;   // body changed: results are for the wrong scope
+                this.govAssignForm.personResults = members;
+            } catch {
+                this.govAssignForm.personResults = [];
+            } finally {
+                this.govAssignForm.personSearching = false;
+            }
+        },
+
+        selectGovPerson(member) {
+            this.govAssignForm.selectedPerson = member;
+            this.govAssignForm.personQuery =
+                `${member.first_name} ${member.last_name || ""}`.trim() + ` (${member.sangha_sevi_id || ""})`;
+            this.govAssignForm.personResults = [];
+        },
+
+        async createGovAssignment() {
+            const f = this.govAssignForm;
+            f.error = "";
+            if (!f.position_master_pk || !f.selectedPerson || !f.effective_from) {
+                f.error = "Position, member, and effective date are required.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${this.govSelectedBodyPk}/assignments`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        position_master_pk: f.position_master_pk,
+                        person_pk: f.selectedPerson.person_pk,
+                        sangha_sevi_pk: f.selectedPerson.sangha_sevi_pk,
+                        effective_from: f.effective_from,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govAssignments.push(await res.json());
+                this._loadGovAllowedPositions();
+                f.show = false;
+                f.position_master_pk = ""; f.effective_from = "";
+                f.personQuery = ""; f.personResults = []; f.selectedPerson = null;
+            } catch (err) {
+                f.error = err.message || "Failed to create assignment.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        async endGovAssignment(a) {
+            const today = new Date().toISOString().slice(0, 10);
+            const ok = await NSSDialog.confirm(
+                `End ${a.person_name || "this holder"}'s Position as ${a.position_name}?`,
+                { title: "End Assignment", confirmText: "End", confirmClass: "danger" }
+            );
+            if (!ok) return;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/assignments/${a.body_member_assignment_pk}/end`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ effective_to: today }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govAssignmentsError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govAssignments.findIndex(x => x.body_member_assignment_pk === a.body_member_assignment_pk);
+                if (idx !== -1) this.govAssignments[idx] = updated;
+                this._loadGovAllowedPositions();
+            } catch (err) {
+                this.govAssignmentsError = err.message || "Failed to end assignment.";
+            }
+        },
+
+        // ── Governance: Acting / Interim Cover (GOV-BR-018/019/020) ──
+        // Separate table from body_member_assignment — no composition/
+        // seat-limit check, so the position dropdown is fetched with
+        // exclude_filled=false (interim cover is legitimate while a seat
+        // is vacant or its holder unavailable).
+        async _loadGovActingPositions() {
+            this.govActingPositions = [];
+            if (!this.govSelectedBodyPk) return;
+            const res = await NSSAuth.apiFetch(
+                `/api/v1/governance/bodies/${this.govSelectedBodyPk}/allowed-positions?exclude_filled=false`);
+            if (res.ok) this.govActingPositions = (await res.json()).positions;
+        },
+
+        async loadGovActing() {
+            if (!this.govSelectedBodyPk) { this.govActing = []; return; }
+            this.govActingLoading = true;
+            this.govActingError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${this.govSelectedBodyPk}/acting-assignments`);
+                if (res.status === 403) { this.govActingError = "You do not have permission to view acting assignments."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.govActing = (await res.json()).items;
+            } catch (err) {
+                this.govActingError = err.message || "Failed to load acting assignments.";
+            } finally {
+                this.govActingLoading = false;
+            }
+        },
+
+        // Member-search typeahead for the acting-cover form — org-scoped
+        // the same way the regular Assignment form is (govAssignOrgPk, set
+        // by _loadGovAllowedPositions), but deliberately NOT restricted to
+        // the body's own current members (unlike officers-from-members):
+        // an acting holder is defined against the Person performing the
+        // role, not against prior membership on this body (DDL comment,
+        // 05_acting_position_assignment.sql).
+        _govActingPersonSearchTimer: null,
+        onGovActingPersonQueryInput() {
+            clearTimeout(this._govActingPersonSearchTimer);
+            this.govActingForm.selectedPerson = null;
+            const q = this.govActingForm.personQuery.trim();
+            if (q.length < 2) { this.govActingForm.personResults = []; return; }
+            this._govActingPersonSearchTimer = setTimeout(() => this.searchGovActingPerson(q), 300);
+        },
+
+        async searchGovActingPerson(q) {
+            this.govActingForm.personSearching = true;
+            try {
+                let url = `/api/v1/membership/search?q=${encodeURIComponent(q)}`;
+                if (this.govAssignOrgPk) url += `&organization_pk=${encodeURIComponent(this.govAssignOrgPk)}`;
+                const res = await NSSAuth.apiFetch(url);
+                this.govActingForm.personResults = res.ok ? (await res.json()).members : [];
+            } catch {
+                this.govActingForm.personResults = [];
+            } finally {
+                this.govActingForm.personSearching = false;
+            }
+        },
+
+        selectGovActingPerson(member) {
+            this.govActingForm.selectedPerson = member;
+            this.govActingForm.personQuery =
+                `${member.first_name} ${member.last_name || ""}`.trim() + ` (${member.sangha_sevi_id || ""})`;
+            this.govActingForm.personResults = [];
+        },
+
+        async createGovActing() {
+            const f = this.govActingForm;
+            f.error = "";
+            if (!f.position_master_pk || !f.selectedPerson || !f.effective_from) {
+                f.error = "Position, acting person, and effective date are required.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${this.govSelectedBodyPk}/acting-assignments`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        position_master_pk: f.position_master_pk,
+                        person_pk: f.selectedPerson.person_pk,
+                        effective_from: f.effective_from,
+                        effective_to: f.effective_to || null,
+                        reason: f.reason || null,
+                        remarks: f.remarks || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govActing.unshift(await res.json());
+                f.show = false;
+                f.position_master_pk = ""; f.effective_from = ""; f.effective_to = "";
+                f.reason = ""; f.remarks = "";
+                f.personQuery = ""; f.personResults = []; f.selectedPerson = null;
+            } catch (err) {
+                f.error = err.message || "Failed to create acting assignment.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        async endGovActing(a) {
+            const today = new Date().toISOString().slice(0, 10);
+            const ok = await NSSDialog.confirm(
+                `End ${a.person_name || "this person"}'s acting cover as ${a.position_name}?`,
+                { title: "End Acting Cover", confirmText: "End", confirmClass: "danger" }
+            );
+            if (!ok) return;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/acting-assignments/${a.acting_position_assignment_pk}/end`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ effective_to: today }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govActingError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govActing.findIndex(x => x.acting_position_assignment_pk === a.acting_position_assignment_pk);
+                if (idx !== -1) this.govActing[idx] = updated;
+            } catch (err) {
+                this.govActingError = err.message || "Failed to end acting assignment.";
+            }
+        },
+
+        // ══════════════════════════════════════════════════════════
+        //  Governance Elections (Tier 6 voting slice, GOV-BR-045)
+        //  Mirrors the govAssignment* conventions above.
+        // ══════════════════════════════════════════════════════════
+
+        govFmtDate(iso) {
+            if (!iso) return "";
+            const s = String(iso).slice(0, 10).split("-");
+            return s.length === 3 ? `${s[2]}/${s[1]}/${s[0]}` : iso;
+        },
+        govElectionStatusBadge(status) {
+            switch (status) {
+                case "VOTING":    return "badge-info";
+                case "COMPLETED": return "badge-success";
+                case "CANCELLED": return "badge-muted";
+                default:          return "badge-muted"; // SCHEDULED / NOMINATION
+            }
+        },
+        govNominationStatusBadge(status) {
+            switch (status) {
+                case "ACCEPTED":  return "badge-success";
+                case "REJECTED":
+                case "WITHDRAWN": return "badge-muted";
+                default:          return "badge-info"; // NOMINATED
+            }
+        },
+        // Allowed status transitions (By-Law election lifecycle). Mirrors the
+        // server-side table in api/routers/governance.py
+        // (_ELECTION_STATUS_TRANSITIONS) — the API is the authority; this copy
+        // only decides which buttons to draw.
+        //
+        // An ELECTION cycle runs SCHEDULED -> NOMINATION -> VOTING -> COMPLETED.
+        // A NOMINATION cycle (consensus/selection, GOV-BR-042) runs
+        // SCHEDULED -> NOMINATION -> COMPLETED, skipping VOTING entirely.
+        govNextStatuses(status, electionType) {
+            const isNominationOnly = electionType === "NOMINATION";
+            switch (status) {
+                case "SCHEDULED":  return ["NOMINATION", "CANCELLED"];
+                case "NOMINATION": return isNominationOnly
+                    ? ["COMPLETED", "CANCELLED"]
+                    : ["VOTING", "CANCELLED"];
+                case "VOTING":     return ["COMPLETED", "CANCELLED"];
+                default:           return [];
+            }
+        },
+        govIsNominationOnly() {
+            return this.govSelectedElection &&
+                   this.govSelectedElection.election_type === "NOMINATION";
+        },
+        govElectionTypeLabel(t) {
+            return t === "NOMINATION" ? "Nomination (consensus)" : "Election (ballot)";
+        },
+        // Outcomes available when declaring a result. A nomination-only cycle
+        // held no ballot, so DECLARED (from a tally) and TIE are impossible.
+        govResultStatusOptions() {
+            return this.govIsNominationOnly()
+                ? ["UNCONTESTED", "VACANT"]
+                : ["DECLARED", "UNCONTESTED", "TIE", "VACANT"];
+        },
+        // Only ACCEPTED nominations are votable.
+        govVotableNominations() {
+            return this.govNominations.filter(n => n.nomination_status === "ACCEPTED");
+        },
+        govNominationsForPosition(positionPk) {
+            if (!positionPk) return [];
+            return this.govNominations.filter(
+                n => String(n.position_master_pk) === String(positionPk) && n.nomination_status === "ACCEPTED");
+        },
+
+        // ── Member typeahead (shared by every election sub-form) ──
+        // `orgPk` restricts results to one organization's own members *and its
+        // branches* (the API search is subtree-aware). Used for the nomination
+        // candidate/proposer search AND the vote form's voter search so an
+        // org-scoped body (Sakha Governing Body, Sevak Sangha Executive,
+        // per-Sakha Mahila Parichalana Mandali, ...) only offers members from
+        // its own subtree — the electorate the server will accept (GOV-BR-094).
+        // Omit for an NSS-wide body (organization_pk IS NULL), or for the reset
+        // form's president field (an approval authority, not an electorate
+        // member), which searches across all members.
+        async _govSearchMembers(q, orgPk) {
+            try {
+                let url = `/api/v1/membership/search?q=${encodeURIComponent(q)}`;
+                if (orgPk) url += `&organization_pk=${encodeURIComponent(orgPk)}`;
+                const res = await NSSAuth.apiFetch(url);
+                if (!res.ok) return [];
+                const data = await res.json();
+                return data.members || [];
+            } catch {
+                return [];
+            }
+        },
+        _govCap(s) { return s.charAt(0).toUpperCase() + s.slice(1); },
+        onGovMemberSearch(form, key, orgPk) {
+            clearTimeout(this._govTypeTimers[key]);
+            form["selected" + this._govCap(key)] = null;
+            const q = (form[key + "Query"] || "").trim();
+            if (q.length < 2) { form[key + "Results"] = []; return; }
+            this._govTypeTimers[key] = setTimeout(async () => {
+                form[key + "Searching"] = true;
+                form[key + "Results"] = await this._govSearchMembers(q, orgPk);
+                form[key + "Searching"] = false;
+            }, 300);
+        },
+        selectGovMember(form, key, m) {
+            form["selected" + this._govCap(key)] = m;
+            const label = `${m.first_name} ${m.last_name || ""}`.trim();
+            form[key + "Query"] = m.sangha_sevi_id ? `${label} (${m.sangha_sevi_id})` : label;
+            form[key + "Results"] = [];
+        },
+
+        // ── Elections list / create ──
+        async loadGovElections() {
+            if (!this.canViewGovernance) return;
+            this.govElectionsLoading = true;
+            this.govElectionsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections?page=1&page_size=${NSS.MAX_PAGE_SIZE}&sort_by=election_date&sort_dir=desc`);
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govElectionsError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const data = await res.json();
+                this.govElections = data.items || [];
+                // Governance bodies feed the create form + reset scope.
+                if (!this.govBodiesAll.length) await this.loadGovBodies();
+            } catch (err) {
+                this.govElectionsError = err.message || "Failed to load elections.";
+            } finally {
+                this.govElectionsLoading = false;
+            }
+        },
+        async createGovElection() {
+            const f = this.govElectionForm;
+            f.error = "";
+            if (!f.body_master_pk) { f.error = "Select a governance body."; return; }
+            if (!f.election_code.trim()) { f.error = "Election code is required."; return; }
+            if (!f.election_name.trim()) { f.error = "Election name is required."; return; }
+            if (!f.election_date) { f.error = "Election date is required."; return; }
+            const nominationOnly = f.election_type === "NOMINATION";
+            if (nominationOnly && (f.voting_start_date || f.voting_end_date)) {
+                f.error = "A Nomination (consensus) cycle holds no ballot — clear the voting dates.";
+                return;
+            }
+            f.saving = true;
+            try {
+                const payload = {
+                    election_code: f.election_code.trim(),
+                    // body_master_pk is a UUID — never Number(), which yields NaN
+                    // and serialises to null, so the API rejected every create.
+                    body_master_pk: f.body_master_pk,
+                    election_name: f.election_name.trim(),
+                    election_type: f.election_type || "ELECTION",
+                    election_date: f.election_date,
+                    is_secret_ballot: !nominationOnly && !!f.is_secret_ballot,
+                };
+                if (f.description.trim()) payload.description = f.description.trim();
+                if (f.nomination_start_date) payload.nomination_start_date = f.nomination_start_date;
+                if (f.nomination_end_date) payload.nomination_end_date = f.nomination_end_date;
+                if (!nominationOnly) {
+                    if (f.voting_start_date) payload.voting_start_date = f.voting_start_date;
+                    if (f.voting_end_date) payload.voting_end_date = f.voting_end_date;
+                }
+                const res = await NSSAuth.apiFetch(`/api/v1/governance/elections`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const created = await res.json();
+                this.govElections.unshift(created);
+                this.govElectionForm = {
+                    show: false, saving: false, error: "",
+                    body_master_pk: "", election_code: "", election_name: "",
+                    election_type: "ELECTION",
+                    election_date: "", nomination_start_date: "", nomination_end_date: "",
+                    voting_start_date: "", voting_end_date: "", is_secret_ballot: false,
+                    description: "", remarks: "",
+                };
+            } catch (err) {
+                f.error = err.message || "Failed to create election.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Election detail ──
+        // Single definition of an empty nomination form, shared by
+        // openGovElection (election switch) and createGovNomination (success).
+        _blankGovNominationForm() {
+            return {
+                show: false, saving: false, error: "",
+                position_master_pk: "", nomination_date: "", remarks: "",
+                candidateQuery: "", candidateResults: [], candidateSearching: false, selectedCandidate: null,
+                proposerQuery: "", proposerResults: [], proposerSearching: false, selectedProposer: null,
+            };
+        },
+        async openGovElection(e) {
+            this.govSelectedElectionPk = e.election_pk;
+            this.govSelectedElection = e;
+            this.govElectionActionError = "";
+            // Position list and candidate/proposer are election-specific:
+            // never carry a position or person from the previous election.
+            this.govNominationForm = this._blankGovNominationForm();
+            this.govElectionPositions = [];
+            this.govNominations = [];
+            this.govResults = [];
+            this.govTally = [];
+            this.govVoteForm.show = false;
+            this.govVoteForm.election_nomination_pk = "";
+            this.govVoteForm.selectedVoter = null;
+            this.govVoteForm.voterQuery = "";
+            this.govVoteForm.voterResults = [];
+            this.govResultForm.show = false;
+            // A nomination-only cycle has no tally to declare from, so its
+            // outcome defaults to UNCONTESTED rather than DECLARED (which the
+            // API rejects for that mode).
+            this.govResultForm.result_status =
+                e.election_type === "NOMINATION" ? "UNCONTESTED" : "DECLARED";
+            this.govResetForm.show = false;
+            this.govSelfVote = { saving: false, error: "", notice: "", election_nomination_pk: "" };
+            await Promise.all([
+                this.loadGovElectionPositions(),
+                this.loadGovNominations(),
+                this.loadGovResults(),
+                // No ballots are cast in a nomination-only cycle, so there is
+                // nothing to tally.
+                e.election_type === "NOMINATION" ? Promise.resolve() : this.loadGovTally(),
+            ]);
+        },
+        closeGovElection() {
+            this.govSelectedElectionPk = "";
+            this.govSelectedElection = null;
+            this.govNominations = [];
+            this.govResults = [];
+            this.govTally = [];
+            this.govElectionPositions = [];
+        },
+        async loadGovElectionPositions() {
+            const e = this.govSelectedElection;
+            if (!e) { this.govElectionPositions = []; return; }
+            const electionPk = e.election_pk;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/bodies/${e.body_master_pk}/allowed-positions`);
+                const rows = res.ok ? ((await res.json()).positions || []) : [];
+                if (electionPk !== this.govSelectedElectionPk) return;   // stale: another election opened
+                this.govElectionPositions = rows;
+            } catch {
+                if (electionPk === this.govSelectedElectionPk) this.govElectionPositions = [];
+            }
+        },
+        async changeGovElectionStatus(status) {
+            if (!this.govSelectedElection) return;
+            if (status === "CANCELLED") {
+                const ok = await NSSDialog.confirm(
+                    "Cancel this election?",
+                    { title: "Cancel Election", confirmText: "Cancel Election", confirmClass: "danger" }
+                );
+                if (!ok) return;
+            }
+            this.govElectionBusy = true;
+            this.govElectionActionError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/status`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ election_status: status }),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govElectionActionError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                this.govSelectedElection = updated;
+                const idx = this.govElections.findIndex(x => x.election_pk === updated.election_pk);
+                if (idx !== -1) this.govElections[idx] = updated;
+            } catch (err) {
+                this.govElectionActionError = err.message || "Failed to change status.";
+            } finally {
+                this.govElectionBusy = false;
+            }
+        },
+
+        // ── Nominations ──
+        async loadGovNominations() {
+            if (!this.govSelectedElectionPk) return;
+            const electionPk = this.govSelectedElectionPk;
+            this.govNominationsLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${electionPk}/nominations`);
+                const rows = res.ok ? ((await res.json()).items || []) : [];
+                if (electionPk !== this.govSelectedElectionPk) return;   // stale
+                this.govNominations = rows;
+            } catch {
+                if (electionPk === this.govSelectedElectionPk) this.govNominations = [];
+            } finally {
+                if (electionPk === this.govSelectedElectionPk) this.govNominationsLoading = false;
+            }
+        },
+        async createGovNomination() {
+            const f = this.govNominationForm;
+            f.error = "";
+            if (!f.position_master_pk) { f.error = "Select a position."; return; }
+            if (!f.selectedCandidate) { f.error = "Select a candidate."; return; }
+            f.saving = true;
+            try {
+                const payload = {
+                    position_master_pk: f.position_master_pk,  // UUID — not Number()
+                    candidate_person_pk: f.selectedCandidate.person_pk,
+                };
+                if (f.selectedProposer) payload.proposer_person_pk = f.selectedProposer.person_pk;
+                if (f.nomination_date) payload.nomination_date = f.nomination_date;
+                if (f.remarks && f.remarks.trim()) payload.remarks = f.remarks.trim();
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/nominations`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govNominations.push(await res.json());
+                this.govNominationForm = this._blankGovNominationForm();
+            } catch (err) {
+                f.error = err.message || "Failed to add nomination.";
+            } finally {
+                f.saving = false;
+            }
+        },
+        async changeNominationStatus(n, status) {
+            this.govElectionActionError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/nominations/${n.election_nomination_pk}/status`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ nomination_status: status }),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govElectionActionError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const updated = await res.json();
+                const idx = this.govNominations.findIndex(x => x.election_nomination_pk === updated.election_nomination_pk);
+                if (idx !== -1) this.govNominations[idx] = updated;
+            } catch (err) {
+                this.govElectionActionError = err.message || "Failed to update nomination.";
+            }
+        },
+
+        // ── Voting ──
+        async castSelfVote() {
+            const v = this.govSelfVote;
+            v.error = ""; v.notice = "";
+            if (!v.election_nomination_pk) { v.error = "Select a candidate."; return; }
+            v.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/votes/self`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ election_nomination_pk: Number(v.election_nomination_pk) }),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    v.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                v.notice = "Your vote has been recorded. Ballots are immutable.";
+                v.election_nomination_pk = "";
+                this.loadGovTally();
+            } catch (err) {
+                v.error = err.message || "Failed to cast vote.";
+            } finally {
+                v.saving = false;
+            }
+        },
+        async castOfficerVote() {
+            const f = this.govVoteForm;
+            f.error = "";
+            if (!f.election_nomination_pk) { f.error = "Select a candidate."; return; }
+            if (!f.selectedVoter) { f.error = "Select the voting member."; return; }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/votes`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            election_nomination_pk: f.election_nomination_pk,  // UUID — not Number()
+                            voter_person_pk: f.selectedVoter.person_pk,
+                        }),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.govVoteForm = {
+                    show: false, saving: false, error: "",
+                    election_nomination_pk: "",
+                    voterQuery: "", voterResults: [], voterSearching: false, selectedVoter: null,
+                    remarks: "",
+                };
+                this.loadGovTally();
+            } catch (err) {
+                f.error = err.message || "Failed to record vote.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Tally ──
+        async loadGovTally() {
+            if (!this.govSelectedElectionPk) return;
+            this.govTallyLoading = true;
+            this.govTallyError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/tally`);
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govTallyError = NSS.errorMessage(data, res.status);
+                    this.govTally = [];
+                    return;
+                }
+                this.govTally = (await res.json()).items || [];
+            } catch (err) {
+                this.govTallyError = err.message || "Failed to load tally.";
+            } finally {
+                this.govTallyLoading = false;
+            }
+        },
+
+        // ── Results ──
+        async loadGovResults() {
+            if (!this.govSelectedElectionPk) return;
+            this.govResultsLoading = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/results`);
+                this.govResults = res.ok ? ((await res.json()).items || []) : [];
+            } catch {
+                this.govResults = [];
+            } finally {
+                this.govResultsLoading = false;
+            }
+        },
+        async declareGovResult() {
+            const f = this.govResultForm;
+            f.error = "";
+            if (!f.position_master_pk) { f.error = "Select a position."; return; }
+            f.saving = true;
+            try {
+                const payload = {
+                    // These are UUIDs — Number() yields NaN, which serialises
+                    // to null and the API rejects as a missing field.
+                    position_master_pk: f.position_master_pk,
+                    result_status: f.result_status,
+                };
+                if (f.winning_nomination_pk) {
+                    payload.winning_nomination_pk = f.winning_nomination_pk;
+                    const win = this.govNominations.find(
+                        n => String(n.election_nomination_pk) === String(f.winning_nomination_pk));
+                    if (win) payload.winner_person_pk = win.candidate_person_pk;
+                    // A consensus cycle has no tally, so no vote_count is sent.
+                    const row = this.govTally.find(
+                        t => String(t.election_nomination_pk) === String(f.winning_nomination_pk));
+                    if (row) payload.vote_count = row.vote_count;
+                }
+                if (f.remarks && f.remarks.trim()) payload.remarks = f.remarks.trim();
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/results`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                await this.loadGovResults();
+                this.govResultForm = {
+                    show: false, saving: false, error: "",
+                    position_master_pk: "", winning_nomination_pk: "",
+                    result_status: this.govIsNominationOnly() ? "UNCONTESTED" : "DECLARED",
+                    remarks: "",
+                };
+            } catch (err) {
+                f.error = err.message || "Failed to declare result.";
+            } finally {
+                f.saving = false;
+            }
+        },
+        async applyGovResult(r) {
+            const ok = await NSSDialog.confirm(
+                `Apply this result — create a governance assignment for ${r.winner_name}?`,
+                { title: "Apply Result", confirmText: "Apply", confirmClass: "primary" }
+            );
+            if (!ok) return;
+            this.govElectionActionError = "";
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/results/${r.election_result_pk}/apply`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({}),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.govElectionActionError = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const data = await res.json();
+                this.govElectionActionError = "";
+                await NSSDialog.alert(data.message || "Assignment created from election result.", "Result Applied");
+            } catch (err) {
+                this.govElectionActionError = err.message || "Failed to apply result.";
+            }
+        },
+
+        // ── Reset ballots ──
+        async resetGovBallots() {
+            const f = this.govResetForm;
+            f.error = "";
+            if (!f.reason || f.reason.trim().length < 3) { f.error = "A reason (min 3 characters) is required."; return; }
+            if (f.reset_mode === "ADMIN_WITH_PRESIDENT_APPROVAL" && !f.selectedPresident) {
+                f.error = "Select the approving President."; return;
+            }
+            const ok = await NSSDialog.confirm(
+                "This permanently deletes the cast ballots in scope. Continue?",
+                { title: "Reset Ballots", confirmText: "Reset Ballots", confirmClass: "danger" }
+            );
+            if (!ok) return;
+            f.saving = true;
+            try {
+                const payload = {
+                    reset_mode: f.reset_mode,
+                    reason: f.reason.trim(),
+                };
+                if (f.position_master_pk) payload.position_master_pk = f.position_master_pk;  // UUID — not Number()
+                if (f.reset_mode === "ADMIN_WITH_PRESIDENT_APPROVAL" && f.selectedPresident) {
+                    payload.president_person_pk = f.selectedPresident.person_pk;
+                }
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/governance/elections/${this.govSelectedElectionPk}/votes/reset`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const data = await res.json();
+                this.govResetForm = {
+                    show: false, saving: false, error: "",
+                    reset_mode: "PRESIDENT_UNILATERAL", position_master_pk: "", reason: "",
+                    presidentQuery: "", presidentResults: [], presidentSearching: false, selectedPresident: null,
+                };
+                await NSSDialog.alert(data.message || `Ballots reset: ${data.votes_deleted} vote(s), ${data.participation_deleted} participation record(s) deleted.`, "Ballots Reset");
+                this.loadGovTally();
+            } catch (err) {
+                f.error = err.message || "Failed to reset ballots.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ══════════════════════════════════════════════════════════
+        //  Correspondence Register (Tier 6, SOL-ADMIN-009)
+        //  api/routers/correspondence.py — 9 endpoints under
+        //  /api/v1/correspondence. Permissions CORRESPONDENCE_VIEW/
+        //  _MANAGE, bounded by admin scope on register_organization_pk.
+        // ══════════════════════════════════════════════════════════
+
+        // Lazily loads the two master-data categories a Create/Document/
+        // Finance form needs (CORRESPONDENCE_MEDIUM,
+        // CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE) — once per session,
+        // same lazy-catalog pattern as loadGovBodies()'s govBodyTypes.
+        async corrLoadCatalog() {
+            // Medium default (owner request, 2026-10-25: simpler create
+            // form) — the first catalog value, applied whether this is a
+            // fresh fetch or the catalog was already cached from an
+            // earlier form open, so a second "+ Send Application" click
+            // still gets a pre-filled Medium instead of a bare "Select…".
+            if (this.corrCatalogLoaded) {
+                if (!this.corrCreateForm.medium && this.corrMediums.length) {
+                    this.corrCreateForm.medium = this.corrMediums[0].value_code;
+                }
+                return;
+            }
+            try {
+                const [mediumRes, financeRes] = await Promise.all([
+                    NSSAuth.apiFetch("/api/v1/foundation/master-data?category_code=CORRESPONDENCE_MEDIUM"),
+                    NSSAuth.apiFetch("/api/v1/foundation/master-data?category_code=CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE"),
+                ]);
+                this.corrMediums = mediumRes.ok ? await mediumRes.json() : [];
+                this.corrFinanceRelationshipTypes = financeRes.ok ? await financeRes.json() : [];
+                this.corrCatalogLoaded = true;
+                if (!this.corrCreateForm.medium && this.corrMediums.length) {
+                    this.corrCreateForm.medium = this.corrMediums[0].value_code;
+                }
+            } catch { /* non-fatal — dropdowns stay empty */ }
+        },
+
+        // Register Organization auto-resolution (owner request, 2026-10-25)
+        // — an admin scoped to exactly one organization almost certainly
+        // means THAT org every single time they file correspondence, so
+        // asking them to re-search-and-pick it on every letter is pure
+        // friction. An admin holding more than one distinct org-anchored
+        // scope (e.g. a Kendra Governing Body President who is ALSO a
+        // Sakha President — owner follow-up, 2026-10-26: "it should show
+        // for every admin and i was checking kendra president, who is
+        // also sakhas president who has dual admin roles") gets a real
+        // tab-per-org switcher, same .tab-pill chrome as the status
+        // filters above.
+        //
+        // Correction from the first version of this method (which called
+        // GET /admin/organizations and keyed off its total count): that
+        // endpoint collapses the instant ANY of the admin's grants is
+        // NSS-WIDE scope_level — which a Kendra-President composite grant
+        // (§63, rbac_service.load_composite_grants) always is — to
+        // "unrestricted" (null scope = every org in the system), because
+        // that collapse is CORRECT for backend authorization but wrong
+        // for "which hats does this person wear". It made every dual
+        // Kendra+Sakha admin fall straight to the manual search picker,
+        // which is exactly the bug just reported.
+        //
+        // Fixed by reading the admin's own RAW currentUser.scopes array
+        // instead (already loaded at login, no network call needed) —
+        // one entry per role grant, each resolved to its real
+        // organization_pk individually (a NULL organization_pk means
+        // NSS-WIDE scope_level, e.g. the Kendra-President grant, and
+        // resolves to the actual Kendra organization row — same
+        // resolution myOrgDashboardPk already does for the sidebar, not
+        // re-derived here). Deduplicated by resolved org, so two role
+        // grants pointing at the same org only ever produce one tab.
+        corrResolveDefaultOrg() {
+            const f = this.corrCreateForm;
+            // Defensive: the register is (re)resolved below, and the recipient
+            // candidates depend on it — never keep a recipient picked for a
+            // previous register, whichever auto-resolve path runs.
+            this.corrClearPicker(f.recipientOrg);
+            const scopes = this.currentUser?.scopes || [];
+            const kendraPk = this.kendraOrg?.organization_pk || null;
+            const seenPks = new Set();
+            const candidates = [];
+            const pushOrg = (pk) => {
+                if (!pk || seenPks.has(pk)) return;
+                const org = this.organizations.find(o => o.organization_pk === pk);
+                if (!org) return;
+                seenPks.add(pk);
+                candidates.push(org);
+            };
+
+            // Scope-derived registers: a scoped admin's own org(s); a KENDRA /
+            // NSS-WIDE scope carries a null org and resolves to the Kendra
+            // register.
+            for (const s of scopes) {
+                if (s.organization_pk) pushOrg(s.organization_pk);
+                // Only a GLOBAL null-org scope resolves to the Kendra register; an
+                // ADVISORY_BOARD / KENDRA_MAHILA_SANGHA scope holds no organization
+                // and reaches nothing at Kendra (the server would 403 it) — its own
+                // registers come from the type-resolved block below.
+                else if (s.scope_level === "NSS-WIDE" || s.scope_level === "KENDRA") pushOrg(kendraPk);
+            }
+            // Type-resolved reach (NULL_ORG_SCOPE_ORG_TYPE: KENDRA_MAHILA_SANGHA ->
+            // every Mahila Sangha org, ADVISORY_BOARD -> the Advisory Board org):
+            // offer exactly the registers of those types that the server-resolved
+            // scope covers.
+            const typeResolved = new Set(
+                scopes.filter(s => !s.organization_pk).map(s => NULL_ORG_SCOPE_ORG_TYPE[s.scope_level]).filter(Boolean)
+            );
+            if (!this.isGovNssWideAdmin && typeResolved.size) {
+                const inScope = this.scopeOrgPkSet;
+                for (const org of this.organizations) {
+                    if (typeResolved.has(org.organization_type_code) && inScope && inScope.has(org.organization_pk)) {
+                        pushOrg(org.organization_pk);
+                    }
+                }
+            }
+
+            // Owner 2026-10-26 ("we should have anchalika/zilla and
+            // pathhchakra tab also for send and receive"): an NSS-wide /
+            // Kendra-equivalent admin may file for ANY register, so offer
+            // every register org, not just the scope-derived ones. Grouping
+            // by tier below means even the 175 Sakhas cost one tab with a
+            // dropdown — which is why this no longer has to exclude them the
+            // way the old one-tab-per-org switcher did. A scope-bounded
+            // admin never enters this branch, so they keep seeing only their
+            // own register.
+            if (this.isGovNssWideAdmin) {
+                pushOrg(kendraPk);
+                const TABBED_TYPES = CORR_REGISTER_TAB_GROUPS.flatMap(g => g.typeCodes);
+                for (const org of this.organizations) {
+                    if (TABBED_TYPES.includes(org.organization_type_code)) {
+                        pushOrg(org.organization_pk);
+                    }
+                }
+            }
+
+            // Group the candidates into tier tabs, dropping empty tiers and
+            // name-sorting each tier's dropdown.
+            const groups = CORR_REGISTER_TAB_GROUPS
+                .map(g => ({
+                    key: g.key,
+                    label: g.label,
+                    orgs: candidates
+                        .filter(o => g.typeCodes.includes(o.organization_type_code))
+                        .sort((a, b) => (a.organization_name || "").localeCompare(b.organization_name || "")),
+                }))
+                .filter(g => g.orgs.length > 0);
+
+            // An org whose type matches no tab group (nothing does today —
+            // this is a guard against a future org type silently losing its
+            // register rather than a live case) still has to be reachable, so
+            // fall through to the manual search picker in that case.
+            const grouped = groups.reduce((n, g) => n + g.orgs.length, 0);
+            if (!groups.length || grouped !== candidates.length) {
+                f.orgTabGroups = [];
+                f.orgMultipleChoices = false;
+                if (candidates.length === 1) {
+                    this.corrSelectOrg(f.org, candidates[0]);
+                    f.orgAutoResolved = true;
+                }
+                this.corrSyncBroadcastToOrg();
+                return;
+            }
+
+            f.orgTabGroups = groups;
+            if (groups.length === 1 && groups[0].orgs.length === 1) {
+                // Exactly one register overall — no tabs, no dropdown, just
+                // the read-only "Register: X" strip.
+                this.corrSelectOrg(f.org, groups[0].orgs[0]);
+                f.orgAutoResolved = true;
+            } else {
+                f.orgMultipleChoices = true;
+                this.corrSelectRegisterTab(groups[0].key);
+            }
+            this.corrSyncBroadcastToOrg();
+        },
+
+        // The orgs behind the currently active register tab — drives the
+        // tier's dropdown, and decides whether a dropdown is needed at all.
+        get corrActiveTabOrgs() {
+            const f = this.corrCreateForm;
+            const g = (f.orgTabGroups || []).find(x => x.key === f.activeOrgTab);
+            return g ? g.orgs : [];
+        },
+
+        // Switching tier: a tier holding exactly one org selects it outright
+        // (a dropdown with one option is noise); a tier holding several
+        // clears the selection so its dropdown opens on "Select…" rather
+        // than silently filing against an arbitrary first org.
+        corrSelectRegisterTab(groupKey) {
+            const f = this.corrCreateForm;
+            f.activeOrgTab = groupKey;
+            const orgs = this.corrActiveTabOrgs;
+            if (orgs.length === 1) {
+                f.activeOrgPk = orgs[0].organization_pk;
+                this.corrSelectOrg(f.org, orgs[0]);
+            } else {
+                f.activeOrgPk = "";
+                this.corrClearPicker(f.org);
+            }
+            // The register changed, so anything derived from it must follow:
+            // the circular controls, and the recipient (whose candidates are
+            // that register's descendants — a stale pick could now be
+            // outside the new register's subtree entirely).
+            this.corrSyncBroadcastToOrg();
+            this.corrClearPicker(f.recipientOrg);
+        },
+
+        corrSelectOrgChoice(organizationPk) {
+            const f = this.corrCreateForm;
+            const org = this.corrActiveTabOrgs.find(o => o.organization_pk === organizationPk);
+            if (org) {
+                f.activeOrgPk = organizationPk;
+                this.corrSelectOrg(f.org, org);
+                this.corrSyncBroadcastToOrg();
+                this.corrClearPicker(f.recipientOrg);
+            }
+        },
+
+        // GET /foundation/documents needs FOUNDATION_VIEW, which a
+        // Correspondence-only admin may not hold. A 403 here is expected
+        // and non-fatal: the Documents sub-section's x-if below falls
+        // back to a manual document_master_pk input when this list is
+        // empty, instead of blocking document association entirely.
+        async corrLoadDocumentOptions() {
+            if (this.corrDocumentOptions.length || this.corrDocumentOptionsError) return;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/foundation/documents");
+                if (res.ok) {
+                    this.corrDocumentOptions = await res.json();
+                } else if (res.status === 403) {
+                    this.corrDocumentOptionsError = "You do not have permission to browse the document catalog — enter the Document PK directly below.";
+                }
+            } catch { /* non-fatal */ }
+        },
+
+        async loadCorrespondence() {
+            if (this.corrLoading) return;
+            this.corrLoading = true;
+            this.corrError = "";
+            this.corrLoadCatalog();
+            try {
+                const params = new URLSearchParams({ page: this.corrPage, page_size: this.corrPageSize });
+                if (this.corrOrgFilter.pk) params.set("register_organization_pk", this.corrOrgFilter.pk);
+                if (this.corrDirectionFilter) params.set("direction", this.corrDirectionFilter);
+                if (this.corrStatusFilter) params.set("status", this.corrStatusFilter);
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence?${params}`);
+                if (res.status === 403) { this.corrError = "You do not have permission to view the Correspondence Register."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const data = await res.json();
+                this.corrItems = data.items;
+                this.corrTotal = data.total;
+            } catch (err) {
+                this.corrError = err.message || "Failed to load the Correspondence Register.";
+            } finally {
+                this.corrLoading = false;
+            }
+        },
+
+        corrChangePage(delta) {
+            this.corrPage += delta;
+            this.loadCorrespondence();
+        },
+
+        // ── Shared person/organization type-ahead pickers ───────
+        // One pair of generic helpers backs every picker object
+        // ({ query, results, searching, selected }) on this page —
+        // Create form's sender/recipient/responsible-at-creation
+        // fields, the list filter, the responsible-party reassignment
+        // control. Avoids ~10 near-identical search functions.
+
+        corrOnPersonQueryInput(picker) {
+            clearTimeout(picker._timer);
+            picker.selected = null;
+            const q = (picker.query || "").trim();
+            if (q.length < 2) { picker.results = []; return; }
+            picker._timer = setTimeout(() => this.corrSearchPerson(picker), 300);
+        },
+
+        async corrSearchPerson(picker) {
+            picker.searching = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/person/search?q=${encodeURIComponent(picker.query.trim())}`);
+                picker.results = res.ok ? (await res.json()).persons : [];
+            } catch {
+                picker.results = [];
+            } finally {
+                picker.searching = false;
+            }
+        },
+
+        corrSelectPerson(picker, person) {
+            picker.selected = person;
+            picker.query = `${person.first_name} ${person.last_name || ""}`.trim() + ` (${person.person_id})`;
+            picker.results = [];
+        },
+
+        corrOnOrgQueryInput(picker) {
+            clearTimeout(picker._timer);
+            picker.selected = null;
+            const q = (picker.query || "").trim();
+            if (q.length < 2) { picker.results = []; return; }
+            picker._timer = setTimeout(() => this.corrSearchOrg(picker), 300);
+        },
+
+        async corrSearchOrg(picker) {
+            picker.searching = true;
+            try {
+                // /organization/organizations/in-scope (ORGANIZATION_VIEW, scope-
+                // filtered by actor_scope_org_pks) — NOT /admin/organizations,
+                // which needs ADMIN_USER_VIEW and 403'd (silently empty) for the
+                // Advisory Board admin. Results are normalised to the type_name /
+                // type_code shape the typeahead markup reads.
+                const params = new URLSearchParams({ search: picker.query.trim(), limit: 20 });
+                const res = await NSSAuth.apiFetch(`/api/v1/organization/organizations/in-scope?${params}`);
+                picker.results = res.ok
+                    ? (await res.json()).map(o => ({
+                        ...o,
+                        type_name: o.organization_type_name,
+                        type_code: o.organization_type_code,
+                    }))
+                    : [];
+            } catch {
+                picker.results = [];
+            } finally {
+                picker.searching = false;
+            }
+        },
+
+        corrSelectOrg(picker, org) {
+            picker.selected = org;
+            // Two source shapes reach this: /admin/organizations search hits
+            // carry type_name/type_code, while this.organizations entries (the
+            // register tabs' dropdown and the recipient candidates) carry
+            // organization_type_name/organization_type_code. Reading only the
+            // first pair rendered "Name (undefined)" for the latter.
+            const typeLabel = org.type_name || org.organization_type_name
+                || org.type_code || org.organization_type_code;
+            picker.query = typeLabel
+                ? `${org.organization_name} (${typeLabel})`
+                : org.organization_name;
+            picker.results = [];
+        },
+
+        corrClearPicker(picker) {
+            picker.selected = null;
+            picker.query = "";
+            picker.results = [];
+        },
+
+        // ── List filter ──────────────────────────────────────────
+
+        corrApplyFilters() {
+            this.corrPage = 1;
+            this.loadCorrespondence();
+        },
+
+        corrClearOrgFilter() {
+            this.corrOrgFilter = { pk: "", query: "", results: [], searching: false, selected: null };
+            this.corrApplyFilters();
+        },
+
+        // ── Create ───────────────────────────────────────────────
+
+        // Live "From → To" summaries for the .corr-flow strip, which states
+        // the record's direction instead of asking for it (owner-confirmed
+        // 2026-10-25: Send is always OUTWARD and Receive always INWARD for
+        // the logged-in admin's own organization, so a direction dropdown
+        // on this form was redundant and confusing). Returns "" while the
+        // other party is still unfilled — the markup renders a muted
+        // placeholder in that case rather than an empty line.
+        _corrPartySummary(type, personPicker, orgPicker, externalName) {
+            const f = this.corrCreateForm;
+            if (type === "PERSON") {
+                const p = f[personPicker].selected;
+                return p ? `${p.first_name} ${p.last_name || ""}`.trim() : "";
+            }
+            if (type === "ORGANIZATION") {
+                const o = f[orgPicker].selected;
+                return o ? o.organization_name : "";
+            }
+            const name = (f[externalName] || "").trim();
+            return name;
+        },
+
+        get corrSenderSummary() {
+            const f = this.corrCreateForm;
+            return this._corrPartySummary(
+                f.sender_type, "senderPerson", "senderOrg", "sender_external_name",
+            );
+        },
+
+        get corrRecipientSummary() {
+            const f = this.corrCreateForm;
+            return this._corrPartySummary(
+                f.recipient_type, "recipientPerson", "recipientOrg", "recipient_external_name",
+            );
+        },
+
+        corrResetCreateForm() {
+            const empty = () => ({ query: "", results: [], searching: false, selected: null });
+            this.corrCreateForm = {
+                show: false, saving: false, error: "",
+                org: empty(), orgAutoResolved: false, orgPickerExpanded: false,
+                orgTabGroups: [], orgMultipleChoices: false,
+                activeOrgTab: "", activeOrgPk: "",
+                direction: "INWARD",
+                date: "", splitDates: false,
+                correspondence_date: "", received_or_sent_date: "", follow_up_date: "",
+                subject: "", remarks: "", medium: "",
+                isBroadcast: false, broadcastRecipientTypeCode: "",
+                moreOptions: false, usPartyOverride: false,
+                sender_type: "PERSON",
+                sender_person_capacity: "",
+                senderPerson: empty(), senderPersonOrg: empty(), senderOrg: empty(),
+                sender_external_name: "", sender_external_organization: "",
+                recipient_type: "ORGANIZATION",
+                recipientPerson: empty(), recipientOrg: empty(),
+                recipient_external_name: "", recipient_external_organization: "",
+                responsiblePerson: empty(), responsibleOrg: empty(),
+                inReplyToPk: "", replyingToReference: "",
+            };
+        },
+
+        // direction is optional — the two quick-action buttons ("Send
+        // Application" / "Receive Application") pass OUTWARD/INWARD to
+        // preset the register's direction; omitted it defaults to INWARD
+        // same as before.
+        toggleCorrCreateForm(direction) {
+            if (this.corrCreateForm.show) {
+                this.corrResetCreateForm();
+            } else {
+                this.corrResetCreateForm();
+                this.corrCreateForm.show = true;
+                this.corrCreateForm.direction = direction === "OUTWARD" ? "OUTWARD" : "INWARD";
+                // Date defaults to today — the overwhelmingly common case
+                // (same-day filing); splitDates reveals the two original
+                // independent fields when that's not true.
+                this.corrCreateForm.date = new Date().toISOString().slice(0, 10);
+                this.corrLoadCatalog();
+                this.corrResolveDefaultOrg();
+            }
+        },
+
+        // Reply (v1.2, owner 2026-10-26: "we should also add reply option to
+        // letter too. which will have its own numbers (conceptually same
+        // process)") — opens the ordinary create form, pre-filled from the
+        // letter being replied to, rather than a separate reply-specific
+        // endpoint/payload: a reply IS just a new correspondence row (own
+        // reference_number via the normal counter) that additionally
+        // carries in_reply_to_correspondence_pk. `original` is the detail
+        // view's corrSelected.
+        replyToCorrespondence(original) {
+            this.corrResetCreateForm();
+            const f = this.corrCreateForm;
+            f.show = true;
+            // The create form lives inside the "!corrSelected" wrapper (same
+            // markup the list view uses) — Reply is launched FROM the detail
+            // view (corrSelected still set), so without this the form opens
+            // but stays invisible behind the still-showing detail panel
+            // (bug reported 2026-10-26: "REPLY TO CORRESPONDENCE LETTER NOT
+            // WORKING. nothing happening"). Mirrors what backToCorrList()
+            // clears, minus the list reload — reply doesn't need one yet.
+            this.corrSelected = null;
+            f.direction = original.direction === "OUTWARD" ? "INWARD" : "OUTWARD";
+            f.date = new Date().toISOString().slice(0, 10);
+            f.inReplyToPk = original.correspondence_pk;
+            f.replyingToReference = original.reference_number;
+            f.subject = "Re: " + (original.subject || "").replace(/^re:\s*/i, "");
+
+            // Filed under the SAME register the original lives in — a reply
+            // is always written as/to whoever that register belongs to.
+            const regOrg = this.organizations.find(
+                o => o.organization_pk === original.register_organization_pk
+            );
+            if (regOrg) {
+                this.corrSelectOrg(f.org, regOrg);
+                f.orgAutoResolved = true;
+            }
+            // Else: leave org unresolved — the manual search picker (reset's
+            // default) covers it, same as any other letter with no scope
+            // match. Shouldn't normally happen; a correspondence's own
+            // register is always a real, loaded organization.
+
+            // The "other party" carries over unchanged from the original —
+            // only WHICH form field it occupies (sender vs recipient) flips,
+            // mirroring the direction flip: whichever party was NOT "us" in
+            // the original stays NOT "us" here, it just changes slot name.
+            if (original.direction === "INWARD") {
+                this.corrPrefillParty("recipient", original, "sender");
+            } else {
+                this.corrPrefillParty("sender", original, "recipient");
+            }
+
+            this.corrLoadCatalog();
+            this.corrSyncBroadcastToOrg();
+        },
+
+        // Shared by replyToCorrespondence(): copies one party's resolved
+        // identity from a CorrespondenceResponse (fromPrefix: "sender" or
+        // "recipient" on the ORIGINAL record) onto this form's matching
+        // type/picker/external fields (toPrefix: "sender" or "recipient" —
+        // the opposite one, per the direction flip above). Capacity-only
+        // fields (sender_person_capacity, the "acting for" org) have no
+        // equivalent to carry over and are deliberately left for the admin
+        // to fill fresh when toPrefix is "sender" and the party is a PERSON.
+        corrPrefillParty(toPrefix, original, fromPrefix) {
+            const f = this.corrCreateForm;
+            const type = original[`${fromPrefix}_type`];
+            f[`${toPrefix}_type`] = type;
+            if (type === "PERSON") {
+                const pk = original[`${fromPrefix}_person_pk`];
+                if (!pk) return;
+                const name = original[`${fromPrefix}_person_name`] || "";
+                f[`${toPrefix}Person`].selected = { person_pk: pk, first_name: name, last_name: "", person_id: "" };
+                f[`${toPrefix}Person`].query = name;
+            } else if (type === "ORGANIZATION") {
+                const pk = original[`${fromPrefix}_organization_pk`];
+                if (!pk) return;
+                const name = original[`${fromPrefix}_organization_name`] || "";
+                f[`${toPrefix}Org`].selected = { organization_pk: pk, organization_name: name };
+                f[`${toPrefix}Org`].query = name;
+            } else if (type === "EXTERNAL") {
+                f[`${toPrefix}_external_name`] = original[`${fromPrefix}_external_name`] || "";
+                f[`${toPrefix}_external_organization`] = original[`${fromPrefix}_external_organization`] || "";
+            }
+        },
+
+        // Shared by the circular's "Send To Every" select and the
+        // From/To flow strip's own label — resolves an ORGANIZATION_TYPE
+        // value_code to its display name from the already-loaded
+        // orgTypes catalog (loadOrgTypes(), awaited in init()'s own
+        // Promise.all — no new fetch).
+        corrOrgTypeName(valueCode) {
+            return (this.orgTypes.find(t => t.value_code === valueCode) || {}).value_name || valueCode;
+        },
+
+        // Circular eligibility (owner 2026-10-26: the circular "should be
+        // inside kendra sangha, anchalaika/zilla tab only.. they are the
+        // parents to multiple sakhas and other org types"). A circular is
+        // offered ONLY when the selected register org is one of these three
+        // parent types — a Sakha or Patha Chakra register never shows it.
+        // The selected org can come from either source shape: a tab/
+        // this.organizations entry (organization_type_code) or the manual
+        // search picker (/admin/organizations → type_code).
+        get corrCanBroadcast() {
+            const o = this.corrCreateForm.org.selected;
+            if (!o) return false;
+            const t = o.organization_type_code || o.type_code;
+            return ["KENDRA", "ANCHALIKA_SANGHA", "ZILLA_SANGHA"].includes(t);
+        },
+
+        // "Send To Every <type>" options (owner 2026-10-26: "we cannot add
+        // all types in dropdown. check the repo for parent and child
+        // relationship. (always exclude kutira and smurti mandira)").
+        // POST /correspondence/broadcast targets the RECURSIVE subtree of the
+        // register org (org_subtree_pks), filtered to one descendant type —
+        // so the only sensible options are the descendant org types actually
+        // present under the selected org. We walk the same parent/child links
+        // (this.organizations' parent_organization_pk) the backend recursion
+        // uses, collect the distinct descendant types, and drop the two apex
+        // singletons that are never descendants anyway. This stays WYSIWYG
+        // with what the endpoint will really send to (no dead options that
+        // would just 422 "no organizations of this type under here").
+        // Shared subtree walk (standing no-duplicates rule): every active
+        // descendant organization of one org, read from the already-loaded
+        // this.organizations tree — the same parent/child links the backend's
+        // org_subtree_pks() recursion follows, so the UI can never offer a
+        // target the endpoint wouldn't actually reach. Excludes the root
+        // itself and the two apex singletons (owner 2026-10-26: "always
+        // exclude kutira and smurti mandira") while still traversing THROUGH
+        // them, so anything parented under one stays reachable. Backs both the
+        // circular's type dropdown and the recipient picker.
+        _corrDescendantOrgs(rootPk) {
+            if (!rootPk) return [];
+            const EXCLUDED = new Set(["NILACHALA_KUTIRA", "SMRUTI_MANDIRA"]);
+            const childrenByParent = new Map();
+            for (const org of this.organizations) {
+                const p = org.parent_organization_pk;
+                if (!p) continue;
+                if (!childrenByParent.has(p)) childrenByParent.set(p, []);
+                childrenByParent.get(p).push(org);
+            }
+            const seen = new Set([rootPk]);
+            const out = [];
+            const stack = [rootPk];
+            while (stack.length) {
+                const pk = stack.pop();
+                for (const child of childrenByParent.get(pk) || []) {
+                    if (seen.has(child.organization_pk)) continue;   // guards cycles
+                    seen.add(child.organization_pk);
+                    if (!EXCLUDED.has(child.organization_type_code)) out.push(child);
+                    stack.push(child.organization_pk);
+                }
+            }
+            return out;
+        },
+
+        get corrBroadcastTypeOptions() {
+            const o = this.corrCreateForm.org.selected;
+            if (!o) return [];
+            const typeCodes = new Set(
+                this._corrDescendantOrgs(o.organization_pk).map(d => d.organization_type_code)
+            );
+            // ADVISORY_BOARD is a singleton organization: "send to every Advisory
+            // Board" is just a letter to it, so it is never offered as a circular
+            // target (it stays a normal recipient candidate via _corrDescendantOrgs).
+            typeCodes.delete("ADVISORY_BOARD");
+            // Preserve orgTypes' display order / option shape.
+            return this.orgTypes.filter(t => typeCodes.has(t.value_code));
+        },
+
+        // Valid ORGANIZATION recipients (owner 2026-10-26: "in receipient only
+        // childrem under that parent should show, not everything else") — the
+        // selected register org's own descendants, name-sorted. Filtered
+        // client-side from this.organizations (fully loaded in init()) rather
+        // than via the global /admin/organizations search the other org
+        // pickers use, since that endpoint has no subtree filter to pass.
+        //
+        // Owner follow-up, same day: "Sakha, pathachakra, anachalik/zilla can
+        // send letter to kendra" — the one upward exception. Sakha/Patha
+        // Chakra/Anchalika/Zilla additionally get the Kendra org itself as a
+        // candidate (Kendra has no parent of its own, so it never needs the
+        // reverse case). A Kendra register stays descendants-only — it has
+        // nothing further upward to address.
+        get corrRecipientOrgCandidates() {
+            const o = this.corrCreateForm.org.selected;
+            if (!o) return [];
+            const out = this._corrDescendantOrgs(o.organization_pk);
+            const t = o.organization_type_code || o.type_code;
+            if (NSS.isSakhaLike(t) || ["PATHA_CHAKRA", "ANCHALIKA_SANGHA", "ZILLA_SANGHA", "ADVISORY_BOARD"].includes(t)) {
+                const kendra = this.kendraOrg;
+                if (kendra && !out.some(org => org.organization_pk === kendra.organization_pk)) {
+                    out.push(kendra);
+                }
+            }
+            return out.sort((a, b) => (a.organization_name || "").localeCompare(b.organization_name || ""));
+        },
+
+        // Recipient-org type-ahead. Deliberately NOT corrOnOrgQueryInput /
+        // corrSearchOrg: that pair searches every organization in the system,
+        // which is exactly what the owner asked to stop. In-memory filtering
+        // also needs no debounce and no fetch.
+        corrOnRecipientOrgQueryInput(picker) {
+            picker.selected = null;
+            const q = (picker.query || "").trim().toLowerCase();
+            const all = this.corrRecipientOrgCandidates;
+            picker.results = (
+                q ? all.filter(o => (o.organization_name || "").toLowerCase().includes(q)) : all
+            ).slice(0, 20);
+        },
+
+        // Whenever the register org changes, keep the circular controls
+        // consistent with it: a register that can't circulate (Sakha / Patha
+        // Chakra / anything but Kendra-Anchalika-Zilla) must not leave the
+        // form armed with a hidden-but-true isBroadcast, and a previously
+        // chosen target type that isn't under the new org must be cleared.
+        corrSyncBroadcastToOrg() {
+            const f = this.corrCreateForm;
+            if (!this.corrCanBroadcast) {
+                f.isBroadcast = false;
+                f.broadcastRecipientTypeCode = "";
+            } else if (
+                f.broadcastRecipientTypeCode &&
+                !this.corrBroadcastTypeOptions.some(t => t.value_code === f.broadcastRecipientTypeCode)
+            ) {
+                f.broadcastRecipientTypeCode = "";
+            }
+        },
+
+        // Circular (owner request, 2026-10-26: "sometimes, kendra/
+        // anchalika/zilla send letter to all sakhas under it. we should
+        // have some option") — POST /correspondence/broadcast, one admin
+        // action instead of N manual create+dispatch repeats. Always
+        // sender=ORGANIZATION (no override), always OUTWARD — both
+        // enforced by the markup already hiding the controls that would
+        // let either vary, but re-checked here too since this method
+        // doesn't re-run createCorrespondence()'s own validation.
+        async createBroadcastCorrespondence() {
+            const f = this.corrCreateForm;
+            f.error = "";
+
+            if (!f.org.selected) { f.error = "Select the register organization."; return; }
+            if (!f.broadcastRecipientTypeCode) { f.error = "Select which organization type to send to."; return; }
+            const correspondence_date = f.splitDates ? f.correspondence_date : f.date;
+            const received_or_sent_date = f.splitDates ? f.received_or_sent_date : f.date;
+            if (!correspondence_date || !received_or_sent_date) {
+                f.error = f.splitDates
+                    ? "Correspondence date and received/sent date are required."
+                    : "Date is required.";
+                return;
+            }
+            if (!f.subject.trim()) { f.error = "Subject is required."; return; }
+            if (!f.medium) { f.error = "Medium is required."; return; }
+
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/correspondence/broadcast", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        register_organization_pk: f.org.selected.organization_pk,
+                        recipient_organization_type_code: f.broadcastRecipientTypeCode,
+                        correspondence_date,
+                        received_or_sent_date,
+                        follow_up_date: f.follow_up_date || null,
+                        subject: f.subject.trim(),
+                        remarks: f.remarks.trim() || null,
+                        medium: f.medium,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                const data = await res.json();
+                this.corrResetCreateForm();
+                this.corrPage = 1;
+                await this.loadCorrespondence();
+                this.showToast(`Circular sent to ${data.recipient_count} organization(s).`);
+            } catch (err) {
+                f.error = err.message || "Failed to send the circular.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        async createCorrespondence() {
+            const f = this.corrCreateForm;
+            f.error = "";
+
+            // A circular has its own endpoint/payload shape entirely
+            // (CorrespondenceBroadcastCreate has no sender_*/recipient_*
+            // fields at all) — delegate rather than branch every field
+            // below for a case that never shares them.
+            if (f.isBroadcast) { return this.createBroadcastCorrespondence(); }
+
+            if (!f.org.selected) { f.error = "Select the register organization."; return; }
+            // splitDates=false (the default): both DB dates come from the
+            // single collapsed Date field. splitDates=true: the two
+            // original independent fields, exactly as before this form
+            // was simplified.
+            const correspondence_date = f.splitDates ? f.correspondence_date : f.date;
+            const received_or_sent_date = f.splitDates ? f.received_or_sent_date : f.date;
+            if (!correspondence_date || !received_or_sent_date) {
+                f.error = f.splitDates
+                    ? "Correspondence date and received/sent date are required."
+                    : "Date is required.";
+                return;
+            }
+            if (!f.subject.trim()) { f.error = "Subject is required."; return; }
+            if (!f.medium) { f.error = "Medium is required."; return; }
+
+            const body = {
+                register_organization_pk: f.org.selected.organization_pk,
+                direction: f.direction,
+                correspondence_date,
+                received_or_sent_date,
+                follow_up_date: f.follow_up_date || null,
+                subject: f.subject.trim(),
+                remarks: f.remarks.trim() || null,
+                medium: f.medium,
+                responsible_person_pk: f.responsiblePerson.selected ? f.responsiblePerson.selected.person_pk : null,
+                responsible_organization_pk: f.responsibleOrg.selected ? f.responsibleOrg.selected.organization_pk : null,
+                in_reply_to_correspondence_pk: f.inReplyToPk || null,
+            };
+
+            // "Our" side (owner request, 2026-10-25: simpler form) —
+            // defaults silently to ORGANIZATION = the register
+            // organization, unless usPartyOverride reveals the full
+            // picker for it. usIsSender mirrors create_member_application
+            // ()'s own OUTWARD/INWARD framing (§4.6): sending FROM us is
+            // OUTWARD, receiving addressed TO us is INWARD.
+            const usIsSender = f.direction === "OUTWARD";
+
+            if (usIsSender && !f.usPartyOverride) {
+                body.sender_type = "ORGANIZATION";
+                body.sender_organization_pk = f.org.selected.organization_pk;
+            } else if (!usIsSender && !f.usPartyOverride) {
+                body.recipient_type = "ORGANIZATION";
+                body.recipient_organization_pk = f.org.selected.organization_pk;
+            }
+
+            // The sender fields are filled whenever sender is the "other
+            // party" (INWARD) OR the override is in effect for an OUTWARD
+            // letter — i.e. whenever they were NOT just defaulted above.
+            if (!usIsSender || f.usPartyOverride) {
+                body.sender_type = f.sender_type;
+                if (f.sender_type === "PERSON") {
+                    if (!f.senderPerson.selected) { f.error = "Select the sender."; return; }
+                    if (!f.sender_person_capacity) { f.error = "Sender capacity (Personal/Organizational) is required."; return; }
+                    if (f.sender_person_capacity === "ORGANIZATIONAL" && !f.senderPersonOrg.selected) {
+                        f.error = "Select the organization the sender is acting for."; return;
+                    }
+                    body.sender_person_pk = f.senderPerson.selected.person_pk;
+                    body.sender_person_capacity = f.sender_person_capacity;
+                    body.sender_person_organization_pk = f.sender_person_capacity === "ORGANIZATIONAL"
+                        ? f.senderPersonOrg.selected.organization_pk : null;
+                } else if (f.sender_type === "ORGANIZATION") {
+                    if (!f.senderOrg.selected) { f.error = "Select the sender organization."; return; }
+                    body.sender_organization_pk = f.senderOrg.selected.organization_pk;
+                } else {
+                    if (!f.sender_external_name.trim()) { f.error = "Sender name is required for an external sender."; return; }
+                    body.sender_external_name = f.sender_external_name.trim();
+                    body.sender_external_organization = f.sender_external_organization.trim() || null;
+                }
+            }
+
+            if (usIsSender || f.usPartyOverride) {
+                body.recipient_type = f.recipient_type;
+                if (f.recipient_type === "PERSON") {
+                    if (!f.recipientPerson.selected) { f.error = "Select the recipient."; return; }
+                    body.recipient_person_pk = f.recipientPerson.selected.person_pk;
+                } else if (f.recipient_type === "ORGANIZATION") {
+                    if (!f.recipientOrg.selected) { f.error = "Select the recipient organization."; return; }
+                    body.recipient_organization_pk = f.recipientOrg.selected.organization_pk;
+                } else {
+                    if (!f.recipient_external_name.trim()) { f.error = "Recipient name is required for an external recipient."; return; }
+                    body.recipient_external_name = f.recipient_external_name.trim();
+                    body.recipient_external_organization = f.recipient_external_organization.trim() || null;
+                }
+            }
+
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/correspondence", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.corrResetCreateForm();
+                this.corrPage = 1;
+                await this.loadCorrespondence();
+            } catch (err) {
+                f.error = err.message || "Failed to register correspondence.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Detail (list ↔ detail toggle, same shape as Claims'
+        //    selectedClaim rather than a true in-row expand — this
+        //    record carries too many fields + two sub-resources to
+        //    read comfortably inside a table row) ──────────────────
+
+        async viewCorrespondence(pk) {
+            this.corrDetailError = "";
+            this.corrDetailLoading = true;
+            this.corrHistory = { events: [], ancestors: [], descendants: [] };
+            this.corrHistoryError = "";
+            this.corrResponsibleForm = {
+                show: false, saving: false, error: "", mode: "person",
+                person: { query: "", results: [], searching: false, selected: null },
+                org: { query: "", results: [], searching: false, selected: null },
+            };
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${pk}`);
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.corrSelected = await res.json();
+                this.loadCorrDocuments();
+                this.loadCorrFinanceRefs();
+                this.loadCorrHistory();
+            } catch (err) {
+                this.corrDetailError = err.message || "Failed to load correspondence detail.";
+            } finally {
+                this.corrDetailLoading = false;
+            }
+        },
+
+        backToCorrList() {
+            this.corrSelected = null;
+            this.corrDetailError = "";
+            this.loadCorrespondence();
+        },
+
+        // The manual status-transition box in admin.html (and its next-status/
+        // reopen/submit helpers and valid-transition tables here) was removed
+        // 2026-10-26 (owner: "remove the
+        // trnasition status box entirely" — after the event-driven lifecycle
+        // amendment made the REGISTERED->PENDING_ACTION and ->ACTIONED hops
+        // automatic, the manual dropdown mostly just confused what was now
+        // happening on its own). The POST /{pk}/transition endpoint itself is
+        // UNCHANGED and still live — this only removes its one UI surface.
+        // Net effect: there is currently no UI control left for ACTIONED->
+        // CLOSED or for reopening (ACTIONED/CLOSED->PENDING_ACTION, §6.3) —
+        // those remain reachable only via direct API call. Flagged, not
+        // silently dropped — a lighter "Close"/"Reopen" control may be
+        // wanted back as a follow-up.
+
+        // ── Dispatch (v1.1, owner-confirmed 2026-10-25) — mints the
+        //    recipient organization's own linked INWARD counterpart row.
+        //    Only ever shown (admin.html) for an OUTWARD row addressed to
+        //    recipient_type=ORGANIZATION with no counterpart yet; the API
+        //    independently re-validates all of that (422/409) regardless
+        //    of what this button's visibility already implies.
+        async dispatchCorrespondence() {
+            const f = this.corrDispatchForm;
+            f.error = "";
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/correspondence/${this.corrSelected.correspondence_pk}/dispatch`,
+                    { method: "POST" },
+                );
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.corrSelected = await res.json();
+                await this.loadCorrespondence();
+            } catch (err) {
+                f.error = err.message || "Failed to dispatch this correspondence.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Responsible-party reassignment (§5.4) — a distinct
+        //    endpoint from status transition; never itself moves status.
+        async submitCorrResponsibleParty() {
+            const f = this.corrResponsibleForm;
+            f.error = "";
+            let responsible_person_pk = null;
+            let responsible_organization_pk = null;
+            if (f.mode === "person") {
+                if (!f.person.selected) { f.error = "Select the responsible person."; return; }
+                responsible_person_pk = f.person.selected.person_pk;
+            } else if (f.mode === "organization") {
+                if (!f.org.selected) { f.error = "Select the responsible organization."; return; }
+                responsible_organization_pk = f.org.selected.organization_pk;
+            } // mode === "clear" leaves both null
+
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/responsible-party`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ responsible_person_pk, responsible_organization_pk }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.corrSelected = await res.json();
+                this.corrResponsibleForm = {
+                    show: false, saving: false, error: "", mode: "person",
+                    person: { query: "", results: [], searching: false, selected: null },
+                    org: { query: "", results: [], searching: false, selected: null },
+                };
+            } catch (err) {
+                f.error = err.message || "Failed to reassign the responsible party.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Documents sub-section ────────────────────────────────
+
+        async loadCorrDocuments() {
+            if (!this.corrSelected) return;
+            this.corrDocumentsLoading = true;
+            this.corrDocumentsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/documents`);
+                if (res.status === 403) { this.corrDocumentsError = "You do not have permission to view attached documents."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.corrDocuments = (await res.json()).items;
+            } catch (err) {
+                this.corrDocumentsError = err.message || "Failed to load documents.";
+            } finally {
+                this.corrDocumentsLoading = false;
+            }
+        },
+
+        toggleCorrDocumentForm() {
+            this.corrDocumentForm.show = !this.corrDocumentForm.show;
+            if (this.corrDocumentForm.show) this.corrLoadDocumentOptions();
+        },
+
+        async addCorrDocument() {
+            const f = this.corrDocumentForm;
+            f.error = "";
+            if (!f.document_master_pk.trim()) { f.error = "Select or enter a Document PK."; return; }
+            if (!f.document_purpose) { f.error = "Document purpose is required."; return; }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/documents`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        document_master_pk: f.document_master_pk.trim(),
+                        document_purpose: f.document_purpose,
+                        remarks: f.remarks ? f.remarks.trim() || null : null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.corrDocuments.unshift(await res.json());
+                this.corrDocumentForm = { show: false, saving: false, error: "", document_master_pk: "", document_purpose: "ORIGINAL", remarks: "" };
+            } catch (err) {
+                f.error = err.message || "Failed to attach the document.";
+            } finally {
+                f.saving = false;
+            }
+        },
+
+        // ── Finance references sub-section ──────────────────────
+        // financial_transaction_pk has no FK/existence check — Finance
+        // (Tier 12) doesn't exist yet (api/routers/correspondence.py
+        // §9.3 note) — the hint shown next to the input is load-bearing,
+        // not decorative.
+
+        async loadCorrFinanceRefs() {
+            if (!this.corrSelected) return;
+            this.corrFinanceRefsLoading = true;
+            this.corrFinanceRefsError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/finance-references`);
+                if (res.status === 403) { this.corrFinanceRefsError = "You do not have permission to view finance references."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.corrFinanceRefs = (await res.json()).items;
+            } catch (err) {
+                this.corrFinanceRefsError = err.message || "Failed to load finance references.";
+            } finally {
+                this.corrFinanceRefsLoading = false;
+            }
+        },
+
+        toggleCorrFinanceForm() {
+            this.corrFinanceForm.show = !this.corrFinanceForm.show;
+            if (this.corrFinanceForm.show) this.corrLoadCatalog();
+        },
+
+        // ── History + reply-thread path tracker ──────────────────
+        // (owner 2026-10-26: "can we add history with path tracker for
+        // correspondance?") — one GET, both parts of the response.
+        async loadCorrHistory() {
+            if (!this.corrSelected) return;
+            this.corrHistoryLoading = true;
+            this.corrHistoryError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/history`);
+                if (res.status === 403) { this.corrHistoryError = "You do not have permission to view this record's history."; return; }
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.corrHistory = await res.json();
+            } catch (err) {
+                this.corrHistoryError = err.message || "Failed to load history.";
+            } finally {
+                this.corrHistoryLoading = false;
+            }
+        },
+
+        async addCorrFinanceRef() {
+            const f = this.corrFinanceForm;
+            f.error = "";
+            if (!f.financial_transaction_pk.trim()) { f.error = "Financial transaction reference is required."; return; }
+            if (!f.relationship_type) { f.error = "Relationship type is required."; return; }
+            f.saving = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/finance-references`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        financial_transaction_pk: f.financial_transaction_pk.trim(),
+                        relationship_type: f.relationship_type,
+                        remarks: f.remarks ? f.remarks.trim() || null : null,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    f.error = NSS.errorMessage(data, res.status);
+                    return;
+                }
+                this.corrFinanceRefs.unshift(await res.json());
+                this.corrFinanceForm = { show: false, saving: false, error: "", financial_transaction_pk: "", relationship_type: "", remarks: "" };
+            } catch (err) {
+                f.error = err.message || "Failed to add the finance reference.";
+            } finally {
+                f.saving = false;
+            }
+        },
+    });
 }

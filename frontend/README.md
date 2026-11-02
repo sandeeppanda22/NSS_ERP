@@ -49,8 +49,10 @@ frontend/
 ├── admin.html                Administration Dashboard (Tier 5) — Users, Create User/Person/Sangha
 │                             Sevi/Organization, Reference Data, Geography, Organization Hierarchy,
 │                             Assign Sakhas, Person Directory, Member Directory, Roles & System
-│                             Settings, Geo Approvals (member-proposed geography review), Registration Approvals (claims review), and Org Dashboard
-│                             tabs
+│                             Settings, Geo Approvals (member-proposed geography review), Registration Approvals (claims review),
+│                             Change Requests (Sakha transfer / Apply for Darshak review), Member Credentials,
+│                             a collapsible Governance nav group (Body Types & Positions, Governance Bodies,
+│                             Assignments, Elections; Tier 6), and Org Dashboard tabs
 ├── assets/
 │   ├── css/
 │   │   ├── badges.css          Single source of truth for ALL badge CSS (status/account/claim/type/affiliation/gender/role/muted) + data-identity typography — mirrors docs/03_Solution/ui/mockups/status_badge_preview.html
@@ -75,6 +77,9 @@ frontend/
 │       ├── nss-combobox.js  `nssCombobox()` Alpine component + markup injector (select-existing-or-propose-new dropdown for geographic fields)
 │       ├── nss-dialog.js    `NSSDialog` — styled replacement for native alert()/confirm()
 │       ├── nss-location.js  `NSSLocation` — shared country/state/district/postal-code cascade helper
+│       ├── nss-password.js  Alpine directive `x-pw-reveal` — the one show/hide eye toggle for password inputs (login, register, admin; styles `.pw-reveal-*` in nss-layout.css)
+│       ├── attendance-register.js  Tier 6 shared attendance-marking mixin (roster, search, toggle, live polling, only-dirty Save with conflict dialog) installed into both `adminPanel()` (admin.js) and `orgDashboardTab()` (org-dashboard.js); loaded by admin.html and dashboard.html
+│       ├── dev-reload.js    Dev-only 1s polling auto-reload client; injected by `api/main.py` only when `DEV_LIVE_RELOAD` is truthy (polls `GET /__dev/frontend-version`), never referenced from the HTML sources
 │       ├── org-dashboard.js `orgDashboardTab()` — Org Dashboard tab component embedded in admin.html/dashboard.html
 │       └── nss-config.js   Shared `NSS` config object — badge-class lookups, Bye-Law display-name
 │                           overrides, document-visibility rules (all pages)
@@ -87,10 +92,10 @@ for its base resets. Which shared assets each page loads (verified against each 
 
 | Page | CSS (in order) | Shared JS (in order, before the page's own JS) |
 |---|---|---|
-| `login.html` | `tailwind.min.css`, `style.css`, `nss-layout.css` | `nss-config.js`, `nss-dialog.js`, `auth.js` → `login.js` |
-| `register.html` | `tailwind.min.css`, `style.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `auth.js`, `nss-datepicker.js`, `nss-combobox.js` → `register.js` |
-| `dashboard.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-combobox.js`, `org-dashboard.js` → `dashboard.js` |
-| `admin.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-combobox.js`, `org-dashboard.js` → `admin.js` |
+| `login.html` | `tailwind.min.css`, `style.css`, `nss-layout.css` | `nss-config.js`, `nss-dialog.js`, `auth.js`, `nss-password.js` → `login.js` |
+| `register.html` | `tailwind.min.css`, `style.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `auth.js`, `nss-password.js`, `nss-datepicker.js`, `nss-combobox.js` → `register.js` |
+| `dashboard.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-datepicker.js`, `nss-combobox.js`, `attendance-register.js`, `org-dashboard.js` → `dashboard.js` |
+| `admin.html` | `tailwind.min.css`, `style.css`, `badges.css`, `nss-layout.css`, `nss-datepicker.css`, `nss-combobox.css` | `nss-config.js`, `nss-location.js`, `nss-dialog.js`, `auth.js`, `nss-layout.js`, `nss-password.js`, `nss-datepicker.js`, `nss-combobox.js`, `attendance-register.js`, `org-dashboard.js` → `admin.js` |
 
 All four pages load Alpine.js 3.14.8 from the jsDelivr CDN (`defer`). Only `admin.html` and
 `dashboard.html` load `badges.css` — `login.html`/`register.html` don't render any status/type/
@@ -294,7 +299,7 @@ with 3 tabs, each lazily loaded on first visit (driven by `activeTab` / `switchT
 | Tab | Contents |
 |-----|----------|
 | **Reference Data** | Two side-by-side tables: "Organization Types" (code/name/description/sort order, 8 rows) and "Lifecycle Statuses" (code/name/description/sort order, 6 rows) |
-| **Organizations** | Filterable list (2-column layout): left/wide panel is the organization table (code/name/type badge/status badge/parent/location) with `<select>` filters for type and status (`selectedTypeFilter`/`selectedStatusFilter`, `filterOrganizations()` — status filter auto-disables for the 3 singleton institutional types; auto-selects the sole result when a filter narrows to exactly one org); right panel is a detail view — key fields, Address, Contact (phone/mobile), Online Presence (NSS + org-specific email/website/YouTube links), Geographic (district/state/country), Coordinates, and a Children sub-table (hidden entirely for types that can't have children — the 2 institutional singletons plus `PATHA_CHAKRA`/`SAKHA_ASANA`) that lazy-loads on row click (`selectOrganization()`, toggle-deselect on repeat click). Status badges use 6 dedicated `.badge-status-*` CSS classes (one per lifecycle status) rather than DaisyUI's generic semantic badges |
+| **Organizations** | Filterable list (2-column layout): left/wide panel is the organization table (code/name/type badge/status badge/parent/location) with `<select>` filters for type and status (`selectedTypeFilter`/`selectedStatusFilter`, `filterOrganizations()` — status filter auto-disables for the 3 singleton institutional types; auto-selects the sole result when a filter narrows to exactly one org); right panel is a detail view — key fields, Address, Contact (phone/mobile), Online Presence (NSS + org-specific email/website/YouTube links), Geographic (district/state/country), Coordinates, and a Children sub-table (hidden entirely for types that can't have children — the 2 institutional singletons plus `PATHA_CHAKRA`; a `SAKHA_ASANA` can now host wings, GDR-008) that lazy-loads on row click (`selectOrganization()`, toggle-deselect on repeat click). Status badges use 6 dedicated `.badge-status-*` CSS classes (one per lifecycle status) rather than DaisyUI's generic semantic badges |
 | **Hierarchy** | Flat recursive-CTE result rendered client-side as an indented tree using a `depthIndent(node.depth)` inline-style helper, with type badge, name, code, and a status badge per node |
 
 Loads `<script src="/assets/js/organization.js">` at the bottom.
@@ -587,7 +592,8 @@ Single source of truth for every badge CSS class used across the pages, plus the
 identity typographic classes. Loaded by `admin.html` and `dashboard.html` only (see the page/asset
 matrix under Directory Structure), right after `style.css` and before `nss-layout.css`. The
 prefix counts below were re-verified against the file (18 `badge-status-*`, 4 `badge-account-*`,
-3 `badge-claim-*`, 4 `badge-type-*`, 3 `badge-aff-*`, 3 `badge-gender-*`, 3 `badge-role-*`, 6 `data-*`).
+3 `badge-claim-*`, 4 `badge-type-*`, 3 `badge-aff-*`, 3 `badge-gender-*`, 3 `badge-role-*`, 4 `badge-changereq-*`,
+4 `badge-cred-state-*`, 4 `badge-cred-status-*`, 6 `data-*`).
 
 Its geometry and lifecycle palette are copied **verbatim** (px values included) from
 `docs/03_Solution/ui/mockups/status_badge_preview.html`, which is the visual source of truth, so
@@ -609,6 +615,9 @@ placeholders, data-type hints. This keeps real statuses visually dominant.
 | `.badge-type-*` | 4 | Membership type (`probationary`/`regular`/`associate`/`honorary`) |
 | `.badge-aff-*` | 3 | Sakha affiliation status (`active`/`archived`/`reactivated`) |
 | `.badge-gender-*` | 3 | Gender (`male`/`female`/`other`) |
+| `.badge-changereq-*` | 4 | `membership_change_request.status` (`pending-release`/`pending-accept`/`completed`/`rejected`; both `REJECTED_BY_*` values share `rejected`) — Sakha Transfer / Apply for Darshak |
+| `.badge-cred-state-*` | 4 | Per-member credential health (`ok`/`expiring`/`lapsed`/`missing`) — admin Credentials tab |
+| `.badge-cred-status-*` | 4 | Individual Anumati/Parichaya Patra row status (`active`/`expired`/`lapsed`/`cancelled`) — credential timeline |
 | `.badge-marital` | 1 | Marital status (single generic style, not per-value) |
 | `.badge-role-*` | 3 | Role indicators (`viewer` = "YOU", `head` = "HEAD", `admin` = "ADMIN") |
 | `.badge-identity` / `.badge-org` / `.badge-attention` | 3 | Context chips — Sangha Sevi ID, organization name, needs-action. They exist so pages stop hand-rolling `style="background:…"` on `.badge` elements |
@@ -652,6 +661,10 @@ state/logic that any page's inline bindings or `*.js` file calls directly as `NS
 | `GENDER_BADGE_MAP` / `genderBadgeClass(code)` | Gender → `.badge-gender-*` class |
 | `ACCOUNT_BADGE_MAP` / `accountBadgeClass(status)` | `user_account.account_status` → `.badge-account-*` class |
 | `CLAIM_BADGE_MAP` / `claimBadgeClass(status)` | `registration_claim.claim_status` → `.badge-claim-*` class |
+| `CREDENTIAL_STATE_BADGE_MAP` / `credentialStateBadgeClass(state)` | Per-member credential health (`OK`/`EXPIRING`/`LAPSED`/`MISSING`) → `.badge-cred-state-*` |
+| `CREDENTIAL_STATUS_BADGE_MAP` / `credentialStatusBadgeClass(status)` | Credential row status (`ACTIVE`/`EXPIRED`/`LAPSED`/`CANCELLED`) → `.badge-cred-status-*` |
+| `CHANGE_REQUEST_BADGE_MAP` / `changeRequestBadgeClass(status)` | `membership_change_request.status` (all five values) → `.badge-changereq-*` |
+| `CHANGE_REQUEST_STATUS_LABELS` / `changeRequestStatusLabel(status)` | Human-readable label for the same statuses (e.g. `PENDING_SOURCE_RELEASE` → "Awaiting your current Sakha"); falls back to the raw code |
 | `showParichayaPatra(typeCode)` | Always `true` — kept as a named method for one documented home, even though the rule doesn't currently vary |
 | `showAnumatiPatra(typeCode)` | `true` for every membership type except `ASSOCIATE` (MBR-019A/B) — used by the Anumati Patra `x-show` bindings on `admin.html`/`dashboard.html` (originally `membership.html`/`family.html`) |
 | `DEFAULT_COUNTRY_CODE` (`"+91"`), `MAX_PAGE_SIZE` (`500`), `PASSWORD_MIN_LENGTH` (`8`), `REDIRECT_DELAY_MS` (`1500`) | Shared constants used across `register.js`/`admin.js`/etc. instead of scattered magic numbers |
@@ -691,7 +704,7 @@ Global `NSSAuth` object (217 lines) — the shared JWT/session layer. Loaded on 
 
 ### assets/js/nss-layout.js
 
-Global `NSSLayout` object (308 lines) — the sidebar/topbar mixin for `admin.html` and
+Global `NSSLayout` object (326 lines) — the sidebar/topbar mixin for `admin.html` and
 `dashboard.html` only. Backed by `assets/css/nss-layout.css`.
 
 - `NSSLayout.mixin()` — returns state/methods to spread into a page's Alpine component
@@ -753,9 +766,13 @@ fills), `valueKey`/`labelKey`, `allowNew` (default true), `proposeUrl`/`proposeF
 (`POST /api/v1/foundation/districts|postal-codes|post-offices/propose` in `api/routers/foundation.py`),
 which creates a PENDING row; the returned row is appended to the options and selected. Reviewed in
 the **Geo Approvals** tab of `admin.html` (`geoApprovals`, `loadGeoEntries()`).
-**Wiring note:** the script/stylesheet are loaded by `register.html`, `dashboard.html` and
-`admin.html`, but no page currently instantiates `x-data="nssCombobox(...)"` (only the doc comment
-in `nss-combobox.js` does) — it is loaded but not yet used.
+**Wiring note:** `dashboard.html`'s personal-tab Address card is the one page that instantiates
+`x-data="nssCombobox(...)"` (district, city/village, PIN, post office, bound to `addrForm.*` in
+`dashboard.js`; options in `addrDistricts`/`addrCities`/`addrPostalCodes`/`addrPostOffices`).
+Country/state and the option lists come from `NSSLocation` (`_addrLoc`, `basePath: '/api/v1/register'`
+because members lack `FOUNDATION_VIEW`); proposals go to the authenticated `/api/v1/foundation/*/propose`
+endpoints and the returned PENDING row is selected. Unset scope values are sent as `null` in the
+propose body. Address CRUD: `POST/PATCH/DELETE /api/v1/person/persons/{pk}/addresses[/{address_pk}]`.
 
 ---
 
@@ -783,8 +800,12 @@ Global `NSSLocation` object (153 lines) — the shared country → state → dis
 cascade, replacing three near-identical copies in `register.js` and `admin.js` (org edit + org
 create). `NSSLocation.create({ fetchFn, basePath, arrays, form })` returns a stateless set of
 methods that each take the Alpine component (`ctx`) as their first argument: `loadCountries`,
-`loadStates`, `loadDistricts`, `loadPostalCodes` (keyed on state), `onCountryChange`,
-`onStateChange`, `onDistrictChange`. `fetchFn` is plain `fetch` or `NSSAuth.apiFetch`;
+`loadStates`, `loadDistricts`, `loadCities`, `loadPostalCodes(ctx, districtPk)` (PINs are narrowed by
+**district**, not state — owner decision 2026-10-30; the district link comes from approved `city_village`
+rows, so a sparsely seeded district lists few PINs and a new PIN must stay enterable: register.html
+free-text + datalist, dashboard address editor propose), `onCountryChange`, `onStateChange` (clears
+district/city/PIN, loads districts only), `onDistrictChange` (clears city + PIN/post office, loads cities +
+PINs). Every `load*` discards stale responses. `fetchFn` is plain `fetch` or `NSSAuth.apiFetch`;
 `basePath` defaults to `/api/v1/foundation` (authenticated — `admin.js`) and `register.js` passes
 `/api/v1/register` to hit the public reference-data endpoints instead. Form field names are fixed
 (`country_pk`, `state_pk`, `district_pk`, `city_village_name`, `postal_code_pk`/
@@ -794,7 +815,7 @@ methods that each take the Alpine component (`ctx`) as their first argument: `lo
 
 ### assets/js/org-dashboard.js
 
-Global `orgDashboardTab()` Alpine factory (361 lines) — the **Org Dashboard** tab, embedded in
+Global `orgDashboardTab()` Alpine factory (799 lines) — the **Org Dashboard** tab, embedded in
 both `admin.html` and `dashboard.html`'s own sidebar/topbar shell (not a standalone page; each
 host instantiates it via a nested `x-data="orgDashboardTab()"` + `init(orgPk)` and wires its own
 `openOrgDashboard(orgPk)`, `myOrgDashboardPk`, and `myOrgDashboardLabel`). It renders one of six
@@ -802,7 +823,7 @@ layouts by the viewed org's `organization_type_code` (`isSakha`/`isAnchalika`/`i
 `isKendra`/`isPathaChakra`/`isMahila`) — the six ORGANIZATIONAL roles in `role_master`
 (SOL-ADMIN-004 §8.7). Sakha/Anchalika/Zilla/Kendra follow
 `docs/03_Solution/ui/mockups/0{3,5,6,2}_*_dashboard.html`; Patha Chakra and Mahila Sangha have no
-mockup and reuse the same card idiom.
+mockup and reuse the same card idiom. The singleton `ADVISORY_BOARD` organization (2026-10-30) has no org dashboard (no members/stats); the Advisory Board admin gets only the Correspondence register (own `CORR_REGISTER_TAB_GROUPS` tab, resolved by type via `NULL_ORG_SCOPE_ORG_TYPE`, which mirrors `rbac_service.NULL_ORG_SCOPE_ORG_TYPE`) plus the governance-only panel, whose `init()` branch now also loads the org tree + org types and honours `#correspondence`.
 
 Endpoints consumed (all via `NSSAuth.apiFetch`): `GET /api/v1/organization/organizations/{pk}`;
 Sakha tier — `GET /api/v1/membership/members` (counts + 5 most recent by `joining_date`),
@@ -824,9 +845,9 @@ page's root `x-data`:
 | File | Factory | Notes |
 |------|---------|-------|
 | `login.js` (288 lines) | `loginApp()` | `login()` → `POST /api/v1/auth/login`; `changePassword()` (forced change / expiry); `openForgotPassword()`/`submitForgotPassword()`/`submitResetPassword()` drive the **in-page** forgot/reset-password panels via `POST /api/v1/auth/forgot-password` and `/reset-password` (there is no separate forgot-password page) |
-| `register.js` (699 lines) | `registerApp()` | 3-step form — `step` 1 personal details, 2 optional membership claim (Sakha chosen first, then Local Sakha Number), 3 password — then a success screen (`step = 4`, shows the Person ID only, pending admin approval). A "Previously registered? Add membership" mode (`goLookupExisting()` → `step = 'lookup'`, `lookupExisting()` → `POST /api/v1/register/lookup-existing` with Person ID + DOB, then `submitExistingClaim()` → `POST /api/v1/register/claim`) is for people who registered without membership: they have no account yet, so the claim creates it. `submit()` dispatches to `submitNewRegistration()` or `submitExistingClaim()` by `mode`. Form state (minus password) is drafted to `sessionStorage` (`nss_register_draft`) and restored on reload; the Sakha dropdown lists all Sakhas with those near the chosen state/district first (`sakhasNearFirst`). Uses `NSSLocation` against `/api/v1/register/*` and `POST /api/v1/register/check-duplicate`; submits `POST /api/v1/register` |
-| `dashboard.js` (3363 lines) | `dashboardApp()` (+ module-level `_avatarClass()`, `_buildCoupleTree()`; `_renderGenSubtree()` is a method) | Member dashboard: `personal`, `membership`, `family`, `documents`, `attendance`, `governance`, and `orgDashboard` tabs; admin entries are added to the sidebar dynamically from the caller's role scopes (`ADMIN_TAB_MAP`, `DASHBOARD_LEVELS`, `ROLE_ORG_LABELS`, `FAMILY_BROWSER_ROLES`) |
-| `admin.js` (4500 lines) | `adminApp()` (+ module-level `ROLE_ORG_LABELS`, `DASHBOARD_LEVELS`, a copy of `dashboard.js`'s — there is no cross-file include mechanism) | Admin console; tabs (from `admin.html`'s `activeTab` values): `users`, `detail`, `create`, `createSS`, `createOrg`, `organizations`, `orgHierarchy`, `assignSakha`, `refData`, `geography`, `geoApprovals`, `personDir`, `memberDir`, `claims`, `sysSettings`, `password`, `orgDashboard`; a `tabLoaders` map in `init()` re-fires each lazy tab's loader on hash-restore |
+| `register.js` (753 lines) | `registerApp()` | 3-step form — `step` 1 personal details, 2 optional membership claim (Sakha chosen first, then the GDR-009 "already a member before this system?" Yes/No question — Yes reveals the required Local Sakha Number, No shows an auto-assign note; asked again for an attendance Sakha; payload flags and, for a legacy member, the Parichaya/Anumati Patra number built by one `applyLegacyFields()`; the attendance Sakha section is hidden for a Darshaka — GDR-009 §2A/§2B), 3 password — then a success screen (`step = 4`, shows the Person ID only, pending admin approval). A "Previously registered? Add membership" mode (`goLookupExisting()` → `step = 'lookup'`, `lookupExisting()` → `POST /api/v1/register/lookup-existing` with Person ID + DOB, then `submitExistingClaim()` → `POST /api/v1/register/claim`) is for people who registered without membership: they have no account yet, so the claim creates it. `submit()` dispatches to `submitNewRegistration()` or `submitExistingClaim()` by `mode`. A standalone "Apply for Darshak" entry (`goDarshakEntry()` → `step = 'darshak-entry'`, linked from step 1 as "New Darshak? Apply here") asks whether the applicant already has a Person ID (`startDarshakExisting()` reuses the lookup/claim path; `startDarshakNew()` reuses the step-1 wizard with `has_membership = true`), sets `darshakFlow`, pre-locks the membership type to Darshaka (`darshakaTypePk()`) and hides the Local Sakha Number field (system-generated at admin approval) Form state (minus password) is drafted to `sessionStorage` (`nss_register_draft`) and restored on reload; the Sakha dropdown lists all Sakhas with those near the chosen state/district first (`sakhasNearFirst`). Uses `NSSLocation` against `/api/v1/register/*` and `POST /api/v1/register/check-duplicate`; submits `POST /api/v1/register` |
+| `dashboard.js` (5177 lines) | `dashboardApp()` (+ module-level `_avatarClass()`, `_buildCoupleTree()`; `_renderGenSubtree()` is a method) | Member dashboard: `personal`, `membership`, `family`, `documents`, `attendance`, `governance`, and `orgDashboard` tabs (the governance tab lists "Open Elections — Cast Your Vote" via `GET /api/v1/governance/elections/open-for-voting` + `POST /elections/{pk}/votes/self` (`castMySelfVote()`), and "Governance Bodies" via `GET /governance/public/national-bodies`; the Find-a-Sakha view loads President/Secretary via `GET /governance/public/sakha-office-bearers`; a `canViewGovernance` getter adds a sidebar link to `/admin#govCatalog`; the membership tab has a "My Change Requests" panel — Sakha Transfer / Apply for Darshak — over `/api/v1/membership/change-requests`, `openChangeRequestModal()`/`submitChangeRequest()`/`_loadMyChangeRequests()`); admin entries are added to the sidebar dynamically from the caller's role scopes (`ADMIN_TAB_MAP`, `DASHBOARD_LEVELS`, `ROLE_ORG_LABELS`, `FAMILY_BROWSER_ROLES`) |
+| `admin.js` (8357 lines) | `adminApp()` (+ module-level `ROLE_ORG_LABELS`, `DASHBOARD_LEVELS`, a copy of `dashboard.js`'s — there is no cross-file include mechanism) | Admin console; tabs (from `admin.html`'s `activeTab` values): `users`, `detail`, `create`, `createSS`, `createOrg`, `organizations`, `orgHierarchy`, `assignSakha`, `refData`, `geography`, `geoApprovals`, `personDir`, `memberDir`, `claims`, `changeRequests`, `credentials`, `govCatalog`, `govBodies`, `govAssignments`, `govElections`, `sysSettings`, `password`, `orgDashboard`; a `tabLoaders` map in `init()` re-fires each lazy tab's loader on hash-restore. **Governance (Tier 6):** `canViewGovernance` (`GOVERNANCE_VIEW` or `GOVERNANCE_MANAGE`) shows the collapsible Governance nav group; `canManageGovernance` (`GOVERNANCE_MANAGE`) gates every create/edit/end/declare/apply control. ~38 `*Gov*` methods cover body types and positions (`loadGovCatalog`, `createGovBodyType`, `createGovPosition`, …), bodies (`loadGovBodies`, `createGovBody`, `saveGovBody`), assignments (`createGovAssignment`, `endGovAssignment`) and elections (`createGovElection`, `changeGovElectionStatus`, `createGovNomination`, `loadGovTally`, `declareGovResult`, `applyGovResult`, `resetGovBallots`, `castOfficerVote`). The user-detail view also shows a read-only "Auto-Granted Access (§63)" card from `selectedUser.auto_granted_scopes` (derived live from governance positions, not stored `user_role` rows, so no Revoke). The `changeRequests` tab (`loadChangeRequests`, release/accept/reject actions) and `credentials` tab (`loadCredentials`, `openCredentialTimeline`, `submitIssueCredential`, `submitPromote`) were also added |
 
 (The header comments of `admin.js` — "Tabs: Users list, User detail, Create user, Change password"
 — and `dashboard.js` — "same logic as family.html" — are stale.)
@@ -967,7 +988,7 @@ All endpoints are read-only. No authentication. No CRUD.
 | Method | URL | Response | Tier 0 State |
 |--------|-----|----------|-------------|
 | GET | `/api/v1/bootstrap/health` | `{ status, database }` | `{ "status": "ok", "database": "connected" }` |
-| GET | `/api/v1/bootstrap/roles` | `RoleResponse[]` | 9 frozen roles |
+| GET | `/api/v1/bootstrap/roles` | `RoleResponse[]` | 10 frozen roles |
 | GET | `/api/v1/bootstrap/permissions` | `PermissionResponse[]` | Empty array (by design) |
 | GET | `/api/v1/bootstrap/roles/{role_pk}/permissions` | `PermissionResponse[]` | Empty array (no mappings); 404 if role not found |
 
@@ -1096,7 +1117,16 @@ Sangha-Sevi creation for that person and shows a "View Claim" jump-link).
 "Assign Sakhas to Anchalika/Zilla Sangha"):** lets an admin search/filter Sakha Sanghas
 (`assignSakhaSearch`, `assignSakhaOnlyUnassigned` to show only Sakhas still on the wrong
 parent) and re-parent one at a time (`assignSakhaToParent()`) via the new `PATCH
-/api/v1/admin/organizations/{pk}` `parent_organization_pk` field.
+/api/v1/admin/organizations/{pk}` `parent_organization_pk` field. Owner rule 2026-10-30: only Kendra
+Governing Body members and the NSS_ERP_ADMIN super administrator change a Sakha's (or Sakha Asana's — the tab lists both types) parent directly; for everyone else the PATCH answers HTTP 202
+with a `reparent_request` — `assignSakhaToParent()` then shows an `assignSakhaNotice` (the approval
+chain, NOT applied yet) instead of success, keeps the row on its current parent, and each row shows
+the latest visible request with its steps (`assignSakhaRequests`, loaded from `GET
+/api/v1/org-reparent`; `cancelAssignSakhaRequest()` for the requester/Kendra GB/NSS_ERP_ADMIN). Presidents decide
+steps from the member dashboard's Pending Items tab ("Sakha Re-parent Approvals", `reparentApprovals`,
+`decideReparentStep()` -> `POST /api/v1/org-reparent/{pk}/steps/{step_pk}/decide`). Shared chain
+labels/badges: `NSS.REPARENT_ROLE_LABELS`/`reparentStepLabel()`/`reparentStatusBadgeClass()` in
+`nss-config.js`.
 
 **"Create Person" tab restructured into a real 3-step flow:** Step 1
 Person (find-or-create, unchanged) → **Step 2 Sangha Sevi**, now its own step

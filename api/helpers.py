@@ -31,6 +31,33 @@ import psycopg2.errors
 logger = logging.getLogger(__name__)
 
 
+# ── Sakha-like organization types (single Python definition) ────────────
+#
+# Owner decision 2026-10-31: a Sakha Asana (SAKHA_ASANA) is a Sakha Sangha
+# without its own building — same SAKHA_GOVERNING_BODY, President, members,
+# attendance, correspondence and Advisory Board representation. Every "is this
+# a Sakha?" filter in api/ uses this ONE tuple (as a bind parameter:
+# ``md.value_code = ANY(%s)`` with ``list(SAKHA_LIKE_ORG_TYPES)``), never a
+# hard-coded 'SAKHA_SANGHA'. Deliberately type-specific sites (creation rules,
+# id/code generation) are listed in
+# tests/api/test_sakha_asana_parity.py::ALLOW_LIST. SQL counterpart:
+# nss.fn_is_sakha_like_org_type() (database/ddl/02_organization/10_*.sql);
+# JS counterpart: NSS.SAKHA_LIKE_ORG_TYPES in frontend/assets/js/nss-config.js.
+SAKHA_LIKE_ORG_TYPES: tuple[str, ...] = ("SAKHA_SANGHA", "SAKHA_ASANA")
+
+
+# The same tuple rendered as a SQL ``IN`` list for static SQL fragments where a
+# bind parameter would force positional-parameter plumbing (CTEs spliced into
+# f-strings). Generated from SAKHA_LIKE_ORG_TYPES — never a second literal list.
+# Contains only constant identifiers (no user input), so interpolation is safe.
+SAKHA_LIKE_ORG_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in SAKHA_LIKE_ORG_TYPES) + ")"
+
+
+def is_sakha_like(org_type_code: str | None) -> bool:
+    """True for SAKHA_SANGHA and SAKHA_ASANA."""
+    return org_type_code in SAKHA_LIKE_ORG_TYPES
+
+
 # ── Pagination defaults ──────────────────────────────────────────────────
 
 DEFAULT_LIMIT = 100
@@ -288,17 +315,17 @@ def validate_mobile(country_phone_code: str | None, mobile_number: str | None) -
         return
     if not country_phone_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A country phone code (e.g. +91) is required with a mobile number.",
         )
     if not COUNTRY_PHONE_CODE_PATTERN.match(country_phone_code):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Country phone code '{country_phone_code}' is invalid — expected a form like +91.",
         )
     if not mobile_number.isdigit():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Mobile number must contain digits only (no spaces, dashes, or country code).",
         )
 
@@ -307,13 +334,13 @@ def validate_mobile(country_phone_code: str | None, mobile_number: str | None) -
     n = len(mobile_number)
     if n < rule["min"] or n > rule["max"]:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{label} ({country_phone_code}) mobile number must be {rule['hint']} — got {n} digits.",
         )
     pattern = rule.get("pattern")
     if pattern and not re.match(pattern, mobile_number):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"'{mobile_number}' is not a valid {label} ({country_phone_code}) mobile number — expected {rule['hint']}.",
         )
 
@@ -327,7 +354,7 @@ def validate_email(email: str | None) -> None:
         return
     if len(email) > 254 or not EMAIL_PATTERN.match(email):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"'{email}' is not a valid email address.",
         )
 
@@ -421,6 +448,8 @@ def next_credential_document_number(
     Rows in nss.credential_sequence_counter are created on demand (upsert)
     and the counter resets to 1 every FY, since it's keyed by
     (credential_type, scope_organization_pk, financial_year_start).
+    A candidate that already exists (a legacy member's own number from this
+    year — GDR-009) is skipped by advancing the counter, never reused.
 
     Returns document_number only. Financial-year numbering and
     credential-validity windows are deliberately decoupled (SOL-ARCH-013
@@ -431,29 +460,274 @@ def next_credential_document_number(
     """
     as_of = as_of or date.today()
     fy_start, fy_end, _, _ = financial_year_bounds(as_of)
-    cur.execute(
-        """
-        INSERT INTO nss.credential_sequence_counter
-            (credential_type, scope_organization_pk, financial_year_start, current_value)
-        VALUES (%s, %s, %s, 1)
-        ON CONFLICT (credential_type, scope_organization_pk, financial_year_start)
-        DO UPDATE SET current_value = nss.credential_sequence_counter.current_value + 1,
-                      updated_at = NOW()
-        RETURNING current_value
-        """,
-        (credential_type, str(scope_organization_pk), fy_start),
-    )
-    seq = cur.fetchone()[0]
+    # A legacy member may already carry a number from this very year (GDR-009
+    # extension): keep advancing the counter past any value that is taken, so
+    # a minted number is never a duplicate and no number is ever reused —
+    # the same loop-and-skip shape as nss.fn_next_sakha_local_number().
+    while True:
+        cur.execute(
+            """
+            INSERT INTO nss.credential_sequence_counter
+                (credential_type, scope_organization_pk, financial_year_start, current_value)
+            VALUES (%s, %s, %s, 1)
+            ON CONFLICT (credential_type, scope_organization_pk, financial_year_start)
+            DO UPDATE SET current_value = nss.credential_sequence_counter.current_value + 1,
+                          updated_at = NOW()
+            RETURNING current_value
+            """,
+            (credential_type, str(scope_organization_pk), fy_start),
+        )
+        seq = cur.fetchone()[0]
+        candidate = f"{seq}/{fy_start}/{fy_end}"
+        if not patra_number_exists(cur, credential_type, candidate, scope_organization_pk):
+            return candidate
+
+
+def patra_number_exists(cur, credential_type: str, document_number: str,
+                        issuing_organization_pk=None) -> bool:
+    """
+    True when *document_number* is already issued — the uniqueness scope the
+    DDL enforces: PARICHAYA_PATRA is unique NSS-wide (uq_pp_document_number),
+    ANUMATI_PATRA only within its issuing Sakha (uq_ap_document_number). The
+    one definition shared by the allocator and the legacy-number validator.
+    """
+    if credential_type == "ANUMATI_PATRA":
+        cur.execute(
+            "SELECT 1 FROM nss.anumati_patra "
+            "WHERE issuing_organization_pk = %s AND document_number = %s",
+            (str(issuing_organization_pk), document_number),
+        )
+    else:
+        cur.execute(
+            "SELECT 1 FROM nss.parichaya_patra WHERE document_number = %s",
+            (document_number,),
+        )
+    return cur.fetchone() is not None
+
+
+# ── Legacy-vs-new Patra ("Kendra") Number rule (GDR-009 §2A, owner 2026-11-01)
+#
+# Same split as the Local Sakha Number, driven by the SAME explicit flag
+# (registration_claim.is_legacy_member / is_legacy_member on admin create):
+# a legacy member (already holds a card) supplies the number printed on it,
+# in the strict MBR-030A form <seq>/<yyyy>/<yyyy+1>; everyone else has it
+# auto-generated by next_credential_document_number(). The year may be any
+# past or current one — the card was issued whenever it was — so unlike the
+# MBR-030H normaliser (which pins the year to a new Patra's issue date) the
+# only year checks are "consecutive" and "not in the future".
+
+_LEGACY_PATRA_NUMBER_RE = re.compile(r"^([1-9][0-9]{0,8})/([0-9]{4})/([0-9]{4})$")
+
+
+def parse_legacy_patra_number(raw: str, *, label: str = "Patra",
+                              number_field: str = "document_number") -> str:
+    """
+    Validate and canonicalise an existing Patra number: ``<seq>/<yyyy>/<yyyy+1>``
+    with a positive integer seq (no leading zeros / signs), consecutive
+    four-digit years, start year 2000 (DDL floor) .. current calendar year.
+    Pure (no DB). 422 with a worked example on any violation.
+    """
+    text = (raw or "").strip()
+    example = f"e.g. 345/{date.today().year}/{date.today().year + 1}"
+    m = _LEGACY_PATRA_NUMBER_RE.match(text)
+    if not m:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{number_field} '{text}' is not a valid {label} number. Use the "
+                f"form <number>/<year>/<next year> exactly as printed on the "
+                f"card ({example}); the number is a positive whole number with "
+                "no leading zeros."
+            ),
+        )
+    seq, fy_start, fy_end = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if fy_end != fy_start + 1 or fy_start < 2000 or fy_start > date.today().year:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{number_field} '{text}' carries an invalid year pair: the two "
+                "years must be consecutive, not before 2000 and not in the "
+                f"future ({example})."
+            ),
+        )
     return f"{seq}/{fy_start}/{fy_end}"
 
 
-def get_master_data_pk(cur, category_code: str, value_code: str) -> str:
+def patra_card_type_for_membership_type(cur, membership_type_pk: str | None) -> str:
+    """ANUMATI_PATRA for a Darshaka (PROBATIONARY) membership type, else
+    PARICHAYA_PATRA (Regular and Associate) — MBR-010/014/019A/B."""
+    return (
+        "ANUMATI_PATRA" if is_probationary_membership_type(cur, membership_type_pk)
+        else "PARICHAYA_PATRA"
+    )
+
+
+def resolve_legacy_patra_number(
+    cur,
+    is_legacy_member: bool | None,
+    document_number: str | None,
+    *,
+    card_type: str,
+    issuing_organization_pk=None,
+    flag_field: str = "is_legacy_member",
+    number_field: str = "claimed_credential_document_number",
+) -> str | None:
+    """
+    The single validator for the legacy-vs-new Patra number rule — the
+    sibling of resolve_legacy_local_number().
+
+    * legacy (True): the number is REQUIRED (422), strictly formatted
+      (parse_legacy_patra_number) and must not already be issued (409,
+      scoped per patra_number_exists()). Returns the canonical number.
+    * new (False/None): the number MUST be blank (422 when one is sent) and
+      None is returned — the credential is auto-generated at issuance.
+
+    *card_type* decides the label and the uniqueness scope;
+    *issuing_organization_pk* is the Sakha an Anumati Patra is issued by.
+    """
+    label = "Anumati Patra" if card_type == "ANUMATI_PATRA" else "Parichaya Patra"
+    num = (document_number or "").strip()
+    if is_legacy_member:
+        if not num:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"{number_field} ({label} number) is required when "
+                    f"{flag_field} is true (a legacy member must supply the "
+                    "number already on their card)."
+                ),
+            )
+        canonical = parse_legacy_patra_number(num, label=label, number_field=number_field)
+        if patra_number_exists(cur, card_type, canonical, issuing_organization_pk):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{label} number '{canonical}' is already in use.",
+            )
+        return canonical
+    if num:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{number_field} must be blank when {flag_field} is false — the "
+                f"system assigns the {label} number automatically for a member "
+                f"who is not a legacy member. Set {flag_field} to true to "
+                "supply an existing number."
+            ),
+        )
+    return None
+
+
+def next_correspondence_reference_number(
+    cur, register_organization_pk, direction: str, as_of: date | None = None,
+) -> str:
+    """
+    Atomically mint the next correspondence reference_number for the
+    financial year containing *as_of* (default: today) — CORR-EXT-001
+    format ``<ORG_SHORT_CODE>/{IN|OUT}/<fy_start>-<fy_end_short>/<seq>``
+    (e.g. "NSS/OUT/2026-27/003").
+
+    *register_organization_pk* is nss.correspondence.register_organization_pk
+    — the register (organization) the correspondence is filed under; it
+    owns the sequence (one counter per organization, per direction, per
+    financial year — nss.correspondence_sequence_counter, mirroring
+    nss.credential_sequence_counter's FY-reset shape). *direction* is
+    "INWARD" or "OUTWARD".
+
+    The reference-number prefix is the register organization's
+    organization.short_code. Only Kendra ships a seeded short_code
+    (database/seed/02_organization/03_organization.sql); every other
+    organization/Sakha ships short_code = NULL until an admin assigns one.
+    Registering correspondence under an organization with no short_code
+    is therefore rejected here with a 422 — this is a necessary technical
+    guard given CORR-EXT-001's fixed format, not an invented business
+    rule, and is surfaced to the caller rather than silently defaulted
+    (GOV-BR-093).
+    """
+    cur.execute(
+        "SELECT short_code FROM nss.organization WHERE organization_pk = %s",
+        (str(register_organization_pk),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Register organization not found.",
+        )
+    short_code = row[0]
+    if not short_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "This organization has no short code assigned, so a "
+                "correspondence reference number cannot be generated for "
+                "it yet. Ask an NSS-wide admin to assign a short code to "
+                "this organization first."
+            ),
+        )
+
+    as_of = as_of or date.today()
+    fy_start, fy_end, _, _ = financial_year_bounds(as_of)
+    cur.execute(
+        """
+        INSERT INTO nss.correspondence_sequence_counter
+            (register_organization_pk, direction, financial_year_start, current_value)
+        VALUES (%s, %s, %s, 1)
+        ON CONFLICT (register_organization_pk, direction, financial_year_start)
+        DO UPDATE SET current_value = nss.correspondence_sequence_counter.current_value + 1,
+                      updated_at = NOW()
+        RETURNING current_value
+        """,
+        (str(register_organization_pk), direction, fy_start),
+    )
+    seq = cur.fetchone()[0]
+    direction_tag = "IN" if direction == "INWARD" else "OUT"
+    fy_end_short = f"{fy_end % 100:02d}"
+    return f"{short_code}/{direction_tag}/{fy_start}-{fy_end_short}/{seq:03d}"
+
+
+def next_sakha_local_number(cur, organization_pk: str, *, is_darshak: bool = False) -> str:
+    """
+    Atomically allocate the next bare numeric portion of a Tier 2 Local
+    Sakha ERP Number (MBR-030C, MBR-048) for *organization_pk*, in the
+    REGULAR or DARSHAK namespace per *is_darshak*.
+
+    The rule lives in ONE place, the SQL function
+    nss.fn_next_sakha_local_number() (05_membership/19_...): the per-
+    (organization, namespace) counter row in nss.sakha_local_number_counter
+    is upserted under a row lock (concurrent creations in one Sakha get
+    distinct numbers); the allocator then skips any number whose composed id
+    already exists for that Sakha — archived affiliations included, so a
+    number is never reused, and an explicitly typed / legacy number is
+    stepped over instead of colliding. No financial-year reset (a Local
+    Sakha ERP Number is permanent, unlike a Kendra/Anumati document number).
+
+    The short_code (and Darshak marker) is resolved first via
+    local_sakha_id_prefix(), so an organization with no short_code raises the
+    standard 422 here instead of minting a number that could never be used.
+
+    Returns the number as a plain string, no zero-padding (ESS1, ESS2, ...).
+    The caller passes it to compose_local_sakha_erp_id()/
+    insert_sakha_affiliation() as local_number.
+    """
+    prefix = local_sakha_id_prefix(cur, organization_pk, is_darshak=is_darshak)
+    cur.execute(
+        "SELECT nss.fn_next_sakha_local_number(%s, %s, %s)",
+        (str(organization_pk), "DARSHAK" if is_darshak else "REGULAR", prefix),
+    )
+    return str(cur.fetchone()[0])
+
+
+def get_master_data_pk(
+    cur, category_code: str, value_code: str, *, client_supplied: bool = False
+) -> str:
     """
     Resolve a master_data row to its PK by (category_code, value_code) —
     e.g. ("ADDRESS_TYPE", "PERMANENT").
 
     Raises HTTPException 500 when the value is absent, because a missing
     seeded master_data value is a build/seed defect, not a client error.
+    Pass ``client_supplied=True`` when ``value_code`` came from the request:
+    an unknown code is then the caller's mistake and raises 422 instead.
     """
     cur.execute(
         """
@@ -468,6 +742,11 @@ def get_master_data_pk(cur, category_code: str, value_code: str) -> str:
         (category_code, value_code),
     )
     row = cur.fetchone()
+    if row is None and client_supplied:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown {category_code} value '{value_code}'.",
+        )
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -500,7 +779,7 @@ def parse_optional_date(value, field_label: str) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{field_label} must be a valid date in YYYY-MM-DD form.",
         )
 
@@ -556,7 +835,7 @@ def normalize_patra_document_number(
 
     def _reject(detail: str):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail,
         )
 
     parts = [p.strip() for p in supplied.split("/")]
@@ -718,7 +997,7 @@ def dola_purnima_credential_validity_window(
     valid_to = next_festival_date_on_or_after(cur, "DOLA_PURNIMA", search_from)
     if valid_to is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "Cannot determine the credential validity window: no confirmed "
                 f"Dola Purnima date is on file on or after {search_from.isoformat()}. "
@@ -766,6 +1045,29 @@ DARSHAK_LOCAL_ID_MARKER_SETTING = "MEMBERSHIP_DARSHAK_LOCAL_ID_MARKER"
 PROBATIONARY_MEMBERSHIP_TYPE_CODE = "PROBATIONARY"
 
 
+DARSHAKA_NO_ATTENDANCE_DETAIL = (
+    "A Darshaka who attends another Sakha must transfer to it; use Sakha "
+    "Transfer. Only a Regular or Associate member may attend another Sakha "
+    "as a Darshak."
+)
+
+
+def require_non_darshaka_for_attendance(cur, membership_type_pk: str | None) -> None:
+    """
+    GDR-009 §2B (owner 2026-11-01): the cross-Sakha Darshak attendance
+    affiliation is a Regular/Associate concept. A Darshaka (PROBATIONARY) who
+    moves to another Sakha makes it his HOME Sakha (a Sakha Transfer) — he
+    cannot hold a second, Darshak-series attendance affiliation. One check,
+    422 with a fixed message, shared by registration, claim edit/approval and
+    the DARSHAK change request.
+    """
+    if is_probationary_membership_type(cur, membership_type_pk):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=DARSHAKA_NO_ATTENDANCE_DETAIL,
+        )
+
+
 def is_probationary_membership_type(cur, membership_type_pk: str | None) -> bool:
     """
     True when *membership_type_pk* resolves to the PROBATIONARY membership type.
@@ -785,29 +1087,22 @@ def is_probationary_membership_type(cur, membership_type_pk: str | None) -> bool
     return bool(row) and row[0] == PROBATIONARY_MEMBERSHIP_TYPE_CODE
 
 
-def compose_local_sakha_erp_id(
-    cur, org_pk: str, local_number: str, *, is_darshak: bool = False
-) -> str:
+def local_sakha_id_prefix(cur, org_pk: str, *, is_darshak: bool = False) -> str:
     """
-    Build a Tier 2 Local Sakha ERP ID (MBR-030, MBR-030C).
+    The id prefix of a Tier 2 Local Sakha ERP ID: ``<short_code>`` (Regular /
+    Associate namespace) or ``<short_code><marker>`` (Darshak / Probationary,
+    MBR-030C).
 
-        Regular / Associate:    <short_code><local_number>          ESS000123
-        Darshak / Probationary: <short_code><marker><local_number>  ESSD000045
-
-    Looks up the short_code for the given organization PK.
-    If short_code is NULL (not yet assigned by admin), raises 422
-    so the caller knows to assign it first.
-
-    When *is_darshak* is true the namespace marker is read from
-    nss.system_setting (DARSHAK_LOCAL_ID_MARKER_SETTING). A missing or blank
-    marker raises 500 rather than defaulting: composing without the marker
-    would place a Darshak identifier inside the Regular namespace, where it
-    could collide with a Regular member's number and be indistinguishable
-    from one afterwards. Failing loudly is the safe direction.
-
-    Because the marker is part of the string, ESS000001 and ESSD000001 are
-    distinct values — the two namespaces coexist under the existing
-    uq_mem_sakha_aff_local_id constraint with no schema change.
+    Raises 404 for an unknown organization and 422 when the organization has
+    no short_code yet (an admin must assign it before members can be enrolled
+    — this is the loud failure every enrollment path relies on; nothing may
+    silently skip the affiliation instead). When *is_darshak* is true the
+    namespace marker is read from nss.system_setting
+    (DARSHAK_LOCAL_ID_MARKER_SETTING); a missing or blank marker raises 500
+    rather than defaulting, because composing without it would place a
+    Darshak identifier inside the Regular namespace, where it could collide
+    with a Regular member's number and be indistinguishable from one
+    afterwards. Failing loudly is the safe direction.
     """
     cur.execute(
         "SELECT short_code, organization_name FROM nss.organization WHERE organization_pk = %s",
@@ -822,17 +1117,11 @@ def compose_local_sakha_erp_id(
     short_code, org_name = row[0], row[1]
     if not short_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"Organization '{org_name}' does not have a short_code assigned yet. "
                 "An admin must set the short_code before members can be enrolled."
             ),
-        )
-    num = str(local_number).strip()
-    if not num:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Local Sakha number is required for non-Darshaka members.",
         )
 
     marker = ""
@@ -847,8 +1136,32 @@ def compose_local_sakha_erp_id(
                     "before enrolling Darshak/Probationary members."
                 ),
             )
+    return f"{short_code}{marker}"
 
-    return f"{short_code}{marker}{num}"
+
+def compose_local_sakha_erp_id(
+    cur, org_pk: str, local_number: str, *, is_darshak: bool = False
+) -> str:
+    """
+    Build a Tier 2 Local Sakha ERP ID (MBR-030, MBR-030C).
+
+        Regular / Associate:    <short_code><local_number>          ESS000123
+        Darshak / Probationary: <short_code><marker><local_number>  ESSD000045
+
+    The prefix (and its 404/422/500 failure modes) comes from
+    local_sakha_id_prefix(). Because the marker is part of the string,
+    ESS000001 and ESSD000001 are distinct values — the two namespaces coexist
+    under the existing uq_mem_sakha_aff_local_id constraint with no schema
+    change.
+    """
+    prefix = local_sakha_id_prefix(cur, org_pk, is_darshak=is_darshak)
+    num = str(local_number).strip()
+    if not num:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Local Sakha number is required for non-Darshaka members.",
+        )
+    return f"{prefix}{num}"
 
 
 # ── Sakha-only membership guard (API mirror of MBR-038A trigger) ─────────
@@ -856,7 +1169,8 @@ def compose_local_sakha_erp_id(
 def require_sakha_organization(cur, organization_pk: str) -> None:
     """
     Enforce MBR-038A at the API layer: a Member's organizational
-    association must reference an organization of type SAKHA_SANGHA.
+    association must reference an organization of a Sakha-like type
+    (SAKHA_SANGHA or SAKHA_ASANA, owner 2026-10-31).
 
     This mirrors the database triggers in
     05_membership/14_sakha_only_membership_trigger.sql. The DB is the
@@ -868,7 +1182,7 @@ def require_sakha_organization(cur, organization_pk: str) -> None:
     creates the system account, so every member created through these
     endpoints must be tied to a Sakha, with no exception.
 
-    Raises: HTTPException 422 if organization_pk is not a SAKHA_SANGHA.
+    Raises: HTTPException 422 if organization_pk is not Sakha-like.
     """
     if organization_pk is None:
         raise HTTPException(
@@ -897,13 +1211,13 @@ def require_sakha_organization(cur, organization_pk: str) -> None:
         )
 
     org_type_code, org_name = row
-    if org_type_code != "SAKHA_SANGHA":
+    if not is_sakha_like(org_type_code):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"A member can only be associated with a Sakha Sangha "
+                f"A member can only be associated with a Sakha Sangha or Sakha Asana "
                 f"(MBR-038A). '{org_name}' is of type {org_type_code}, "
-                "not SAKHA_SANGHA."
+                "not a Sakha."
             ),
         )
 
@@ -917,7 +1231,10 @@ def resolve_kumari_sevak_parent_sakha(
 ) -> str:
     """
     Resolve/validate the parent Sakha for a KUMARI_SANGHA/SEVAK_SANGHA
-    create-or-update (ORG-BR-101/102).
+    create-or-update (ORG-BR-101/102). The "Sakha" may be a SAKHA_SANGHA or
+    a SAKHA_ASANA (owner 2026-10-31, GDR-008) — this helper settles WHICH
+    Sakha by admin scope only; the parent's TYPE is validated by the caller
+    against ALLOWED_PARENT_TYPES.
 
     - NSS-wide NSS_ERP_ADMIN: requested_parent_pk must be supplied by the
       caller (any active Sakha is legal); returned unchanged.
@@ -1023,7 +1340,7 @@ def resolve_scoped_sakha(
     Authorization mirrors UserContext.has_scope_for_org (exact-match, NOT
     hierarchical): the eligible Sakhas are exactly the caller's SAKHA-level
     scopes, plus every Sakha for an NSS-wide caller. The type check
-    (SAKHA_SANGHA) is still the caller's responsibility via
+    (Sakha-like: SAKHA_SANGHA or SAKHA_ASANA) is still the caller's responsibility via
     require_sakha_organization — this helper only settles *which* Sakha.
 
     Returns the resolved organization_pk (str). Raises HTTPException
@@ -1081,16 +1398,37 @@ def insert_sakha_affiliation(
     *,
     sangha_sevi_pk: str,
     organization_pk: str,
-    local_number: str,
+    local_number: str | None = None,
     effective_from,
     is_darshak: bool = False,
+    source_event_type: str = "ENROLLMENT",
 ) -> str:
     """
     Insert a nss.membership_sakha_affiliation row for a member's local number.
 
-    Single owner for this write — create_user() and create_sangha_sevi() both
-    route through here so the composition rule and the duplicate-number
-    response stay identical.
+    Single owner for this write — create_user(), create_sangha_sevi(), and the
+    Sakha Transfer/Apply for Darshak change-request flow (MBR-048/MBR-049,
+    api/routers/membership_change_request.py) all route through here so the
+    composition rule and the duplicate-number response stay identical.
+
+    *source_event_type* must be one of the nss.membership_sakha_affiliation
+    chk_mem_sakha_aff_status-adjacent CHECK's allowed values —
+    'ENROLLMENT', 'TRANSFER', or 'REACTIVATION'. Defaults to 'ENROLLMENT',
+    preserving create_user()'s and create_sangha_sevi()'s original behavior
+    unchanged. The Sakha Transfer completion path passes 'TRANSFER' explicitly
+    so the new affiliation row is correctly distinguished from a fresh
+    enrollment; the Apply-for-Darshak path leaves the default, since opening a
+    second, concurrently-active affiliation at another Sakha is a new
+    enrollment in that Sakha's namespace, not a transfer (the home affiliation
+    is never closed — see 18_membership_change_request.sql header note).
+
+    *local_number*: when the caller supplies one explicitly (create_user()/
+    create_sangha_sevi()'s existing behavior, and an admin's legacy-import
+    override), it is used verbatim — unchanged from this function's original
+    behavior. When omitted (None), next_sakha_local_number() auto-generates
+    the next number in the (organization_pk, is_darshak) namespace (MBR-048,
+    resolving MBR-030C's former "AUTO-SEQUENCING PENDING" status). This is
+    the path the new change-request flow uses for the common case.
 
     *is_darshak* selects the Darshak/Probationary local-number namespace
     (MBR-030C); see compose_local_sakha_erp_id().
@@ -1104,6 +1442,10 @@ def insert_sakha_affiliation(
     Without handling, a reused number raises psycopg2.errors.UniqueViolation,
     which escapes as an unhandled 500 with no usable `detail` — the caller sees
     only "Failed (500)". This converts it to a 409 naming the number and Sakha.
+    (An auto-generated number cannot collide under normal operation — the
+    counter and the affiliation table are both keyed by (organization_pk,
+    namespace) — but the 409 path still exists in case an explicit/legacy
+    number collides.)
 
     The INSERT runs inside a SAVEPOINT. That matters: once PostgreSQL raises
     inside a transaction, the whole transaction is aborted and every later
@@ -1113,9 +1455,12 @@ def insert_sakha_affiliation(
 
     Returns: membership_sakha_affiliation_pk as a string.
     Raises: HTTPException 409 if the number is already taken in that Sakha,
-            HTTPException 422 if organization_pk is not a SAKHA_SANGHA.
+            HTTPException 422 if organization_pk is not Sakha-like.
     """
     require_sakha_organization(cur, organization_pk)
+
+    if local_number is None:
+        local_number = next_sakha_local_number(cur, organization_pk, is_darshak=is_darshak)
 
     composed_id = compose_local_sakha_erp_id(
         cur, organization_pk, local_number, is_darshak=is_darshak
@@ -1129,10 +1474,16 @@ def insert_sakha_affiliation(
                 sangha_sevi_pk, organization_pk,
                 local_sakha_erp_id, effective_from,
                 affiliation_status, source_event_type
-            ) VALUES (%s, %s, %s, COALESCE(%s, CURRENT_DATE), 'ACTIVE', 'ENROLLMENT')
+            ) VALUES (%s, %s, %s, COALESCE(%s, CURRENT_DATE), 'ACTIVE', %s)
             RETURNING membership_sakha_affiliation_pk
             """,
-            (str(sangha_sevi_pk), str(organization_pk), composed_id, effective_from),
+            (
+                str(sangha_sevi_pk),
+                str(organization_pk),
+                composed_id,
+                effective_from,
+                source_event_type,
+            ),
         )
         aff_pk = cur.fetchone()[0]
     except psycopg2.errors.UniqueViolation:
@@ -1156,6 +1507,336 @@ def insert_sakha_affiliation(
     return str(aff_pk)
 
 
+# ── Legacy-vs-new Local Sakha Number rule (GDR-009, owner 2026-11-01) ───
+#
+# One rule, one owner. A person who was ALREADY a member (Regular/Associate
+# or Darshak/Darshaka) before this application existed is a LEGACY member
+# and must supply the number printed on their card; everyone else gets the
+# next number from the shared allocator (next_sakha_local_number()). The
+# legacy status is an explicit boolean — never inferred from "a number was
+# typed" — and is stated per Sakha: a person can be a legacy home-Sakha
+# member and a new attendee elsewhere (registration_claim.is_legacy_member /
+# darshak_is_legacy_member).
+
+_LOCAL_NUMBER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+
+def resolve_legacy_local_number(
+    is_legacy_member: bool | None,
+    local_number: str | None,
+    *,
+    flag_field: str = "is_legacy_member",
+    number_field: str = "local_sakha_number",
+) -> str | None:
+    """
+    The single validator for the legacy-vs-new Local Sakha Number rule.
+
+    * legacy (True): the number is REQUIRED (422 if blank); it is stripped
+      and checked for shape (no inner whitespace). Returns the normalised
+      bare number. A number already taken in that Sakha is a 409 later, from
+      insert_sakha_affiliation().
+    * new (False/None): the number MUST be blank (422 if one was sent, so a
+      client/flag mismatch is caught instead of silently ignored). Returns
+      None, which insert_sakha_affiliation() turns into an auto-generated
+      number.
+
+    *flag_field*/*number_field* only name the fields in the error text, so
+    each call site (registration, admin create, claim approval, attendance
+    Sakha) reports in its own vocabulary while the rule text lives here.
+    """
+    num = (local_number or "").strip()
+    if is_legacy_member:
+        if not num:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"{number_field} is required when {flag_field} is true "
+                    "(a legacy member must supply the Local Sakha Number "
+                    "already on their card)."
+                ),
+            )
+        if not _LOCAL_NUMBER_PATTERN.match(num):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"{number_field} '{num}' is not a valid Local Sakha "
+                    "Number (letters, digits and . _ / - only, no spaces)."
+                ),
+            )
+        return num
+    if num:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{number_field} must be blank when {flag_field} is false — "
+                "the system assigns the number automatically for a member "
+                f"who is not a legacy member. Set {flag_field} to true to "
+                "supply an existing number."
+            ),
+        )
+    return None
+
+
+def validate_claim_local_numbers(
+    *,
+    is_legacy_member: bool | None,
+    claimed_local_sakha_number: str | None,
+    darshak_organization_pk=None,
+    darshak_is_legacy_member: bool | None = False,
+    darshak_local_sakha_number: str | None = None,
+) -> tuple[str | None, str | None]:
+    """
+    resolve_legacy_local_number() applied to both numbers a registration
+    claim carries — the home Sakha's and (when a darshak_organization_pk is
+    set) the attending Sakha's — in the claim's own field names. Shared by
+    POST /register, POST /register/claim, PATCH /admin/claims/{pk} and
+    claim approval, so the rule is enforced identically at every stage.
+
+    Returns (home_number, attendance_number), each the normalised bare number
+    for a legacy member or None for "auto-generate". Without an attendance
+    Sakha, any attendance flag/number is a contradiction (422).
+    """
+    home = resolve_legacy_local_number(
+        is_legacy_member, claimed_local_sakha_number,
+        flag_field="is_legacy_member",
+        number_field="claimed_local_sakha_number",
+    )
+    if not darshak_organization_pk:
+        if darshak_is_legacy_member or (darshak_local_sakha_number or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    "darshak_is_legacy_member / darshak_local_sakha_number "
+                    "need a darshak_organization_pk (the attending Sakha)."
+                ),
+            )
+        return home, None
+    attend = resolve_legacy_local_number(
+        darshak_is_legacy_member, darshak_local_sakha_number,
+        flag_field="darshak_is_legacy_member",
+        number_field="darshak_local_sakha_number",
+    )
+    return home, attend
+
+
+def ensure_darshak_attendance_affiliation(
+    cur,
+    *,
+    sangha_sevi_pk: str,
+    organization_pk: str,
+    local_number: str | None,
+    effective_from,
+    actor_pk: str | None,
+    actor_user_account_pk: str | None,
+    module: str,
+) -> str | None:
+    """
+    Open a member's cross-Sakha Darshak attendance affiliation at
+    *organization_pk* (claim approval step 7), in that Sakha's Darshak
+    number series.
+
+    Skips (returns None) ONLY when the member already has an OPEN
+    affiliation at that Sakha — nothing to add. Every other situation goes
+    through insert_sakha_affiliation(): *local_number* is the already-
+    validated legacy number (resolve_legacy_local_number()) or None for the
+    allocator's next Darshak number, and a number that is already used is a
+    loud 409 — never the silent ON CONFLICT DO NOTHING this replaced.
+    Returns the new affiliation pk (audit-logged) or None when skipped.
+    """
+    cur.execute(
+        """
+        SELECT 1 FROM nss.membership_sakha_affiliation
+        WHERE sangha_sevi_pk = %s AND organization_pk = %s AND effective_to IS NULL
+        """,
+        (str(sangha_sevi_pk), str(organization_pk)),
+    )
+    if cur.fetchone() is not None:
+        return None
+    aff_pk = insert_sakha_affiliation(
+        cur,
+        sangha_sevi_pk=str(sangha_sevi_pk),
+        organization_pk=str(organization_pk),
+        local_number=local_number,
+        effective_from=effective_from,
+        is_darshak=True,
+    )
+    log_audit(cur, action="CREATE", table_name="membership_sakha_affiliation",
+              record_pk=aff_pk, actor_pk=actor_pk,
+              actor_user_account_pk=actor_user_account_pk,
+              module=module, summary="Created darshak attendance affiliation")
+    return aff_pk
+
+
+def create_sangha_sevi_with_home_affiliation(
+    cur,
+    *,
+    person_pk: str,
+    membership_type_pk: str,
+    organization_pk: str,
+    joining_date,
+    actor_pk: str | None,
+    actor_user_account_pk: str | None,
+    module: str,
+    local_number: str | None = None,
+    is_darshak: bool | None = None,
+    audit_suffix: str = "",
+) -> dict:
+    """
+    Single owner for "create a Sangha Sevi": allocates the SS ID, inserts the
+    nss.sangha_sevi row AND its mandatory home membership_sakha_affiliation
+    (with the Local Sakha ID) as one unit, and audit-logs both.
+
+    Every enrollment path (admin create_user / create_sangha_sevi, claim
+    approval) goes through here, so a Sangha Sevi can no longer be created
+    without a Local Sakha ID. The DB backs this with the deferred constraint
+    trigger in 05_membership/21_home_affiliation_guard.sql.
+
+    *local_number*: an explicit bare number (admin legacy entry, or the
+    number a registrant claimed) is composed and validated by
+    insert_sakha_affiliation() (409 if already taken in that Sakha); when
+    None/blank the next number is auto-generated in the member's namespace
+    (next_sakha_local_number()). *is_darshak* defaults to "membership type is
+    PROBATIONARY" (MBR-030C). An organization without a short_code raises the
+    standard 422 from compose_local_sakha_erp_id()/local_sakha_id_prefix() —
+    never a silent skip.
+
+    Returns {"sangha_sevi_pk", "sangha_sevi_id", "affiliation_pk",
+    "local_sakha_erp_id"}.
+    """
+    if is_darshak is None:
+        is_darshak = is_probationary_membership_type(cur, membership_type_pk)
+    if local_number is not None and not str(local_number).strip():
+        local_number = None
+
+    ss_id = next_id(cur, "SANGHA_SEVI", actor_pk=actor_pk)
+    cur.execute(
+        """
+        INSERT INTO nss.sangha_sevi (
+            sangha_sevi_id, person_pk,
+            membership_type_master_data_pk,
+            membership_status_master_data_pk,
+            organization_pk, joining_date
+        ) VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING sangha_sevi_pk
+        """,
+        (
+            ss_id, str(person_pk), str(membership_type_pk),
+            str(get_active_status_pk(cur)), str(organization_pk), joining_date,
+        ),
+    )
+    ss_pk = str(cur.fetchone()[0])
+    log_audit(cur, action="CREATE", table_name="sangha_sevi", record_pk=ss_pk,
+              actor_pk=actor_pk, actor_user_account_pk=actor_user_account_pk,
+              module=module, summary=f"Created sangha sevi {ss_id}{audit_suffix}")
+
+    # effective_from = joining date when known, else today (insert_sakha_affiliation
+    # COALESCEs): the affiliation start is a different fact from the Sangha
+    # joining date, which stays NULL when unknown (MBR-047).
+    aff_pk = insert_sakha_affiliation(
+        cur,
+        sangha_sevi_pk=ss_pk,
+        organization_pk=str(organization_pk),
+        local_number=local_number,
+        effective_from=joining_date,
+        is_darshak=is_darshak,
+    )
+    cur.execute(
+        "SELECT local_sakha_erp_id FROM nss.membership_sakha_affiliation "
+        "WHERE membership_sakha_affiliation_pk = %s",
+        (aff_pk,),
+    )
+    local_id = cur.fetchone()[0]
+    log_audit(cur, action="CREATE", table_name="membership_sakha_affiliation", record_pk=aff_pk,
+              actor_pk=actor_pk, actor_user_account_pk=actor_user_account_pk,
+              module=module, summary=f"Created primary sakha affiliation {local_id}{audit_suffix}")
+    return {
+        "sangha_sevi_pk": ss_pk,
+        "sangha_sevi_id": ss_id,
+        "affiliation_pk": aff_pk,
+        "local_sakha_erp_id": local_id,
+    }
+
+
+def close_sakha_affiliation(
+    cur, *, membership_sakha_affiliation_pk: str, effective_to,
+) -> None:
+    """
+    Close an open nss.membership_sakha_affiliation row (MBR-031, MBR-048).
+
+    Counterpart to insert_sakha_affiliation(): sets effective_to and
+    affiliation_status = 'ARCHIVED' on the given row, mirroring
+    chk_mem_sakha_aff_status_consistency's requirement that a closed row
+    (effective_to NOT NULL) is always ARCHIVED. Used by the Sakha Transfer
+    change-request flow to close a member's old affiliation on completion,
+    and intended for reuse by a future Darshak-reactivation flow (MBR-030C
+    "Progression and archival" / REACTIVATED path) — single owner for this
+    write so both flows close a row identically.
+
+    Does not insert the new/replacement row — that remains a separate
+    insert_sakha_affiliation() call, so a transfer's "close old, open new"
+    sequencing stays explicit at the call site.
+    """
+    cur.execute(
+        """
+        UPDATE nss.membership_sakha_affiliation
+        SET effective_to = %s,
+            affiliation_status = 'ARCHIVED',
+            updated_at = NOW()
+        WHERE membership_sakha_affiliation_pk = %s
+        """,
+        (effective_to, str(membership_sakha_affiliation_pk)),
+    )
+
+
+def log_patra_history(
+    cur,
+    *,
+    card_type: str,
+    credential_pk: str,
+    change_type: str,
+    change_date: date,
+    previous_status: str | None,
+    new_status: str,
+    document_reference: str | None = None,
+    remarks: str | None = None,
+) -> None:
+    """
+    Record one lifecycle transition on nss.parichaya_patra_history /
+    nss.anumati_patra_history — the credential equivalent of log_audit(),
+    and the SINGLE writer for both tables.
+
+    *card_type* is "PARICHAYA_PATRA" or "ANUMATI_PATRA"; the matching
+    history table and FK column are derived from it, so no caller ever
+    names a table itself. *change_type* is one of ISSUED / RENEWED /
+    EXPIRED / CANCELLED / REPLACED and *new_status* one of ACTIVE /
+    EXPIRED / CANCELLED / REPLACED (both CHECK-constrained in the DDL).
+
+    Until this existed both history tables were schema-only — declared,
+    FK'd and indexed, but never written, so a member's credential timeline
+    could only ever show the current row. Every path that issues, renews or
+    retires a Patra must call this, which is why it sits beside
+    issue_membership_credential() and is invoked from inside it.
+    """
+    table = (
+        "anumati_patra_history" if card_type == "ANUMATI_PATRA"
+        else "parichaya_patra_history"
+    )
+    fk_column = (
+        "anumati_patra_pk" if card_type == "ANUMATI_PATRA"
+        else "parichaya_patra_pk"
+    )
+    cur.execute(
+        f"""
+        INSERT INTO nss.{table} (
+            {fk_column}, change_type, change_date,
+            previous_status, new_status, document_reference, remarks
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (str(credential_pk), change_type, change_date,
+         previous_status, new_status, document_reference, remarks),
+    )
+
+
 def issue_membership_credential(
     cur,
     *,
@@ -1170,6 +1851,9 @@ def issue_membership_credential(
     joining_date: date | None = None,
     date_of_birth: date | None = None,
     president_override: bool = False,
+    local_sakha_erp_id: str | None = None,
+    history_remarks: str | None = None,
+    is_legacy: bool = False,
 ) -> tuple[str, str, str]:
     """
     Issue the mandatory credential for a newly-created Sangha Sevi
@@ -1179,6 +1863,14 @@ def issue_membership_credential(
     Single owner for this write — create_sangha_sevi() and create_user()'s
     bundled-SS branch both route through here, mirroring
     insert_sakha_affiliation()'s convention just above.
+
+    *is_legacy* (GDR-009 §2A): the supplied *document_number* is a legacy
+    member's EXISTING card number — validated strictly by
+    parse_legacy_patra_number() (any past/current year pair, not pinned to
+    *issue_date*) and checked for uniqueness (409), then recorded as-is.
+    Without it a supplied number keeps the MBR-030H normalisation (used by
+    the promote endpoint's hand-typed number). A legacy member MUST supply
+    the number; a non-legacy member's number is always auto-minted.
 
     Two paths, selected by whether *document_number* is provided:
       - Omitted: mints a new number for the current membership year via
@@ -1228,13 +1920,18 @@ def issue_membership_credential(
     Returns (card_type, credential_pk, document_number) —
     card_type is "ANUMATI_PATRA" or "PARICHAYA_PATRA".
 
+    Also writes the credential's timeline row via log_patra_history()
+    ("ISSUED", or "RENEWED" when the member already holds an earlier Patra
+    of this type). *local_sakha_erp_id* is the point-in-time number printed
+    on a Parichaya Patra (snapshot column, ignored for an Anumati Patra);
+    *history_remarks* is free text stored on that timeline row.
+
     Raises HTTPException 409 if document_number collides with an existing
     credential, or this member already holds an active one of this type.
     Raises HTTPException 422 if a supplied document_number carries a year
     that does not match the issue date (MBR-030H).
     """
-    is_probationary = is_probationary_membership_type(cur, membership_type_pk)
-    card_type = "ANUMATI_PATRA" if is_probationary else "PARICHAYA_PATRA"
+    card_type = patra_card_type_for_membership_type(cur, membership_type_pk)
 
     # issue_date resolution is card-type-specific (decided 2026-10-03):
     # a Parichaya Patra is only ever issued/reissued ON a Dola Purnima, so it
@@ -1249,7 +1946,7 @@ def issue_membership_credential(
                 issue_date = festival_date_for_year(cur, "DOLA_PURNIMA", issue_year)
                 if issue_date is None:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             f"No confirmed Dola Purnima date is on file for {issue_year}. "
                             "An administrator must enter/confirm it in the festival "
@@ -1263,7 +1960,7 @@ def issue_membership_credential(
                 )
                 if issue_date is None:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             "No confirmed Dola Purnima date is on file on or before "
                             f"{date.today().isoformat()}. An administrator must "
@@ -1299,7 +1996,7 @@ def issue_membership_credential(
         prior_valid_to = row[0] if row else None
         if prior_valid_to is not None and prior_valid_to < date.today():
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"This member's Parichaya Patra lapsed on "
                     f"{prior_valid_to.isoformat()} and cannot be renewed late. "
@@ -1314,9 +2011,16 @@ def issue_membership_credential(
     # choke point every entry path (registration, claim approval, admin member
     # creation) funnels through, so no caller can bypass the rule. Returns
     # None when nothing was supplied, falling through to auto-mint below.
-    document_number = normalize_patra_document_number(
-        document_number, issue_date, card_type,
-    )
+    if is_legacy:
+        document_number = resolve_legacy_patra_number(
+            cur, True, document_number, card_type=card_type,
+            issuing_organization_pk=organization_pk,
+            flag_field="is_legacy", number_field="document_number",
+        )
+    else:
+        document_number = normalize_patra_document_number(
+            document_number, issue_date, card_type,
+        )
 
     if not document_number:
         # Auto-mint for the membership year this Patra opens — stamped
@@ -1338,6 +2042,16 @@ def issue_membership_credential(
 
     table = "anumati_patra" if card_type == "ANUMATI_PATRA" else "parichaya_patra"
     pk_column = f"{table}_pk"
+
+    # Is this the member's first credential of this type, or a renewal?
+    # Decides the history change_type below (ISSUED vs RENEWED) — a timeline
+    # that labelled every row "ISSUED" would hide the renewal cycle entirely.
+    cur.execute(
+        f"SELECT COUNT(*) FROM nss.{table} WHERE sangha_sevi_pk = %s",
+        (str(sangha_sevi_pk),),
+    )
+    is_renewal = (cur.fetchone()[0] or 0) > 0
+
     cur.execute(f"SAVEPOINT {table}_insert")
     try:
         if card_type == "ANUMATI_PATRA":
@@ -1353,15 +2067,21 @@ def issue_membership_credential(
                  issue_date, valid_from, valid_to),
             )
         else:
+            # local_sakha_erp_id is the point-in-time snapshot of the number
+            # printed on the card (per the DDL header). It was omitted here
+            # until now, leaving the column NULL on every row the system had
+            # ever issued; callers that know the member's current local
+            # number pass it so the snapshot is real.
             cur.execute(
                 f"""
                 INSERT INTO nss.{table} (
                     sangha_sevi_pk, document_number, issue_date, valid_from, valid_to,
-                    affiliated_organization_pk
-                ) VALUES (%s, %s, %s, %s, %s, %s)
+                    affiliated_organization_pk, local_sakha_erp_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING {pk_column}
                 """,
-                (str(sangha_sevi_pk), document_number, issue_date, valid_from, valid_to, str(organization_pk)),
+                (str(sangha_sevi_pk), document_number, issue_date, valid_from, valid_to,
+                 str(organization_pk), local_sakha_erp_id),
             )
         credential_pk = cur.fetchone()[0]
     except psycopg2.errors.UniqueViolation as exc:
@@ -1382,7 +2102,116 @@ def issue_membership_credential(
             )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     cur.execute(f"RELEASE SAVEPOINT {table}_insert")
+
+    # Every credential gets its timeline row, written at the one choke point
+    # all issuance flows pass through — so no call site can create a Patra
+    # with no history behind it.
+    log_patra_history(
+        cur,
+        card_type=card_type,
+        credential_pk=str(credential_pk),
+        change_type="RENEWED" if is_renewal else "ISSUED",
+        change_date=issue_date,
+        previous_status=None,
+        new_status="ACTIVE",
+        remarks=history_remarks,
+    )
     return card_type, str(credential_pk), document_number
+
+
+def issue_credential_at_enrolment(
+    cur,
+    *,
+    is_legacy_member: bool | None,
+    membership_type_pk: str | None,
+    document_number: str | None = None,
+    **issue_kwargs,
+) -> tuple[str, str, str]:
+    """
+    The credential step of enrolling a NEW Sangha Sevi (claim approval,
+    admin create_user / create_sangha_sevi) under GDR-009 §2A. Every member
+    holds exactly one credential: an Anumati Patra (Darshaka/PROBATIONARY) or
+    a Parichaya Patra (Regular/Associate).
+
+    * LEGACY member: *document_number* is the card number they already hold
+      (validated by resolve_legacy_patra_number()) and is recorded as given.
+    * Everyone else: the number is auto-minted — Kendra-wide counter for a
+      Parichaya Patra, per-Sakha counter for an Anumati Patra (skipping any
+      number already issued). A Parichaya Patra's issue date and validity are
+      pinned to the most recent confirmed Dola Purnima (FC-DECISION-01); a
+      missing confirmed date blocks issuance with the existing 422.
+
+    Remaining keyword arguments go to issue_membership_credential().
+    Returns (card_type, credential_pk, document_number).
+    """
+    return issue_membership_credential(
+        cur,
+        membership_type_pk=membership_type_pk,
+        document_number=document_number,
+        is_legacy=bool(is_legacy_member),
+        **issue_kwargs,
+    )
+
+
+def set_membership_credential_status(
+    cur,
+    *,
+    card_type: str,
+    credential_pk: str,
+    new_status: str,
+    change_type: str,
+    change_date: date,
+    remarks: str | None = None,
+) -> str | None:
+    """
+    Transition a Parichaya/Anumati Patra to a new status (EXPIRED /
+    CANCELLED / REPLACED) and record the matching timeline row — the
+    counterpart to issue_membership_credential() for *retiring* a credential.
+
+    Until this existed no code anywhere changed a credential's status, so
+    every Patra the system had ever issued was permanently ACTIVE and the
+    MBR-010 "Anumati expires on promotion" transition could not be performed.
+    This is the single owner for a status change, so the status column and
+    the history row can never drift apart.
+
+    *card_type* is "PARICHAYA_PATRA" or "ANUMATI_PATRA"; *new_status* and
+    *change_type* are CHECK-constrained by the DDL (status ∈
+    ACTIVE/EXPIRED/CANCELLED/REPLACED; change_type ∈
+    ISSUED/RENEWED/EXPIRED/CANCELLED/REPLACED). No-ops (returns None) when
+    the credential is already in *new_status*. Returns the previous status
+    otherwise.
+    """
+    table = "anumati_patra" if card_type == "ANUMATI_PATRA" else "parichaya_patra"
+    pk_column = f"{table}_pk"
+    cur.execute(
+        f"SELECT status FROM nss.{table} WHERE {pk_column} = %s",
+        (str(credential_pk),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{card_type.replace('_', ' ').title()} not found.",
+        )
+    previous_status = row[0]
+    if previous_status == new_status:
+        return None
+
+    cur.execute(
+        f"UPDATE nss.{table} SET status = %s, updated_at = NOW() WHERE {pk_column} = %s",
+        (new_status, str(credential_pk)),
+    )
+    log_patra_history(
+        cur,
+        card_type=card_type,
+        credential_pk=str(credential_pk),
+        change_type=change_type,
+        change_date=change_date,
+        previous_status=previous_status,
+        new_status=new_status,
+        remarks=remarks,
+    )
+    return previous_status
 
 
 def fetch_person_date_of_birth(cur, person_pk: str) -> date | None:
@@ -1404,9 +2233,14 @@ def fetch_person_date_of_birth(cur, person_pk: str) -> date | None:
 
 # ── City/Village lookup or create ────────────────────────────────────────
 
-def resolve_or_create_city_village(cur, name: str, district_pk: str, *, actor_pk: str | None = None) -> str:
+def resolve_or_create_city_village(
+    cur, name: str, district_pk: str, *, actor_pk: str | None = None,
+    pending_submitter_person_pk: str | None = None,
+    postal_code_pk: str | None = None,
+) -> str:
     """
-    Resolve a city/village by name + district, creating it if not found.
+    Resolve a city/village by name + district (+ PIN when known), creating
+    it if not found.
 
     Lookup is case-insensitive. On create, generates a code from the
     uppercase name (max 20 chars) and defaults city_village_type to 'CITY'.
@@ -1414,41 +2248,102 @@ def resolve_or_create_city_village(cur, name: str, district_pk: str, *, actor_pk
     *actor_pk* is accepted for call-site compatibility but not written
     to the table (the DB audit trigger records the actor automatically).
 
+    *postal_code_pk* (2026-10-21) disambiguates — and is persisted on
+    create. Village names repeat within a district in real Indian
+    geography, so (name, district) alone is not a unique match; passing
+    the PIN makes the resolve deterministic and keeps the created row
+    inside the (district, PIN, name) duplicate guard. Omitting it
+    preserves the original district+name behaviour for existing callers.
+
+    *pending_submitter_person_pk* (2026-10-21, Registration-Time Geography
+    Creation): when provided AND a row is genuinely newly created (not
+    found-and-reused), the new row lands as entry_status='PENDING' with
+    submitted_by_person_pk set to this value, instead of the default
+    APPROVED/unattributed row every other caller still gets. Default None
+    preserves every existing caller's behaviour byte-for-byte. The
+    registrant's own address still renders normally — person.py's
+    _ADDRESS_SELECT has no entry_status filter — so this is silent to them;
+    the row surfaces in the submitting person's eventual Sakha's
+    Location-Approvals queue (geo_approval.py) once a claim/sangha_sevi
+    links them to it.
+
     Returns: city_village_pk as a string.
     """
     cv_name = name.strip()
-    cur.execute(
-        """
-        SELECT city_village_pk FROM nss.city_village
-        WHERE LOWER(city_village_name) = LOWER(%s)
-          AND district_pk = %s
-          AND is_active = TRUE
-        LIMIT 1
-        """,
-        (cv_name, district_pk),
-    )
+    # Disambiguate by PIN when the caller knows it (2026-10-21). Village
+    # names are NOT unique within a district in real Indian geography —
+    # e.g. Tumakuru holds 18 distinct villages named "Hosahalli", one per
+    # PIN. Matching on (name, district) alone therefore hits several rows
+    # and the bare LIMIT 1 below would bind the member to an arbitrary one,
+    # possibly carrying a PIN that contradicts the one they typed. The
+    # canonical key is (district_pk, postal_code_pk, city_village_name) —
+    # see uq_city_village_pin_name_district_approved. Callers that do not
+    # know the PIN keep the older district+name behaviour unchanged.
+    if postal_code_pk is not None:
+        cur.execute(
+            """
+            SELECT city_village_pk FROM nss.city_village
+            WHERE LOWER(city_village_name) = LOWER(%s)
+              AND district_pk = %s
+              AND postal_code_pk = %s
+              AND is_active = TRUE
+            LIMIT 1
+            """,
+            (cv_name, district_pk, postal_code_pk),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT city_village_pk FROM nss.city_village
+            WHERE LOWER(city_village_name) = LOWER(%s)
+              AND district_pk = %s
+              AND is_active = TRUE
+            LIMIT 1
+            """,
+            (cv_name, district_pk),
+        )
     row = cur.fetchone()
     if row:
         return str(row[0])
 
-    # Create new city_village record
+    # Create new city_village record. postal_code_pk is persisted when
+    # known — without it the row would sit outside the three-column unique
+    # index entirely (NULLs never collide in a Postgres unique index), so
+    # the duplicate guard would not apply to app-created rows.
     cv_code = cv_name.upper().replace(" ", "_")[:20]
-    cur.execute(
-        """
-        INSERT INTO nss.city_village (
-            district_pk, city_village_code, city_village_name,
-            city_village_type
-        ) VALUES (%s, %s, %s, 'CITY')
-        RETURNING city_village_pk
-        """,
-        (district_pk, cv_code, cv_name),
-    )
+    if pending_submitter_person_pk is not None:
+        cur.execute(
+            """
+            INSERT INTO nss.city_village (
+                district_pk, postal_code_pk, city_village_code,
+                city_village_name, city_village_type, entry_status,
+                submitted_by_person_pk
+            ) VALUES (%s, %s, %s, %s, 'CITY', 'PENDING', %s)
+            RETURNING city_village_pk
+            """,
+            (district_pk, postal_code_pk, cv_code, cv_name,
+             pending_submitter_person_pk),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO nss.city_village (
+                district_pk, postal_code_pk, city_village_code,
+                city_village_name, city_village_type
+            ) VALUES (%s, %s, %s, %s, 'CITY')
+            RETURNING city_village_pk
+            """,
+            (district_pk, postal_code_pk, cv_code, cv_name),
+        )
     return str(cur.fetchone()[0])
 
 
 # ── Postal code lookup or create ────────────────────────────────────────
 
-def resolve_or_create_postal_code(cur, postal_code_value: str, state_pk: str, country_pk: str, *, actor_pk: str | None = None) -> str:
+def resolve_or_create_postal_code(
+    cur, postal_code_value: str, state_pk: str, country_pk: str, *, actor_pk: str | None = None,
+    pending_submitter_person_pk: str | None = None,
+) -> str:
     """
     Resolve a postal code by value, creating it if not found.
 
@@ -1465,6 +2360,10 @@ def resolve_or_create_postal_code(cur, postal_code_value: str, state_pk: str, co
 
     *actor_pk* is accepted for call-site compatibility but not written
     to the table (the DB audit trigger records the actor automatically).
+
+    *pending_submitter_person_pk* — see resolve_or_create_city_village's
+    docstring; same contract, default None preserves every existing
+    caller's behaviour.
 
     Returns: postal_code_pk as a string.
     """
@@ -1483,21 +2382,35 @@ def resolve_or_create_postal_code(cur, postal_code_value: str, state_pk: str, co
         return str(row[0])
 
     # Create new postal_code record
-    cur.execute(
-        """
-        INSERT INTO nss.postal_code (
-            state_pk, postal_code
-        ) VALUES (%s, %s)
-        RETURNING postal_code_pk
-        """,
-        (state_pk, code),
-    )
+    if pending_submitter_person_pk is not None:
+        cur.execute(
+            """
+            INSERT INTO nss.postal_code (
+                state_pk, postal_code, entry_status, submitted_by_person_pk
+            ) VALUES (%s, %s, 'PENDING', %s)
+            RETURNING postal_code_pk
+            """,
+            (state_pk, code, pending_submitter_person_pk),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO nss.postal_code (
+                state_pk, postal_code
+            ) VALUES (%s, %s)
+            RETURNING postal_code_pk
+            """,
+            (state_pk, code),
+        )
     return str(cur.fetchone()[0])
 
 
 # ── Post office lookup or create ────────────────────────────────────────
 
-def resolve_or_create_post_office(cur, name: str, postal_code_pk: str, *, actor_pk: str | None = None) -> str:
+def resolve_or_create_post_office(
+    cur, name: str, postal_code_pk: str, *, actor_pk: str | None = None,
+    pending_submitter_person_pk: str | None = None,
+) -> str:
     """
     Resolve a post office by name + PIN, creating it if not found.
 
@@ -1511,6 +2424,12 @@ def resolve_or_create_post_office(cur, name: str, postal_code_pk: str, *, actor_
 
     *actor_pk* is accepted for call-site compatibility but not written
     to the table (the DB audit trigger records the actor automatically).
+
+    *pending_submitter_person_pk* — see resolve_or_create_city_village's
+    docstring; same contract, default None preserves every existing
+    caller's behaviour. When provided, this docstring's APPROVED-by-
+    default statement above no longer applies to the created row: it
+    lands as PENDING/attributed instead, same as the other two helpers.
 
     Returns: post_office_pk as a string.
     """
@@ -1530,15 +2449,26 @@ def resolve_or_create_post_office(cur, name: str, postal_code_pk: str, *, actor_
         return str(row[0])
 
     # Create new post_office record
-    cur.execute(
-        """
-        INSERT INTO nss.post_office (
-            postal_code_pk, post_office_name
-        ) VALUES (%s, %s)
-        RETURNING post_office_pk
-        """,
-        (postal_code_pk, po_name),
-    )
+    if pending_submitter_person_pk is not None:
+        cur.execute(
+            """
+            INSERT INTO nss.post_office (
+                postal_code_pk, post_office_name, entry_status, submitted_by_person_pk
+            ) VALUES (%s, %s, 'PENDING', %s)
+            RETURNING post_office_pk
+            """,
+            (postal_code_pk, po_name, pending_submitter_person_pk),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO nss.post_office (
+                postal_code_pk, post_office_name
+            ) VALUES (%s, %s)
+            RETURNING post_office_pk
+            """,
+            (postal_code_pk, po_name),
+        )
     return str(cur.fetchone()[0])
 
 
@@ -1591,6 +2521,111 @@ def get_kendra_organization_pk(cur) -> str | None:
     )
     row = cur.fetchone()
     return str(row[0]) if row else None
+
+
+# Organization types whose organization_name is fixed for every actor (owner
+# decision 2026-10-30: the Advisory Board's name is not editable; contact
+# fields stay editable). Single source of truth for the PATCH guard.
+IMMUTABLE_NAME_ORG_TYPES = frozenset({"ADVISORY_BOARD"})
+
+
+def require_org_name_mutable(
+    org_type_code: str, current_name: str | None, new_name: str | None
+) -> None:
+    """
+    422 when *new_name* would change the name of an organization of a type in
+    IMMUTABLE_NAME_ORG_TYPES. Re-sending the unchanged name is not a change.
+    """
+    if org_type_code not in IMMUTABLE_NAME_ORG_TYPES or new_name is None:
+        return
+    if (current_name or "").strip() != new_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"The name of a '{org_type_code}' organization is fixed and cannot be changed.",
+        )
+
+
+# Singleton organizations (owner decision 2026-10-30): at most one ACTIVE
+# organization exists for each of these types, and for the central Mahila Sangha
+# (MAHILA_SANGHA whose parent is a KENDRA — MAHILA_SANGHA is also the type of the
+# many local per-Sakha Mahila Sanghas, which stay unrestricted). Mirrors the DB
+# trigger nss.fn_enforce_organization_singleton() (ddl/02_organization/
+# 08_organization_singleton_trigger.sql); this gives a clean 422 before it fires.
+SINGLETON_ORG_TYPES = frozenset({"KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA", "ADVISORY_BOARD"})
+CENTRAL_MAHILA_ORG_TYPE = "MAHILA_SANGHA"
+CENTRAL_MAHILA_PARENT_TYPE = "KENDRA"
+
+
+def find_active_singleton_org_pk(
+    cur, org_type_code: str, parent_organization_pk, exclude_organization_pk=None
+) -> str | None:
+    """
+    pk of an ACTIVE organization that already fills the singleton slot that an
+    organization of *org_type_code* under *parent_organization_pk* would take,
+    or None when that type/parent combination is not a singleton or the slot is
+    free. *exclude_organization_pk* is the row being edited (never a conflict
+    with itself).
+    """
+    exclude = str(exclude_organization_pk) if exclude_organization_pk else None
+    if org_type_code in SINGLETON_ORG_TYPES:
+        cur.execute(
+            """
+            SELECT o.organization_pk
+            FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            WHERE md.value_code = %s AND o.is_active = TRUE
+              AND (%s::uuid IS NULL OR o.organization_pk <> %s::uuid)
+            LIMIT 1
+            """,
+            (org_type_code, exclude, exclude),
+        )
+    elif org_type_code == CENTRAL_MAHILA_ORG_TYPE and parent_organization_pk:
+        cur.execute(
+            """
+            SELECT 1
+            FROM nss.organization p
+            JOIN nss.master_data pmd ON pmd.master_data_pk = p.organization_type_master_data_pk
+            WHERE p.organization_pk = %s AND pmd.value_code = %s
+            """,
+            (str(parent_organization_pk), CENTRAL_MAHILA_PARENT_TYPE),
+        )
+        if cur.fetchone() is None:
+            return None  # a local (per-Sakha etc.) Mahila Sangha — unrestricted
+        cur.execute(
+            """
+            SELECT o.organization_pk
+            FROM nss.organization o
+            JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+            JOIN nss.organization p ON p.organization_pk = o.parent_organization_pk
+            JOIN nss.master_data pmd ON pmd.master_data_pk = p.organization_type_master_data_pk
+            WHERE md.value_code = %s AND pmd.value_code = %s AND o.is_active = TRUE
+              AND (%s::uuid IS NULL OR o.organization_pk <> %s::uuid)
+            LIMIT 1
+            """,
+            (CENTRAL_MAHILA_ORG_TYPE, CENTRAL_MAHILA_PARENT_TYPE, exclude, exclude),
+        )
+    else:
+        return None
+    row = cur.fetchone()
+    return str(row[0]) if row else None
+
+
+def require_singleton_slot_free(
+    cur, org_type_code: str, parent_organization_pk, exclude_organization_pk=None
+) -> None:
+    """422 when find_active_singleton_org_pk() finds the slot already taken."""
+    if find_active_singleton_org_pk(
+        cur, org_type_code, parent_organization_pk, exclude_organization_pk
+    ):
+        what = (
+            "the central (Kendra) Mahila Sangha"
+            if org_type_code == CENTRAL_MAHILA_ORG_TYPE
+            else f"organization type '{org_type_code}'"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{what[0].upper() + what[1:]} is unique and already exists. Cannot have another.",
+        )
 
 
 # ── Centralized audit trail ─────────────────────────────────────────────
@@ -1794,7 +2829,7 @@ def _validate_master_data_category(cur, master_data_pk, expected_category_code: 
     )
     if cur.fetchone() is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid value for {expected_category_code.lower().replace('_', ' ')}.",
         )
 
@@ -1827,7 +2862,7 @@ def apply_person_profile_update(
         fn = body.first_name.strip()
         if not fn:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="First name cannot be blank.",
             )
         updates["first_name"] = fn.title()

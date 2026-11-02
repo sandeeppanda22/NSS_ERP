@@ -8,6 +8,37 @@
 
 ---
 
+> **Implementation note (Tier 6):** the implemented `election.election_status` CHECK is
+> `SCHEDULED`/`NOMINATION`/`VOTING`/`COMPLETED`/`CANCELLED` — there is no `PLANNED` or `COUNTING`
+> state in the DDL — and `body_member_assignment.assignment_status` is
+> `ASSIGNED`/`ACTIVE`/`ENDED`/`HISTORICAL`/`PENDING_REMOVAL`/`RESIGNED` (RESIGNED added
+> 2026-10-15: voluntary self-withdrawal by the office holder only, via
+> `POST /assignments/{pk}/resign` — strictly self-service, no admin/scope/NSS-wide override;
+> Bye-Law REF-003-C(i)(1) clause (1)(d) names resignation as a vacancy cause with no
+> acceptance step, distinct from ENDED (term/admin-ended) and PENDING_REMOVAL→ENDED
+> (forced break-glass removal)). This lifecycle text is unchanged;
+> see `README.md` → "Implementation drift".
+>
+> **Implementation note (Tier 6, forced removal, generalized 2026-10-15):** GOV-BR
+> item #18 originally gated PENDING_REMOVAL to Sakha-nominated seats only (e.g. the
+> Advisory Board's MEMBER seat), approved only by that body's President, requested
+> only by the platform super-admin. Owner-confirmed 2026-10-15: removing a member
+> from ANY position in ANY governance body now follows the same rule — (1) it must
+> first be resolved in that body's own GB meeting (the concerned Sakha's GB, for a
+> Sevak Sangha Executive seat, since it has no independent GB of its own for this
+> purpose); (2) the request may be filed by that body's own scoped admin or one of
+> its own currently active office bearers (`POST /assignments/{pk}/request-removal`,
+> now requiring a mandatory `gb_resolution_reference`, stored in
+> `assignment_reference`); (3) it only takes effect once that body's own sitting
+> President signs off (`POST /approve-removal`) — recording the GB meeting's
+> outcome, not a personal judgment call — or, while the Presidency is vacant,
+> another of that body's own currently sitting office bearers may sign off instead
+> (no fixed Vice-President/Secretary priority is hardcoded — "they will decide
+> among themselves"). The nominating Sakha's own instant self-withdrawal of its
+> Advisory Board nominee is unaffected and stays on the direct `/end` endpoint —
+> it is the appointing authority un-appointing its own nominee, not an admin
+> removal.
+
 # 1. Purpose
 
 This document defines the lifecycle states and transitions for the Governance

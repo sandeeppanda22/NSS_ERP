@@ -3,12 +3,13 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > Terse operating reference. The deep doc is `docs/PROJECT_DOCUMENTATION.md` (architecture, tier plan,
-> directory detail, gotchas) — read it before proposing schema/module-layout changes. Per-area detail:
+> directory detail, role/permission tables, gotchas) — read it before proposing schema/module-layout changes. Per-area detail:
 > `api/README.md`, `database/README.md`, `frontend/README.md`, `tests/README.md`. Don't append
 > session-by-session narrative here; permanent decisions belong in `docs/00_Project_Governance/GDR/`
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
-> Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`
-> (tag is local only until pushed; `git push <remote> v0.11.0`).
+> Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
+> Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
+> `feature/tier6-governance` (37 commits past `develop`, not merged or released); tree clean as of 2026-11-02.
 
 ## Commands
 
@@ -20,15 +21,16 @@ python3 -m uvicorn api.main:app --reload --port 8001  # run API + frontend (Swag
 
 pytest                                   # all tests (api + db + security + ui)
 pytest -m integration                    # tests/api + tests/db + tests/security
-pytest -m ui                             # tests/ui (Playwright; needs browsers + running app)
+pytest -m ui                             # tests/ui (Playwright browsers; the session starts its own server — NSS_UI_BASE_URL / NSS_UI_NO_SERVER=1 to use yours)
 pytest tests/api/test_organization.py    # one file
 pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok   # one test
 
-npm install && npm run css:build         # only after editing Tailwind/DaisyUI classes (css:watch for dev)
+npm install && npm run css:build         # (Node pinned in .nvmrc) only after editing Tailwind/DaisyUI classes (css:watch for dev)
 ```
 
 No lint/format tooling is configured — don't add one unilaterally. Every `tests/api|db|security`
 test is a real integration test (nothing mocked): it needs a bootstrapped local DB and `api/.env`.
+Suite size (`pytest --collect-only -qq`, 2026-11-02): 3979 items — api 2303, db 199, security 850, ui 627. Attendance and everything written 2026-10-30/31 has **never been run against a DB** — don't claim it passes.
 
 ## Setup
 
@@ -36,7 +38,7 @@ test is a real integration test (nothing mocked): it needs a bootstrapped local 
 also `DB_WRITE_USER`/`DB_WRITE_PASSWORD` and `JWT_SECRET_KEY` (`Settings.validate_auth()` raises
 otherwise; Tier 0-4 reads start without them). `database/scripts/06_setup_env.sh` (superuser)
 sets all three role passwords and generates a working `api/.env`. All optional variables
-(CORS, rate limit, pool sizes, `DEBUG_MODE`, CSP): `docs/PROJECT_DOCUMENTATION.md` → Configuration.
+(CORS, rate limit, pool sizes, `DEBUG_MODE`, `DEV_LIVE_RELOAD` (dev-only, never in deploys), CSP; `RATE_LIMIT` defaults to `300/minute`, `LIVE_ATTENDANCE_RATE_LIMIT` to `120/minute`): `docs/PROJECT_DOCUMENTATION.md` → Configuration.
 CSP `script-src` has no `'unsafe-inline'`, so the frontend must not use inline event handlers.
 
 ## Database
@@ -59,6 +61,8 @@ migration tool, no ORM. All tables live in schema `nss` (`search_path` = `nss, p
 4. `03_validate.sh`/`.ps1` — row-count/FK checks (minimums only WARN, never fail);
    Family/Membership/`system_event_log`/`credential_sequence_counter` get existence checks only.
 
+Governance DDL (10 tables, `ddl/08_governance/`) runs as build Phases 11b/11c and Correspondence DDL (5 tables incl. `correspondence_approval_step`, `ddl/09_correspondence/`; API in `correspondence.py`) as Phase 11d; Attendance DDL (4 tables, `ddl/10_attendance/`; API in `attendance.py`) as Phase 11e; Organization re-parent approval DDL (2 tables `organization_reparent_request`/`organization_reparent_step`, files `ddl/02_organization/06`-`07`, API in `org_reparent.py`) as Phase 11f (71 tables total); changing existing-table DDL (e.g. `election.election_type`, widened `admin_scope` CHECK) needs a full rebuild. Optional Phase 15 loads gitignored `seed/demo/nss_demo_seed.sql` when `RUN_DEMO_SEED` is truthy (not mirrored in `render_build.sh`).
+
 A fresh build seeds **no demo Person/Family/Membership data** — only reference data, 175 real
 Sakha branches and the one admin. Real data arrives via `POST /api/v1/register` → admin
 `POST /api/v1/admin/claims/{pk}/approve`.
@@ -79,7 +83,7 @@ Sakha branches and the one admin. Real data arrives via `POST /api/v1/register` 
 FastAPI + raw psycopg2 (`api/`), static Tailwind/DaisyUI/Alpine frontend served by the same app
 (`frontend/`). Routers → `api/schemas/` (Pydantic) with shared logic in `api/helpers.py` and
 `api/services/` (`family_graph.py` BFS, `auth_service.py` Argon2/JWT, `rbac_service.py`
-permission + admin-scope loading). 12 routers, 137 endpoints; inventory: `docs/03_Solution/api/API_CONTRACT.md`.
+permission + admin-scope loading). 17 routers, 252 endpoints (decorator-counted on `feature/tier6-governance`; 137 at v0.11.0, 12 routers); inventory: `docs/03_Solution/api/API_CONTRACT.md`.
 
 **Two DB pools** (`api/database.py`): `get_connection` = `nss_db_backend` (SELECT-only) for reads;
 `get_write_connection` = `nss_db_writer` for every write endpoint. `tests/conftest.py` overrides
@@ -99,12 +103,20 @@ rolled back at teardown — that is what lets the suite pass on a seed-less DB.
   ADMIN-BR-076/077): scoped admins only touch organizations/persons/accounts inside their own
   subtree; `NSS_ERP_ADMIN`/NSS-WIDE is global. Permission alone never confers global reach.
 - `geo_approval.py` (`/admin/geo-entries`) — `FOUNDATION_MANAGE` + admin scope; members propose geography via `POST /foundation/*/propose` (`get_current_user`, active Sangha Sevi required).
+- `governance.py` (Tier 6, 56 endpoints) — `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE` + org scope (`actor_scope_org_pks`/`require_org_in_scope`); `/public/*`, `/elections/open-for-voting` and `/elections/{pk}/votes/self` need login only. `NSS_ERP_ADVISORY_BOARD_ADMIN` is auto-granted by `rbac_service.load_composite_grants()` (§63), not via `user_role`.
+- **NULL-organization scope levels** (GDR-005/006, status `Approved` 2026-11-01 on the owner's instruction; resolved once in `rbac_service.actor_scope_root_org_pks()`/`actor_scope_org_pks()`, so every router inherits it): `KENDRA_MAHILA_SANGHA` reaches every `MAHILA_SANGHA` organization + subtree and holds 18 operational permissions (no `ADMIN_*`/`AUDIT_VIEW`/`FOUNDATION_MANAGE`/`PERSON_VIEW_SENSITIVE`); `ADVISORY_BOARD` reaches exactly the singleton `ADVISORY_BOARD` organization (org type #14, parent Kendra, `ADB`/`NSSAB`; its `organization_name` is immutable via `helpers.require_org_name_mutable`; owns the Advisory Board's correspondence register) and holds 8 permissions (`GOVERNANCE_VIEW/_MANAGE`, `MEMBERSHIP_VIEW`, `CORRESPONDENCE_VIEW/_MANAGE`, `ORGANIZATION_VIEW`, `FOUNDATION_VIEW`, `PERSON_VIEW`). The Advisory Board governance BODY stays NULL-organization and is NOT linked to the organization; `GOVERNANCE_MANAGE` is confined to ADVISORY_BOARD-type bodies by `governance.py::_require_scope_for_org_or_nss_wide(body_type_code=)` + `rbac_service.NULL_ORG_SCOPE_BODY_TYPES`. Existing DBs get the `role_permission` rows (166 total) via `seed/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql` and the org type + organization via `seed/02_organization/07_advisory_board_organization_patch.sql`. `UserContext.has_scope_for_org()` is the legacy exact-match probe and cannot see type-resolved reach — use `org_in_scope`/`require_org_in_scope`. `GET /governance/advisory-board/dashboard` feeds the `advisoryBoard` tab of `dashboard.html`; Correspondence org pickers use the scope-filtered `GET /organization/organizations/in-scope`. Full role/permission tables: `docs/PROJECT_DOCUMENTATION.md` → Conventions & gotchas.
+- `membership_change_request.py` (5 endpoints) — member-initiated Sakha Transfer / Apply for Darshak; source-release then destination-accept.
+- `correspondence.py` (Tier 6, 19 endpoints) — `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE` + admin scope on `register_organization_pk` (`require_org_in_scope`/`actor_scope_org_pks`, same model as Foundation/Person/Membership). Also member-facing `my-applications`, `addressed-to-me`, `my-involvements` and a Sakha-President-then-Kendra `approval-steps/*` chain (`correspondence_approval_step`; `decide_approval_step()`). Status transitions follow the frozen §6.2 seven-row precondition table (business rules doc); reopening (ACTIONED/CLOSED → PENDING_ACTION) requires remarks (§6.3); responsible-party reassignment (§5.4) never itself transitions status. `/dispatch` and `/broadcast` are the two exceptions to the admin-scope rule — they write counterpart rows into DIFFERENT organizations' registers than the one they check scope against, by design. An OUTWARD letter to an ORGANIZATION recipient auto-mints the linked INWARD row (`_mint_inward_counterpart()`; `/dispatch` is the manual retry; the recipient-side write is a system action, not re-scoped); a reply (`in_reply_to_correspondence_pk`, an ordinary new row) auto-moves the original REGISTERED/PENDING_ACTION -> ACTIONED only under the SAME register (privilege-escalation guard — keep it); assigning a responsible party auto-moves REGISTERED -> PENDING_ACTION. ACTIONED -> CLOSED and reopening stay manual. The §5.4/§6.2 amendments are recorded in `08_correspondence_register_business_rules.md`; the circular/register-tab UI rules live in `admin.js` (`corrCanBroadcast`, `CORR_REGISTER_TAB_GROUPS`).
+- `attendance.py` (Tier 6, 21 endpoints, `/api/v1/attendance`) — Weekly Sangha Puja marking (live multi-marker register: `GET /pujas/{pk}/live` polled adaptively (`LIVE_POLL`, 2 s active / 10 s idle / back-off; see Open items) with ETag/304 + `since`; `mark_attendance` takes per-item `expected_version` and returns 409 `detail.conflicts` unless the marker confirms via `overwrite_sangha_sevi_pks` (also when the version matches but another member last changed the row to a different status; legacy no-`expected_version` requests stay last-write-wins; the UI asks first: `attMarkTap`/`attMarkSetAll`); the register-screen percentage is `present / (roster total - excused)` via `registerAttendancePercentage()` in `attendance-register.js` (unmarked count in the denominator; EXCUSED excluded per ATT-008) while the multi-week stats endpoints still use present/(present+absent); the UI saves only the rows that marker changed and the panel stays open after Save): `ATTENDANCE_MANAGE`/`ATTENDANCE_VIEW` + admin scope (Sakha admin or per-Sakha `NSS_ERP_ATTENDANCE_MARKER`). Attendance Review actions and exceptions are NOT permission-gated: `_require_review_authority()` checks the live Secretary/President seat on the member's home Sakha governing body (`NSS_ERP_ADMIN` overrides). Keyed on `sangha_sevi_pk`. Tests: `tests/api/test_attendance.py`, `tests/security/test_attendance_security.py`, fixtures `tests/attendance_support.py`, UI `tests/ui/test_ui_attendance.py` — never run against a DB.
+- `org_reparent.py` (4 endpoints, `/api/v1/org-reparent`, GDR-007 `Approved`) — Sakha re-parent approvals, login-only. Chain (owner 2026-10-31): Sakha President -> LEAVING Anchalika/Zilla President (absent when the parent is Kendra) -> DESTINATION Anchalika/Zilla President -> Kendra President (final); a step with no seated President, or whose seat the requester holds, falls back to the Kendra President (consecutive Kendra steps collapse). Authority to DECIDE a step is the LIVE office seat (`api/services/seat_service.py`, incl. acting cover) — never a permission or `NSS_ERP_ADMIN`. `admin.py::update_organization` changes a Sakha's (SAKHA_SANGHA or SAKHA_ASANA) parent directly ONLY for Kendra Governing Body members (`UserContext.is_kendra_gb_member()` = §63 `NSS_ERP_KENDRA_ADMIN` composite scope) and the `NSS_ERP_ADMIN` super administrator (`is_super_admin()`, by ROLE, never a login); via `can_reparent_sakha_directly()`. Everyone else (scoped admins, office bearers, a manually-assigned non-GB Kendra Administrator) gets HTTP 202 + a request; the parent is unchanged until the chain fully approves. Logic: `api/services/org_reparent_service.py` (also owns `ALLOWED_PARENT_TYPES`). Tests: `tests/api/test_org_reparent.py`, `tests/ui/test_ui_org_reparent.py` (never run).
+- `person.py` address writes (`POST/PATCH/DELETE /person/persons/{pk}/addresses[...]`) — self or `PERSON_MANAGE` in admin scope; ADDRESS_TYPE from public `GET /register/address-types`; geography must be APPROVED or the caller's own PENDING; one primary; soft delete. `admin.py::assign_role` blocks self-assignment (403) unless the caller holds `NSS_ERP_KENDRA_ADMIN` (incl. §63 auto-granted) — this includes `NSS_ERP_ADMIN`.
+- **Singleton organizations** (owner 2026-10-30): at most one ACTIVE `KENDRA`, `NILACHALA_KUTIRA`, `SMRUTI_MANDIRA`, `ADVISORY_BOARD`, and one central Mahila Sangha (`MAHILA_SANGHA` whose parent is a `KENDRA`; local per-Sakha Mahila Sanghas stay free). DB trigger `trg_enforce_organization_singleton` / `nss.fn_enforce_organization_singleton()` (`ddl/02_organization/08_organization_singleton_trigger.sql`; replaced the old ADVISORY_BOARD-only trigger; never scans existing rows, only blocks NEW offending writes) + API mirror `helpers.SINGLETON_ORG_TYPES`/`require_singleton_slot_free()` in `create_organization`/`update_organization`. Check live data with the diagnostic SELECT in `database/scripts/README.md` before the next build. A Sakha Asana without a Governing Body shell gets one from the idempotent `seed/08_governance/04_sakha_asana_governing_body_patch.sql`.
 - `audit.py` — `AUDIT_VIEW`, read pool only. `field_change_log` is deliberately **not** under
   `/foundation` (enforced by a test).
 
 **Shared code — no duplicates (standing rule).** SQL/Python/UI logic needed twice goes into one
 helper — check `api/helpers.py` (catalogued in `api/README.md`) before writing new SQL/
-helpers. Non-obvious ones: `FAMILY_MAJORITY_CTE_SQL` (FAM-036 "effective Sakha" majority rule,
+helpers. Non-obvious ones: `SAKHA_LIKE_ORG_TYPES` (SAKHA_SANGHA + SAKHA_ASANA — a Sakha Asana is a full Sakha, owner 2026-10-31; SQL `nss.fn_is_sakha_like_org_type()`, JS `NSS.SAKHA_LIKE_ORG_TYPES`; never hard-code `'SAKHA_SANGHA'` — `tests/api/test_sakha_asana_parity.py` enforces an allow-list; the wing parents Kumari/Sevak/local Mahila/Paribarik Asana accept the whole Sakha-like set — owner 2026-10-31, GDR-008 `Approved`, amends ORG-BR-091/092/094), `FAMILY_MAJORITY_CTE_SQL` (FAM-036 "effective Sakha" majority rule,
 shared by organization stats and all family reads), `next_id()` (atomic `id_sequence_master`
 counter; ignores `padding_length`), `next_credential_document_number()` (Kendra/Anumati numbers
 via `credential_sequence_counter`), and the `fetch_*()` reference-data functions that the public
@@ -133,7 +145,7 @@ tables still get their `system_event_log` row. Any new exclusion must be recorde
 `/assets/*`, CORS (GET/POST/PATCH/DELETE), SlowAPI rate limiting, CSP.
 
 **Frontend:** pages `login`/`register`/`dashboard`/`admin` (the six Tier 0-4 verification pages are
-deleted; their features live in `admin.html`/`dashboard.html`). Shared: `nss-config.js` (display
+deleted; their features live in `admin.html`/`dashboard.html`). Shared: `attendance-register.js` (one attendance-marking mixin used by both `admin.js` and `org-dashboard.js`), `nss-config.js` (display
 names e.g. `PROBATIONARY` → "Darshaka", badge maps), `badges.css` (never redefine badge classes
 inline), `auth.js` (JWT + authed fetch), `nss-layout.js`, `org-dashboard.js` (one Alpine component
 for six org-type layouts). `api/main.py::_serve_page()` rewrites `/assets/*.js|css` references to
@@ -149,8 +161,8 @@ Unified Body Governance · One Person = One Membership = One Sangha Sevi ID.
 
 **Domain decisions to remember:** three-tier member identity — Sangha Sevi ID (`sangha_sevi`,
 NSS-wide), Local Sakha Number (`membership_sakha_affiliation.local_sakha_erp_id`, per Sakha,
-archived on transfer never reassigned), Kendra Number (`parichaya_patra.document_number`, annual,
-e.g. `345/2024/2025`). Associate members get a Parichaya Patra but no Anumati Patra. Self-
+archived on transfer never reassigned; always created through `create_sangha_sevi_with_home_affiliation()` and DB-guarded: an active non-system sangha_sevi must have an open home affiliation by commit. **Legacy vs new (GDR-009, Approved 2026-11-01 on the owner's instruction):** a member who was ALREADY a member before this app supplies their existing number (`is_legacy_member=true` + number, 422 if missing); anyone else is auto-numbered by the shared allocator and must send no number (422 if one is sent). Explicit flag, per Sakha: `registration_claim.is_legacy_member` (home) and `darshak_is_legacy_member` (attendance Sakha); one validator `helpers.resolve_legacy_local_number()`/`validate_claim_local_numbers()`; claim approval step 7 uses `ensure_darshak_attendance_affiliation()` (skip only if an OPEN affiliation exists there, else 409 on collision)), Kendra Number (`parichaya_patra.document_number`, annual,
+e.g. `345/2024/2025`; **same legacy rule, same `is_legacy_member` flag (GDR-009 §2A):** legacy ⇒ the card's existing `<seq>/<yyyy>/<yyyy+1>` number is required (422 if malformed, 409 if already issued), otherwise it must be blank and the number is auto-minted — Kendra-wide counter for the Parichaya Patra (NSS-unique), per-Sakha for the Anumati Patra; the allocator skips any number a legacy member already holds; a Parichaya's issue date/validity is pinned to the most recent confirmed Dola Purnima (FC-DECISION-01), and a missing confirmed date blocks issuance with the existing 422; validator `helpers.resolve_legacy_patra_number()`, enrolment step `issue_credential_at_enrolment()`; every member must hold the credential their type requires — `03_validate` WARNs on violations). **A Darshaka cannot be a Darshak attendee at another Sakha** (GDR-009 §2B): he transfers instead; the attendance Sakha / Apply for Darshak is Regular/Associate only (`require_non_darshaka_for_attendance()`, 422). Associate members get a Parichaya Patra but no Anumati Patra. Self-
 registration (`POST /register`) always creates `person`, but `user_account(PENDING_APPROVAL)` +
 `registration_claim` only when `has_membership` is true (an account with no path to a Sangha Sevi
 can never log in); a membership-less registrant returns later via public `POST /register/lookup-existing`
@@ -165,19 +177,26 @@ threshold 0.45 with `re.split(r'[.@]', q)[0]` for email-shaped input.
 only via a documented release (tag + `docs/05_Releases/vX.Y.Z.md` + GitHub Release). Verify the
 branch with `git status` before changes. Remotes: `personal` (daily dev) → PR → `org` (deploy
 source); pushes are often blocked in-sandbox, so push from a terminal. Never add a `Co-Authored-By`
-trailer to commits. Current state: `main` = `develop` = `v0.11.0` (Tier 5 released; old
-`feature/*` branches are merged leftovers) — branch the next feature from `develop`.
+trailer to commits. Current state: `main` = `develop` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); the work is on `feature/tier6-governance` (37 commits past `develop`, unmerged; old
+`feature/*` branches are merged leftovers). Don't branch a new feature off it until Tier 6 is merged.
 
 ## Open items
 
-- There is deliberately no `/forgot-password` page (the flow is inline on `/login`); forgot-password
-  OTPs are never delivered (`api/routers/auth.py` TODO) — only visible via `otp_debug`.
+- Attendance live register (owner decision "Option B", 2026-10-31): **Rate limit (fix 1, 2026-11-01):** `GET /api/v1/attendance/pujas/{pk}/live` has its own per-USER limit (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`, key = JWT `sub` via `api/rate_limit.py::user_or_ip_key`, IP when no valid token) that REPLACES the global per-IP `RATE_LIMIT` for that route — the shared `Limiter` now lives in `api/rate_limit.py` (routers attach limits with `@limiter.limit`). **Adaptive polling (fix 2, 2026-11-02):** `LIVE_POLL` — 2 s while visible and active, 10 s after 60 s with no change, paused when the browser tab is hidden or the host tab (`_attRegisterShown()`) is not on screen and refreshed on return, 4/8/16/30 s back-off on errors (a 429's `Retry-After` raises the wait). Poll constants live in `frontend/assets/js/attendance-register.js` (`LIVE_POLL`). New code was verified only by compile/import/collect — nothing ran against a DB or browser.
+- **GDR-005..009 are `Approved`** (2026-11-01, recorded on the project owner's instruction; no separate NSS Governing Body minutes are in the repo — add them to each record if they exist). Never change a GDR's status on your own; only on an explicit owner instruction.
+- Existing members without a home Sakha affiliation (owner reports SS1752/SS1753 on the dev DB; not verifiable without the DB): `03_validate` only WARNs, **no backfill is written, on purpose**. AUTH-BR-086-related questions (local Sakha ID rules; GDR-009 amends it) remain for the owner.
+- Local Mahila Sangha / Paribarik Asana have a Sakha-like parent (GDR-008) but no creation path (ORG-BR-096 keeps Asana creation out of `create_organization`) — owner to decide.
+- `tests/api/test_membership.py:1193` calls undefined `_get_member_by_id` (inside a `@pytest.mark.skip`-ped test; predates the 2026-10-30/31 work).
+- **Advisory Board meetings & decisions are not modelled** — planned inside Programmes & Events (Module #21, not frozen); owner to specify the fields.
+- `correspondence.py`: no reverse "replies to this" listing; `correspondence_finance_reference.financial_transaction_pk` FK deferred until Finance. The v1.1 `counterpart_correspondence_pk` / v1.2 `in_reply_to_correspondence_pk` columns were applied to the dev DB by live `ALTER TABLE`; a fresh/existence-gated build picks them up from the DDL file.
+- Existing DBs: run the singleton diagnostic SELECT in `database/scripts/README.md` before the next build (the trigger never scans existing rows).
+- `03_validate.sh`/`.ps1` check the Attendance and `organization_reparent_*` tables for existence/key columns only (no row minimums); the `.ps1` scripts have not run on Windows.
+- Forgot-password OTPs are never delivered (`api/routers/auth.py` TODO) — only visible via `otp_debug`; there is deliberately no `/forgot-password` page (inline on `/login`).
+- Admin Create User/Sangha Sevi have no cross-Sakha attendance field, so the GDR-009 attendance rule applies only to claim approval. The Parichaya/Anumati Patra number now follows the same legacy flag (GDR-009 §2A; the former open question is resolved).
 - `/children-stats` and `/stats` recursive CTEs have no depth cap (`/hierarchy` caps at 10).
 - `/person/{pk}/membership-summary`, `/register/lookup-existing` and `/register/claim` have no test coverage.
-- `claim_approval.py::approve_claim()`, `admin.py::create_user()` and `admin.py::create_sangha_sevi()`
-  each `INSERT INTO nss.sangha_sevi` independently — no shared helper. (`admin.py::update_status()`
-  no longer provisions one; it 422s on activation when the person has no active `sangha_sevi`.)
+- `claim_approval.py::approve_claim()`, `admin.py::create_user()` and `admin.py::create_sangha_sevi()` each `INSERT INTO nss.sangha_sevi` independently — no shared helper (`update_status()` 422s on activation when the person has no active `sangha_sevi`).
+- Assigning a role above the caller's own is unguarded (a Kendra Administrator can assign `NSS_ERP_ADMIN`).
 - Pass 2 audit-actor FKs (`*_by_sangha_sevi_pk`) are still unconstrained on all tables.
-- Deferred to later tiers: mobile/email verification, Organization contact-format CHECKs,
-  inactive-person search, i18n, Governance (Tier 6), Kumari (Tier 8), Sevak/Mahila (Tier 9).
+- Deferred to later tiers: mobile/email verification, Organization contact-format CHECKs, inactive-person search, i18n, Kumari/Kishor/Sevak (Tier 9), Mahila (Tier 10).
 - `PERSON_VIEW_SENSITIVE` is seeded but unwired; Aadhaar masking is unconditional.

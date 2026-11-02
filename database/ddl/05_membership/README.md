@@ -1,13 +1,15 @@
 # database/ddl/05_membership/
 
-Membership Module DDL — 14 tables (Depth 2–4) per SOL-MEM-005, SOL-MEM-003, plus (for
+Membership Module DDL — 16 tables (Depth 2–4) per SOL-MEM-005, SOL-MEM-003, plus (for
 `darshak_attendance_registration`) SOL-MEM-006, and one enforcement-trigger file. The 13th table
-(`darshak_attendance_registration`) and 14th (`credential_sequence_counter`) are Tier 5
+(`darshak_attendance_registration`, v1.1 in Tier 6 adds `initiated_by_sangha_sevi_pk` + `request_source` — `MEMBER_SELF`/`ADMIN_AUTOMATIC_ENTRY`, DAR-009) and 14th (`credential_sequence_counter`) are Tier 5
 additions (released in v0.11.0). `16_foundation_audit_fk.sql` is a Pass-2-style `ALTER TABLE` file (no table) that lives
-here because it needs `sangha_sevi`.
+here because it needs `sangha_sevi`. The 15th (`sakha_local_number_counter`) and 16th
+(`membership_change_request`) tables are Tier 6 additions backing the Sakha Transfer / Apply for
+Darshak workflow (MBR-048, MBR-049).
 
 Authority: SOL-MEM-005 v1.0 (Physical Table Design), SOL-MEM-003 (Business Rules), MBR-001
-through MBR-035 (business-rule identifiers cited in table comments); SOL-MEM-006 for
+through MBR-049 (business-rule identifiers cited in table comments); SOL-MEM-006 for
 `darshak_attendance_registration`.
 
 > **Design-doc status note:** `docs/03_Solution/modules/membership/README.md` still reads
@@ -42,6 +44,10 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
 | 14 | `14_sakha_only_membership_trigger.sql` | *(no table — 2 BEFORE triggers, MBR-038A)* | — | `sangha_sevi`, `membership_sakha_affiliation`, `organization`, `master_data` |
 | 15 | `15_credential_sequence_counter.sql` | `credential_sequence_counter` | 3 | `organization` |
 | 16 | `16_foundation_audit_fk.sql` | *(no table — adds the `submitted_by_`/`reviewed_by_sangha_sevi_pk` FKs on Foundation `district`, `postal_code`, `post_office`, `city_village`; run as Phase 7b)* | — | `sangha_sevi` + the four Foundation tables |
+| 17 | `17_sakha_local_number_counter.sql` | `sakha_local_number_counter` | 3 | `organization` |
+| 18 | `18_membership_change_request.sql` | `membership_change_request` | 3 | `sangha_sevi`, `organization` (×2) |
+| 19 | `19_sakha_local_number_allocator.sql` | *(function `nss.fn_next_sakha_local_number()`, no table)* | — | `sakha_local_number_counter`, `membership_sakha_affiliation` |
+| 20 | `20_home_affiliation_guard.sql` | *(2 deferred constraint triggers, no table)* | — | `sangha_sevi`, `membership_sakha_affiliation` |
 
 ## What Each Table Is For
 
@@ -112,6 +118,7 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
   as `parichaya_patra_history`.
 - **`darshak_attendance_registration`** — (Tier 5) a member's
   registration to attend Sangha Puja as a Darshak at a **different** Sakha than their own
+  (v1.1: `initiated_by_sangha_sevi_pk` records who raised it and `request_source` is `MEMBER_SELF` or `ADMIN_AUTOMATIC_ENTRY` — record-keeping only, never skips an approval step, DAR-009)
   (`chk_dar_att_reg_different_sakha` forbids `home_organization_pk = attending_organization_pk`).
   Goes through a 3-step approval chain (`PENDING_HOME_SAKHA` → `PENDING_PARICHALAK` →
   `PENDING_TARGET_SAKHA` → `APPROVED`/`REJECTED`/`REVOKED`); on `APPROVED`, the attending Sakha
@@ -127,7 +134,7 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
   `parichaya_patra.document_number`/`anumati_patra.document_number` in `<seq>/<FY start>/<FY end>`
   format. One row per (`credential_type`, `scope_organization_pk`, `financial_year_start`) —
   `PARICHAYA_PATRA` is a single Kendra-wide counter, `ANUMATI_PATRA` is one counter per issuing
-  Sakha — and the sequence restarts at 1 each 1 April (a new FY = a new row). Rows are created on
+  Sakha — (the allocator skips any already-issued number, e.g. a legacy member's own current-year card number) and the sequence restarts at 1 each 1 April (a new FY = a new row). Rows are created on
   demand by upsert, not seeded. Distinct from `id_sequence_master` (one flat, never-reset counter
   per business ID). `uq_credential_sequence_scope` makes the triple unique; the
   `credential_type` CHECK limits it to the two values above.
@@ -136,6 +143,36 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
   reference a `SAKHA_SANGHA` organization (`trg_enforce_sakha_only_sangha_sevi`,
   `trg_enforce_sakha_only_affiliation`). The single exception is the reserved system account
   (`sangha_sevi.is_system_account = TRUE`, the seeded admin `SS1`), which may point at Kendra.
+
+- **`sakha_local_number_counter`** — (Tier 6) backs `api/helpers.py::next_sakha_local_number()`,
+  which auto-generates the bare numeric portion of a Tier 2 Local Sakha ERP Number
+  (MBR-030C/MBR-048) when `insert_sakha_affiliation()` isn't given an explicit one. One row per
+  (`organization_pk`, `namespace`) — `REGULAR` or `DARSHAK`, mirroring the two namespaces
+  `compose_local_sakha_erp_id()` already composes. Unlike `credential_sequence_counter`, this
+  counter carries **no financial-year column and never resets** — a Local Sakha ERP Number is
+  permanent (MBR-030, MBR-022), not an annual credential number.
+- **Local Sakha ID is always generated (2026-11-01)** — `19_sakha_local_number_allocator.sql` is the
+  one allocation rule (`nss.fn_next_sakha_local_number(org, namespace, prefix)`, called by
+  `api/helpers.py::next_sakha_local_number()`): counts up from the per-(organization, namespace)
+  `sakha_local_number_counter` row (row-locked, so concurrent creations never collide) and skips any
+  composed id that already exists for that Sakha, archived rows included, so numbers are never
+  reused and typed/legacy numbers are stepped over. `20_home_affiliation_guard.sql` adds two
+  `DEFERRABLE INITIALLY DEFERRED` constraint triggers (on `sangha_sevi` and
+  `membership_sakha_affiliation`): at COMMIT every ACTIVE, non-system (`is_system_account = FALSE`)
+  `sangha_sevi` must have an open (`effective_to IS NULL`, `ACTIVE`/`REACTIVATED`) affiliation at its
+  own `organization_pk` with a non-blank `local_sakha_erp_id`. Transfers pass (close + open + move
+  org in one transaction); a Darshak row at another Sakha neither satisfies nor violates it;
+  inactive sevis and SS1 are exempt. Constraint triggers only check rows touched by a transaction,
+  so existing rows without an affiliation are NOT scanned and do not break a build — and are NOT
+  repaired either (no backfill; `03_validate` WARNs, see `database/scripts/README.md`).
+- **`membership_change_request`** — (Tier 6) the Sakha Transfer / Apply for Darshak workflow
+  table (MBR-048, MBR-049): `PENDING_SOURCE_RELEASE` → `PENDING_DESTINATION_ACCEPT` →
+  `COMPLETED`, with a rejection branch at either stage. `request_type` is `TRANSFER` or
+  `DARSHAK` — on `COMPLETED`, a `TRANSFER` closes the old `membership_sakha_affiliation` row and
+  opens a new one (plus a `membership_transfer_history` row); a `DARSHAK` opens a second,
+  concurrently-active affiliation row at the destination Sakha without closing the home one. A
+  partial unique index enforces at most one open (non-terminal-status) request per member at a
+  time.
 
 ## The "Current State + History" Pairing Pattern
 

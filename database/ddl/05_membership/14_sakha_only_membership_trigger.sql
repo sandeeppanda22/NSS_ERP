@@ -5,15 +5,18 @@
 -- Purpose: Enforces MBR-038A — a Member's organizational
 --          association (sangha_sevi.organization_pk and
 --          membership_sakha_affiliation.organization_pk)
---          must reference an organization of type
---          SAKHA_SANGHA. The sole exception is the single
+--          must reference an organization of a Sakha-like
+--          type (SAKHA_SANGHA or SAKHA_ASANA — owner
+--          2026-10-31, via nss.fn_is_sakha_like_org_type from
+--          02_organization/10_sakha_like_org_type_function.sql). The sole exception is the single
 --          reserved system/bootstrap account
 --          (sangha_sevi.is_system_account = TRUE), which
 --          may reference the apex KENDRA directly.
 -- Depends: 01_sangha_sevi.sql, 06_membership_sakha_affiliation.sql,
 --          02_organization/03_organization.sql,
 --          01_foundation/08_master_data.sql
--- Version: 1.0
+-- Version: 1.1 (2026-10-31: SAKHA_ASANA accepted; DROP TRIGGER IF EXISTS
+--          added so the file re-runs cleanly via run_sql)
 -- Authority: MBR-038A
 -- Owner: NSS_ERP_ADMIN
 -- Note: This is a cross-table business rule (joins to
@@ -44,9 +47,9 @@ BEGIN
         ON md.master_data_pk = o.organization_type_master_data_pk
     WHERE o.organization_pk = NEW.organization_pk;
 
-    IF v_org_type_code IS DISTINCT FROM 'SAKHA_SANGHA' THEN
+    IF NOT nss.fn_is_sakha_like_org_type(v_org_type_code) THEN
         RAISE EXCEPTION
-            'MBR-038A violation: sangha_sevi.organization_pk must reference a SAKHA_SANGHA organization (found type: %). Only the reserved system account (is_system_account = TRUE) may reference a non-Sakha organization.',
+            'MBR-038A violation: sangha_sevi.organization_pk must reference a Sakha organization (SAKHA_SANGHA or SAKHA_ASANA) (found type: %). Only the reserved system account (is_system_account = TRUE) may reference a non-Sakha organization.',
             COALESCE(v_org_type_code, 'UNKNOWN')
             USING ERRCODE = 'check_violation';
     END IF;
@@ -55,6 +58,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS trg_enforce_sakha_only_sangha_sevi ON nss.sangha_sevi;
 CREATE TRIGGER trg_enforce_sakha_only_sangha_sevi
     BEFORE INSERT OR UPDATE OF organization_pk, is_system_account
     ON nss.sangha_sevi
@@ -88,9 +92,9 @@ BEGIN
         ON md.master_data_pk = o.organization_type_master_data_pk
     WHERE o.organization_pk = NEW.organization_pk;
 
-    IF v_org_type_code IS DISTINCT FROM 'SAKHA_SANGHA' THEN
+    IF NOT nss.fn_is_sakha_like_org_type(v_org_type_code) THEN
         RAISE EXCEPTION
-            'MBR-038A violation: membership_sakha_affiliation.organization_pk must reference a SAKHA_SANGHA organization (found type: %). Only the reserved system account (sangha_sevi.is_system_account = TRUE) may reference a non-Sakha organization.',
+            'MBR-038A violation: membership_sakha_affiliation.organization_pk must reference a Sakha organization (SAKHA_SANGHA or SAKHA_ASANA) (found type: %). Only the reserved system account (sangha_sevi.is_system_account = TRUE) may reference a non-Sakha organization.',
             COALESCE(v_org_type_code, 'UNKNOWN')
             USING ERRCODE = 'check_violation';
     END IF;
@@ -99,6 +103,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS trg_enforce_sakha_only_affiliation ON nss.membership_sakha_affiliation;
 CREATE TRIGGER trg_enforce_sakha_only_affiliation
     BEFORE INSERT OR UPDATE OF organization_pk, sangha_sevi_pk
     ON nss.membership_sakha_affiliation

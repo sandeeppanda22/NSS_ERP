@@ -48,6 +48,79 @@
 # creates the genuinely new ones (e.g. user_session) — with zero
 # risk to existing rows.
 #
+# CAVEAT — existence-gating is per-TABLE, not per-ROW or per-CONSTRAINT.
+# A routine redeploy only ever adds genuinely NEW tables. If a table
+# already exists, its DDL AND its seed are skipped wholesale — this
+# build has no "content changed, re-apply it" detection. Concretely,
+# for the 2026-10-09 §63 composite auto-grant rule changes:
+#   - database/seed/00_bootstrap/02_role_master.sql (v1.3, +1 row:
+#     NSS_ERP_ADVISORY_BOARD_ADMIN) will NOT be inserted on any
+#     environment where role_master already exists.
+#   - database/seed/08_governance/01_body_type_master.sql (v1.1, +3
+#     rows: ANCHALIKA_GOVERNING_BODY, ZILLA_GOVERNING_BODY,
+#     PATHA_CHAKRA_GOVERNING_BODY) will NOT be inserted on any
+#     environment where body_type_master already exists.
+#   - database/ddl/07_administration/02_admin_scope.sql (v1.1, widened
+#     chk_admin_scope_org_consistency CHECK to also exempt KENDRA /
+#     KENDRA_MAHILA_SANGHA) will NOT be applied on any environment
+#     where admin_scope already exists — the table keeps its OLD
+#     constraint indefinitely.
+# and for the 2026-10-09 nomination-vs-election mode change:
+#   - database/ddl/08_governance/06_election.sql (added the
+#     election_type column plus chk_election_type and
+#     chk_election_nomination_mode_no_voting) will NOT be applied on
+#     any environment where election already exists. Because the API
+#     now SELECTs and INSERTs election_type, an environment that skips
+#     this DDL will fail on every election read/write with
+#     'column "election_type" does not exist' — this one is not a
+#     silent no-op, it breaks the governance module outright.
+# and for the 2026-10-21 DB-level governance seat-count backstop:
+#   - database/ddl/08_governance/01_body_type_master.sql (added the
+#     max_members column plus chk_body_type_master_max_members) will
+#     NOT be applied on any environment where body_type_master already
+#     exists.
+#   - database/seed/08_governance/01_body_type_master.sql (added an
+#     UPDATE setting max_members for the 6 fixed-count body types) will
+#     NOT run either, since run_seed skips a pre-existing table's seed
+#     wholesale.
+#   - Net effect on a routine redeploy: nss.fn_enforce_body_seat_limit()
+#     (database/ddl/08_governance/12_governance_seat_limits.sql, wired
+#     below via run_sql so the trigger functions themselves DO get
+#     (re)attached every run) will see max_members IS NULL for every
+#     body type and silently enforce NOTHING beyond the
+#     MAHILA_PARICHALANA_MANDALI/ADVISORY_BOARD special cases, which are
+#     derived independently of this column. This is a silent
+#     under-enforcement, not a crash — the existing API-layer
+#     _COMPOSITION_RULES checks in api/routers/governance.py remain the
+#     primary, unaffected guard either way. Only a full hard rebuild
+#     makes the DB-level flat-count backstop active for
+#     KENDRA_GOVERNING_BODY / SAKHA_GOVERNING_BODY / SEVAK_SANGHA_EXECUTIVE
+#     / ANCHALIKA_GOVERNING_BODY / ZILLA_GOVERNING_BODY /
+#     PATHA_CHAKRA_GOVERNING_BODY.
+# and for the 2026-10-21 Registration-Time Geography Creation feature:
+#   - database/ddl/01_foundation/11_city_village.sql, 12_postal_code.sql,
+#     13_post_office.sql (added submitted_by_person_pk + its Phase 7b FK
+#     to nss.person) will NOT be applied on any environment where those
+#     tables already exist. Unlike the max_members case, this is NOT a
+#     silent no-op: api/routers/registration.py always calls
+#     resolve_or_create_city_village/postal_code/post_office with
+#     pending_submitter_person_pk set, and the INSERT built when that's
+#     non-None names the column explicitly — so on an un-rebuilt
+#     environment, every self-registration that creates a genuinely new
+#     geo row 500s with "column submitted_by_person_pk does not exist"
+#     (mirrors the election_type case). The new Phase 13b backfill step
+#     below tolerates this specific condition itself (SKIP, not FAIL, on
+#     a "column ... does not exist" error) so a routine redeploy against
+#     an un-rebuilt environment is not additionally broken by this step —
+#     but the registration 500s above still require a full hard rebuild
+#     to fix.
+# This is "expected" per this project's no-migrations, hard-rebuild
+# methodology, but it means a routine Render redeploy will silently
+# NOT pick up any of the changes above. Only a full hard rebuild
+# (DROP SCHEMA nss CASCADE, then rebuild from scratch) does. See
+# docs/03_Solution/architecture/GETTING_STARTED.md §7a-2 "Incremental
+# Rebuild is NOT enough".
+#
 # Non-table objects (schema, extensions, triggers, functions,
 # deferred FK wiring, GRANTs, role creation) stay on run_sql():
 # they are independently idempotent (CREATE OR REPLACE, DROP
@@ -68,7 +141,30 @@
 #                     insensitive, whitespace-tolerant; default: skipped)
 #
 # Keep phase order in sync with database/scripts/02_build.sh
-# if it changes.
+# if it changes. Verified identical on 2026-11-01: every DDL/seed/patch file
+# below is run in the same order as 02_build.sh (71 tables).
+#
+# Idempotent patch files run on EVERY deploy via run_sql (never existence-
+# gated; they carry changes to already-existing tables/seeds): role_permission
+# mahila/advisory-board patch, organization singleton trigger, sakha-like
+# org-type function, Advisory Board organization patch, family_head_history
+# audit columns, Local Sakha ID allocator, home-affiliation guard (deferred
+# constraint triggers - they scan nothing, so a Neon DB already holding
+# members without a Local Sakha ID still deploys; 03_validate WARNs about
+# them), registration_claim legacy-member patch, governance nomination
+# re-file index, Sakha Asana governing-body patch, attendance live-version
+# index, organization_reparent_step source-role patch.
+#
+# Render/Neon notes for the objects above:
+#   - Functions (fn_next_sakha_local_number, fn_assert_sevi_has_home_affiliation,
+#     fn_is_sakha_like_org_type, ...) are plain SECURITY INVOKER and nothing in
+#     database/ revokes EXECUTE, so PostgreSQL's default PUBLIC EXECUTE lets
+#     nss_db_writer call them; the tables they touch are covered by Phase 12's
+#     GRANT ... ON ALL TABLES + ALTER DEFAULT PRIVILEGES (INSERT/UPDATE/SELECT),
+#     so sakha_local_number_counter needs no extra grant. Only
+#     fn_audit_trigger() is SECURITY DEFINER.
+#   - PostGIS is deliberately not installed here (best-effort extensions are
+#     pgcrypto, pg_trgm, btree_gin); no DDL/seed/API code references it.
 # ==========================================================
 
 set -euo pipefail
@@ -207,6 +303,9 @@ echo "--- Phase 0: Bootstrap RBAC — Seed ---"
 run_seed "permission_master (seed)" "permission_master" "${SEED_BASE}/00_bootstrap/01_permission_master.sql"
 run_seed "role_master (seed)"       "role_master"       "${SEED_BASE}/00_bootstrap/02_role_master.sql"
 run_seed "role_permission (seed)"   "role_permission"   "${SEED_BASE}/00_bootstrap/03_role_permission.sql"
+# Idempotent patch: the seed above is existence-gated, so rows added to it later
+# (Mahila admin 15->18, Advisory Board admin 0->8, 2026-10-30) reach existing DBs here.
+run_sql "role_permission mahila/advisory-board patch" "${SEED_BASE}/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -237,15 +336,18 @@ run_seed "system_setting (seed)"     "system_setting"     "${SEED_BASE}/01_found
 run_seed "postal_code (seed)"        "postal_code"        "${SEED_BASE}/01_foundation/08_postal_code.sql"
 run_seed "postal_code bulk (seed)"   "postal_code"        "${SEED_BASE}/01_foundation/08b_postal_code_bulk.sql"
 run_seed "post_office bulk (seed)"   "post_office"        "${SEED_BASE}/01_foundation/08c_post_office_bulk.sql"
+run_seed "festival_calendar (seed)"  "festival_calendar_date" "${SEED_BASE}/01_foundation/10_festival_calendar.sql"
 run_seed "city_village (seed)"       "city_village"       "${SEED_BASE}/01_foundation/11_city_village.sql"
 run_seed "city_village urban recovery (seed)" "city_village" "${SEED_BASE}/01_foundation/11b_city_village_urban_recovery.sql"
-run_seed "festival_calendar (seed)"  "festival_calendar_date" "${SEED_BASE}/01_foundation/10_festival_calendar.sql"
 
 echo ""
-echo "--- Phase 3: Organization — DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger; type via ORGANIZATION_TYPE, status via unified STATUS in Foundation master_data) ---"
+echo "--- Phase 3: Organization — DDL (1 table + address-restriction trigger + Kumari/Sevak one-per-Sakha trigger + organization singleton trigger + Sakha-like org-type function; type via ORGANIZATION_TYPE, status via unified STATUS in Foundation master_data) ---"
 run_ddl "organization"               "organization" "${DDL_BASE}/02_organization/03_organization.sql"
 run_sql "organization_address_restriction_trigger" "${DDL_BASE}/02_organization/04_organization_address_restriction_trigger.sql"
 run_sql "organization_kumari_sevak_uniqueness_trigger" "${DDL_BASE}/02_organization/05_organization_kumari_sevak_uniqueness_trigger.sql"
+run_sql "organization_singleton_trigger" "${DDL_BASE}/02_organization/08_organization_singleton_trigger.sql"
+# Idempotent patch (owner 2026-10-31): the single SQL definition of Sakha-like org types (SAKHA_SANGHA + SAKHA_ASANA); the MBR-038A membership triggers and the Advisory Board one-seat-per-Sakha trigger call it, so it must exist before them.
+run_sql "sakha_like_org_type_function" "${DDL_BASE}/02_organization/10_sakha_like_org_type_function.sql"
 
 echo ""
 echo "--- Phase 4: Organization — Seed ---"
@@ -253,6 +355,9 @@ run_seed "organization (seed)"               "organization"       "${SEED_BASE}/
 run_seed "sakha postal codes (seed)"         "postal_code"        "${SEED_BASE}/01_foundation/09_sakha_postal_codes.sql"
 run_seed "sakha branches (seed)"             "organization"       "${SEED_BASE}/02_organization/05_sakha_branches.sql"
 run_seed "id_sequence_master (org sync)"     "id_sequence_master" "${SEED_BASE}/02_organization/06_id_sequence_org_sync.sql"
+# Idempotent patch: the ORGANIZATION_TYPE value ADVISORY_BOARD + the singleton 'Advisory Board'
+# organization (owner decision 2026-10-30). Existence-gated seeds above never reach existing DBs.
+run_sql "advisory_board organization patch"  "${SEED_BASE}/02_organization/07_advisory_board_organization_patch.sql"
 
 echo ""
 echo "--- Phase 5: Person — DDL (2 tables) ---"
@@ -268,9 +373,13 @@ run_ddl "family_transition_history" "family_transition_history" "${DDL_BASE}/04_
 run_ddl "family_link"               "family_link"               "${DDL_BASE}/04_family/05_family_link.sql"
 run_ddl "family_admin"              "family_admin"              "${DDL_BASE}/04_family/06_family_admin.sql"
 run_sql "family_move_transition_guard" "${DDL_BASE}/04_family/07_family_move_transition_guard.sql"
+# Audit columns the API already writes (updated_at) but the original CREATE
+# TABLE lacked; 03_family_head_history.sql is existence-gated, so this
+# idempotent patch carries them to existing databases.
+run_sql "family_head_history_audit_columns" "${DDL_BASE}/04_family/08_family_head_history_audit_columns.sql"
 
 echo ""
-echo "--- Phase 7: Membership — DDL (14 tables + Sakha-only trigger) ---"
+echo "--- Phase 7: Membership — DDL (16 tables + Sakha-only trigger + Local Sakha ID allocator + home-affiliation guard) ---"
 run_ddl "sangha_sevi"                    "sangha_sevi"                    "${DDL_BASE}/05_membership/01_sangha_sevi.sql"
 run_ddl "membership_status_history"      "membership_status_history"      "${DDL_BASE}/05_membership/02_membership_status_history.sql"
 run_ddl "membership_renewal_request"     "membership_renewal_request"     "${DDL_BASE}/05_membership/03_membership_renewal_request.sql"
@@ -286,6 +395,13 @@ run_ddl "anumati_patra_history"          "anumati_patra_history"          "${DDL
 run_ddl "darshak_attendance_registration" "darshak_attendance_registration" "${DDL_BASE}/05_membership/13_darshak_attendance_registration.sql"
 run_sql "sakha_only_membership_trigger"  "${DDL_BASE}/05_membership/14_sakha_only_membership_trigger.sql"
 run_ddl "credential_sequence_counter"    "credential_sequence_counter"    "${DDL_BASE}/05_membership/15_credential_sequence_counter.sql"
+run_ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "${DDL_BASE}/05_membership/17_sakha_local_number_counter.sql"
+run_ddl "membership_change_request"      "membership_change_request"      "${DDL_BASE}/05_membership/18_membership_change_request.sql"
+# Local Sakha ID allocator + home-affiliation guard (2026-11-01): functions /
+# DEFERRED constraint triggers only (CREATE OR REPLACE / DROP..CREATE TRIGGER, idempotent;
+# no existing-row scan, so a DB already holding members without a Local Sakha ID builds).
+run_sql "sakha_local_number_allocator"  "${DDL_BASE}/05_membership/19_sakha_local_number_allocator.sql"
+run_sql "home_affiliation_guard"          "${DDL_BASE}/05_membership/20_home_affiliation_guard.sql"
 
 echo ""
 echo "--- Phase 7b: Deferred Foundation Audit FKs ---"
@@ -332,6 +448,8 @@ echo "--- Phase 10: Authentication — DDL (5 tables) ---"
 run_ddl "user_account"           "user_account"         "${DDL_BASE}/06_authentication/01_user_account.sql"
 run_ddl "password_history"       "password_history"     "${DDL_BASE}/06_authentication/02_password_history.sql"
 run_ddl "registration_claim"     "registration_claim"   "${DDL_BASE}/06_authentication/03_registration_claim.sql"
+# Idempotent patch (GDR-009, owner 2026-11-01): the legacy-vs-new Local Sakha Number flags (is_legacy_member / darshak_is_legacy_member + agreement CHECKs) for a registration_claim table that already exists (03_ is existence-gated); existing claims default to legacy iff they already carry a number.
+run_sql "registration_claim_legacy_member_patch" "${DDL_BASE}/06_authentication/06_registration_claim_legacy_member_patch.sql"
 run_ddl "password_reset_token"   "password_reset_token" "${DDL_BASE}/06_authentication/04_password_reset_token.sql"
 run_ddl "user_session"           "user_session"         "${DDL_BASE}/06_authentication/05_user_session.sql"
 
@@ -339,6 +457,70 @@ echo ""
 echo "--- Phase 11: Administration — DDL (2 tables) ---"
 run_ddl "user_role"    "user_role"   "${DDL_BASE}/07_administration/01_user_role.sql"
 run_ddl "admin_scope"  "admin_scope" "${DDL_BASE}/07_administration/02_admin_scope.sql"
+
+echo ""
+# NOTE: body_type_master/role_master seed content and admin_scope's CHECK
+# constraint changed on 2026-10-09 (§63 composite auto-grant rule), and the
+# election table gained election_type the same day (nomination-vs-election
+# mode, GOV-BR-042). Per the existence-gating caveat above, those changes
+# only take effect on a fresh table — a redeploy against an existing
+# database will skip them, and skipping election_type will break every
+# governance election endpoint.
+echo "--- Phase 11b: Governance — DDL (10 tables + ballot immutability + seat-count limits) ---"
+run_ddl "body_type_master"           "body_type_master"           "${DDL_BASE}/08_governance/01_body_type_master.sql"
+run_ddl "position_master"            "position_master"            "${DDL_BASE}/08_governance/02_position_master.sql"
+run_ddl "body_master"                "body_master"                "${DDL_BASE}/08_governance/03_body_master.sql"
+run_ddl "body_member_assignment"     "body_member_assignment"     "${DDL_BASE}/08_governance/04_body_member_assignment.sql"
+run_ddl "acting_position_assignment" "acting_position_assignment" "${DDL_BASE}/08_governance/05_acting_position_assignment.sql"
+run_ddl "election"                   "election"                   "${DDL_BASE}/08_governance/06_election.sql"
+run_ddl "election_nomination"        "election_nomination"        "${DDL_BASE}/08_governance/07_election_nomination.sql"
+run_ddl "election_vote"              "election_vote"              "${DDL_BASE}/08_governance/08_election_vote.sql"
+run_ddl "election_result"            "election_result"            "${DDL_BASE}/08_governance/09_election_result.sql"
+run_ddl "election_vote_participation" "election_vote_participation" "${DDL_BASE}/08_governance/10_election_vote_participation.sql"
+run_sql "governance_immutability"    "${DDL_BASE}/08_governance/11_governance_immutability.sql"
+# Seat-count backstop: two functions + BEFORE INSERT OR UPDATE triggers
+# on body_member_assignment. Not a table — run_sql, so the functions/
+# triggers themselves are (re)applied on every redeploy regardless of
+# the existence-gating caveat above (which affects only the
+# body_type_master.max_members column and its seed, not these
+# triggers).
+run_sql "governance_seat_limits"     "${DDL_BASE}/08_governance/12_governance_seat_limits.sql"
+# Re-file index: 07_election_nomination.sql is existence-gated, so its
+# changed uq_election_nomination_active_candidate (live nominations only)
+# never reaches an existing database. This idempotent patch does.
+run_sql "governance_nomination_refile_index" "${DDL_BASE}/08_governance/13_governance_nomination_refile_index.sql"
+
+echo ""
+echo "--- Phase 11c: Governance — Seed Data ---"
+run_seed "body_type_master (seed)" "body_type_master" "${SEED_BASE}/08_governance/01_body_type_master.sql"
+run_seed "position_master (seed)"  "position_master"  "${SEED_BASE}/08_governance/02_position_master.sql"
+run_seed "body_master (seed)"      "body_master"       "${SEED_BASE}/08_governance/03_body_master.sql"
+# Idempotent patch: a Sakha Asana has its own Governing Body shell like a Sakha Sangha (owner 2026-10-30); the seed above covers SAKHA_SANGHA only and is existence-gated.
+run_sql "sakha_asana governing body patch" "${SEED_BASE}/08_governance/04_sakha_asana_governing_body_patch.sql"
+
+echo ""
+echo "--- Phase 11d: Correspondence — DDL (5 tables, Tier 6: correspondence, correspondence_document, correspondence_finance_reference, correspondence_sequence_counter, correspondence_approval_step) ---"
+run_ddl "correspondence"                   "correspondence"                   "${DDL_BASE}/09_correspondence/01_correspondence.sql"
+run_ddl "correspondence_document"          "correspondence_document"          "${DDL_BASE}/09_correspondence/02_correspondence_document.sql"
+run_ddl "correspondence_finance_reference" "correspondence_finance_reference" "${DDL_BASE}/09_correspondence/03_correspondence_finance_reference.sql"
+run_ddl "correspondence_sequence_counter"  "correspondence_sequence_counter"  "${DDL_BASE}/09_correspondence/04_correspondence_sequence_counter.sql"
+run_ddl "correspondence_approval_step"     "correspondence_approval_step"     "${DDL_BASE}/09_correspondence/05_correspondence_approval_step.sql"
+
+echo ""
+echo "--- Phase 11e: Attendance — DDL (4 tables, Tier 6: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review) ---"
+run_ddl "weekly_sangha_puja"            "weekly_sangha_puja"            "${DDL_BASE}/10_attendance/01_weekly_sangha_puja.sql"
+run_ddl "weekly_sangha_puja_attendance" "weekly_sangha_puja_attendance" "${DDL_BASE}/10_attendance/02_weekly_sangha_puja_attendance.sql"
+run_ddl "attendance_exception"          "attendance_exception"          "${DDL_BASE}/10_attendance/03_attendance_exception.sql"
+run_ddl "attendance_review"             "attendance_review"             "${DDL_BASE}/10_attendance/04_attendance_review.sql"
+# Live-register index (owner 2026-10-31): 02_weekly_sangha_puja_attendance.sql is existence-gated, so this idempotent patch carries the (puja, last-change) index to existing databases.
+run_sql "attendance_live_version_index" "${DDL_BASE}/10_attendance/05_attendance_live_version_index_patch.sql"
+
+echo ""
+echo "--- Phase 11f: Organization re-parent approval — DDL (2 tables: organization_reparent_request, organization_reparent_step) ---"
+run_ddl "organization_reparent_request" "organization_reparent_request" "${DDL_BASE}/02_organization/06_organization_reparent_request.sql"
+run_ddl "organization_reparent_step"    "organization_reparent_step"    "${DDL_BASE}/02_organization/07_organization_reparent_step.sql"
+# Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
+run_sql "organization_reparent_step source-role patch" "${DDL_BASE}/02_organization/09_organization_reparent_step_source_role_patch.sql"
 
 echo ""
 echo "--- Phase 12: Grant nss_db_writer write access ---"
@@ -358,6 +540,39 @@ if [ "${RUN_BOOTSTRAP}" = "1" ]; then
     python3 "${REPO_ROOT}/scripts/bootstrap_admin.py" || echo "  [WARN] admin_bootstrap (may already exist)"
 else
     echo "  [SKIP] admin bootstrap (RUN_DB_BOOTSTRAP not truthy — live admin account untouched)"
+fi
+
+echo ""
+echo "--- Phase 13b: Geo Attribution Backfill (bulk-seeded rows -> P1) ---"
+# Registration-Time Geography Creation (2026-10-21) added
+# submitted_by_person_pk to city_village/postal_code/post_office
+# (district is out of scope). The bulk-reference-seeded rows from
+# Phase 2 have no submitter — backfill them to the NSS Admin's
+# person_pk (P1) for attribution consistency. Runs unconditionally
+# (not gated by RUN_DB_BOOTSTRAP): it only touches rows where
+# submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS
+# NULL, so it never overwrites a real submitter, and if P1 doesn't
+# exist yet (RUN_DB_BOOTSTRAP left at its default false on this
+# environment) the subquery returns NULL and the UPDATE is a
+# harmless no-op — safe and idempotent either way.
+if output=$(${PSQL} -c "
+    UPDATE nss.city_village SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+    UPDATE nss.postal_code SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+    UPDATE nss.post_office SET submitted_by_person_pk = (SELECT person_pk FROM nss.person WHERE person_id = 'P1') WHERE submitted_by_person_pk IS NULL AND submitted_by_sangha_sevi_pk IS NULL;
+" 2>&1); then
+    echo "  [OK]   geo_attribution_backfill"
+    echo "${output}" | sed 's/^/  /'
+elif echo "${output}" | grep -qiE 'column .* does not exist'; then
+    # Existing-table DDL change (submitted_by_person_pk) was skipped on an
+    # already-bootstrapped city_village/postal_code/post_office — same
+    # existence-gating caveat as every other existing-table column add.
+    # Not fatal: SKIP, not FAIL, so this step never breaks a routine
+    # Render redeploy.
+    echo "  [SKIP] geo_attribution_backfill  (submitted_by_person_pk column absent — needs a full hard rebuild)"
+else
+    echo "  [FAIL] geo_attribution_backfill"
+    echo "${output}" | sed 's/^/         /'
+    exit 1
 fi
 
 echo ""

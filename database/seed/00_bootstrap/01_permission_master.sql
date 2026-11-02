@@ -5,6 +5,20 @@
 -- Seed: 21 frozen permissions (Tier 5 decision 2026-09-15;
 --        FOUNDATION_CALENDAR_MANAGE added 2026-10-01 per
 --        SOL-ARCH-013 OPEN-FC-03)
+-- Version: 1.5 — add ATTENDANCE_VIEW / ATTENDANCE_MANAGE (Tier 6,
+--          2026-10-27): Weekly Sangha Puja attendance marking. 28
+--          permissions total.
+-- Version: 1.4 — add GEO_ENTRY_APPROVE (2026-10-21): narrow permission for
+--          Sakha admins to approve/correct geography proposals scoped to
+--          their own Sakha, without the broad FOUNDATION_MANAGE (which also
+--          gates global NSS/Kendra-only master-data editing). 26 permissions
+--          total.
+-- Version: 1.3 — add CORRESPONDENCE_VIEW / CORRESPONDENCE_MANAGE (Tier 6,
+--          2026-10-17), Correspondence Register capability. 25 permissions
+--          total.
+-- Version: 1.2 — add GOVERNANCE_VIEW / GOVERNANCE_MANAGE (Tier 6,
+--          2026-10-06) per this file's own "Future tiers add
+--          permissions progressively" note. 23 permissions total.
 -- Version: 1.1 — ON CONFLICT DO NOTHING, not DO UPDATE (2026-10-05): a
 --          re-run must never overwrite a permission's live-edited
 --          fields. Insert-if-missing only.
@@ -14,7 +28,7 @@
 -- PERMISSION CODE CONVENTION: <MODULE>_<ACTION>
 --   MODULE = BOOTSTRAP | FOUNDATION | ORGANIZATION |
 --            PERSON | FAMILY | MEMBERSHIP | ADMIN |
---            AUDIT | REPORT
+--            AUDIT | REPORT | GOVERNANCE | CORRESPONDENCE
 --   ACTION = VIEW | MANAGE | VIEW_SENSITIVE | APPROVE |
 --            USER_VIEW | USER_MANAGE | ROLE_MANAGE |
 --            SCOPE_MANAGE | PERMISSION_VIEW
@@ -166,6 +180,69 @@ VALUES
      'View Reports',
      'REPORT',
      'Read-only access to reports and dashboards',
-     21)
+     21),
+
+    -- ── Governance (Tier 6) ──────────────────────────────
+    ('GOVERNANCE_VIEW',
+     'View Governance Data',
+     'GOVERNANCE',
+     'Read-only access to governance bodies, positions, member assignments, and elections',
+     22),
+
+    ('GOVERNANCE_MANAGE',
+     'Manage Governance Data',
+     'GOVERNANCE',
+     'Create, edit, and deactivate governance bodies, positions, member/acting assignments, '
+     'elections, nominations, votes, and results. ADMIN + KENDRA only.',
+     23),
+
+    -- ── Correspondence Register (Tier 6) ─────────────────
+    ('CORRESPONDENCE_VIEW',
+     'View Correspondence Register',
+     'CORRESPONDENCE',
+     'Read-only access to inward/outward correspondence filed under the '
+     'actor''s admin-scope register(s).',
+     24),
+
+    ('CORRESPONDENCE_MANAGE',
+     'Manage Correspondence Register',
+     'CORRESPONDENCE',
+     'Register, update, transition status, and associate documents/finance '
+     'references for correspondence filed under the actor''s admin-scope '
+     'register(s). Every org-scoped admin role manages its own register '
+     '(mirrors PERSON_MANAGE/MEMBERSHIP_MANAGE footprint), bounded by '
+     'admin scope — not an ADMIN/KENDRA-only structural permission.',
+     25),
+
+    -- ── Foundation — Member-Assisted Geographic Entry (2026-10-21) ────
+    ('GEO_ENTRY_APPROVE',
+     'Approve Geographic Entry Proposals',
+     'FOUNDATION',
+     'Approve/correct member-submitted district, PIN code, post office, and '
+     'city/village entries scoped to the actor''s own admin scope. Narrower '
+     'than FOUNDATION_MANAGE (which also gates global NSS/Kendra-only '
+     'master-data editing) — granted to NSS_ERP_SAKHA_ADMIN only, so a '
+     'Sakha admin can review their own Sakha''s geography proposals '
+     'without the broader structural authority.',
+     26),
+
+    -- ── Attendance (Tier 6, 2026-10-27) ──────────────────
+    ('ATTENDANCE_VIEW',
+     'View Attendance',
+     'ATTENDANCE',
+     'Read-only access to Weekly Sangha Puja events, attendance records, '
+     'exceptions, and reviews within the actor''s admin scope.',
+     27),
+
+    ('ATTENDANCE_MANAGE',
+     'Mark Attendance',
+     'ATTENDANCE',
+     'Create Weekly Sangha Puja events and mark PRESENT/ABSENT/EXCUSED_ABSENCE '
+     'within the actor''s admin scope. Deliberately does NOT confer Attendance '
+     'Review authority (close/defer/escalate/approve excused absence) — the '
+     'frozen Attendance Review Workflow names actual Secretary/President '
+     'governance offices, not an admin permission, as the review authority; '
+     'that is checked separately against body_member_assignment.',
+     28)
 
 ON CONFLICT (permission_code) DO NOTHING;

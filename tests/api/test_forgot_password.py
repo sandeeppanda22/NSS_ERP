@@ -14,10 +14,12 @@ up via conftest SAVEPOINT rollback.
 """
 
 import pytest
+
+from tests.forgot_password_support import clear_reset_tokens, debug_otp_enabled  # noqa: F401 (fixture)
 from fastapi.testclient import TestClient
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("debug_otp_enabled")]
 
 
 # ── Constants ───────────────────────────────────────────────────────────
@@ -138,11 +140,7 @@ class TestResetPassword:
         login_id = forgot_user["sangha_sevi_id"]
 
         # Clear rate limit tokens so we can generate a fresh OTP
-        with write_conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM nss.password_reset_token WHERE user_account_pk = %s",
-                (str(forgot_user["user_account_pk"]),),
-            )
+        clear_reset_tokens(write_conn, forgot_user["user_account_pk"])
 
         otp = self._get_otp(client, login_id)
         assert otp is not None, "No OTP returned in dev mode"

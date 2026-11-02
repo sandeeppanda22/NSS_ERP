@@ -1402,7 +1402,7 @@ async fetchRoles() {
 - Identical four-step shape to every other fetch method in this file (and in
   `foundation.js`): (1) set `loading=true, error=false`; (2) `try` fetch → check
   `res.ok` → parse JSON → assign to state; (3) `catch` sets only the error flag; (4)
-  `finally` clears loading. `GET /api/v1/bootstrap/roles` returns the 8 frozen roles as
+  `finally` clears loading. `GET /api/v1/bootstrap/roles` returns the 10 frozen roles as
   a JSON array which is assigned wholesale to `this.roles`, triggering the `x-for` in
   `index.html` to re-render.
 

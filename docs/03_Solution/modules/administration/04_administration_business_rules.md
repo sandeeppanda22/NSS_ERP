@@ -6,6 +6,9 @@
 **Module:** Administration
 **Parent System:** Nilachala Saraswata Sangha ERP
 
+
+> **Amendment (2026-10-30, owner-directed, GDR-006/GDR-007):** (1) the scope levels `KENDRA_MAHILA_SANGHA` and `ADVISORY_BOARD` carry no organization_pk and resolve by organization type, remaining scope-bounded per ADMIN-BR-076 (GDR-006). (2) ADMIN-BR-043/077's "sole global authority" wording stands unchanged: `NSS_ERP_ADMIN` (decided by role, never by a hard-coded login) and a Kendra Governing Body member (holder of the §63 composite `NSS_ERP_KENDRA_ADMIN` scope) may re-parent a Sakha or Sakha Asana directly; every other actor needs the approval chain (GDR-007; ORG-BR-109). *An earlier version of this note stated that NSS_ERP_ADMIN was not exempt; the owner reversed that on 2026-10-30.*
+
 ---
 
 # 1. Purpose
@@ -1171,6 +1174,9 @@ scope-bounded per ADMIN-BR-076.
 Where an implementation needs an unrestricted branch (a "manage anything"
 path), it shall gate that branch on membership of the NSS_ERP_ADMIN role
 (or the NSSADMIN system user), never on possession of a permission alone.
+
+
+> **Amendment (2026-10-30, owner-directed, GDR-007):** this rule is unaffected: `NSS_ERP_ADMIN` remains the sole blanket authority and is exempt from the Sakha re-parenting approval chain (ORG-BR-109) — it may re-parent directly, as may a Kendra Governing Body member. Other roles (including a manually-assigned Kendra Administrator) go through the chain. See GDR-007.
 
 ---
 

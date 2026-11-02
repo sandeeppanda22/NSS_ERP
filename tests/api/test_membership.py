@@ -362,12 +362,21 @@ class TestMemberListSorting:
         assert client.get(f"{BASE}/members").status_code == 200
 
     def test_asc_and_desc_are_actual_reverses(self, client):
-        asc = _list_members(client, sort_by="sangha_sevi_id", sort_dir="asc")
-        desc = _list_members(client, sort_by="sangha_sevi_id", sort_dir="desc")
-        if len(asc) < 2:
+        # The list is paginated, so compare the FIRST page of asc with the
+        # LAST page of desc (offset = total - n) — on a DB larger than one
+        # page the two first pages are opposite ends, not reverses.
+        n = 5
+        first = client.get(f"{BASE}/members", params={
+            "sort_by": "sangha_sevi_id", "sort_dir": "asc", "limit": n}).json()
+        total = first["total"]
+        if total < 2:
             pytest.skip("needs at least two members")
-        ids_asc = [m["sangha_sevi_id"] for m in asc]
-        ids_desc = [m["sangha_sevi_id"] for m in desc]
+        n = min(n, total)
+        tail = client.get(f"{BASE}/members", params={
+            "sort_by": "sangha_sevi_id", "sort_dir": "desc",
+            "limit": n, "offset": total - n}).json()
+        ids_asc = [m["sangha_sevi_id"] for m in first["members"]][:n]
+        ids_desc = [m["sangha_sevi_id"] for m in tail["members"]]
         assert ids_asc == list(reversed(ids_desc))
 
     def test_sangha_sevi_id_sorts_numerically_not_as_text(self, client):
@@ -522,7 +531,9 @@ class TestMemberSearch:
             pytest.skip("No members seeded")
         member = members[0]
         person_id = member["person_id"]
-        data = _search_members(client, q=person_id[:2])
+        # Full id + max page: a 2-char prefix ("P1") matches most of a large DB
+        # and the best-match ordering could push the target past the page.
+        data = _search_members(client, q=person_id, limit=500)
         person_ids = [r["person_id"] for r in data]
         assert person_id in person_ids, (
             f"Expected {person_id} in search results, got: {person_ids}"

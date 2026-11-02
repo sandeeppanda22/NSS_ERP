@@ -42,7 +42,7 @@
 INSERT INTO nss.organization
     (organization_name, organization_type_master_data_pk,
      status_master_data_pk, parent_organization_pk,
-     organization_code,
+     organization_code, short_code,
      address_line_1, address_line_2, postal_code_pk, country_pk,
      phone_number, country_phone_code, mobile_number)
 SELECT
@@ -51,6 +51,11 @@ SELECT
     os.master_data_pk,
     NULL,
     'KEN',
+    -- short_code seeded (not left for admin UI assignment, unlike other
+    -- orgs/Sakhas): correspondence reference numbers (CORR-EXT-001,
+    -- SOL-ADMIN-009 §4.9) must read NSS/{IN|OUT}/YYYY-YY/NNN for Kendra
+    -- outward/inward letters — owner-confirmed 2026-10-17.
+    'NSS',
     'Satsikshya Mandir, A/4, Unit-9',
     'Bhubaneswar',
     pc.postal_code_pk,

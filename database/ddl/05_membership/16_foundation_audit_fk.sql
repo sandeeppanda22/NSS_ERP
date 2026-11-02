@@ -50,7 +50,10 @@ ALTER TABLE nss.postal_code
         REFERENCES nss.sangha_sevi (sangha_sevi_pk),
     ADD CONSTRAINT fk_postal_code_reviewed_by
         FOREIGN KEY (reviewed_by_sangha_sevi_pk)
-        REFERENCES nss.sangha_sevi (sangha_sevi_pk);
+        REFERENCES nss.sangha_sevi (sangha_sevi_pk),
+    ADD CONSTRAINT fk_postal_code_submitted_by_person
+        FOREIGN KEY (submitted_by_person_pk)
+        REFERENCES nss.person (person_pk);
 
 ALTER TABLE nss.post_office
     ADD CONSTRAINT fk_post_office_submitted_by
@@ -58,7 +61,10 @@ ALTER TABLE nss.post_office
         REFERENCES nss.sangha_sevi (sangha_sevi_pk),
     ADD CONSTRAINT fk_post_office_reviewed_by
         FOREIGN KEY (reviewed_by_sangha_sevi_pk)
-        REFERENCES nss.sangha_sevi (sangha_sevi_pk);
+        REFERENCES nss.sangha_sevi (sangha_sevi_pk),
+    ADD CONSTRAINT fk_post_office_submitted_by_person
+        FOREIGN KEY (submitted_by_person_pk)
+        REFERENCES nss.person (person_pk);
 
 ALTER TABLE nss.city_village
     ADD CONSTRAINT fk_city_village_submitted_by
@@ -66,4 +72,7 @@ ALTER TABLE nss.city_village
         REFERENCES nss.sangha_sevi (sangha_sevi_pk),
     ADD CONSTRAINT fk_city_village_reviewed_by
         FOREIGN KEY (reviewed_by_sangha_sevi_pk)
-        REFERENCES nss.sangha_sevi (sangha_sevi_pk);
+        REFERENCES nss.sangha_sevi (sangha_sevi_pk),
+    ADD CONSTRAINT fk_city_village_submitted_by_person
+        FOREIGN KEY (submitted_by_person_pk)
+        REFERENCES nss.person (person_pk);

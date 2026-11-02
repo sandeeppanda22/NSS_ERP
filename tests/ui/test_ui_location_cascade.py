@@ -118,9 +118,9 @@ class TestCascadeLoaders:
         assert res["calls"] == ["/api/v1/register/districts?state_pk=10"], res["calls"]
         assert res["districts"] == [{"district_pk": 100, "district_name": "Khordha"}]
 
-    def test_load_postal_codes_queries_by_state_and_stores_rows(self, location_page):
-        res = _drive(location_page, "loadPostalCodes", 10)
-        assert res["calls"] == ["/api/v1/register/postal-codes?state_pk=10"], res["calls"]
+    def test_load_postal_codes_queries_by_district_and_stores_rows(self, location_page):
+        res = _drive(location_page, "loadPostalCodes", 100)
+        assert res["calls"] == ["/api/v1/register/postal-codes?district_pk=100"], res["calls"]
         assert res["postalCodes"] == [{"postal_code_pk": 1000, "postal_code": "751001"}]
 
     @pytest.mark.parametrize("method,array", [
@@ -186,13 +186,12 @@ class TestCascadeResets:
             "postal_code_pk was the silent no-op that let a stale PIN submit"
         )
 
-    def test_state_change_loads_districts_and_postal_codes(self, location_page):
-        """One state change must populate BOTH child lists, not just districts."""
+    def test_state_change_loads_districts_only_and_empties_pin_list(self, location_page):
+        """PINs are district-narrowed: a state change loads districts, and the
+        PIN list stays empty until a district is chosen."""
         res = _drive(location_page, "onStateChange")
-        assert sorted(res["calls"]) == sorted([
-            "/api/v1/register/districts?state_pk=10",
-            "/api/v1/register/postal-codes?state_pk=10",
-        ]), res["calls"]
+        assert res["calls"] == ["/api/v1/register/districts?state_pk=10"], res["calls"]
+        assert res["postalCodes"] == []
 
     def test_state_change_with_no_state_selected_fires_nothing(self, location_page):
         res = _drive(location_page, "onStateChange", form=_full_form(state_pk=""))
@@ -212,16 +211,47 @@ class TestCascadeResets:
         )
         assert res["form"]["postal_code_pk"] == ""
 
-    def test_district_change_clears_only_the_city(self, location_page):
-        """
-        City/village is free text scoped to the district; the postal code is
-        scoped to the state, so it must survive a district change.
-        """
+    def test_district_change_clears_city_and_pin_and_loads_pins_for_district(self, location_page):
         res = _drive(location_page, "onDistrictChange")
         f = res["form"]
         assert f["city_village_name"] == ""
+        assert f["postal_code_value"] == "", "PIN must not survive a district change"
         assert f["district_pk"] == 100, "district_pk should not be reset by itself"
-        assert f["postal_code_value"] == "751001", (
-            "the postal code is state-scoped and should survive a district change"
+        assert res["calls"] == ["/api/v1/register/postal-codes?district_pk=100"], res["calls"]
+        assert res["postalCodes"] == [{"postal_code_pk": 1000, "postal_code": "751001"}]
+
+    def test_district_change_clears_pk_style_dependents(self, location_page):
+        res = _drive(
+            location_page, "onDistrictChange",
+            form={"country_pk": 1, "state_pk": 10, "district_pk": 100,
+                  "city_village_name": "X", "city_village_pk": "c", "postal_code_pk": 1000,
+                  "post_office_pk": "po"},
         )
-        assert res["calls"] == []
+        f = res["form"]
+        assert f["city_village_pk"] == "" and f["postal_code_pk"] == "" and f["post_office_pk"] == ""
+
+    def test_district_change_with_no_district_empties_pin_list(self, location_page):
+        res = _drive(location_page, "onDistrictChange", form=_full_form(district_pk=""))
+        assert res["calls"] == [] and res["postalCodes"] == []
+
+    def test_stale_response_is_discarded(self, location_page):
+        """A slow response for a superseded parent must not overwrite a newer one."""
+        res = location_page.evaluate("""
+        async () => {
+            const resolvers = {};
+            const fetchFn = (url) => new Promise((resolve) => {
+                resolvers[url] = () => resolve({ ok: true, json: () => Promise.resolve([{ tag: url }]) });
+            });
+            const c = NSSLocation.create({ fetchFn, basePath: '/x',
+                arrays: { countries: 'a', states: 'b', districts: 'd', postalCodes: 'p' }, form: 'form' });
+            const ctx = { a: [], b: [], d: [], p: [], form: {} };
+            const first = c.loadPostalCodes(ctx, 1);
+            const second = c.loadPostalCodes(ctx, 2);
+            resolvers['/x/postal-codes?district_pk=2']();
+            await second;
+            resolvers['/x/postal-codes?district_pk=1']();
+            await first;
+            return ctx.p;
+        }
+        """)
+        assert res == [{"tag": "/x/postal-codes?district_pk=2"}], res

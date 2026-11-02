@@ -44,19 +44,31 @@ class CreateUserRequest(BaseModel):
     joining_date: str | None = Field(
         None, description="Joining date ISO (required if create_sangha_sevi)",
     )
+    # GDR-009 (owner 2026-11-01): legacy members supply the number already on
+    # their card; everyone else is auto-numbered. Explicit, never inferred
+    # from whether a number was typed.
+    is_legacy_member: bool = Field(
+        default=False,
+        description=(
+            "True if this person was ALREADY a member before this system "
+            "(Regular/Associate or Darshak): local_sakha_erp_id is then "
+            "required (and credential_document_number). False: both must be "
+            "blank and the next numbers are auto-generated."
+        ),
+    )
     local_sakha_erp_id: str | None = Field(
         None, max_length=30,
-        description="Local Sakha register number (raw, e.g. 1192). Backend composes <short_code><number>.",
+        description="Existing Local Sakha register number (raw, e.g. 1192) of a legacy member; Backend composes <short_code><number>. Must be blank unless is_legacy_member.",
     )
     # Mandatory credential (MBR-010/014/019A/B), mirroring
     # CreateSanghaSeviRequest below — this branch creates a sangha_sevi row
     # too (when create_sangha_sevi=true), so it owes the member the same
-    # Anumati/Parichaya Patra. Omit credential_document_number to
-    # auto-generate a new FY number; supply it to record an already-issued
-    # legacy credential instead. Ignored when create_sangha_sevi=false.
+    # Anumati/Parichaya Patra. GDR-009 §2A: credential_document_number is
+    # required for a legacy member (is_legacy_member) and must be blank
+    # otherwise (auto-generated). Ignored when create_sangha_sevi=false.
     credential_document_number: str | None = Field(
         None, max_length=30,
-        description="Existing document number for a legacy (already-issued) credential; omit to auto-generate a new one.",
+        description="Existing Parichaya/Anumati Patra number (<seq>/<yyyy>/<yyyy+1>, e.g. 345/2026/2027) of a legacy member — required when is_legacy_member, must be blank otherwise (auto-generated, GDR-009 §2A).",
     )
     credential_issue_date: str | None = Field(
         None, description="Deprecated — issue date is now derived from credential_issue_year's Dola Purnima. An explicit ISO (YYYY-MM-DD) date still wins if supplied.",
@@ -136,6 +148,16 @@ class PersonProfileResponse(BaseModel):
     remarks: str | None = None
 
 
+class SanghaSeviBatchCheckRequest(BaseModel):
+    """POST /api/v1/admin/sangha-sevi/check-batch
+
+    person_pks must be a list of UUIDs (non-UUID / non-list -> 422). An
+    omitted or empty list, or more than 100 entries, yields an empty map
+    (unchanged behaviour).
+    """
+    person_pks: list[UUID] = Field(default_factory=list)
+
+
 class AssignRoleRequest(BaseModel):
     """POST /api/v1/admin/users/{user_account_pk}/roles"""
     role_code: str = Field(
@@ -146,13 +168,13 @@ class AssignRoleRequest(BaseModel):
         ...,
         description=(
             "Scope level: NSS-WIDE, KENDRA, ANCHALIKA, ZILLA, SAKHA, "
-            "PATHA_CHAKRA, KENDRA_MAHILA_SANGHA"
+            "PATHA_CHAKRA, KENDRA_MAHILA_SANGHA, ADVISORY_BOARD"
         ),
         # Must stay in step with chk_admin_scope_level in
         # database/ddl/07_administration/02_admin_scope.sql and with the
         # scope_level values in 00_bootstrap/02_role_master.sql — one value
         # per ORGANIZATIONAL role, or that role cannot be assigned at all.
-        pattern="^(NSS-WIDE|KENDRA|ANCHALIKA|ZILLA|SAKHA|PATHA_CHAKRA|KENDRA_MAHILA_SANGHA)$",
+        pattern="^(NSS-WIDE|KENDRA|ANCHALIKA|ZILLA|SAKHA|PATHA_CHAKRA|KENDRA_MAHILA_SANGHA|ADVISORY_BOARD)$",
     )
     organization_pk: UUID | None = Field(
         default=None,
@@ -184,9 +206,21 @@ class CreateSanghaSeviRequest(BaseModel):
             "not 'joined today'; it is never defaulted."
         ),
     )
+    # GDR-009 (owner 2026-11-01): legacy members supply the number already on
+    # their card; everyone else is auto-numbered. Explicit, never inferred
+    # from whether a number was typed.
+    is_legacy_member: bool = Field(
+        default=False,
+        description=(
+            "True if this person was ALREADY a member before this system "
+            "(Regular/Associate or Darshak): local_sakha_erp_id is then "
+            "required (and credential_document_number). False: both must be "
+            "blank and the next numbers are auto-generated."
+        ),
+    )
     local_sakha_erp_id: str | None = Field(
         None, max_length=30,
-        description="Local Sakha register number (raw, e.g. 1192). Backend composes <short_code><number>.",
+        description="Existing Local Sakha register number (raw, e.g. 1192) of a legacy member; Backend composes <short_code><number>. Must be blank unless is_legacy_member.",
     )
     # Optional: also create a login (user account) for this person. Because
     # login is by sangha_sevi_id, an account is only usable once the person
@@ -207,16 +241,16 @@ class CreateSanghaSeviRequest(BaseModel):
     )
     # Mandatory credential (MBR-010/014/019A/B): a PROBATIONARY member must
     # be issued an Anumati Patra; REGULAR/ASSOCIATE must be issued a
-    # Parichaya Patra. Two paths:
-    #   - Omit credential_document_number: a new number is auto-generated
-    #     for the current financial year (Kendra-wide sequence for
-    #     Parichaya Patra, Sakha-wide for Anumati Patra — MBR-030A).
-    #   - Provide credential_document_number (+ optionally the other
-    #     credential_* fields): records an already-issued legacy
-    #     credential instead of minting a new one.
+    # Parichaya Patra. Two paths, selected by is_legacy_member (GDR-009 §2A):
+    #   - New member: credential_document_number MUST be blank; a number is
+    #     auto-generated (Kendra-wide sequence for Parichaya Patra,
+    #     Sakha-wide for Anumati Patra — MBR-030A).
+    #   - Legacy member: credential_document_number is REQUIRED and records
+    #     the already-issued card (+ optionally the other credential_*
+    #     fields) instead of minting a new one.
     credential_document_number: str | None = Field(
         None, max_length=30,
-        description="Existing document number for a legacy (already-issued) credential; omit to auto-generate a new one.",
+        description="Existing Parichaya/Anumati Patra number (<seq>/<yyyy>/<yyyy+1>, e.g. 345/2026/2027) of a legacy member — required when is_legacy_member, must be blank otherwise (auto-generated, GDR-009 §2A).",
     )
     credential_issue_date: str | None = Field(
         None, description="Deprecated — issue date is now derived from credential_issue_year's Dola Purnima. An explicit ISO (YYYY-MM-DD) date still wins if supplied.",
@@ -246,6 +280,7 @@ class UserAccountResponse(BaseModel):
     credential_document_number: str | None = None
     person_name: str | None = None
     organization_name: str | None = None
+    organization_pk: UUID | None = None  # home Sakha (active SS org, else claimed org)
     local_sakha_erp_id: str | None = None
     darshak_local_number: str | None = None
     darshak_organization_name: str | None = None
@@ -314,6 +349,22 @@ class RoleAssignmentResponse(BaseModel):
     is_active: bool
 
 
+class AutoGrantedScopeResponse(BaseModel):
+    """
+    A §63 composite auto-grant — a scope derived live from a governance
+    position (body_member_assignment / acting_position_assignment), not
+    from any real user_role row. Carries no user_role_pk because none
+    exists: nothing is stored, nothing can be revoked here — it disappears
+    the moment the person leaves the position. Shown read-only alongside
+    RoleAssignmentResponse in the admin UI, badged "Auto-Admin (§63)".
+    """
+    role_code: str
+    role_name: str
+    scope_level: str | None = None
+    organization_pk: UUID | None = None
+    organization_name: str | None = None
+
+
 class UserDetailResponse(BaseModel):
     """GET /api/v1/admin/users/{user_account_pk} — full detail."""
     user_account_pk: UUID
@@ -322,6 +373,7 @@ class UserDetailResponse(BaseModel):
     sangha_sevi_id: str | None = None
     person_name: str | None = None
     organization_name: str | None = None
+    organization_pk: UUID | None = None  # home Sakha (active SS org, else claimed org)
     local_sakha_erp_id: str | None = None
     darshak_local_number: str | None = None
     darshak_organization_name: str | None = None
@@ -335,6 +387,7 @@ class UserDetailResponse(BaseModel):
     created_at: datetime
     is_active: bool
     roles: list[RoleAssignmentResponse]
+    auto_granted_scopes: list[AutoGrantedScopeResponse] = []
 
 
 class CreateSanghaSeviResponse(BaseModel):

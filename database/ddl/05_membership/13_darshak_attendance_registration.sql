@@ -4,8 +4,8 @@
 -- File: 13_darshak_attendance_registration.sql
 -- Table: nss.darshak_attendance_registration
 -- Depth: 3 (depends on sangha_sevi, organization)
--- Version: 1.0
--- Authority: SOL-MEM-006 — Darshak Attendance Registration
+-- Version: 1.1
+-- Authority: SOL-MEM-006 — Darshak Attendance Registration (DAR-009 added)
 -- Owner: NSS_ERP_ADMIN
 -- Note: Stores cross-Sakha Darshak attendance with
 --       three-step approval workflow and local number
@@ -14,6 +14,10 @@
 --       (which tracks home-Sakha membership affiliation).
 --       Darshak local number is persistent per person
 --       per Sakha — never reassigned to another person.
+--       request_source records whether the member or an
+--       admin (on the member's behalf) raised the request;
+--       it is record-keeping only and never skips a step of
+--       the three-step approval (DAR-009).
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS nss.darshak_attendance_registration
@@ -33,6 +37,15 @@ CREATE TABLE IF NOT EXISTS nss.darshak_attendance_registration
 
     -- The Sakha being attended as Darshak
     attending_organization_pk UUID NOT NULL,
+
+    -- ── Request Initiation (DAR-009) ────────────────────
+
+    -- Who raised the request: the member himself, or the admin
+    -- acting on his behalf.
+    initiated_by_sangha_sevi_pk UUID NOT NULL,
+
+    -- Record-keeping only — does not affect the three-step approval.
+    request_source VARCHAR(20) NOT NULL,
 
     -- ── Darshak Local Number ────────────────────────────
 
@@ -105,6 +118,14 @@ CREATE TABLE IF NOT EXISTS nss.darshak_attendance_registration
         FOREIGN KEY (attending_organization_pk)
         REFERENCES nss.organization (organization_pk),
 
+    CONSTRAINT fk_dar_att_reg_initiated_by
+        FOREIGN KEY (initiated_by_sangha_sevi_pk)
+        REFERENCES nss.sangha_sevi (sangha_sevi_pk),
+
+    -- Request source controlled values (DAR-009)
+    CONSTRAINT chk_dar_att_reg_request_source
+        CHECK (request_source IN ('MEMBER_SELF', 'ADMIN_AUTOMATIC_ENTRY')),
+
     -- Cannot be Darshak at own home Sakha (DAR-006)
     CONSTRAINT chk_dar_att_reg_different_sakha
         CHECK (home_organization_pk != attending_organization_pk),
@@ -162,6 +183,9 @@ CREATE INDEX IF NOT EXISTS idx_dar_att_reg_home_org
 
 CREATE INDEX IF NOT EXISTS idx_dar_att_reg_attending_org
     ON nss.darshak_attendance_registration (attending_organization_pk);
+
+CREATE INDEX IF NOT EXISTS idx_dar_att_reg_initiated_by
+    ON nss.darshak_attendance_registration (initiated_by_sangha_sevi_pk);
 
 CREATE INDEX IF NOT EXISTS idx_dar_att_reg_approval_status
     ON nss.darshak_attendance_registration (approval_status);

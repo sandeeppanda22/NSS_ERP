@@ -15,6 +15,12 @@
 --   have this yet" auto-selection depends on this being a real
 --   invariant, not an assumption enforced only in the API).
 --
+-- "Sakha" here means ANY parent organization (the check keys on
+-- parent_organization_pk, never on the parent's type), so a SAKHA_ASANA
+-- parent is covered exactly like a SAKHA_SANGHA (owner 2026-10-31, GDR-008:
+-- a Sakha Asana hosts the same wings). No Sakha-type literal is used, hence
+-- no fn_is_sakha_like_org_type call and no behaviour change was needed.
+--
 -- Not a partial unique index: the predicate needs organization_type_
 -- master_data_pk resolved to its value_code via nss.master_data, and
 -- Postgres forbids subqueries in index predicates. A BEFORE trigger

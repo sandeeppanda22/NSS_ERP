@@ -75,6 +75,10 @@ ENTITY_REGISTRY: dict[str, dict] = {
         "self_fk_col": "corrected_into_district_pk",
         "value_cols": ["state_pk", "district_code", "district_name", "display_order"],
         "person_address_fk_col": None,
+        # District is never auto-created at registration (registration
+        # picks district from a dropdown pk, not free text), so this
+        # table has no submitted_by_person_pk column at all.
+        "person_submitter": False,
     },
     "postal-code": {
         "table": "postal_code",
@@ -82,6 +86,7 @@ ENTITY_REGISTRY: dict[str, dict] = {
         "self_fk_col": "corrected_into_postal_code_pk",
         "value_cols": ["state_pk", "postal_code"],
         "person_address_fk_col": "postal_code_pk",
+        "person_submitter": True,
     },
     "post-office": {
         "table": "post_office",
@@ -89,6 +94,7 @@ ENTITY_REGISTRY: dict[str, dict] = {
         "self_fk_col": "corrected_into_post_office_pk",
         "value_cols": ["postal_code_pk", "post_office_name", "display_order"],
         "person_address_fk_col": "post_office_pk",
+        "person_submitter": True,
     },
     "city-village": {
         "table": "city_village",
@@ -99,6 +105,7 @@ ENTITY_REGISTRY: dict[str, dict] = {
             "city_village_name", "city_village_type", "display_order",
         ],
         "person_address_fk_col": "city_village_pk",
+        "person_submitter": True,
     },
 }
 
@@ -110,9 +117,12 @@ _APPROVED_UNIQUE_INDEXES: dict[str, list[str]] = {
     "postal-code": ["uq_postal_code_code_approved"],
     "post-office": ["uq_post_office_pin_name_approved"],
     "city-village": [
+        # 2026-10-21 (owner-confirmed): district+name uniqueness removed
+        # and PIN+name widened to include district — village names repeat
+        # within both a district and a PIN in real Indian geography. See
+        # database/ddl/01_foundation/11_city_village.sql.
         "uq_city_village_district_code_approved",
-        "uq_city_village_district_name_approved",
-        "uq_city_village_postal_code_name_approved",
+        "uq_city_village_pin_name_district_approved",
     ],
 }
 
@@ -156,7 +166,28 @@ def _core_select_sql(cfg: dict, alias: str = "g") -> str:
         "ss.organization_pk AS submitted_by_organization_pk",
         "org.organization_name AS submitted_by_organization_name",
     ]
-    return ", ".join(core_cols + value_cols + submitter_cols)
+    if cfg.get("person_submitter"):
+        person_cols = [
+            f"{alias}.submitted_by_person_pk AS submitted_by_person_pk",
+            "sp.person_id AS submitted_by_person_id",
+            "(sp.first_name || ' ' || COALESCE(sp.last_name, '')) AS submitted_by_person_name",
+        ]
+    else:
+        person_cols = [
+            "NULL::uuid AS submitted_by_person_pk",
+            "NULL::varchar AS submitted_by_person_id",
+            "NULL::varchar AS submitted_by_person_name",
+        ]
+    return ", ".join(core_cols + value_cols + submitter_cols + person_cols)
+
+
+def _person_join_sql(cfg: dict, alias: str = "g") -> str:
+    """LEFT JOIN fragment for the registration-origin person submitter —
+    only emitted for entities that actually carry submitted_by_person_pk
+    (district does not; see ENTITY_REGISTRY)."""
+    if not cfg.get("person_submitter"):
+        return ""
+    return f"LEFT JOIN nss.person sp ON sp.person_pk = {alias}.submitted_by_person_pk"
 
 
 def _row_to_response(entity: str, cfg: dict, columns: list[str], row: tuple) -> GeoEntryResponse:
@@ -171,6 +202,9 @@ def _row_to_response(entity: str, cfg: dict, columns: list[str], row: tuple) -> 
         submitted_by_sangha_sevi_id=d["submitted_by_sangha_sevi_id"],
         submitted_by_organization_pk=d["submitted_by_organization_pk"],
         submitted_by_organization_name=d["submitted_by_organization_name"],
+        submitted_by_person_pk=d["submitted_by_person_pk"],
+        submitted_by_person_id=d["submitted_by_person_id"],
+        submitted_by_person_name=d["submitted_by_person_name"],
         reviewed_by_sangha_sevi_pk=d["reviewed_by_sangha_sevi_pk"],
         reviewed_at=d["reviewed_at"],
         admin_remarks=d["admin_remarks"],
@@ -187,6 +221,7 @@ def _fetch_entry(cur, entity: str, cfg: dict, entry_pk) -> GeoEntryResponse | No
         FROM nss.{cfg['table']} g
         LEFT JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = g.submitted_by_sangha_sevi_pk
         LEFT JOIN nss.organization org ON org.organization_pk = ss.organization_pk
+        {_person_join_sql(cfg)}
         WHERE g.{cfg['pk_col']} = %s
         """,
         (str(entry_pk),),
@@ -199,13 +234,40 @@ def _fetch_entry(cur, entity: str, cfg: dict, entry_pk) -> GeoEntryResponse | No
 
 
 def _check_entry_scope(cur, user: UserContext, entry: GeoEntryResponse) -> None:
-    """403 unless *entry*'s submitting organization is within the actor's scope subtree."""
+    """403 unless *entry*'s submitting organization is within the actor's scope subtree.
+
+    Additive branch (Registration-Time Geography Creation, 2026-10-21):
+    for a registration-origin row (submitted_by_person_pk set, no
+    sangha_sevi yet), the submitting person's PENDING registration_claim
+    or active sangha_sevi is used instead to anchor the org — see
+    list_geo_entries' scope_filter for the equivalent SQL, applied here
+    row-at-a-time for the single-entry endpoints (detail/approve/correct).
+    """
     allowed = actor_scope_org_pks(cur, user)
     if allowed is None:
         return
     org_pk = entry.submitted_by_organization_pk
     if org_pk is not None and str(org_pk) in allowed:
         return
+    person_pk = entry.submitted_by_person_pk
+    if person_pk is not None:
+        cur.execute(
+            """
+            SELECT 1 FROM nss.registration_claim rc
+            WHERE rc.person_pk = %s
+              AND rc.claim_status = 'PENDING' AND rc.is_active = TRUE
+              AND rc.claimed_organization_pk = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 1 FROM nss.sangha_sevi s2
+            WHERE s2.person_pk = %s
+              AND s2.is_active = TRUE
+              AND s2.organization_pk = ANY(%s::uuid[])
+            LIMIT 1
+            """,
+            (str(person_pk), list(allowed), str(person_pk), list(allowed)),
+        )
+        if cur.fetchone() is not None:
+            return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="You can only review geographic entries submitted within your admin scope.",
@@ -222,7 +284,7 @@ def list_geo_entries(
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE")),
+    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE", "GEO_ENTRY_APPROVE")),
     conn=Depends(get_connection),
 ) -> GeoEntryListResponse:
     """
@@ -244,8 +306,33 @@ def list_geo_entries(
     scope_filter = ""
     scope_params: list = []
     if allowed is not None:
-        scope_filter = "AND ss.organization_pk = ANY(%s::uuid[])"
-        scope_params = [list(allowed)]
+        if cfg.get("person_submitter"):
+            # Additive OR branch (Registration-Time Geography Creation,
+            # 2026-10-21): a registration-origin row has no sangha_sevi
+            # yet, so it is surfaced via the submitting person's PENDING
+            # registration_claim (claimed_organization_pk) OR active
+            # sangha_sevi (organization_pk) instead.
+            scope_filter = """
+                AND (
+                    ss.organization_pk = ANY(%s::uuid[])
+                    OR EXISTS (
+                        SELECT 1 FROM nss.registration_claim rc
+                        WHERE rc.person_pk = g.submitted_by_person_pk
+                          AND rc.claim_status = 'PENDING' AND rc.is_active = TRUE
+                          AND rc.claimed_organization_pk = ANY(%s::uuid[])
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM nss.sangha_sevi s2
+                        WHERE s2.person_pk = g.submitted_by_person_pk
+                          AND s2.is_active = TRUE
+                          AND s2.organization_pk = ANY(%s::uuid[])
+                    )
+                )
+            """
+            scope_params = [list(allowed), list(allowed), list(allowed)]
+        else:
+            scope_filter = "AND ss.organization_pk = ANY(%s::uuid[])"
+            scope_params = [list(allowed)]
 
     with conn.cursor() as cur:
         cur.execute(
@@ -266,6 +353,7 @@ def list_geo_entries(
             FROM nss.{cfg['table']} g
             LEFT JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = g.submitted_by_sangha_sevi_pk
             LEFT JOIN nss.organization org ON org.organization_pk = ss.organization_pk
+            {_person_join_sql(cfg)}
             WHERE g.entry_status = %s
               {scope_filter}
             ORDER BY g.created_at ASC
@@ -286,7 +374,7 @@ def list_geo_entries(
 def get_geo_entry(
     entity: str,
     entry_pk: UUID,
-    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE")),
+    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE", "GEO_ENTRY_APPROVE")),
     conn=Depends(get_connection),
 ) -> GeoEntryResponse:
     cfg = _get_entity_cfg(entity)
@@ -305,7 +393,7 @@ def approve_geo_entry(
     entity: str,
     entry_pk: UUID,
     body: ApproveGeoEntryRequest = ApproveGeoEntryRequest(),
-    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE")),
+    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE", "GEO_ENTRY_APPROVE")),
     conn=Depends(get_write_connection),
 ) -> GeoEntryResponse:
     """
@@ -587,7 +675,7 @@ def correct_geo_entry(
     entity: str,
     entry_pk: UUID,
     body: CorrectGeoEntryRequest,
-    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE")),
+    user: UserContext = Depends(require_any_permission("FOUNDATION_MANAGE", "GEO_ENTRY_APPROVE")),
     conn=Depends(get_write_connection),
 ) -> CorrectGeoEntryResponse:
     """
