@@ -291,7 +291,7 @@ api/
 │   │                     are filed by `PATCH /admin/organizations/{pk}` (HTTP 202) — logic in
 │   │                     `services/org_reparent_service.py`, seat lookups in `services/seat_service.py`
 │   ├── attendance.py     Tier 6 — 21 endpoints under /api/v1/attendance: Weekly Sangha Puja
-│   │                     (`/pujas`, `/pujas/{pk}/attendance` (optimistic `expected_version` -> 409 conflicts), `/pujas/{pk}/live` (2 s poll, ETag/304), `/records`), `/exceptions`, Attendance
+│   │                     (`/pujas`, `/pujas/{pk}/attendance` (optimistic `expected_version` -> 409 conflicts), `/pujas/{pk}/live` (adaptive poll, 2 s active, ETag/304), `/records`), `/exceptions`, Attendance
 │   │                     Review workflow (`/reviews*`: close/defer/revisit/escalate-to-president/
 │   │                     escalate-to-parichalak/reopen/override), `/watch-list`, `/stats/*`.
 │   │                     `ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE` + admin scope; review/exception

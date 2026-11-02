@@ -34,17 +34,14 @@ are untouched):
   (8 present, 1 absent, 3 unmarked of 12 = 67%, not 89%) is a deliberate owner-directed display rule.
   The stats endpoints (org, per-member, member leaderboard, dashboard cards) are multi-week figures and
   still use present/(present+absent); aligning them is an open owner decision.
-- **Live view.** `GET /pujas/{pk}/live` is polled at a fixed 2 s interval (a "Reconnecting" note shows on
-  errors) with an ETag so an unchanged register is a 304. Idle slow-down, hidden-tab pause and error
-  back-off were deliberately left out for now (owner decision 2026-10-31). Rows show "by <name>, <time>"; a banner shows "N of M marked";
+- **Live view.** `GET /pujas/{pk}/live` is polled adaptively (`LIVE_POLL` in `attendance-register.js`: 2 s while the register is visible and active, 10 s after 60 s with no change, paused in a hidden browser tab or when the host tab is not on screen and refreshed at once on return, 4/8/16/30 s back-off on errors — a 429's `Retry-After` raises the wait) with an ETag so an unchanged register is a 304; a "Reconnecting" note shows on errors. Rows show "by <name>, <time>"; a banner shows "N of M marked";
   a "Not marked" filter chip lists members nobody has marked.
 - **Index.** `idx_wspa_puja_last_change` (`database/ddl/10_attendance/05_attendance_live_version_index_patch.sql`,
   idempotent, run by all build scripts) serves the version cursor.
 - **Rate limit (fix 1, 2026-11-01):** `GET /pujas/{pk}/live` has its own limit,
   `LIVE_ATTENDANCE_RATE_LIMIT` (default `120/minute`), counted **per signed-in user** (JWT `sub`; client IP when
   there is no valid token) instead of the global per-IP `RATE_LIMIT` — so a whole Sakha polling from one WiFi IP
-  no longer shares one budget (`api/rate_limit.py`). Still open: the adaptive cadence (fix 2: idle slow-down,
-  hidden-tab pause, error back-off) was left out on purpose; a 429 is retried at the same 2 s.
+  no longer shares one budget (`api/rate_limit.py`). The adaptive cadence (fix 2, 2026-11-02) is built into the page.
 
 ---
 

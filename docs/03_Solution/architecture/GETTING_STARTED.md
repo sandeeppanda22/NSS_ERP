@@ -206,10 +206,10 @@ python3 -m pytest tests/api/test_organization.py   # one file
 py -m pytest tests/ -v
 ```
 
-**3976 collected items** (`pytest --collect-only -qq`, 2026-11-02): `tests/api/` 2303 (35 files — router and
+**3979 collected items** (`pytest --collect-only -qq`, 2026-11-02): `tests/api/` 2303 (35 files — router and
 integration coverage), `tests/db/` 199 (7 files — cross-module data integrity, credential/festival schema,
 organization singleton triggers, home-affiliation guard), `tests/security/` 850 (16 files — auth-gating,
-401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 624 (32 files — Playwright browser tests plus
+401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 627 (32 files — Playwright browser tests plus
 source-parsing tests). Re-run `--collect-only -qq` for current numbers; this count drifts every session.
 See `tests/README.md` for the per-file inventory.
 
@@ -257,7 +257,7 @@ Log in at `/login` as `SS1` / `Admin@123` unless stated. A fresh build has no me
    Anchalika/Zilla President → destination Anchalika/Zilla President → Kendra President; each approver sees it
    in their queue. A Kendra Governing Body member or `NSS_ERP_ADMIN` re-parents directly (exempt from the chain).
 7. **Live attendance register.** Make two users attendance markers for one Sakha (`NSS_ERP_ATTENDANCE_MARKER`).
-   Open Mark Attendance in two browsers: a mark by one appears in the other within about 2 s (fixed polling),
+   Open Mark Attendance in two browsers: a mark by one appears in the other within about 2 s (adaptive polling: slower when idle),
    shows who marked it, and a conflicting edit prompts before overwriting; the percentage on screen is
    roster-based. A Darshaka (probationary) member cannot be marked at another Sakha — they must transfer.
 8. **Sakha Asana as a Sakha.** Create a `SAKHA_ASANA`: it gets a Sakha Governing Body shell, takes members,
@@ -568,11 +568,11 @@ test does.
 
 **HTTP 429 from the live attendance register**
 
-The register polls `/attendance/pujas/{pk}/live` every 2 s. That route has its own per-user limit
+The register polls `/attendance/pujas/{pk}/live` (2 s while active). That route has its own per-user limit
 (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`, counted per signed-in user), so markers on one WiFi no longer
 share the per-IP budget. A 429 on it now means one account is polling more than ~120 times a minute (many tabs?).
 Other endpoints still use the global per-IP `RATE_LIMIT` (`300/minute`); raise it in `api/.env` for local
-multi-user testing. Fixed 2 s polling is the current behaviour; see Section 8 for the pending adaptive cadence.
+multi-user testing. Polling is adaptive (2 s active, 10 s after a quiet minute, paused in hidden tabs, back-off on errors).
 
 **`[WARN]` in `03_validate`**
 
@@ -590,9 +590,8 @@ claims whose legacy flag disagrees with the stored number. Diagnostic SELECTs ar
   President chain (007), Sakha Asana is a Sakha for all organizational purposes (008), legacy members supply
   their Local Sakha Number while all others are auto-numbered (009). The repo holds no separate NSS Governing Body
   minutes; add their reference to each record if they exist. The code already implements them.
-- **Adaptive polling (fix 2) is not built.** The live attendance register polls at a fixed 2 s interval (no idle
-  slow-down, hidden-tab pause or back-off). The per-user rate limit (fix 1) is in place: `/live` is limited per
-  signed-in user (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`) instead of the global per-IP `RATE_LIMIT`.
+- **Live attendance register rate limiting is done:** the per-user limit (fix 1: `/live` is limited per signed-in
+  user, `LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`) and the adaptive poll cadence (fix 2) are both in place.
 - **Advisory Board meetings and decisions** inside Programmes & Events are not specified yet.
 - **No backfill of existing members lacking a home affiliation / Local Sakha ID** — deliberately not written
   (owner decision). `03_validate` WARNs and the diagnostic SELECT lists them.
