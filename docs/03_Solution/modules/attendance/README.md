@@ -40,9 +40,11 @@ are untouched):
   a "Not marked" filter chip lists members nobody has marked.
 - **Index.** `idx_wspa_puja_last_change` (`database/ddl/10_attendance/05_attendance_live_version_index_patch.sql`,
   idempotent, run by all build scripts) serves the version cursor.
-- **Known risk (open):** 2 s polling from many users on one IP can hit the global per-IP rate limit
-  (`RATE_LIMIT`, default `300/minute`); rate limiting was deliberately not changed here — the owner will
-  handle it separately.
+- **Rate limit (fix 1, 2026-11-01):** `GET /pujas/{pk}/live` has its own limit,
+  `LIVE_ATTENDANCE_RATE_LIMIT` (default `120/minute`), counted **per signed-in user** (JWT `sub`; client IP when
+  there is no valid token) instead of the global per-IP `RATE_LIMIT` — so a whole Sakha polling from one WiFi IP
+  no longer shares one budget (`api/rate_limit.py`). Still open: the adaptive cadence (fix 2: idle slow-down,
+  hidden-tab pause, error back-off) was left out on purpose; a 429 is retried at the same 2 s.
 
 ---
 

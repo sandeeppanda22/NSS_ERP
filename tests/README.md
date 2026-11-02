@@ -57,6 +57,7 @@ tests/
 │   ├── test_registration.py       # Tier 5 — self-registration, claim approval, /register/address-types (63; 79)
 │   ├── test_sakha_asana_parity.py # Sakha Asana == Sakha: stray-'SAKHA_SANGHA'-literal scan, SAKHA_LIKE_ORG_TYPES cross-layer consistency, behavioural parity (37; 48). NOT yet run
 │   ├── test_sakha_branches.py     # Tier 2 — 175 Sakha branch seed data (33; 33)
+│   ├── test_rate_limit_per_user.py # per-user rate limit key + /live route limit (13; DB-free logic, 13 passed with --noconftest)
 │   ├── test_savepoint_isolation.py # tests/conftest.py SAVEPOINT architecture itself (11; 11). NOT yet run
 │   └── test_sorting.py            # Shared column-sort-whitelist helper (14; 27)
 │
@@ -130,10 +131,10 @@ tests/
     └── test_ui_topbar.py            # nss-layout.js role-badge collapsing + topbar layout rules (11; 12)
 ```
 
-**Current totals** (re-counted 2026-10-31): **3718 collected items** (`pytest --collect-only -qq`) —
-`tests/api/` 2111 (31 files), `tests/db/` 185 (6 files), `tests/security/` 836 (16 files),
-`tests/ui/` 586 (31 test files). Integration (api + db + security) = 3132; UI = 586. AST count of
-`def test_*` functions: 2548 (api 1730, db 91, security 309, ui 418). Not executed in the refresh
+**Current totals** (re-counted 2026-11-02): **3976 collected items** (`pytest --collect-only -qq`) —
+`tests/api/` 2303 (35 files), `tests/db/` 199 (7 files), `tests/security/` 850 (16 files),
+`tests/ui/` 624 (32 test files). Integration (api + db + security) = 3352; UI = 624. AST count of
+`def test_*` functions: 2738 (api 1866, db 106, security 312, ui 454). Not executed in the refresh
 session; the 2026-10-30/31 additions and all Attendance suites have never been run against a DB.
 There is no Playwright test file for the Governance admin tabs.
 
@@ -153,7 +154,7 @@ via `api/database.py::get_write_pool()`) for the entire pytest run, wraps each t
 in a PostgreSQL `SAVEPOINT` (`_module_savepoint`, autouse), and overrides both `get_connection` (from `api.database`)
 and `get_write_connection` (from `api.dependencies.auth`, the auditing one every router uses) FastAPI dependencies to yield that same connection. At the end of
 each module, `ROLLBACK TO SAVEPOINT` undoes every INSERT/UPDATE/DELETE the module's tests
-made. `_reset_rate_limiter` (autouse, function-scoped) resets `api.main.limiter`'s in-memory
+made. `_reset_rate_limiter` (autouse, function-scoped) resets the shared `limiter` (`api/rate_limit.py`, re-exported by `api.main`)'s in-memory
 storage before every test.
 
 Further fixtures in the root `conftest.py` (session-scoped unless noted):

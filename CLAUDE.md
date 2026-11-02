@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> `feature/tier6-governance` (29 commits past `develop`, not merged or released); tree clean as of 2026-11-01.
+> `feature/tier6-governance` (31 commits past `develop`, not merged or released); uncommitted on top: the per-user live-attendance rate limit (fix 1 — `api/rate_limit.py`, `config.py`, `main.py`, `attendance.py`, `tests/api/test_rate_limit_per_user.py`, doc edits).
 
 ## Commands
 
@@ -30,7 +30,7 @@ npm install && npm run css:build         # (Node pinned in .nvmrc) only after ed
 
 No lint/format tooling is configured — don't add one unilaterally. Every `tests/api|db|security`
 test is a real integration test (nothing mocked): it needs a bootstrapped local DB and `api/.env`.
-Suite size (`pytest --collect-only -qq`, 2026-10-31): 3763 items — api 2132, db 185, security 850, ui 596. Attendance and everything written 2026-10-30/31 has **never been run against a DB** — don't claim it passes.
+Suite size (`pytest --collect-only -qq`, 2026-11-02): 3976 items — api 2303, db 199, security 850, ui 624. Attendance and everything written 2026-10-30/31 has **never been run against a DB** — don't claim it passes.
 
 ## Setup
 
@@ -38,7 +38,7 @@ Suite size (`pytest --collect-only -qq`, 2026-10-31): 3763 items — api 2132, d
 also `DB_WRITE_USER`/`DB_WRITE_PASSWORD` and `JWT_SECRET_KEY` (`Settings.validate_auth()` raises
 otherwise; Tier 0-4 reads start without them). `database/scripts/06_setup_env.sh` (superuser)
 sets all three role passwords and generates a working `api/.env`. All optional variables
-(CORS, rate limit, pool sizes, `DEBUG_MODE`, `DEV_LIVE_RELOAD` (dev-only, never in deploys), CSP; `RATE_LIMIT` defaults to `300/minute`): `docs/PROJECT_DOCUMENTATION.md` → Configuration.
+(CORS, rate limit, pool sizes, `DEBUG_MODE`, `DEV_LIVE_RELOAD` (dev-only, never in deploys), CSP; `RATE_LIMIT` defaults to `300/minute`, `LIVE_ATTENDANCE_RATE_LIMIT` to `120/minute`): `docs/PROJECT_DOCUMENTATION.md` → Configuration.
 CSP `script-src` has no `'unsafe-inline'`, so the frontend must not use inline event handlers.
 
 ## Database
@@ -177,13 +177,14 @@ threshold 0.45 with `re.split(r'[.@]', q)[0]` for email-shaped input.
 only via a documented release (tag + `docs/05_Releases/vX.Y.Z.md` + GitHub Release). Verify the
 branch with `git status` before changes. Remotes: `personal` (daily dev) → PR → `org` (deploy
 source); pushes are often blocked in-sandbox, so push from a terminal. Never add a `Co-Authored-By`
-trailer to commits. Current state: `main` = `develop` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); the work is on `feature/tier6-governance` (16 commits past `develop`, unmerged; old
+trailer to commits. Current state: `main` = `develop` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); the work is on `feature/tier6-governance` (31 commits past `develop`, unmerged; old
 `feature/*` branches are merged leftovers). Don't branch a new feature off it until Tier 6 is merged.
 
 ## Open items
 
-- Attendance live register (owner decision "Option B", 2026-10-31): **Known risk (open item, rate limiting NOT touched here; owner will handle separately):** the live poller hits `GET /api/v1/attendance/pujas/{pk}/live` every 2 s per open register (fixed interval; idle slow-down, hidden-tab pause and error back-off were left out on purpose), and the app's SlowAPI limit is a single global `RATE_LIMIT` (default `300/minute`) per client IP. Several markers behind one NAT/office IP, or many Sakhas on a shared network, can therefore exhaust the per-IP budget (one active register alone is ~30 requests/min) and start getting 429s; the poller treats any non-2xx/304 as an error, shows a "Reconnecting" note and retries at the same 2 s, so heavy 429s will keep hammering; a dedicated higher limit (or exemption) for this route and the adaptive cadence (idle 10 s, hidden-tab pause, back-off) are both still to do. Poll constants live in `frontend/assets/js/attendance-register.js` (`LIVE_POLL`). New code was verified only by compile/import/collect — nothing ran against a DB or browser.
+- Attendance live register (owner decision "Option B", 2026-10-31): **Rate limit (fix 1, 2026-11-01):** `GET /api/v1/attendance/pujas/{pk}/live` has its own per-USER limit (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`, key = JWT `sub` via `api/rate_limit.py::user_or_ip_key`, IP when no valid token) that REPLACES the global per-IP `RATE_LIMIT` for that route — the shared `Limiter` now lives in `api/rate_limit.py` (routers attach limits with `@limiter.limit`). *Open (owner removed it for now, fix 2):* adaptive polling — the poller is a fixed 2 s (`LIVE_POLL.POLL_MS`), a 429 is retried at the same 2 s, no idle slow-down / hidden-tab pause / back-off. Poll constants live in `frontend/assets/js/attendance-register.js` (`LIVE_POLL`). New code was verified only by compile/import/collect — nothing ran against a DB or browser.
 - **GDR-005..009 are `Approved`** (2026-11-01, recorded on the project owner's instruction; no separate NSS Governing Body minutes are in the repo — add them to each record if they exist). Never change a GDR's status on your own; only on an explicit owner instruction.
+- Existing members without a home Sakha affiliation (owner reports SS1752/SS1753 on the dev DB; not verifiable without the DB): `03_validate` only WARNs, **no backfill is written, on purpose**. AUTH-BR-086-related questions (local Sakha ID rules; GDR-009 amends it) remain for the owner.
 - Local Mahila Sangha / Paribarik Asana have a Sakha-like parent (GDR-008) but no creation path (ORG-BR-096 keeps Asana creation out of `create_organization`) — owner to decide.
 - `tests/api/test_membership.py:1193` calls undefined `_get_member_by_id` (inside a `@pytest.mark.skip`-ped test; predates the 2026-10-30/31 work).
 - **Advisory Board meetings & decisions are not modelled** — planned inside Programmes & Events (Module #21, not frozen); owner to specify the fields.

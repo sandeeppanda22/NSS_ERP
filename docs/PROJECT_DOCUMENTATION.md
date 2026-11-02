@@ -23,7 +23,7 @@ What exists today:
 | API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 17 routers, 252 endpoints (decorator-counted). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 71 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (3718 items collected). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (3976 items collected). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
@@ -40,7 +40,7 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 | 3 | Person | Released v0.9.0 |
 | 4 | Family + Membership | Released v0.10.0 (hotfixes v0.10.1-v0.10.3, performance v0.10.4) |
 | 5 | Authentication + Administration + Audit | Released v0.11.0 (on `develop` and `main`) |
-| 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Committed on `feature/tier6-governance` (16 commits past `develop`), **not merged or released**; the 2026-10-30/31 work (Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, Assign-Role changes) is **uncommitted** on top (`git status`) |
+| 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Committed on `feature/tier6-governance` (31 commits past `develop`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not merged or released**; only the per-user live-attendance rate limit (fix 1) is **uncommitted** on top (`git status`) |
 | 6 (rest) | Assets & Property | Design only |
 | 7-13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Finance, Reports + Backup | Design only |
 
@@ -138,7 +138,7 @@ read via `audit.py`.
 ### Middleware
 
 Registered in `api/main.py` / `api/middleware.py`: `SlowAPIMiddleware` (one global per-IP limit,
-`RATE_LIMIT`, default `300/minute`; no per-route limits), `CORSMiddleware` only when
+`RATE_LIMIT`, default `300/minute`; the one per-route override is the per-user `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance `/live` poll), `CORSMiddleware` only when
 `CORS_ORIGINS` is non-empty (GET/POST/PATCH/DELETE, credentials, never a wildcard), and security
 headers (`nosniff`, `X-Frame-Options: DENY`, referrer/permissions policy, `no-store` on `/api/*`,
 86400s cache on `/assets/*`) plus a Content-Security-Policy from `build_csp()`. CSP `script-src`
@@ -275,7 +275,7 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `pytest --collect-only`
-reports 3718 items (api 2111, db 185, security 836, ui 586); per-file counts and the not-yet-run list are in
+reports 3976 items (api 2303, db 199, security 850, ui 624); per-file counts and the not-yet-run list are in
 `tests/README.md` (Attendance suites and everything written 2026-10-30/31 have never been run against a DB). No
 lint/format tooling is configured.
 
@@ -304,6 +304,7 @@ UTF-8 BOM tolerated). A template is at `api/.env.example`.
 | `JWT_ACCESS_TOKEN_MINUTES`, `JWT_REFRESH_TOKEN_DAYS`, `JWT_ABSOLUTE_SESSION_DAYS` | `30`, `7`, `30` | Algorithm fixed `HS256`; absolute cap enforced in `decode_token()` from `session_start` |
 | `CORS_ORIGINS` | empty | Comma-separated; empty means `CORSMiddleware` is never registered |
 | `RATE_LIMIT` | `300/minute` | Global per-IP (`slowapi` spec) |
+| `LIVE_ATTENDANCE_RATE_LIMIT` | `120/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /attendance/pujas/{pk}/live` only |
 | `CSP_ENABLED`, `CSP_REPORT_ONLY` | `true`, `false` | Report-only emits `Content-Security-Policy-Report-Only` |
 | `CSP_SCRIPT_SRC_EXTRA`, `CSP_STYLE_SRC_EXTRA` | empty | Extra CSP origins without code change |
 | `DISABLE_DOCS` | `false` | Truthy removes Swagger/ReDoc/OpenAPI |
@@ -448,8 +449,9 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   *Overriding another marker's mark (2026-11-01):* tapping P/A/E on a row another person marked asks "Marked <Status> by <Name> at <time> - change it?" (own marks never ask; bulk "Mark all" skips such rows unless confirmed once); the server also returns 409 when the version matches but the row was last changed by a different member to a different status (not named in `overwrite_sangha_sevi_pks`); requests without `expected_version` are unchanged. *Register-screen percentage (2026-11-01):* `present / (roster total - excused)`, unmarked members counted in the denominator (`registerAttendancePercentage()`, `attendance-register.js`), so 8 present, 1 absent, 3 unmarked = 67%. EXCUSED_ABSENCE stays out of the denominator because ATT-008 excludes it (frozen docs untouched). The stats endpoints (`/stats/organizations/...`, `/stats/members/...`, member leaderboard) are multi-week figures and still use present/(present+absent) over marked records; owner decision pending. The panel
   polls `GET /attendance/pujas/{pk}/live` (fixed 2 s; ETag/304; adaptive cadence deliberately not built yet) and stays open after Save. *Gotcha:* the whole test suite runs in one transaction, so
   `NOW()` is identical for every write there — tests simulate "another marker, later" by shifting
-  `updated_at`. *Open item:* 2 s polling from many users on one IP can hit the global `RATE_LIMIT`
-  (`300/minute` per IP); the owner will address rate limiting separately.
+  `updated_at`. *Rate limit:* the `/live` route is limited per signed-in user
+  (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`, `api/rate_limit.py`) instead of the global per-IP
+  `RATE_LIMIT`; *open:* the adaptive polling cadence (idle slow-down, hidden-tab pause, back-off) is not built.
 - **Sakha re-parenting (`org_reparent.py`, owner rule 2026-10-30):** moving a Sakha (SAKHA_SANGHA or
   SAKHA_ASANA — the owner treats them as the same; an Asana has its own Governing Body and President)
   under a different Anchalika/Zilla (the Assign Sakha action, incl. the initial move out of Kendra) is
@@ -650,7 +652,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 ## Open questions / TODOs
 
 **Release / process**
-- Commit the uncommitted 2026-10-30/31 work (`git status`), then decide when `feature/tier6-governance`
+- Commit the uncommitted live-attendance rate-limit change (`git status`), then decide when `feature/tier6-governance`
   merges to `develop` and is released.
 - Add the NSS Governing Body's own approval reference to GDR-005..009 if its minutes exist (the records are `Approved` on the project owner's instruction).
 - Advisory Board meetings and decisions are not modelled (planned inside Programmes & Events, Module #21;
@@ -660,6 +662,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 - Run `pytest` against a freshly built DB: Attendance API/security tests and several newer test
   classes were written but never run (`tests/README.md`).
 - Confirm the `v0.11.0` tag and GitHub Release are pushed.
+- Existing members without a home Sakha affiliation (owner reports `SS1752`/`SS1753` on the dev DB; not verifiable without the DB): `03_validate` only WARNs and no backfill is written, deliberately. AUTH-BR-086-related questions (GDR-009 amends it) remain open for the owner.
+- Adaptive polling for the live attendance register (idle slow-down, hidden-tab pause, back-off; "fix 2") is deliberately not built - the poller is a fixed 2 s (`LIVE_POLL.POLL_MS`, `attendance-register.js:47`).
 - Local Mahila Sangha and Paribarik Asana now have a Sakha-like parent (GDR-008) but no creation path: ORG-BR-096 keeps Asana/Sakha creation out of the standard `create_organization` flow. Owner to decide how they are created.
 - Stale test fixture: `tests/api/test_membership.py:1193` calls undefined `_get_member_by_id` inside `test_kumari_transition_has_event`; it is `@pytest.mark.skip`-ped, so it never fails, but it predates and is unrelated to the 2026-10-30/31 work.
 

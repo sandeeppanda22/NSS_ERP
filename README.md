@@ -892,7 +892,7 @@ Completed:
   session-scoped `SAVEPOINT`-per-module `conftest.py`. See `CLAUDE.md` and
   `docs/PROJECT_DOCUMENTATION.md` for the full, current detail — this bullet is a summary, not
   the source of truth.
-* **Tier 6 — Governance (on `feature/tier6-governance`, not yet merged or released; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is still uncommitted):**
+* **Tier 6 — Governance (on `feature/tier6-governance`, not yet merged or released; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
   10 new tables under `database/ddl/08_governance/` — `body_type_master`, `position_master`,
   `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`,
   `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` — plus

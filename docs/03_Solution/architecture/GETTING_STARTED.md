@@ -206,7 +206,7 @@ python3 -m pytest tests/api/test_organization.py   # one file
 py -m pytest tests/ -v
 ```
 
-**3963 collected items** (`pytest --collect-only -qq`, 2026-11-01): `tests/api/` 2290 (34 files — router and
+**3976 collected items** (`pytest --collect-only -qq`, 2026-11-02): `tests/api/` 2303 (35 files — router and
 integration coverage), `tests/db/` 199 (7 files — cross-module data integrity, credential/festival schema,
 organization singleton triggers, home-affiliation guard), `tests/security/` 850 (16 files — auth-gating,
 401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 624 (32 files — Playwright browser tests plus
@@ -568,9 +568,11 @@ test does.
 
 **HTTP 429 from the live attendance register**
 
-The register polls every 2 s. With two or more markers open, plus other pages, a low `RATE_LIMIT` is exceeded
-(the default is now `300/minute`; the old 60/min caused 429s). Raise `RATE_LIMIT` in `api/.env` for local
-multi-user testing. Fixed 2 s polling is the current behaviour; see Section 8 for the pending mitigations.
+The register polls `/attendance/pujas/{pk}/live` every 2 s. That route has its own per-user limit
+(`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`, counted per signed-in user), so markers on one WiFi no longer
+share the per-IP budget. A 429 on it now means one account is polling more than ~120 times a minute (many tabs?).
+Other endpoints still use the global per-IP `RATE_LIMIT` (`300/minute`); raise it in `api/.env` for local
+multi-user testing. Fixed 2 s polling is the current behaviour; see Section 8 for the pending adaptive cadence.
 
 **`[WARN]` in `03_validate`**
 
@@ -588,9 +590,9 @@ claims whose legacy flag disagrees with the stored number. Diagnostic SELECTs ar
   President chain (007), Sakha Asana is a Sakha for all organizational purposes (008), legacy members supply
   their Local Sakha Number while all others are auto-numbered (009). The repo holds no separate NSS Governing Body
   minutes; add their reference to each record if they exist. The code already implements them.
-- **Rate-limit fix 1 and adaptive polling fix 2 are not built.** The live attendance register still polls at a
-  fixed 2 s interval under a flat per-IP limit; a per-route limit and an adaptive/back-off poll cadence are the
-  proposed follow-ups.
+- **Adaptive polling (fix 2) is not built.** The live attendance register polls at a fixed 2 s interval (no idle
+  slow-down, hidden-tab pause or back-off). The per-user rate limit (fix 1) is in place: `/live` is limited per
+  signed-in user (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`) instead of the global per-IP `RATE_LIMIT`.
 - **Advisory Board meetings and decisions** inside Programmes & Events are not specified yet.
 - **No backfill of existing members lacking a home affiliation / Local Sakha ID** — deliberately not written
   (owner decision). `03_validate` WARNs and the diagnostic SELECT lists them.
