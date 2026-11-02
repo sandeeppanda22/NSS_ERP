@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> `feature/tier6-governance` (31 commits past `develop`, not merged or released); uncommitted on top: the per-user live-attendance rate limit (fix 1 — `api/rate_limit.py`, `config.py`, `main.py`, `attendance.py`, `tests/api/test_rate_limit_per_user.py`, doc edits).
+> `feature/tier6-governance` (34 commits past `develop`, not merged or released); tree clean as of 2026-11-02.
 
 ## Commands
 
@@ -177,7 +177,7 @@ threshold 0.45 with `re.split(r'[.@]', q)[0]` for email-shaped input.
 only via a documented release (tag + `docs/05_Releases/vX.Y.Z.md` + GitHub Release). Verify the
 branch with `git status` before changes. Remotes: `personal` (daily dev) → PR → `org` (deploy
 source); pushes are often blocked in-sandbox, so push from a terminal. Never add a `Co-Authored-By`
-trailer to commits. Current state: `main` = `develop` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); the work is on `feature/tier6-governance` (31 commits past `develop`, unmerged; old
+trailer to commits. Current state: `main` = `develop` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); the work is on `feature/tier6-governance` (34 commits past `develop`, unmerged; old
 `feature/*` branches are merged leftovers). Don't branch a new feature off it until Tier 6 is merged.
 
 ## Open items

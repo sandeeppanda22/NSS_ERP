@@ -40,7 +40,7 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 | 3 | Person | Released v0.9.0 |
 | 4 | Family + Membership | Released v0.10.0 (hotfixes v0.10.1-v0.10.3, performance v0.10.4) |
 | 5 | Authentication + Administration + Audit | Released v0.11.0 (on `develop` and `main`) |
-| 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Committed on `feature/tier6-governance` (31 commits past `develop`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not merged or released**; only the per-user live-attendance rate limit (fix 1) is **uncommitted** on top (`git status`) |
+| 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Committed on `feature/tier6-governance` (34 commits past `develop`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not merged or released**; only the per-user live-attendance rate limit (fix 1) is **uncommitted** on top (`git status`) |
 | 6 (rest) | Assets & Property | Design only |
 | 7-13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Finance, Reports + Backup | Design only |
 
@@ -652,7 +652,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 ## Open questions / TODOs
 
 **Release / process**
-- Commit the uncommitted live-attendance rate-limit change (`git status`), then decide when `feature/tier6-governance`
+- Decide when `feature/tier6-governance`
   merges to `develop` and is released.
 - Add the NSS Governing Body's own approval reference to GDR-005..009 if its minutes exist (the records are `Approved` on the project owner's instruction).
 - Advisory Board meetings and decisions are not modelled (planned inside Programmes & Events, Module #21;
