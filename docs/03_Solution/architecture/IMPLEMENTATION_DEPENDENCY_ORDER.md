@@ -1744,7 +1744,7 @@ TIERS 0-5 IMPLEMENTED AND RELEASED (v0.6.0-v0.11.0) — DDL, API and web UI.
 TIER 6 IN PROGRESS (on `feature/tier6-governance`, not merged or released): Governance DDL (10 tables), API
 (`governance.py`, 56 endpoints), the Correspondence Register (5 tables, 19 endpoints), the Membership change-request workflow,
 Weekly Sangha Puja Attendance (4 tables, `attendance.py`, 21 endpoints) and Sakha re-parent approvals (2 tables, `org_reparent.py`, 4 endpoints) are implemented
-(committed on `feature/tier6-governance`; the per-user `/live` rate limit is committed; only the adaptive live-poll change is uncommitted); Assets & Property is NOT started. 71 tables, 17 routers, 252
+(committed on `feature/tier6-governance`; the per-user `/live` rate limit and the adaptive live-poll change are committed); Assets & Property is NOT started. 71 tables, 17 routers, 252
 endpoints in total. See the root `README.md` Tier-Wise Implementation Status table.
 
 **NEXT:**  
