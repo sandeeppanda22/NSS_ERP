@@ -822,6 +822,12 @@ function adminApp() {
         },
 
 
+        // Host hook for the live poller: the register panel lives in the
+        // Attendance > Pujas tab, so polling pauses while another tab is open.
+        _attRegisterShown() {
+            return this.activeTab === "attPujas";
+        },
+
         // When the admin's scope resolves to exactly one Sakha, the puja
         // form / filters / stats pick it automatically and show it as
         // plain text instead of a one-option dropdown (owner ask

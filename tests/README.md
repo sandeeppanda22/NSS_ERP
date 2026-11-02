@@ -131,9 +131,9 @@ tests/
     └── test_ui_topbar.py            # nss-layout.js role-badge collapsing + topbar layout rules (11; 12)
 ```
 
-**Current totals** (re-counted 2026-11-02): **3976 collected items** (`pytest --collect-only -qq`) —
+**Current totals** (re-counted 2026-11-02): **3979 collected items** (`pytest --collect-only -qq`) —
 `tests/api/` 2303 (35 files), `tests/db/` 199 (7 files), `tests/security/` 850 (16 files),
-`tests/ui/` 624 (32 test files). Integration (api + db + security) = 3352; UI = 624. AST count of
+`tests/ui/` 627 (32 test files). Integration (api + db + security) = 3352; UI = 627. AST count of
 `def test_*` functions: 2738 (api 1866, db 106, security 312, ui 454). Not executed in the refresh
 session; the 2026-10-30/31 additions and all Attendance suites have never been run against a DB.
 There is no Playwright test file for the Governance admin tabs.

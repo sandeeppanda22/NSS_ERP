@@ -292,10 +292,9 @@ def test_live_register_markup_is_present_in_both_copies(admin_html: str, dashboa
 
 def test_poll_interval_numbers_live_only_in_the_shared_mixin(register_js: str):
     block = re.search(r"const LIVE_POLL = Object\.freeze\(\{(.*?)\}\);", register_js, re.DOTALL).group(1)
-    assert "POLL_MS: 2000" in block
-    for dropped in ("IDLE_MS", "IDLE_AFTER_MS", "BACKOFF_MS", "visibilitychange", "_attRegisterShown"):
-        assert dropped not in register_js, f"{dropped} was removed on purpose (owner, for now)"
-    assert "If-None-Match" in register_js
+    assert "ACTIVE_MS: 2000" in block and "IDLE_MS: 10000" in block and "IDLE_AFTER_MS: 60000" in block
+    assert "[4000, 8000, 16000, 30000]" in block
+    assert "visibilitychange" in register_js and "If-None-Match" in register_js and "Retry-After" in register_js
 
 
 def test_search_input_requires_two_characters_in_the_hint_and_the_code(admin_html: str, register_js: str):
@@ -1007,11 +1006,61 @@ def test_live_removal_unmarks_an_untouched_row_and_unknown_members_are_fetched(r
     assert out == {"rows": [["a", None], ["z", "PRESENT"]], "counts": "1 of 2 marked"}
 
 
-def test_poll_interval_is_a_fixed_two_seconds(register_page: Page):
+def test_poll_policy_constants_and_delays(register_page: Page):
     out = _run(register_page, """
-        return NSSAttendanceRegister.LIVE_POLL;
+        const P = NSSAttendanceRegister.LIVE_POLL;
+        const d = (f, ms, ra) => host._attPollDelay(f, ms, ra);
+        return { P: { a: P.ACTIVE_MS, i: P.IDLE_MS, after: P.IDLE_AFTER_MS, back: [...P.BACKOFF_MS] },
+                 active: d(0, 0), justUnder: d(0, 59999), idle: d(0, 60000),
+                 backoff: [1, 2, 3, 4, 5, 9].map(n => d(n, 0)),
+                 retryAfterWins: d(1, 0, 20000), shorterRetryAfterIgnored: d(2, 0, 1000) };
     """)["result"]
-    assert out == {"POLL_MS": 2000}
+    assert out["P"] == {"a": 2000, "i": 10000, "after": 60000, "back": [4000, 8000, 16000, 30000]}
+    assert (out["active"], out["justUnder"], out["idle"]) == (2000, 2000, 10000)
+    assert out["backoff"] == [4000, 8000, 16000, 30000, 30000, 30000]
+    assert (out["retryAfterWins"], out["shorterRetryAfterIgnored"]) == (20000, 8000)
+
+
+def test_activity_returns_the_poll_to_the_fast_cadence(register_page: Page):
+    out = _run(register_page, """
+        host._attPollActivityAt = Date.now() - 120000;           // long idle
+        const idle = host._attPollDelay(0, Date.now() - host._attPollActivityAt, 0);
+        host._attTouch();                                        // a local edit / remote change / save
+        const fast = host._attPollDelay(0, Date.now() - host._attPollActivityAt, 0);
+        return { idle, fast };
+    """)["result"]
+    assert out == {"idle": 10000, "fast": 2000}
+
+
+def test_a_hidden_register_tab_makes_no_request_and_rechecks_slowly(register_page: Page):
+    out = _run(register_page, _seq([{"status": 200, "body": {"server_time": "2026-01-01T10:00:00+00:00", "marked_count": 0, "changed": []}}]) + f"""
+        host.attMarkPuja = {PUJA};
+        host._attPolling = true;
+        host._attRegisterShown = () => false;                    // the host tab is not on screen
+        const gen = host._attPollGen;
+        await host._attPollOnce(gen);
+        const timerSet = host._attPollTimer !== null;
+        clearTimeout(host._attPollTimer);
+        host._attStopPolling();
+        return {{ timerSet }};
+    """)
+    assert out["result"] == {"timerSet": True}
+    assert [c for c in out["calls"] if "/live" in c["url"]] == []
+
+
+def test_a_429_with_retry_after_waits_at_least_that_long(register_page: Page):
+    out = _run(register_page, _seq([{"status": 429, "headers": {"Retry-After": "25"}, "body": {}}]) + f"""
+        host.attMarkPuja = {PUJA};
+        host._attPolling = true;
+        const gen = host._attPollGen;
+        await host._attPollOnce(gen);
+        const r = [host.attLiveReconnecting, host._attPollFailures, host._attPollRetryAfterMs,
+                   host._attPollDelay(host._attPollFailures, 0, host._attPollRetryAfterMs)];
+        clearTimeout(host._attPollTimer);
+        host._attStopPolling();
+        return r;
+    """)["result"]
+    assert out == [True, 1, 25000, 25000]
 
 
 def test_a_poll_sends_the_cursor_and_etag_handles_304_and_flags_reconnecting(register_page: Page):

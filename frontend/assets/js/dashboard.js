@@ -681,6 +681,12 @@ function dashboardApp() {
         },
 
 
+        // Host hook for the live poller: polling pauses while another
+        // dashboard tab is open.
+        _attRegisterShown() {
+            return this.tab === "attendanceRegister";
+        },
+
         // ── Governance tab (read-only, all logged-in users) ──
         // 4 bodies: the 3 NSS-wide singletons + the viewer's own Sakha
         // Governing Body, each with current composition. Public endpoint,

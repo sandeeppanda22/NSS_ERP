@@ -33,18 +33,23 @@
     "use strict";
 
     /**
-     * Live-register poll interval (owner decision "Option B": explicit Save,
+     * Live-register poll policy (owner decision "Option B": explicit Save,
      * other markers' Saves reach this screen within ~2 s by polling
-     * GET /attendance/pujas/{pk}/live). The ONE place the number lives;
-     * tests/ui/test_ui_attendance.py pins it.
-     *   - POLL_MS: fixed interval while the panel is open.
-     * Deliberately NOT implemented yet (owner: "remove for now"): idle
-     * slow-down, hidden-tab pause, error back-off, and the per-user rate
-     * limit on /live. With many markers behind one IP the global 300/min
-     * per-IP limit can be hit — see the open item in CLAUDE.md.
+     * GET /attendance/pujas/{pk}/live). The ONE place these numbers live;
+     * tests/ui/test_ui_attendance.py pins them.
+     *   - ACTIVE_MS: interval while the register is visible and recently active.
+     *   - IDLE_MS / IDLE_AFTER_MS: back off to IDLE_MS after IDLE_AFTER_MS with no
+     *     change (remote change, local edit or save); activity returns it to ACTIVE_MS.
+     *   - BACKOFF_MS: consecutive-error delays (4/8/16/30 s, the last repeats; a
+     *     429's Retry-After raises the delay if longer); any success resets. A hidden
+     *     browser tab, or a register panel whose host tab is not on screen, pauses
+     *     polling and it refreshes immediately when visible again.
      */
     const LIVE_POLL = Object.freeze({
-        POLL_MS: 2000,
+        ACTIVE_MS: 2000,
+        IDLE_MS: 10000,
+        IDLE_AFTER_MS: 60000,
+        BACKOFF_MS: Object.freeze([4000, 8000, 16000, 30000]),
     });
     const ATT_STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", EXCUSED_ABSENCE: "Excused" };
     const FLASH_MS = 1600;
@@ -154,6 +159,7 @@
             attMarkSet(row, statusCode) {
                 row.attendance_status_code = statusCode;
                 row.dirty = statusCode !== ((row.serverState || {}).status || null);
+                this._attTouch();
                 if (!row.dirty) {
                     row.ackVersion = (row.serverState || {}).version || null;
                     row.confirmedOverwrite = false;
@@ -425,6 +431,7 @@
             addAttMarkMember(m) {
                 if (this.attMarkRows.some(r => r.sangha_sevi_pk === m.sangha_sevi_pk)) return;
                 this.attMarkRows.push(this._attMarkRow(m, null));
+                this._attTouch();
                 this.attMarkSearchResults = this.attMarkSearchResults
                     .filter(x => x.sangha_sevi_pk !== m.sangha_sevi_pk);
                 this.attMarkSearchQuery = "";
@@ -588,6 +595,7 @@
 
             _attNoteSaved(text) {
                 this.attMarkSavedNote = text;
+                this._attTouch();
                 clearTimeout(this._attSavedTimer);
                 this._attSavedTimer = setTimeout(() => { this.attMarkSavedNote = ""; }, SAVED_NOTE_MS);
             },
@@ -599,19 +607,44 @@
             _attPollEtag: null,
             _attPollSince: null,
             _attPollFailures: 0,
+            _attPollRetryAfterMs: 0,
             _attPollBusy: false,
             _attPolling: false,
+            _attPollActivityAt: 0,
             _attSavedTimer: null,
+            _attVisHandler: null,
 
-            // Fixed-interval poll (LIVE_POLL.POLL_MS). Adaptive cadence
-            // (idle slow-down, hidden-tab pause, error back-off) and the
-            // per-user rate limit were deliberately left out for now — see
-            // the open item in CLAUDE.md.
+            // Anything the marker or another marker did lately keeps the
+            // poll at the fast cadence.
+            _attTouch() {
+                this._attPollActivityAt = Date.now();
+            },
+
+            // The next delay (ms). Errors back off 4/8/16/30 s (never shorter
+            // than a 429's Retry-After); otherwise ACTIVE_MS while there was
+            // activity in the last IDLE_AFTER_MS, else IDLE_MS.
+            _attPollDelay(failures, msSinceActivity, retryAfterMs) {
+                if (failures > 0) {
+                    const back = LIVE_POLL.BACKOFF_MS[Math.min(failures, LIVE_POLL.BACKOFF_MS.length) - 1];
+                    return Math.max(back, retryAfterMs || 0);
+                }
+                return msSinceActivity >= LIVE_POLL.IDLE_AFTER_MS ? LIVE_POLL.IDLE_MS : LIVE_POLL.ACTIVE_MS;
+            },
+
             _attStartPolling() {
                 this._attStopPolling();
                 this._attPollGen++;
                 this._attPolling = true;
-                this._attSchedulePoll(LIVE_POLL.POLL_MS);
+                this._attTouch();
+                this._attVisHandler = () => {
+                    // Back on screen: refresh now and return to the fast cadence.
+                    if (!document.hidden && this.attMarkPuja && this._attPolling) {
+                        this._attTouch();
+                        this._attSchedulePoll(0);
+                    }
+                };
+                document.addEventListener("visibilitychange", this._attVisHandler);
+                this._attSchedulePoll(LIVE_POLL.ACTIVE_MS);
             },
 
             _attStopPolling() {
@@ -619,9 +652,12 @@
                 clearTimeout(this._attPollTimer);
                 this._attPollTimer = null;
                 this._attPolling = false;
+                if (this._attVisHandler) document.removeEventListener("visibilitychange", this._attVisHandler);
+                this._attVisHandler = null;
                 this._attPollEtag = null;
                 this._attPollSince = null;
                 this._attPollFailures = 0;
+                this._attPollRetryAfterMs = 0;
                 this._attPollBusy = false;
                 this.attLiveReconnecting = false;
             },
@@ -633,8 +669,19 @@
                 this._attPollTimer = setTimeout(() => this._attPollOnce(gen), delayMs);
             },
 
+            // Host hook: is the register on screen? A host whose panel lives
+            // inside a tab overrides it (admin.js / dashboard.js) so a tab
+            // that is switched away from stops fetching.
+            _attRegisterShown() { return true; },
+
             async _attPollOnce(gen) {
                 if (gen !== this._attPollGen || !this.attMarkPuja) return;
+                // Hidden browser tab / hidden register tab: no request; the
+                // visibilitychange handler (or the idle cadence) resumes it.
+                if (document.hidden || !this._attRegisterShown()) {
+                    this._attSchedulePoll(LIVE_POLL.IDLE_MS);
+                    return;
+                }
                 if (this._attPollBusy) return;
                 this._attPollBusy = true;
                 try {
@@ -654,9 +701,12 @@
                         this._attPollSince = data.server_time;
                         this._attPollEtag = res.headers.get("ETag") || null;
                     } else {
+                        const ra = Number(res.headers && res.headers.get && res.headers.get("Retry-After"));
+                        this._attPollRetryAfterMs = res.status === 429 && ra > 0 ? ra * 1000 : 0;
                         throw new Error(`Live update failed (${res.status})`);
                     }
                     this._attPollFailures = 0;
+                    this._attPollRetryAfterMs = 0;
                     this.attLiveReconnecting = false;
                 } catch (e) {
                     if (gen !== this._attPollGen) return;
@@ -665,7 +715,7 @@
                 } finally {
                     if (gen === this._attPollGen) {
                         this._attPollBusy = false;
-                        this._attSchedulePoll(LIVE_POLL.POLL_MS);
+                        this._attSchedulePoll(this._attPollDelay(this._attPollFailures, Date.now() - this._attPollActivityAt, this._attPollRetryAfterMs));
                     }
                 }
             },
@@ -714,7 +764,8 @@
                         changedAnything = true;
                     }
                 }
-                            },
+                if (changedAnything) this._attTouch();
+            },
 
             // Host hook — what to refresh once attendance saved. Default
             // is a no-op; each host defines its own (admin.js reloads the
