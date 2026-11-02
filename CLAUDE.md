@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> `feature/tier6-governance` (37 commits past `develop`, not merged or released); tree clean as of 2026-11-02.
+> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet); tree clean.
 
 ## Commands
 
@@ -83,7 +83,7 @@ Sakha branches and the one admin. Real data arrives via `POST /api/v1/register` 
 FastAPI + raw psycopg2 (`api/`), static Tailwind/DaisyUI/Alpine frontend served by the same app
 (`frontend/`). Routers → `api/schemas/` (Pydantic) with shared logic in `api/helpers.py` and
 `api/services/` (`family_graph.py` BFS, `auth_service.py` Argon2/JWT, `rbac_service.py`
-permission + admin-scope loading). 17 routers, 252 endpoints (decorator-counted on `feature/tier6-governance`; 137 at v0.11.0, 12 routers); inventory: `docs/03_Solution/api/API_CONTRACT.md`.
+permission + admin-scope loading). 17 routers, 252 endpoints (decorator-counted on `develop`; 137 at v0.11.0, 12 routers); inventory: `docs/03_Solution/api/API_CONTRACT.md`.
 
 **Two DB pools** (`api/database.py`): `get_connection` = `nss_db_backend` (SELECT-only) for reads;
 `get_write_connection` = `nss_db_writer` for every write endpoint. `tests/conftest.py` overrides
@@ -177,8 +177,7 @@ threshold 0.45 with `re.split(r'[.@]', q)[0]` for email-shaped input.
 only via a documented release (tag + `docs/05_Releases/vX.Y.Z.md` + GitHub Release). Verify the
 branch with `git status` before changes. Remotes: `personal` (daily dev) → PR → `org` (deploy
 source); pushes are often blocked in-sandbox, so push from a terminal. Never add a `Co-Authored-By`
-trailer to commits. Current state: `main` = `develop` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); the work is on `feature/tier6-governance` (37 commits past `develop`, unmerged; old
-`feature/*` branches are merged leftovers). Don't branch a new feature off it until Tier 6 is merged.
+trailer to commits. Current state: `main` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); local `develop` = `bc6e42f` = `main` + Tier 6 (merge of `feature/tier6-governance`, 2026-11-02; not pushed, not released). `feature/*` branches are merged leftovers — branch the next feature from `develop`.
 
 ## Open items
 

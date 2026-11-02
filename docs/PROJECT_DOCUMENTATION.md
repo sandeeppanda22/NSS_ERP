@@ -40,12 +40,12 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 | 3 | Person | Released v0.9.0 |
 | 4 | Family + Membership | Released v0.10.0 (hotfixes v0.10.1-v0.10.3, performance v0.10.4) |
 | 5 | Authentication + Administration + Audit | Released v0.11.0 (on `develop` and `main`) |
-| 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Committed on `feature/tier6-governance` (37 commits past `develop`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not merged or released**; fix 1 (per-user `/live` rate limit, `api/rate_limit.py`) and fix 2 (adaptive live polling in `attendance-register.js`, `_attRegisterShown()` hooks in `admin.js`/`dashboard.js`, UI tests) are committed |
+| 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Merged into the local `develop` 2026-11-02 (merge `bc6e42f`; 37 commits from `feature/tier6-governance`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not pushed or released**; fix 1 (per-user `/live` rate limit, `api/rate_limit.py`) and fix 2 (adaptive live polling in `attendance-register.js`, `_attRegisterShown()` hooks in `admin.js`/`dashboard.js`, UI tests) are committed |
 | 6 (rest) | Assets & Property | Design only |
 | 7-13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Finance, Reports + Backup | Design only |
 
-`main` = `develop` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
-locally; confirm it is pushed before relying on it). Release notes: `docs/05_Releases/`. The
+`main` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
+locally; confirm it is pushed before relying on it); local `develop` = `bc6e42f` = `main` + Tier 6 (not pushed). Release notes: `docs/05_Releases/`. The
 Attendance tests and every test written 2026-10-30/31 have never been run against a DB (see
 `tests/README.md`).
 
@@ -652,8 +652,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 ## Open questions / TODOs
 
 **Release / process**
-- Decide when `feature/tier6-governance`
-  merges to `develop` and is released.
+- Push local `develop` (Tier 6 merged 2026-11-02) and decide when it is released (tag, `docs/05_Releases/vX.Y.Z.md`, GitHub Release).
 - Add the NSS Governing Body's own approval reference to GDR-005..009 if its minutes exist (the records are `Approved` on the project owner's instruction).
 - Advisory Board meetings and decisions are not modelled (planned inside Programmes & Events, Module #21;
   owner to specify the fields).

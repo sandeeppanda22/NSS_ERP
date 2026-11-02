@@ -83,7 +83,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Backend
 
 * FastAPI — the only web/API layer in the codebase (`api/`, raw `psycopg2`, no ORM):
-  17 routers (252 endpoints; `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, committed on `feature/tier6-governance`), one per tier/module (per-router endpoint counts: `api/README.md` and
+  17 routers (252 endpoints; `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02), one per tier/module (per-router endpoint counts: `api/README.md` and
   `docs/03_Solution/api/API_CONTRACT.md`); `bootstrap.py` is the only unauthenticated router
   besides public registration.
   Tiers 1-4 GET endpoints are gated by `require_permission(...)` (Foundation/Organization/
@@ -892,7 +892,7 @@ Completed:
   session-scoped `SAVEPOINT`-per-module `conftest.py`. See `CLAUDE.md` and
   `docs/PROJECT_DOCUMENTATION.md` for the full, current detail — this bullet is a summary, not
   the source of truth.
-* **Tier 6 — Governance (on `feature/tier6-governance`, not yet merged or released; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
+* **Tier 6 — Governance (merged into the local `develop` 2026-11-02, not pushed or released; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
   10 new tables under `database/ddl/08_governance/` — `body_type_master`, `position_master`,
   `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`,
   `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` — plus
@@ -908,7 +908,7 @@ Completed:
 
 Current Focus:
 
-* Tier 6 (Governance, Correspondence) and Tier 6 Attendance implementation and verification on `feature/tier6-governance`, then merge
+* Tier 6 (Governance, Correspondence) and Tier 6 Attendance implementation and verification (merged into the local `develop` 2026-11-02; push and release pending), then merge
   to `develop`. Tier 5 (released as v0.11.0): still pending push of the local `v0.11.0` tag.
 * Reconciling Solution-layer design docs with actual SQL/API implementation across all 22
   documented modules — every module has a complete (or largely complete) design, and
@@ -962,7 +962,7 @@ release document under `docs/05_Releases/` before the next tier begins.
 | v0.10.0 | Tier 4 | Family + Membership — full vertical slice, family graph, Organization children-stats (**released**) |
 | v0.10.1-v0.10.4 | Tier 4 (hotfixes) | Idempotent DDL/seed, Neon role bootstrap, performance indexes, a11y/perf polish (**released**) |
 | v0.11.0 | Tier 5 | Authentication + Administration — full vertical slice (**released as v0.11.0**) |
-| ... | Tier 6-13 | One tag per tier through Tier 13 (Tier 6 Governance is committed on `feature/tier6-governance`, unreleased) |
+| ... | Tier 6-13 | One tag per tier through Tier 13 (Tier 6 is merged into the local `develop`, unreleased) |
 
 Next Release Target:
 
@@ -970,7 +970,7 @@ Next Release Target:
 Tier 6 Governance — unified body governance (bodies, positions, assignments, acting
 assignments) + elections (nominations, ballots, results, vote participation), the
 Sakha Transfer / Apply for Darshak change-request workflow, ADVISORY_BOARD admin scope.
-(In progress on feature/tier6-governance; no version tag assigned yet.)
+(Merged into the local `develop`; no version tag assigned yet.)
 ```
 
 ---

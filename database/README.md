@@ -29,7 +29,7 @@ SOL-ARCH-011 (Bootstrap Architecture), module table-design documents
 > FAM-036 performance indexes now live in the table DDL itself). See `database/seed/README.md`,
 > `database/scripts/README.md`, and `docs/PROJECT_DOCUMENTATION.md` → Architecture ("Tier 5").
 
-> **Tier 6 (Governance, Correspondence, Attendance, Sakha re-parent approvals) lives on `feature/tier6-governance` (unmerged, unreleased; the 2026-10-30/31 re-parent, singleton-trigger, Sakha-like-function and RBAC/Advisory-Board patch files are committed).** It adds
+> **Tier 6 (Governance, Correspondence, Attendance, Sakha re-parent approvals) is merged into the local `develop` (2026-11-02; unpushed, unreleased; the 2026-10-30/31 re-parent, singleton-trigger, Sakha-like-function and RBAC/Advisory-Board patch files are committed).** It adds
 > `ddl/08_governance/` (10 tables + `11_governance_immutability.sql` ballot-immutability triggers,
 > build Phases 11b/11c with `seed/08_governance/`: 8 body types, 10 positions, 3 NSS-wide bodies),
 > two Membership tables (`sakha_local_number_counter`, `membership_change_request`; Phase 7 is now
