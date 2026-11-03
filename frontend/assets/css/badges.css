@@ -329,3 +329,16 @@
 
 /* Section label used in detail panels */
 .data-label               { font-size: 0.65rem; color: #9ca3af; letter-spacing: 0.02em; }
+
+/* ══════════════════════════════════════════════════════════════
+   ASSETS & PROPERTY BADGES (Module #22, Tier 6)
+   property.status / asset.status (SOL-AP-003) and custodianship.status
+   (ACTIVE/ENDED) — see NSS.assetPropertyStatusBadgeClass() in nss-config.js.
+   Palette reuses existing hexes from the families above.
+   ══════════════════════════════════════════════════════════════ */
+
+.badge-ap-registered   { background-color: #2563eb !important; color: #fff !important; }  /* blue-600  — recorded, no custodian yet     */
+.badge-ap-active       { background-color: #16a34a !important; color: #fff !important; }  /* green-600 — ACTIVE / IN_CUSTODY / current  */
+.badge-ap-maintenance  { background-color: #d97706 !important; color: #fff !important; }  /* amber-600 — UNDER_MAINTENANCE              */
+.badge-ap-terminal     { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500  — DISPOSED / RETIRED (terminal)  */
+.badge-ap-ended        { background-color: #9ca3af !important; color: #fff !important; }  /* gray-400  — ended custodianship            */

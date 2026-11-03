@@ -92,7 +92,10 @@ function adminApp() {
     // run — see assets/js/attendance-register.js. install() never
     // overwrites a property defined below, which is how the
     // `_afterAttendanceSaved` hook further down wins.
-    return NSSAttendanceRegister.install({
+    // NSSAssetsProperty.install() likewise adds the Assets & Property screens
+    // (assets-property.js): permission getters, list/detail/forms/custody/
+    // maintenance/statutory/documents for both the Properties and Assets tabs.
+    return NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -1424,7 +1427,10 @@ function adminApp() {
             // GOVERNANCE_VIEW/MANAGE also qualifies (NSS_ERP_ADVISORY_BOARD_ADMIN holds
             // neither ADMIN_* nor MEMBERSHIP_APPROVE) — that role gets the
             // governance-only panel below.
-            if (!this.hasGeneralAdminAccess && !this.canViewGovernance) {
+            // ASSET_VIEW/ASSET_MANAGE (Assets & Property) also qualifies: Report
+            // Viewer holds neither ADMIN_* nor GOVERNANCE_*, and gets an
+            // Assets-&-Property-only panel.
+            if (!this.hasGeneralAdminAccess && !this.canViewGovernance && !this.canViewAssets) {
                 window.location.href = "/dashboard";
                 return;
             }
@@ -1435,16 +1441,24 @@ function adminApp() {
             // Assignments tab (or the Bodies tab if the URL names it).
             if (!this.hasGeneralAdminAccess) {
                 const govHash = window.location.hash.replace("#", "");
+                // Assets & Property: #assets / #properties, or the landing tab for a
+                // holder of ASSET_VIEW/MANAGE with no governance access (Report
+                // Viewer). Its organization pickers call the scoped endpoint on
+                // demand, so none of the general loaders are needed for it.
+                const assetsHash = (govHash === "assets" || govHash === "properties") && this.canViewAssets;
+                const assetsLanding = assetsHash || (!this.canViewGovernance && this.canViewAssets);
                 // The Advisory Board admin's own Correspondence register (2026-10-30)
                 // is built from the organization tree + the ORGANIZATION_TYPE
                 // catalogue (ORGANIZATION_VIEW / FOUNDATION_VIEW, both granted to it).
                 const corrOnly = govHash === "correspondence" && this.canViewCorrespondence;
-                if (this.canViewCorrespondence) {
+                if (this.canViewCorrespondence && !assetsLanding) {
                     await Promise.all([this.fetchOrganizations(), this.loadOrgTypes()]);
                 }
-                this.activeTab = corrOnly ? "correspondence"
+                this.activeTab = assetsLanding ? (assetsHash ? govHash : "properties")
+                    : corrOnly ? "correspondence"
                     : govHash === "govBodies" ? "govBodies" : "govAssignments";
-                if (this.activeTab === "correspondence") await this.loadCorrespondence();
+                if (assetsLanding) await this.apEnterTab();
+                else if (this.activeTab === "correspondence") await this.loadCorrespondence();
                 else if (this.activeTab === "govBodies") await this.loadGovBodies();
                 else await this.loadGovAssignments();
                 return;
@@ -1514,6 +1528,8 @@ function adminApp() {
                     attWatchList: () => { if (this.canViewAttendance) { this.loadAttWatchList(); this.loadAttOrgStats(); } },
                     credentials: () => this.loadCredentials(),
                     correspondence: () => this.loadCorrespondence(),
+                    properties: () => { if (this.canViewAssets) this.apEnterTab(); },
+                    assets: () => { if (this.canViewAssets) this.apEnterTab(); },
                 };
                 if (tabLoaders[hash]) tabLoaders[hash]();
             }
@@ -7879,6 +7895,10 @@ function adminApp() {
                 // Advisory Board admin. Results are normalised to the type_name /
                 // type_code shape the typeahead markup reads.
                 const params = new URLSearchParams({ search: picker.query.trim(), limit: 20 });
+                // Optional per-picker type restriction (repeated type_code, OR-matched
+                // by the endpoint) — e.g. the Assets & Property custodian pickers.
+                // Pickers without `typeCodes` (all Correspondence ones) search every type.
+                for (const t of picker.typeCodes || []) params.append("type_code", t);
                 const res = await NSSAuth.apiFetch(`/api/v1/organization/organizations/in-scope?${params}`);
                 picker.results = res.ok
                     ? (await res.json()).map(o => ({
@@ -8657,5 +8677,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    });
+    }));
 }

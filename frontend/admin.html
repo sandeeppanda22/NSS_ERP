@@ -24,6 +24,7 @@
     <script src="/assets/js/nss-datepicker.js"></script>
     <script src="/assets/js/nss-combobox.js"></script>
     <script src="/assets/js/attendance-register.js"></script>
+    <script src="/assets/js/assets-property.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
     <style>
         /* ── NSS Admin Layout — mirrors dashboard.html ────────
@@ -821,6 +822,44 @@
                 </div>
             </template>
 
+            <!-- ── Assets & Property group (collapsible, Module #22) ──
+                 ASSET_VIEW / ASSET_MANAGE (canViewAssets). Reads and writes are
+                 bounded server-side by admin scope on the record's CURRENT
+                 custodian organization; the write buttons inside the tabs show
+                 only for ASSET_MANAGE (canManageAssets), so Auditor / Report
+                 Viewer get a read-only view. One panel serves both tabs. -->
+            <template x-if="canViewAssets">
+                <div>
+                    <div class="nav-divider"></div>
+                    <button type="button" class="nav-section-label collapsible" @click="toggleNavGroup('assets')">
+                        <span>Assets &amp; Property</span>
+                        <svg class="nav-chevron" :class="{ collapsed: isNavGroupCollapsed('assets') }"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                    </button>
+                    <template x-if="!isNavGroupCollapsed('assets')">
+                        <div>
+                            <a class="nav-item" :class="{ active: activeTab === 'properties' }"
+                               @click="apEnterTab('properties')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5M3.75 3v18m16.5-18v18M5.25 4.5h.75m-.75 3h.75m-.75 3h.75m-.75 3h.75m6-12h.75m-.75 3h.75m-.75 3h.75m-.75 3h.75M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                                </svg>
+                                Properties
+                            </a>
+
+                            <a class="nav-item" :class="{ active: activeTab === 'assets' }"
+                               @click="apEnterTab('assets')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                                </svg>
+                                Assets
+                            </a>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
             <div class="nav-divider"></div>
 
             <!-- ── Correspondence Register (Tier 6, SOL-ADMIN-009) ──
@@ -876,7 +915,7 @@
                     <img src="/assets/img/nss-logo.png" alt="NSS" class="topbar-logo">
                     <div class="topbar-heading">
                         <div class="topbar-title">Nilachala Saraswata Sangha</div>
-                        <div class="topbar-breadcrumb" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
+                        <div class="topbar-breadcrumb" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', properties: 'Properties', assets: 'Assets', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
                     </div>
                 </div>
                 <!-- Desktop: sidebar brand is always visible, so just show the
@@ -7089,6 +7128,694 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: Assets & Property (Module #22, Tier 6)
+                         api/routers/assets_property.py — ONE panel for both
+                         the 'Properties' and 'Assets' tabs; the kind is the
+                         active tab (apKind) and every screen below is written
+                         once (logic: assets-property.js). ASSET_VIEW reads,
+                         ASSET_MANAGE writes (canManageAssets) — both bounded
+                         server-side by admin scope on the CURRENT custodian,
+                         so a scope-bounded admin only ever sees their own
+                         scope's records. Property-only: holding arrangement
+                         and statutory records (apIsProperty).
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="(activeTab === 'properties' || activeTab === 'assets') && canViewAssets" x-cloak>
+
+                        <div class="alert-msg alert-success" x-show="apNotice" x-text="apNotice"></div>
+
+                        <!-- ── Create / edit form ──────────────────── -->
+                        <div class="data-card" x-show="apForm.show" x-cloak>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title" x-text="(apForm.mode === 'create' ? 'New ' : 'Edit ') + apNoun"></h2>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="form-grid-2">
+                                    <div class="span-all">
+                                        <label class="form-label" x-text="apNounTitle + ' name'"></label>
+                                        <input type="text" class="form-input" maxlength="200" x-model="apForm.name" autocomplete="off">
+                                    </div>
+                                    <div>
+                                        <label class="form-label" x-text="apNounTitle + ' type'"></label>
+                                        <select class="nss-select" x-model="apForm.type_code">
+                                            <option value="">Select…</option>
+                                            <template x-for="o in apTypeOptions" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div x-data="nssDatePicker('apForm.acquired_at')" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apForm.saving">
+                                        <label class="form-label">Acquired on <span class="optional">(optional)</span></label>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Acquisition method <span class="optional">(optional)</span></label>
+                                        <select class="nss-select" x-model="apForm.acquisition_method_code">
+                                            <option value="">Not recorded</option>
+                                            <template x-for="o in apOptions('ACQUISITION_METHOD')" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                        <p class="form-hint">How it was acquired. Informational only.</p>
+                                    </div>
+                                    <div class="span-all">
+                                        <label class="form-label">Location <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="2" maxlength="2000" x-model="apForm.location_description"></textarea>
+                                    </div>
+                                    <div class="span-all">
+                                        <label class="form-label"><span x-text="apF.extraLabel"></span> <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="2" maxlength="2000" x-model="apForm.extra"></textarea>
+                                        <p class="form-hint" x-text="apF.extraHint"></p>
+                                    </div>
+                                    <div class="span-all">
+                                        <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="2" maxlength="2000" x-model="apForm.notes"></textarea>
+                                    </div>
+                                    <div class="span-all typeahead-wrap">
+                                        <label class="form-label">Belongs to (if different from the holder) <span class="optional">(optional)</span></label>
+                                        <input type="text" class="form-input" x-model="apForm.belongsTo.query"
+                                               @input="corrOnOrgQueryInput(apForm.belongsTo)" placeholder="Search by organization name…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="apForm.belongsTo.results.length > 0">
+                                            <template x-for="org in apForm.belongsTo.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="corrSelectOrg(apForm.belongsTo, org)">
+                                                    <span x-text="org.organization_name"></span>
+                                                    <span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint" x-show="apForm.belongsTo.selected">
+                                            This <span x-text="apNoun"></span> belongs to <span x-text="apForm.belongsTo.selected && apForm.belongsTo.selected.organization_name"></span>.
+                                            <button type="button" class="link-action" @click="corrClearPicker(apForm.belongsTo)">Clear</button>
+                                        </p>
+                                        <p class="form-hint" x-text="apBelongsToHint"></p>
+                                    </div>
+                                </div>
+
+                                <!-- Custodian is chosen at registration only; afterwards it changes
+                                     through Custody (assign / transfer), never by editing. -->
+                                <template x-if="apForm.mode === 'create'">
+                                    <div class="form-section">
+                                        <h4 class="form-section-title">Custodian</h4>
+                                        <div class="form-grid-2">
+                                            <div class="typeahead-wrap">
+                                                <label class="form-label">Custodian organization</label>
+                                                <input type="text" class="form-input" x-model="apForm.custodian.query"
+                                                       @input="corrOnOrgQueryInput(apForm.custodian)" placeholder="Search by organization name…" autocomplete="off">
+                                                <div class="typeahead-menu" x-show="apForm.custodian.results.length > 0">
+                                                    <template x-for="org in apForm.custodian.results" :key="org.organization_pk">
+                                                        <div class="typeahead-item" @click="corrSelectOrg(apForm.custodian, org)">
+                                                            <span x-text="org.organization_name"></span>
+                                                            <span class="meta" x-text="org.type_name"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                                <p class="form-hint" x-show="apForm.custodian.selected">
+                                                    <span x-text="apForm.custodian.selected && apForm.custodian.selected.organization_name"></span> will hold this <span x-text="apNoun"></span>.
+                                                    <button type="button" class="link-action" @click="corrClearPicker(apForm.custodian)">Clear</button>
+                                                </p>
+                                                <p class="form-hint" x-text="apCustodianHint"></p>
+                                                <p class="form-hint" x-show="isGovNssWideAdmin">Optional for NSS-wide administrators. Without a custodian the record stays Registered until one is assigned.</p>
+                                                <p class="form-hint" x-show="!isGovNssWideAdmin">Required: choose an organization within your admin scope.</p>
+                                            </div>
+                                            <div x-data="nssDatePicker('apForm.custodian_effective_from', { maxToday: true })" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apForm.saving">
+                                                <label class="form-label">Custodian since <span class="optional">(defaults to today)</span></label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="apForm.error" x-text="apForm.error"></div>
+                                <div class="form-section" style="display:flex; align-items:center; gap:0.6rem;">
+                                    <button class="btn-action primary" :disabled="apForm.saving" @click="apSubmitForm()"
+                                            x-text="apForm.saving ? 'Saving…' : (apForm.mode === 'create' ? 'Register ' + apNoun : 'Save changes')"></button>
+                                    <button class="btn-action" :disabled="apForm.saving" @click="apCancelForm()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── List ────────────────────────────────── -->
+                        <div class="data-card" x-show="!apForm.show && !apSelected && !apDetailLoading && !apDetailError">
+                            <div class="data-card-header">
+                                <h2 class="data-card-title" x-text="apPluralTitle"></h2>
+                                <div style="display:flex; gap:0.5rem; align-items:center;">
+                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="apTotal + ' total'"></span>
+                                    <button class="btn-action primary" x-show="canManageAssets" @click="apOpenCreate()"
+                                            x-text="'+ New ' + apNoun"></button>
+                                </div>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
+                                    <div>
+                                        <label class="form-label">Search</label>
+                                        <input type="text" class="form-input" x-model="apQ" @keydown.enter="apApplyFilters()"
+                                               placeholder="Name, ID or location…" autocomplete="off">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Type</label>
+                                        <select class="nss-select" x-model="apTypeFilter" @change="apApplyFilters()">
+                                            <option value="">All types</option>
+                                            <template x-for="o in apTypeOptions" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Status</label>
+                                        <select class="nss-select" x-model="apStatusFilter" @change="apApplyFilters()">
+                                            <option value="">All statuses</option>
+                                            <template x-for="st in apStatusOptions" :key="st">
+                                                <option :value="st" x-text="NSS.assetPropertyStatusLabel(st)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Acquisition method</label>
+                                        <select class="nss-select" x-model="apAcquisitionFilter" @change="apApplyFilters()">
+                                            <option value="">All methods</option>
+                                            <template x-for="o in apOptions('ACQUISITION_METHOD')" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="typeahead-wrap span-all" style="grid-column:span 2;">
+                                        <label class="form-label">Custodian organization</label>
+                                        <input type="text" class="form-input" x-model="apCustodianFilter.query"
+                                               @input="corrOnOrgQueryInput(apCustodianFilter)" placeholder="Search by organization name…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="apCustodianFilter.results.length > 0">
+                                            <template x-for="org in apCustodianFilter.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="apPickCustodianFilter(org)">
+                                                    <span x-text="org.organization_name"></span>
+                                                    <span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint" x-text="apCustodianHint"></p>
+                                        <p class="form-hint" x-show="apCustodianFilter.selected">
+                                            Showing records held by this organization.
+                                            <button type="button" class="link-action" @click="apClearCustodianFilter()">Clear</button>
+                                        </p>
+                                        <label class="form-hint" style="display:flex; align-items:center; gap:0.4rem;" x-show="apCustodianFilter.selected">
+                                            <input type="checkbox" x-model="apIncludeSub" @change="apApplyFilters()">
+                                            Include sub-organizations (everything held beneath the selected organization)
+                                        </label>
+                                    </div>
+                                    <div class="typeahead-wrap span-all" style="grid-column:span 2;">
+                                        <label class="form-label">Belongs to</label>
+                                        <input type="text" class="form-input" x-model="apBelongsFilter.query"
+                                               @input="corrOnOrgQueryInput(apBelongsFilter)" placeholder="Search by organization name…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="apBelongsFilter.results.length > 0">
+                                            <template x-for="org in apBelongsFilter.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="apPickBelongsFilter(org)">
+                                                    <span x-text="org.organization_name"></span>
+                                                    <span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint" x-show="apBelongsFilter.selected">
+                                            Showing records attributed to this organization.
+                                            <button type="button" class="link-action" @click="apClearBelongsFilter()">Clear</button>
+                                        </p>
+                                    </div>
+                                    <div style="display:flex; gap:0.4rem;">
+                                        <button class="btn-action primary" @click="apApplyFilters()">Search</button>
+                                        <button class="btn-action" @click="apClearFilters()">Reset</button>
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; align-items:center; justify-content:center; padding:2rem;" x-show="apLoading">
+                                    <div class="spinner"></div>
+                                </div>
+                                <div class="alert-msg alert-error" x-show="apError" x-text="apError"></div>
+
+                                <template x-if="!apLoading && !apError">
+                                    <div>
+                                        <div x-show="apItems.length === 0" style="padding:1rem; color:#6b7280;"
+                                             x-text="'No ' + apPluralTitle.toLowerCase() + ' found.'"></div>
+                                        <div style="overflow-x:auto;" x-show="apItems.length > 0">
+                                            <table class="admin-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>ID</th>
+                                                        <th>Name</th>
+                                                        <th>Type</th>
+                                                        <th>Custodian</th>
+                                                        <th>Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="r in apItems" :key="r[apF.pk]">
+                                                        <tr @click="apOpen(r[apF.pk])" style="cursor:pointer;">
+                                                            <td class="mono" style="font-size:0.78rem;" x-text="r[apF.id]"></td>
+                                                            <td style="font-size:0.82rem;">
+                                                                <span x-text="r[apF.name]"></span>
+                                                                <div style="font-size:0.7rem; color:#6b7280;" x-show="r.belongs_to_organization_name"
+                                                                     x-text="'Belongs to: ' + r.belongs_to_organization_name"></div>
+                                                            </td>
+                                                            <td style="font-size:0.78rem;" x-text="r[apF.typeName]"></td>
+                                                            <td style="font-size:0.78rem; color:#6b7280;">
+                                                                <span x-text="r.current_custodian_organization_name || 'No custodian'"></span>
+                                                                <span class="badge badge-xs" x-show="r.custodian_is_last"
+                                                                      :class="NSS.assetPropertyStatusBadgeClass(r.status)"
+                                                                      x-text="NSS.assetPropertyStatusLabel(r.status)"></span>
+                                                            </td>
+                                                            <td><span class="badge badge-xs" :class="NSS.assetPropertyStatusBadgeClass(r.status)" x-text="NSS.assetPropertyStatusLabel(r.status)"></span></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="pagination-bar" x-show="apTotal > apPageSize">
+                                            <span x-text="'Page ' + apPage + ' of ' + apTotalPages"></span>
+                                            <div style="display:flex; gap:0.35rem;">
+                                                <button class="btn-action" :disabled="apPage <= 1" @click="apChangePage(-1)">Prev</button>
+                                                <button class="btn-action" :disabled="apPage >= apTotalPages" @click="apChangePage(1)">Next</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- ── Detail ──────────────────────────────── -->
+                        <div x-show="!apForm.show && apDetailLoading" style="display:flex; justify-content:center; padding:2rem 0;">
+                            <div class="spinner"></div>
+                        </div>
+                        <div x-show="!apForm.show && apDetailError">
+                            <a class="back-link" @click="apBackToList()">&larr; Back to list</a>
+                            <div class="alert-msg alert-error" x-text="apDetailError"></div>
+                        </div>
+
+                        <div x-show="!apForm.show && apSelected && !apDetailLoading">
+                            <a class="back-link" @click="apBackToList()">&larr; Back to list</a>
+
+                            <div class="data-card">
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title" x-text="apSelected && apSelected[apF.name]"></h2>
+                                        <span class="mono" style="font-size:0.75rem; color:#6b7280;" x-text="apSelected && apSelected[apF.id]"></span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                                        <span class="badge badge-sm" :class="NSS.assetPropertyStatusBadgeClass(apSelected && apSelected.status)"
+                                              x-text="NSS.assetPropertyStatusLabel(apSelected && apSelected.status)"></span>
+                                        <button class="btn-action" x-show="canManageAssets" @click="apOpenEdit()">Edit</button>
+                                        <button class="btn-action danger" x-show="canManageAssets && apCanArchive" @click="apArchive()">Archive</button>
+                                    </div>
+                                </div>
+                                <div class="data-card-body">
+
+                                    <!-- Details -->
+                                    <div class="detail-grid cols-3">
+                                        <div class="detail-item">
+                                            <div class="label" x-text="apNounTitle + ' type'"></div>
+                                            <div class="value" x-text="apSelected && apSelected[apF.typeName]"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label" x-text="apSelected && apSelected.custodian_is_last ? 'Last custodian' : 'Custodian'"></div>
+                                            <div class="value">
+                                                <span x-text="(apSelected && apSelected.current_custodian_organization_name) || 'No custodian'"></span>
+                                                <span class="badge badge-xs" x-show="apSelected && apSelected.custodian_is_last"
+                                                      :class="NSS.assetPropertyStatusBadgeClass(apSelected && apSelected.status)"
+                                                      x-text="NSS.assetPropertyStatusLabel(apSelected && apSelected.status)"></span>
+                                            </div>
+                                        </div>
+                                        <div class="detail-item" x-show="apSelected && apSelected.belongs_to_organization_name">
+                                            <div class="label">Belongs to</div>
+                                            <div class="value" x-text="apSelected && apSelected.belongs_to_organization_name"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Custodian since</div>
+                                            <div class="value" x-text="apSelected && apSelected.current_custodian_since ? NSS.formatDate(apSelected.current_custodian_since) : '—'"></div>
+                                        </div>
+                                        <div class="detail-item" x-show="apSelected && apSelected.custodian_is_last">
+                                            <div class="label">Custody ended</div>
+                                            <div class="value" x-text="apSelected && apSelected.custodian_ended_at ? NSS.formatDate(apSelected.custodian_ended_at) : '—'"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Acquisition method</div>
+                                            <div class="value" x-text="(apSelected && apSelected.acquisition_method_name) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Acquired on</div>
+                                            <div class="value" x-text="apSelected && apSelected.acquired_at ? NSS.formatDate(apSelected.acquired_at) : '—'"></div>
+                                        </div>
+                                        <div class="detail-item" style="grid-column: span 2;">
+                                            <div class="label">Location</div>
+                                            <div class="value" x-text="(apSelected && apSelected.location_description) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item" style="grid-column: span 3;">
+                                            <div class="label" x-text="apF.extraLabel"></div>
+                                            <div class="value" x-text="(apSelected && apSelected[apF.extra]) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item" style="grid-column: span 3;">
+                                            <div class="label">Notes</div>
+                                            <div class="value" x-text="(apSelected && apSelected.notes) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Registered</div>
+                                            <div class="value" x-text="apSelected ? NSS.formatDate(apSelected.created_at) : ''"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Lifecycle (SOL-AP-003): only the valid next states are offered.
+                                         Disposal / retirement is recorded here, approved by Governance. -->
+                                    <div class="form-section" x-show="canManageAssets">
+                                        <h4 class="form-section-title">Lifecycle</h4>
+                                        <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
+                                            <template x-for="to in apNextStatuses" :key="to">
+                                                <button class="btn-action" :class="{ danger: to === 'DISPOSED' || to === 'RETIRED' }"
+                                                        :disabled="apTransition.saving" @click="apStartTransition(to)"
+                                                        x-text="apTransitionLabel(to)"></button>
+                                            </template>
+                                            <span class="form-hint" style="margin:0;" x-show="apIsTerminal"
+                                                  x-text="'This ' + apNoun + ' is ' + NSS.assetPropertyStatusLabel(apSelected && apSelected.status).toLowerCase() + ' and its status can no longer change.'"></span>
+                                            <span class="form-hint" style="margin:0;"
+                                                  x-show="apSelected && apSelected.status === 'REGISTERED' && !apSelected.current_custodianship_pk"
+                                                  x-text="'Assign a custodian to bring this ' + apNoun + ' into use.'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Custody -->
+                                    <div class="form-section">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Custody</h4>
+                                            <div style="display:flex; gap:0.75rem;">
+                                                <button class="link-action" x-show="apCanAssignCustodian" @click="apOpenAssign()">Assign custodian</button>
+                                                <button class="link-action" x-show="apCanTransferCustody" @click="apOpenTransfer()">Transfer custody</button>
+                                            </div>
+                                        </div>
+
+                                        <template x-if="apAssign.show">
+                                            <div class="form-grid-2" style="margin-top:0.5rem;">
+                                                <div class="typeahead-wrap">
+                                                    <label class="form-label">Custodian organization</label>
+                                                    <input type="text" class="form-input" x-model="apAssign.custodian.query"
+                                                           @input="corrOnOrgQueryInput(apAssign.custodian)" placeholder="Search by organization name…" autocomplete="off">
+                                                    <div class="typeahead-menu" x-show="apAssign.custodian.results.length > 0">
+                                                        <template x-for="org in apAssign.custodian.results" :key="org.organization_pk">
+                                                            <div class="typeahead-item" @click="corrSelectOrg(apAssign.custodian, org)">
+                                                                <span x-text="org.organization_name"></span>
+                                                                <span class="meta" x-text="org.type_name"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                    <p class="form-hint" x-text="apCustodianHint"></p>
+                                                </div>
+                                                <div x-data="nssDatePicker('apAssign.effective_from', { maxToday: true })" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apAssign.saving">
+                                                    <label class="form-label">Effective from <span class="optional">(defaults to today)</span></label>
+                                                </div>
+                                                <div class="span-all">
+                                                    <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                    <textarea class="form-input" rows="2" maxlength="2000" x-model="apAssign.notes"></textarea>
+                                                </div>
+                                                <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apAssign.error" x-text="apAssign.error"></div>
+                                                <div class="span-all" style="display:flex; gap:0.5rem;">
+                                                    <button class="btn-action primary" :disabled="apAssign.saving" @click="apSubmitAssign()"
+                                                            x-text="apAssign.saving ? 'Saving…' : 'Assign custodian'"></button>
+                                                    <button class="btn-action" :disabled="apAssign.saving" @click="apCancelAssign()">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.custody.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.custody.error" x-text="apSub.custody.error"></div>
+                                        <p class="form-hint" x-show="!apSub.custody.loading && !apSub.custody.error && apSub.custody.items.length === 0">No custodian has been assigned yet.</p>
+                                        <div class="data-rows" x-show="apSub.custody.items.length > 0">
+                                            <template x-for="c in apSub.custody.items" :key="c.custodianship_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span class="badge badge-xs" :class="NSS.assetCustodianshipBadgeClass(c.status)" x-text="NSS.assetCustodianshipStatusLabel(c.status)"></span>
+                                                        <span style="font-size:0.82rem; margin-left:0.4rem;" x-text="c.custodian_organization_name"></span>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="c.end_reason_name" x-text="'Ended: ' + c.end_reason_name"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="c.notes" x-text="c.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; color:#6b7280;"
+                                                          x-text="NSS.formatDate(c.effective_from) + ' – ' + (c.effective_to ? NSS.formatDate(c.effective_to) : 'present')"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Maintenance records: what WAS done (no schedule, no cost) -->
+                                    <div class="form-section">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Maintenance records</h4>
+                                            <button class="link-action" x-show="canManageAssets" @click="apToggleMaintForm()"
+                                                    x-text="apMaintForm.show ? 'Cancel' : '+ Add record'"></button>
+                                        </div>
+
+                                        <div class="form-grid-2" x-show="apMaintForm.show" x-cloak style="margin-top:0.5rem;">
+                                            <div>
+                                                <label class="form-label">Maintenance type</label>
+                                                <select class="nss-select" x-model="apMaintForm.type_code">
+                                                    <option value="">Select…</option>
+                                                    <template x-for="o in apOptions('MAINTENANCE_TYPE')" :key="o.value_code">
+                                                        <option :value="o.value_code" x-text="o.value_name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div x-data="nssDatePicker('apMaintForm.performed_at', { maxToday: true })" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apMaintForm.saving">
+                                                <label class="form-label">Performed on <span class="optional">(optional)</span></label>
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Description <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apMaintForm.description"></textarea>
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apMaintForm.notes"></textarea>
+                                            </div>
+                                            <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apMaintForm.error" x-text="apMaintForm.error"></div>
+                                            <div class="span-all" style="display:flex; gap:0.5rem;">
+                                                <button class="btn-action primary" :disabled="apMaintForm.saving" @click="apSubmitMaintenance()"
+                                                        x-text="apMaintForm.saving ? 'Saving…' : (apMaintForm.editPk ? 'Save changes' : 'Add record')"></button>
+                                            </div>
+                                        </div>
+
+                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.maintenance.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.maintenance.error" x-text="apSub.maintenance.error"></div>
+                                        <p class="form-hint" x-show="!apSub.maintenance.loading && !apSub.maintenance.error && apSub.maintenance.items.length === 0">No maintenance recorded.</p>
+                                        <div class="data-rows" x-show="apSub.maintenance.items.length > 0">
+                                            <template x-for="m in apSub.maintenance.items" :key="m.maintenance_record_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span style="font-size:0.82rem; font-weight:600;" x-text="m.maintenance_type_name"></span>
+                                                        <div style="font-size:0.75rem; color:#6b7280;" x-show="m.description" x-text="m.description"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="m.notes" x-text="m.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; color:#6b7280; display:flex; gap:0.6rem; align-items:center;">
+                                                        <span x-text="m.performed_at ? NSS.formatDate(m.performed_at) : 'Date not recorded'"></span>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apEditMaintenance(m)">Edit</button>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apDeleteMaintenance(m)">Delete</button>
+                                                    </span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Statutory records: property only (AP-040). Identifies the
+                                         obligation; payment belongs to Finance. -->
+                                    <div class="form-section" x-show="apIsProperty">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Statutory records</h4>
+                                            <button class="link-action" x-show="canManageAssets" @click="apToggleStatForm()"
+                                                    x-text="apStatForm.show ? 'Cancel' : '+ Add record'"></button>
+                                        </div>
+
+                                        <div class="form-grid-2" x-show="apStatForm.show" x-cloak style="margin-top:0.5rem;">
+                                            <div>
+                                                <label class="form-label">Obligation type</label>
+                                                <select class="nss-select" x-model="apStatForm.type_code">
+                                                    <option value="">Select…</option>
+                                                    <template x-for="o in apOptions('STATUTORY_OBLIGATION_TYPE')" :key="o.value_code">
+                                                        <option :value="o.value_code" x-text="o.value_name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Reference number <span class="optional">(optional)</span></label>
+                                                <input type="text" class="form-input" maxlength="100" x-model="apStatForm.reference_number" autocomplete="off">
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Description <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apStatForm.description"></textarea>
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apStatForm.notes"></textarea>
+                                            </div>
+                                            <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apStatForm.error" x-text="apStatForm.error"></div>
+                                            <div class="span-all" style="display:flex; gap:0.5rem;">
+                                                <button class="btn-action primary" :disabled="apStatForm.saving" @click="apSubmitStatutory()"
+                                                        x-text="apStatForm.saving ? 'Saving…' : (apStatForm.editPk ? 'Save changes' : 'Add record')"></button>
+                                            </div>
+                                        </div>
+
+                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.statutory.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.statutory.error" x-text="apSub.statutory.error"></div>
+                                        <p class="form-hint" x-show="!apSub.statutory.loading && !apSub.statutory.error && apSub.statutory.items.length === 0">No statutory records.</p>
+                                        <div class="data-rows" x-show="apSub.statutory.items.length > 0">
+                                            <template x-for="r in apSub.statutory.items" :key="r.property_statutory_record_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span style="font-size:0.82rem; font-weight:600;" x-text="r.obligation_type_name"></span>
+                                                        <span class="mono" style="font-size:0.75rem; margin-left:0.4rem;" x-show="r.reference_number" x-text="r.reference_number"></span>
+                                                        <div style="font-size:0.75rem; color:#6b7280;" x-show="r.description" x-text="r.description"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="r.notes" x-text="r.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; display:flex; gap:0.6rem; align-items:center;">
+                                                        <button class="link-action" x-show="canManageAssets" @click="apEditStatutory(r)">Edit</button>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apDeleteStatutory(r)">Delete</button>
+                                                    </span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Documents: links to existing Foundation document-registry
+                                         entries (no upload here). -->
+                                    <div class="form-section">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Documents</h4>
+                                            <button class="link-action" x-show="canManageAssets" @click="apToggleDocForm()"
+                                                    x-text="apDocForm.show ? 'Cancel' : '+ Attach document'"></button>
+                                        </div>
+
+                                        <div class="form-grid-2" x-show="apDocForm.show" x-cloak style="margin-top:0.5rem;">
+                                            <div class="span-all">
+                                                <label class="form-label">Document</label>
+                                                <select class="nss-select" x-model="apDocForm.document_master_pk">
+                                                    <option value="" x-text="apDocChoices.length ? 'Select from the document registry…' : 'No documents available'"></option>
+                                                    <template x-for="d in apDocChoices" :key="d.document_master_pk">
+                                                        <option :value="d.document_master_pk" x-text="apDocOptionLabel(d)"></option>
+                                                    </template>
+                                                </select>
+                                                <p class="form-hint" x-show="apDocOptionsError" x-text="apDocOptionsError"></p>
+                                                <p class="form-hint">Only documents already in the registry can be attached; files are not uploaded here.</p>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Relationship <span class="optional">(optional)</span></label>
+                                                <select class="nss-select" x-model="apDocForm.relationship_type_code">
+                                                    <option value="">None</option>
+                                                    <template x-for="o in apOptions('ASSET_PROPERTY_DOCUMENT_RELATIONSHIP')" :key="o.value_code">
+                                                        <option :value="o.value_code" x-text="o.value_name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                <input type="text" class="form-input" maxlength="2000" x-model="apDocForm.notes" autocomplete="off">
+                                            </div>
+                                            <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apDocForm.error" x-text="apDocForm.error"></div>
+                                            <div class="span-all">
+                                                <button class="btn-action primary" :disabled="apDocForm.saving" @click="apSubmitDocument()"
+                                                        x-text="apDocForm.saving ? 'Saving…' : 'Attach document'"></button>
+                                            </div>
+                                        </div>
+
+                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.documents.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.documents.error" x-text="apSub.documents.error"></div>
+                                        <p class="form-hint" x-show="!apSub.documents.loading && !apSub.documents.error && apSub.documents.items.length === 0">No documents attached.</p>
+                                        <div class="data-rows" x-show="apSub.documents.items.length > 0">
+                                            <template x-for="d in apSub.documents.items" :key="d.link_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span style="font-size:0.82rem; font-weight:600;" x-text="d.document_name"></span>
+                                                        <span style="margin-left:0.4rem;" x-show="d.relationship_type_name"><span class="badge badge-xs badge-muted" x-text="d.relationship_type_name"></span></span>
+                                                        <div style="font-size:0.75rem; color:#6b7280;"
+                                                             x-text="NSS.codeLabel(d.document_type_code) + (d.document_number ? ' · ' + d.document_number : '')"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="d.notes" x-text="d.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; color:#6b7280; display:flex; gap:0.6rem; align-items:center;">
+                                                        <span x-text="NSS.formatDate(d.created_at)"></span>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apDetachDocument(d)">Detach</button>
+                                                    </span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── Modal: record disposal / retirement (asks for the Governance
+                             decision reference, then a confirm dialog) ── -->
+                        <template x-if="apTransition.show">
+                            <div class="modal-overlay" @click.self="apCancelTransition()">
+                                <div class="modal-card">
+                                    <div class="modal-card-header">
+                                        <h3 x-text="apTransitionLabel(apTransition.target)"></h3>
+                                        <p x-text="'This is recorded here, not approved here: the decision belongs to the Governing Body. A ' + NSS.assetPropertyStatusLabel(apTransition.target).toLowerCase() + ' ' + apNoun + ' cannot change status again.'"></p>
+                                    </div>
+                                    <div class="modal-card-body">
+                                        <label class="form-label">Governance decision reference <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="3" maxlength="2000" x-model="apTransition.remarks"
+                                                  placeholder="Governing Body meeting / resolution reference"></textarea>
+                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="apTransition.error" x-text="apTransition.error"></div>
+                                    </div>
+                                    <div class="modal-card-footer">
+                                        <button class="btn-action" :disabled="apTransition.saving" @click="apCancelTransition()">Cancel</button>
+                                        <button class="btn-action danger" :disabled="apTransition.saving" @click="apConfirmTerminalTransition()"
+                                                x-text="apTransition.saving ? 'Saving…' : apTransitionLabel(apTransition.target)"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- ── Modal: transfer custody ── -->
+                        <template x-if="apTransfer.show">
+                            <div class="modal-overlay" @click.self="apCancelTransfer()">
+                                <div class="modal-card" style="overflow:visible;">
+                                    <div class="modal-card-header">
+                                        <h3>Transfer custody</h3>
+                                        <p>The current custodianship is ended and kept in the history. The lifecycle status does not change.</p>
+                                    </div>
+                                    <div class="modal-card-body">
+                                        <div class="typeahead-wrap" style="margin-bottom:0.75rem;">
+                                            <label class="form-label">New custodian organization</label>
+                                            <input type="text" class="form-input" x-model="apTransfer.newCustodian.query"
+                                                   @input="corrOnOrgQueryInput(apTransfer.newCustodian)" placeholder="Search by organization name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="apTransfer.newCustodian.results.length > 0">
+                                                <template x-for="org in apTransfer.newCustodian.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(apTransfer.newCustodian, org)">
+                                                        <span x-text="org.organization_name"></span>
+                                                        <span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <p class="form-hint" x-text="apCustodianHint"></p>
+                                        </div>
+                                        <div style="margin-bottom:0.75rem;">
+                                            <label class="form-label">Reason</label>
+                                            <select class="nss-select" x-model="apTransfer.end_reason_code">
+                                                <template x-for="o in apOptions('CUSTODIANSHIP_END_REASON')" :key="o.value_code">
+                                                    <option :value="o.value_code" x-text="o.value_name"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div x-data="nssDatePicker('apTransfer.effective_from', { maxToday: true })" style="position:relative; margin-bottom:0.75rem;" data-dp-input-class="form-input" data-dp-disabled="apTransfer.saving">
+                                            <label class="form-label">Effective from <span class="optional">(defaults to today)</span></label>
+                                        </div>
+                                        <div style="margin-bottom:0.75rem;">
+                                            <label class="form-label">New location <span class="optional">(optional — leave blank to keep the current one)</span></label>
+                                            <textarea class="form-input" rows="2" maxlength="2000" x-model="apTransfer.location_description"></textarea>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                            <textarea class="form-input" rows="2" maxlength="2000" x-model="apTransfer.notes"></textarea>
+                                        </div>
+                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="apTransfer.error" x-text="apTransfer.error"></div>
+                                    </div>
+                                    <div class="modal-card-footer">
+                                        <button class="btn-action" :disabled="apTransfer.saving" @click="apCancelTransfer()">Cancel</button>
+                                        <button class="btn-action primary" :disabled="apTransfer.saving" @click="apSubmitTransfer()"
+                                                x-text="apTransfer.saving ? 'Transferring…' : 'Transfer custody'"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                    </div><!-- /Assets & Property -->
 
                     <!-- ═══════════════════════════════════════════
                          VIEW: Org Dashboard (Sakha/Anchalika/Zilla/Kendra/Patha Chakra)

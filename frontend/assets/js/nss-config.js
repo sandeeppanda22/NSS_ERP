@@ -393,6 +393,108 @@ const NSS = {
         return this.CORRESPONDENCE_STEP_BADGE_MAP[status] || "badge-muted";
     },
 
+    // ── Assets & Property (Module #22, Tier 6) ─────────────────────────
+    // Lifecycle status of a property (REGISTERED/ACTIVE/UNDER_MAINTENANCE/
+    // DISPOSED) or an asset (REGISTERED/IN_CUSTODY/UNDER_MAINTENANCE/RETIRED),
+    // plus the custodianship row status (ACTIVE/ENDED). SOL-AP-003 values are
+    // fixed (not master data), so labels live here, never as raw codes.
+    ASSET_PROPERTY_STATUS_LABELS: {
+        REGISTERED:        "Registered",
+        ACTIVE:            "Active",
+        IN_CUSTODY:        "In custody",
+        UNDER_MAINTENANCE: "Under maintenance",
+        DISPOSED:          "Disposed",
+        RETIRED:           "Retired",
+    },
+
+    ASSET_PROPERTY_STATUS_BADGE_MAP: {
+        REGISTERED:        "badge-ap-registered",
+        ACTIVE:            "badge-ap-active",
+        IN_CUSTODY:        "badge-ap-active",
+        UNDER_MAINTENANCE: "badge-ap-maintenance",
+        DISPOSED:          "badge-ap-terminal",
+        RETIRED:           "badge-ap-terminal",
+    },
+
+    // custodianship.status — the ACTIVE row is the CURRENT custodian.
+    ASSET_CUSTODIANSHIP_STATUS_LABELS: {
+        ACTIVE: "Current",
+        ENDED:  "Ended",
+    },
+
+    ASSET_CUSTODIANSHIP_BADGE_MAP: {
+        ACTIVE: "badge-ap-active",
+        ENDED:  "badge-ap-ended",
+    },
+
+    // The ONE client mirror of SOL-AP-003 §3.2 / §4.2 (the server —
+    // api/routers/assets_property.py _PROPERTY/_ASSET.transitions plus the DB
+    // guard trigger — stays the authority; this only decides which buttons to
+    // offer). Keyed by the API path segment ({kind}). `terminal` is the
+    // irreversible disposal/retirement that asks for a Governance decision
+    // reference; `archivable` mirrors _ARCHIVABLE_STATUSES.
+    ASSET_PROPERTY_LIFECYCLE: {
+        properties: {
+            terminal: "DISPOSED",
+            transitions: {
+                REGISTERED:        ["ACTIVE"],
+                ACTIVE:            ["UNDER_MAINTENANCE", "DISPOSED"],
+                UNDER_MAINTENANCE: ["ACTIVE", "DISPOSED"],
+                DISPOSED:          [],
+            },
+        },
+        assets: {
+            terminal: "RETIRED",
+            transitions: {
+                REGISTERED:        ["IN_CUSTODY"],
+                IN_CUSTODY:        ["UNDER_MAINTENANCE", "RETIRED"],
+                UNDER_MAINTENANCE: ["IN_CUSTODY", "RETIRED"],
+                RETIRED:           [],
+            },
+        },
+    },
+    ASSET_PROPERTY_ARCHIVABLE_STATUSES: ["REGISTERED", "DISPOSED", "RETIRED"],
+
+    assetPropertyStatusLabel(status) {
+        return this.ASSET_PROPERTY_STATUS_LABELS[status] || this.codeLabel(status);
+    },
+
+    assetPropertyStatusBadgeClass(status) {
+        return this.ASSET_PROPERTY_STATUS_BADGE_MAP[status] || "badge-muted";
+    },
+
+    assetCustodianshipStatusLabel(status) {
+        return this.ASSET_CUSTODIANSHIP_STATUS_LABELS[status] || this.codeLabel(status);
+    },
+
+    assetCustodianshipBadgeClass(status) {
+        return this.ASSET_CUSTODIANSHIP_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Button caption for moving a property/asset from `from` to `to`.
+     * @returns {string}
+     */
+    assetPropertyTransitionLabel(from, to) {
+        if (from === "UNDER_MAINTENANCE" && (to === "ACTIVE" || to === "IN_CUSTODY")) return "Return to service";
+        const labels = {
+            ACTIVE: "Activate", IN_CUSTODY: "Take into custody", UNDER_MAINTENANCE: "Mark under maintenance",
+            DISPOSED: "Record disposal", RETIRED: "Record retirement",
+        };
+        return labels[to] || this.assetPropertyStatusLabel(to);
+    },
+
+    /**
+     * Last-resort display for a code the UI has no friendly name for
+     * ("TITLE_DEED" -> "Title Deed"). Used only where the API returns a bare
+     * code with no *_name companion (e.g. a document's document_type_code).
+     */
+    codeLabel(code) {
+        if (!code) return "";
+        return String(code).toLowerCase().split("_")
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    },
+
     // Same step_status domain, but for the circular stepper-node icon
     // (frontend/assets/css/nss-layout.css .corr-stepper-icon — geometry
     // only). 2026-10-23: now points at the real badge classes for this
@@ -1232,3 +1334,18 @@ const NSS = {
         }
     },
 };
+
+/* ── Asset/property custodian-eligible organization types (single JS definition) ──
+ * Owner rule 2026-11-02 (GDR-010 §2C): property and assets are HELD only by
+ * PHYSICAL organizations — Sakha (incl. Sakha Asana), Patha Chakra, Kendra,
+ * Nilachala Kutira, Smruti Mandira. Conceptual groupings (Anchalika/Zilla
+ * Sangha), wing organizations and the Advisory Board never are. Built from
+ * NSS.SAKHA_LIKE_ORG_TYPES so the Sakha pair stays defined once. Every
+ * custodian picker passes these as repeated ?type_code=. Python:
+ * api/helpers.py::ASSET_CUSTODIAN_ORG_TYPES; SQL:
+ * nss.fn_is_asset_custodian_org_type().
+ */
+NSS.ASSET_CUSTODIAN_ORG_TYPES = [...NSS.SAKHA_LIKE_ORG_TYPES, "PATHA_CHAKRA", "KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA"];
+
+/** True for the organization types that may hold property/assets. */
+NSS.isAssetCustodianOrgType = (typeCode) => NSS.ASSET_CUSTODIAN_ORG_TYPES.includes(typeCode);
