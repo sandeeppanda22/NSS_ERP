@@ -76,7 +76,7 @@ Build phases (authoritative detail in `scripts/README.md`):
 
 | Phase | Content |
 |------:|---------|
-| 0 | Bootstrap RBAC — 3 tables + seed (11 roles, 28 permissions, 166 mappings incl. the idempotent `04_role_permission_mahila_advisory_board_patch.sql`) |
+| 0 | Bootstrap RBAC — 3 tables + seed (11 roles, 28 permissions, 166 mappings incl. the idempotent `04_role_permission_mahila_advisory_board_patch.sql`), then the idempotent `05_assets_property_permissions_patch.sql` (`ASSET_VIEW`/`ASSET_MANAGE` + 12 grants → 30 permissions, 178 mappings), then `06_assets_property_permissions_revoke_patch.sql` (soft-deletes the 4 grants the original 16-row `05` created: Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE) |
 | 1 | Foundation DDL — 14 tables (incl. `post_office`, `festival_master`/`festival_calendar_date`) |
 | 2 | Foundation seed (incl. all-India PINs, post offices, ~673k `city_village` rows, festival calendar) |
 | 3 | Organization DDL — 1 table + address-restriction, Kumari/Sevak, singleton triggers + `fn_is_sakha_like_org_type()` |
@@ -94,6 +94,7 @@ Build phases (authoritative detail in `scripts/README.md`):
 | 11d | Correspondence DDL — 5 tables (`09_correspondence/`) |
 | 11e | Attendance DDL — 4 tables (`10_attendance/`) + idempotent live-register index patch `05_attendance_live_version_index_patch.sql` |
 | 11f | Organization re-parent approval DDL — 2 tables (`02_organization/06`-`07`) + source-role patch (`09_`) |
+| 11g | Assets & Property DDL — 7 tables (`11_assets_property/`) + idempotent guard triggers `08_assets_property_guards.sql` + idempotent `09_asset_custodian_org_type_function.sql` (custodian-eligible org types function + `trg_custodianship_custodian_guard`) + idempotent patches `10_…belongs_to_patch.sql`, `11_…acquisition_method_patch.sql` (GDR-010 §2E) and `12_…terminal_custody_patch.sql` (GDR-010 §2F, after the reference data) + idempotent reference-data patch (`seed/11_assets_property/01_…_patch.sql`: `PROPERTY`/`ASSET` id sequences, 7 master categories incl. `ACQUISITION_METHOD`, 38 values incl. the `DISPOSED`/`RETIRED` custodianship end reasons) |
 | 12 | Grant `nss_db_writer` |
 | 13 | Admin bootstrap (`scripts/bootstrap_admin.py`) |
 | 13b | Geo attribution backfill of bulk-seeded geography rows |
@@ -139,18 +140,19 @@ Depth/Seq# breakdown lives in their own module READMEs rather than being duplica
 - `ddl/08_governance/README.md` (10 tables + immutability triggers) — Tier 6
 - `ddl/09_correspondence/README.md` (5 tables, Correspondence Register) — Tier 6
 - `ddl/10_attendance/README.md` (4 tables, Weekly Sangha Puja attendance) — Tier 6
+- `ddl/11_assets_property/README.md` (7 tables + guard triggers, Assets & Property, Module #22) — Tier 6
 - `ddl/01_foundation/README.md` also documents
   `festival_master`/`festival_calendar_date`, and Phase 14's
   `system_event_log` (15th Foundation table) and `fn_audit_trigger()`
 
-**Total implemented: 71 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
-3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance
+**Total implemented: 78 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
+3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance + 7 Assets & Property
 (verified by counting `CREATE TABLE` across `database/ddl/**`). Of those, 11 are Tier 5 additions
-(see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) and 4 are Tier 6 (Attendance); the v0.10.4
+(see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) 4 are Tier 6 (Attendance) and 7 are Assets & Property (Module #22, Tier 6, uncommitted); the v0.10.4
 baseline was 34.
 **Organization type/status moved to Foundation `master_data` — standalone tables retired.**
-**Phase 0 seed complete:** `role_master` (11 roles), `permission_master` (28), `role_permission`
-(166) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
+**Phase 0 seed complete:** `role_master` (11 roles), `permission_master` (28, +2 from the Assets & Property patch = 30), `role_permission`
+(166, +12 = 178) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
 
 See module READMEs for per-file details:
 - `ddl/00_bootstrap/README.md` / `seed/00_bootstrap/README.md`
@@ -210,9 +212,10 @@ database/
 │   ├── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
 │   ├── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql`, `12_governance_seat_limits.sql`, `13_governance_nomination_refile_index.sql` (Tier 6)
 │   ├── 09_correspondence/ 5 tables (Tier 6)
-│   └── 10_attendance/    4 tables: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review (Tier 6)
+│   ├── 10_attendance/    4 tables: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review (Tier 6)
+│   └── 11_assets_property/ 7 tables (property, asset, custodianship, property_statutory_record, maintenance_record, property_document, asset_document) + `08_assets_property_guards.sql` (idempotent lifecycle/history triggers) + `09_asset_custodian_org_type_function.sql` (physical-organization custodian guard) + patches `10`/`11` (columns) and `12` (terminal custody) (Module #22, Tier 6)
 ├── seed/
-│   ├── 00_bootstrap/     11 roles, 28 permissions, 166 role-permission mappings (+ patch 04)
+│   ├── 00_bootstrap/     11 roles, 28 permissions, 166 role-permission mappings (+ patches 04, 05 = ASSET_VIEW/ASSET_MANAGE, 30/178, and 06 = revoke of 4 withdrawn asset grants)
 │   ├── 01_foundation/    reference + bulk geography data (files 01-11b; `09_sakha_postal_codes.sql` runs in Phase 4)
 │   ├── 02_organization/  3 unique orgs + 175 real Sakha branches + org-code counter sync + Advisory Board patch (07)
 │   ├── 03_person/        no seed data (README only)
@@ -220,6 +223,7 @@ database/
 │   ├── 04_family/        no seed data (README only)
 │   ├── 05_membership/    no seed data (README only)
 │   ├── 08_governance/    8 body types, 10 positions, 3 NSS-wide bodies + Sakha Asana governing-body patch (Tier 6)
+│   ├── 11_assets_property/ idempotent reference-data patch only: `PROPERTY`/`ASSET` id sequences, 7 master categories, 38 master-data values (Module #22)
 │   └── demo/             optional local-only demo seed (gitignored; RUN_DEMO_SEED)
 │                         (no seed folders for 06_authentication/07_administration)
 └── README.md             this file
@@ -236,7 +240,7 @@ There is no `database/migrations/` or `database/fixes/` folder.
 
 | Module | Tables | DDL Status | Next Action |
 |--------|-------:|-----------|-------------|
-| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (11 roles / 28 permissions / 166 mappings) | — |
+| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (11 roles / 30 permissions / 178 mappings incl. the Assets & Property patch) | — |
 | Foundation | 15 | ✅ IMPLEMENTED (12 original/geography incl. `post_office`, 2 festival tables, + `system_event_log`) | — |
 | Organization | 3 | ✅ IMPLEMENTED (`organization`; Tier 6: `organization_reparent_request`/`_step`; + 3 triggers, 1 function) | — |
 | Person | 2 | ✅ IMPLEMENTED | — |
@@ -247,10 +251,11 @@ There is no `database/migrations/` or `database/fixes/` folder.
 | Governance | 10 | 🚧 Tier 6, committed on `feature/tier6-governance` (not merged) | Merge to `develop` |
 | Correspondence | 5 | 🚧 Tier 6, committed on `feature/tier6-governance` | Merge to `develop` |
 | Attendance | 4 | 🚧 Tier 6, committed on `feature/tier6-governance` | Tests written but never run against a DB; merge |
+| Assets & Property | 7 | 🚧 Module #22 (Tier 6), written 2026-11-02, uncommitted; DDL/triggers/patches parsed and exercised only in a throwaway PostgreSQL 18 instance, never in the project DB | Run `02_build` + `03_validate` + the three `*assets_property*` test files; review GDR-010 |
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their
-DDL files (total 71). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
+DDL files (total 78). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
 figures used in earlier planning (3 and 9 respectively) — the implemented slice grew during
 design; this is a known SOL-ARCH-010 inventory drift to reconcile in a future governance pass,
 not a build error. Modules not listed above have frozen table counts but are further down the
@@ -363,12 +368,13 @@ Validates the build. **Does NOT execute any DDL or seed scripts** — run `02_bu
 | Administration (2 tables) | Existence, key columns, FK integrity |
 
 | Attendance (4 tables), Organization re-parent approval (2 tables) | Existence, key columns and FK-orphan checks (no seed, no row minimums) |
+| Assets & Property (7 tables) | Existence, 13 key columns, FK-orphan checks, XOR / one-ACTIVE-custodian invariants, guard triggers, `PROPERTY`/`ASSET` sequences, the 7 master categories (incl. `ACQUISITION_METHOD`; `DISPOSED`/`RETIRED` end reasons present), ≥ 4 active `ASSET_MANAGE` and ≥ 8 active `ASSET_VIEW` grants, a FAIL check that the 4 withdrawn grants are not active, the `belongs_to_organization_pk` and `acquisition_method_master_data_pk` columns + FK orphans, the terminal-record insert guard, and a FAIL check that no ACTIVE custodianship remains on a DISPOSED property / RETIRED asset (no row minimums for runtime data) |
 | Family (6), Membership (16, incl. `credential_sequence_counter`, `sakha_local_number_counter`, `membership_change_request`), `system_event_log` | Existence only (no seed data, no key-column or FK checks) |
 | Governance (10 tables, Module 8) | Existence for all 10, plus 3 key columns and 3 FK-orphan checks in the `.sh` only (the `.ps1` has the table checks but not the key-column/FK checks); no seed minimums |
 | Correspondence (5 tables: `correspondence`, `correspondence_document`, `correspondence_finance_reference`, `correspondence_sequence_counter`, `correspondence_approval_step`) | Existence, key columns, FK-orphan checks, unique `correspondence.reference_number` (no seed). The `correspondence_finance_reference` -> `financial_transaction` FK is deliberately not checked (Finance not built) |
 
 Row-count checks assert `count >= expected` and only WARN when lower; the minimums track the
-current seed (`role_master` 11, `permission_master` 28, `role_permission` 166, 90 master_data, 14 sequences, 5 settings, 179 organizations; `person` 0).
+current seed (`role_master` 11, `permission_master` 30, `role_permission` 178 (182 on a DB that ran the original 16-row asset patch: 4 rows inactive), 147 master_data, 25 master_category, 16 sequences, 5 settings, 179 organizations; `person` 0).
 Geography minimums: `state` 112, `district` 780, `postal_code` 17800, `city_village` 673000. The
 `.sh` and `.ps1` versions run ~156 check calls in `.sh` vs ~144 in `.ps1` (the gap is the 3 Governance key-column and 3 FK checks missing from the `.ps1`, plus minor differences), including `city_village.district_pk` existence and minimum coverage (Simplified Geography Model).
 

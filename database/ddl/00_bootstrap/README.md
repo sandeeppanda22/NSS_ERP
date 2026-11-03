@@ -45,5 +45,5 @@ frozen in `docs/03_Solution/modules/administration/06_bootstrap_rbac_table_desig
 ## Status
 
 DDL is complete for all 3 tables, and all three are seeded (11 roles, 28 permissions, 166
-role-permission mappings) — see `database/seed/00_bootstrap/README.md`. Build phase: Phase 0 of
+role-permission mappings; the idempotent `05_assets_property_permissions_patch.sql` adds `ASSET_VIEW`/`ASSET_MANAGE` and 12 grants → 30 / 178; `06_assets_property_permissions_revoke_patch.sql` soft-deletes 4 grants an earlier version of `05` created) — see `database/seed/00_bootstrap/README.md`. Build phase: Phase 0 of
 `database/scripts/02_build.sh`/`.ps1`.

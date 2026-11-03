@@ -78,6 +78,9 @@
 -- CORRESPONDENCE_MANAGE to every org-scoped admin role, same footprint as
 -- MEMBERSHIP_MANAGE; GEO_ENTRY_APPROVE to NSS_ERP_SAKHA_ADMIN only;
 -- ORGANIZATION_MANAGE to ADMIN / KENDRA_ADMIN / KENDRA_MAHILA_SANGHA_ADMIN).
+-- NOTE (2026-11-02): the Assets & Property grants (ASSET_VIEW / ASSET_MANAGE, 12 rows after the 2026-11-02 owner decisions) are
+-- NOT in this file; they live only in 05_assets_property_permissions_patch.sql (this seed is
+-- existence-gated), so this file's totals (28 permissions / 166 rows) are unchanged.
 -- Idempotent: ON CONFLICT ... DO NOTHING (mapping is
 -- immutable once created; deactivate via is_active).
 -- =====================================================

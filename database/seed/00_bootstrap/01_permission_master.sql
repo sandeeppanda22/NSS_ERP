@@ -5,6 +5,9 @@
 -- Seed: 21 frozen permissions (Tier 5 decision 2026-09-15;
 --        FOUNDATION_CALENDAR_MANAGE added 2026-10-01 per
 --        SOL-ARCH-013 OPEN-FC-03)
+-- NOTE (2026-11-02): ASSET_VIEW / ASSET_MANAGE (Assets & Property, 30 permissions in total) are
+--          NOT in this file; they live only in 05_assets_property_permissions_patch.sql because
+--          this seed is existence-gated.
 -- Version: 1.5 — add ATTENDANCE_VIEW / ATTENDANCE_MANAGE (Tier 6,
 --          2026-10-27): Weekly Sangha Puja attendance marking. 28
 --          permissions total.

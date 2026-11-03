@@ -1,7 +1,7 @@
 # database/ddl/
 
 Hand-written PostgreSQL DDL, run in numeric folder order (driven by `database/scripts/02_build.sh`/`.ps1`).
-71 tables in total (counted from `CREATE TABLE` statements, per-folder breakdown below).
+78 tables in total (counted from `CREATE TABLE` statements, per-folder breakdown below).
 
 | Folder | Status |
 |---|---|
@@ -16,8 +16,9 @@ Hand-written PostgreSQL DDL, run in numeric folder order (driven by `database/sc
 | `08_governance/` | **Implemented (Tier 6)** — 10 tables: `body_type_master`, `position_master`, `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`, `election_nomination`, `election_vote`, `election_result`, `election_vote_participation`; plus `fn_block_update()` immutability triggers on votes/participation |
 | `09_correspondence/` | **Implemented (Tier 6)** — 5 tables: `correspondence`, `correspondence_document`, `correspondence_finance_reference`, `correspondence_sequence_counter`, `correspondence_approval_step`. Administration-owned capability (CORR-DECISION-003); moved from Tier 5 to Tier 6 (owner-confirmed 2026-10-16) since Tier 5 (v0.11.0) already shipped without it. `correspondence_finance_reference.financial_transaction_pk` has no FK yet — deferred to Pass 2 until Finance (Tier 12) exists |
 | `10_attendance/` | **Implemented (Tier 6, committed on `feature/tier6-governance`)** — 4 tables: `weekly_sangha_puja`, `weekly_sangha_puja_attendance`, `attendance_exception`, `attendance_review`; see its README |
+| `11_assets_property/` | **Implemented (Module #22, Tier 6; written 2026-11-02, uncommitted)** — 7 tables: `property`, `asset`, `custodianship`, `property_statutory_record`, `maintenance_record`, `property_document`, `asset_document` (SOL-AP-005), plus `08_assets_property_guards.sql` (idempotent lifecycle / identifier-immutability / custodianship-history triggers, run by `run_sql`, no table) `09_asset_custodian_org_type_function.sql` (`fn_is_asset_custodian_org_type()` + the custodian-must-be-a-physical-organization trigger, GDR-010 §2C), `10_…belongs_to_patch.sql`, `11_assets_property_acquisition_method_patch.sql` (nullable `acquisition_method_master_data_pk` + FK + index, GDR-010 §2E) and `12_assets_property_terminal_custody_patch.sql` (ENDs the ACTIVE custodianship of already DISPOSED/RETIRED records, GDR-010 §2F) and the guard `trg_custodianship_terminal_guard` (the guards file also adds `trg_custodianship_terminal_guard`). Built in Phase 11g; see `11_assets_property/README.md` and GDR-010 |
 
-Tables per folder: 3 + 15 + 3 + 2 + 6 + 16 + 5 + 2 + 10 + 5 + 4 = 71.
+Tables per folder: 3 + 15 + 3 + 2 + 6 + 16 + 5 + 2 + 10 + 5 + 4 + 7 = 78.
 
 Build phase numbers differ from folder numbers (Foundation's `14`/`15` run as Phase 14, after
 everything else; Authentication is Phase 10, Administration Phase 11) — see
