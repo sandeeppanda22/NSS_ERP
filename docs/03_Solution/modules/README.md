@@ -57,7 +57,7 @@ Administration — both reflected in the rows below.
 | `backup_technical/` | v1.0.0, SOURCE ALIGNED — 2 tables | no implementation |
 | `finance/` | v1.0.0, SOURCE ALIGNED — 7 tables (financial_year/scope/fund_master/transaction/receipt/payment/transfer), `_code` convention followed correctly | no implementation |
 | `programmes_events/` | v0.1.0, DRAFT — NOT FROZEN (Module #21) — **7 candidate common tables** (`programme_type`, `event`, `event_day`, `event_session`, `event_registration`, `event_location`, `event_history`), none frozen DDL, but all 7 cross-module reconciliation gates are closed (`SOL-EVT-007`); Programme Type → Event Instance two-level model | no implementation |
-| `assets_property/` | v1.0.0, DRAFT — SOURCE ALIGNED (Module #22) — 7 tables (`property`, `asset`, `custodianship`, `property_statutory_record`, `maintenance_record`, `property_document`, `asset_document`); 74 business rules (`AP-001`–`AP-074`) | no implementation |
+| `assets_property/` | v1.0.0, DRAFT — SOURCE ALIGNED (Module #22) — 7 tables (`property`, `asset`, `custodianship`, `property_statutory_record`, `maintenance_record`, `property_document`, `asset_document`); 74 business rules (`AP-001`–`AP-074`) | **backend implemented 2026-11-02, uncommitted** (`ddl/11_assets_property/`, `assets_property.py`, 26 endpoints; decisions: GDR-010 `Proposed`); no frontend |
 
 See `docs/PROJECT_DOCUMENTATION.md` → `03_Solution/` detail for the full breakdown, and its
 "Open questions / TODOs" section for open reconciliation items (Mandali term-length AND

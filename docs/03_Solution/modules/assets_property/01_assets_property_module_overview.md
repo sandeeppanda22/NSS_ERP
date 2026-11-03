@@ -293,6 +293,8 @@ The ERP handles this through:
 - Dissolution provisions to be represented in the Lifecycle/Business Rules
   documents
 
+> **Amendment (2026-11-02, owner-directed, GDR-010 §2C/§2D)** — a Mahila Sangha is not a custodian (custodians are physical organizations only). Mahila property is held by the Kendra Sangha or a Sakha as custodian and can be attributed to the Mahila Sangha through the optional, informational `belongs_to_organization_pk` ("belongs to") on the property/asset. The recorded/legal holder (President's name) stays the free-text `holding_arrangement`. Neither field changes authorization.
+
 ---
 
 # 10. Relationship to Heritage

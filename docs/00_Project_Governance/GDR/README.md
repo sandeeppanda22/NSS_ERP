@@ -37,3 +37,9 @@ approving, recording, monitoring, and retiring individual governance decisions.
   existing Local Sakha Number; everyone else is auto-numbered by the shared allocator; explicit
   `is_legacy_member` per claim and per attendance Sakha; amends AUTH-BR-085/086/087 and MBR-030/030A/030C/030H/048/049; extended 2026-11-01 with the Parichaya/Anumati Patra number (§2A) and "a Darshaka cannot attend another Sakha" (§2B).
   Status `Approved` (2026-11-01, on the project owner's instruction).
+- `GDR-010_Assets_and_Property_Implementation_Decisions.md` — implementation (2026-11-02) of Module #22
+  Assets & Property: how each PENDING item (AP-013 holding arrangement, AP-022 location, AP-032, AP-063,
+  AP-066 sacred articles; property/asset type, end-reason and document-relationship values; id format) was
+  handled — master_data-driven or free text, nothing frozen — plus the lifecycle interpretations
+  (SOL-AP-003) the `ASSET_VIEW`/`ASSET_MANAGE` authorization footprint, and (owner-directed 2026-11-02, §2C) the rule that custodians are PHYSICAL organizations only (Sakha incl. Asana, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira — never Anchalika/Zilla, wings or the Advisory Board); owner decisions 2026-11-02: view-only `ASSET_VIEW` for Anchalika/Zilla admins, no `ASSET_*` for the Mahila admin (§2B.2, revoke patch `06`), and an optional informational "belongs to" organization on property/asset (§2D). Status **`Proposed`**
+  (owner approval pending; owner decisions listed in §7).
