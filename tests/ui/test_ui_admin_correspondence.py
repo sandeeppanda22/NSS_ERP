@@ -499,10 +499,18 @@ def test_resolve_default_org_populates_the_switcher_for_a_small_scope(admin_js: 
         "dual Kendra+Sakha admin case this method exists for."
     )
     assert "this.currentUser?.scopes" in body
-    assert "s.organization_pk || kendraPk" in body, (
+    assert "if (s.organization_pk) pushOrg(s.organization_pk);" in body, (
         "Each scope grant must resolve its OWN organization_pk individually "
-        "(NSS-WIDE grants carry a NULL org_pk -> resolve to the real Kendra org) "
         "— not be short-circuited by an overall is_nss_wide()-style check."
+    )
+    # A GLOBAL null-org scope (NSS-WIDE / KENDRA) resolves to the real Kendra
+    # register; ADVISORY_BOARD / KENDRA_MAHILA_SANGHA null-org scopes must NOT
+    # (the server would 403 it) — they resolve by type in the next block.
+    assert 's.scope_level === "NSS-WIDE" || s.scope_level === "KENDRA") pushOrg(kendraPk);' in body, (
+        "Only a global null-org scope may resolve to the Kendra register."
+    )
+    assert "NULL_ORG_SCOPE_ORG_TYPE[s.scope_level]" in body, (
+        "ADVISORY_BOARD / KENDRA_MAHILA_SANGHA scopes resolve their own registers by org type."
     )
     # Candidates are grouped into TIER tabs (owner 2026-10-26), so the
     # switcher is driven by orgTabGroups rather than a flat org list.
@@ -545,7 +553,14 @@ def test_resolve_default_org_scope_derivation_stays_agnostic(admin_js: str):
     assert guard in body, "NSS-wide apex-tab seeding branch (owner 2026-10-26) not found."
     scope_part, apex_part = body.split(guard, 1)
 
-    # Half 1: scope derivation must not branch on role or org type.
+    # Half 1: scope derivation must not branch on role or org type. The ONE
+    # allowed exception is the explicit type-resolved block for NULL-organization
+    # scope levels (KENDRA_MAHILA_SANGHA -> Mahila Sangha orgs, ADVISORY_BOARD ->
+    # the Advisory Board org; rbac_service.NULL_ORG_SCOPE_ORG_TYPE), which is
+    # driven by the shared NULL_ORG_SCOPE_ORG_TYPE map, not literals.
+    marker = "// Type-resolved reach"
+    assert marker in scope_part, "Type-resolved null-org scope block not found."
+    scope_part = scope_part.split(marker, 1)[0]
     for needle in (
         "SAKHA", "KENDRA_GOVERNING_BODY", "ANCHALIKA", "ZILLA", "PATHA_CHAKRA",
         "role_code", "organization_type",

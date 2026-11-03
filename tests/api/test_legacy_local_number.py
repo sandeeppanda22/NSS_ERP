@@ -417,7 +417,8 @@ class TestPatchWiring:
         ("database/scripts/02_build.ps1", "06_authentication\\06_registration_claim_legacy_member_patch.sql"),
     ])
     def test_patch_is_wired_after_the_registration_claim_ddl(self, script, needle):
-        text = (REPO / script).read_text()
+        # Code lines only: build-script headers list the patch files in comments.
+        text = "\n".join(l for l in (REPO / script).read_text().splitlines() if not l.lstrip().startswith("#"))
         assert needle in text
         assert text.index("03_registration_claim.sql") < text.index(needle)
 

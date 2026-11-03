@@ -3,8 +3,9 @@
 Structured test suite for the NSS ERP application. Tests are organised into
 four categories under separate subdirectories.
 
-**Run status (2026-10-31):** this tree was re-counted by `pytest --collect-only` only. Nothing below
-was executed in the session that refreshed these docs, and every file marked **NOT yet run** (all
+**Run status (2026-11-03):** this tree was re-counted by `pytest --collect-only` only. Nothing below
+was executed in the session that refreshed these docs, and every file marked **NOT yet run** (the three
+Assets & Property suites (`test_assets_property*.py` + `test_asset_custodian_parity.py`, 757 items, written 2026-11-02/03), all
 Attendance suites and everything written 2026-10-30/31: person-address, Sakha re-parent, org
 singleton, null-org scope, Sakha Asana parity, SAVEPOINT isolation, CORS-configured, Mahila/Advisory
 Board security, and the new UI source-parsing files) has **never been run against a DB** — do not
@@ -18,19 +19,21 @@ Per-file figures are `(N test functions; M collected)` — see the counting note
 tests/
 ├── conftest.py          # Shared fixtures: DB connection, SAVEPOINT rollback, TestClient, authed/anon clients
 ├── attendance_support.py     # Shared builders for the Attendance modules (not a test file; imports builders from tests/api/test_correspondence.py)
+├── assets_property_support.py # Shared fixtures/builders for the Assets & Property modules (not a test file; builds on attendance_support.py: viewer_user/viewer_h (NSS_ERP_AUDITOR scoped to a Sakha), document_pks, make_property/make_asset/transition)
 ├── change_request_support.py # Shared builders for test_membership_change_request*.py (not a test file)
 ├── forgot_password_support.py # Shared builders for the forgot-password tests (not a test file)
 ├── registration_support.py   # Shared builders for the registration tests (not a test file)
 ├── reparent_support.py       # Shared builders for the Sakha re-parent tests (fresh Anchalika/Sakha via the admin API, Kendra/GB/Anchalika seat helpers, patch/decide shortcuts; builds on test_correspondence.py/attendance_support.py helpers; not a test file)
 ├── README.md            # This file
 │
-├── api/                 # API integration tests (FastAPI TestClient, no browser) — 32 files
+├── api/                 # API integration tests (FastAPI TestClient, no browser) — 36 files
 │   ├── test_admin.py              # Tier 5 — admin CRUD, roles (incl. Assign-Role self-assign guard), orgs (87; 119)
 │   ├── test_admin_credentials.py  # Tier 6 — member credential list/timeline/issue/promote (16; 16)
 │   ├── test_legacy_local_number.py    # GDR-009 legacy-vs-new Local Sakha Number: validator, admin create matrix, attendance helper, registration_claim columns/patch (52; 26 run without a DB). NOT yet run against a DB
 │   ├── test_patra_numbering.py        # GDR-009 §2A/§2B: Parichaya/Anumati Patra number — strict `<seq>/<yyyy>/<yyyy+1>` validator, legacy-vs-new resolver, allocator skipping taken numbers (stub-cursor: run without a DB), `issue_credential_at_enrolment()` Associate vs Darshaka, legacy vs new matrix (every member is minted a credential), Darshaka-cannot-attend check (48; 36 run without a DB). NOT yet run against a DB
 │   ├── test_local_sakha_id.py     # Local Sakha ID always generated: allocator, shared creator, admin paths (14). NOT yet run
 │   ├── test_admin_scope.py        # ADMIN-BR-076/077 admin-scope subtree enforcement across admin/claim endpoints (85; 99)
+│   ├── test_assets_property.py    # Module #22 Assets & Property API: register/list/filters/PATCH/archive for properties and assets, SOL-AP-003 lifecycle + terminal states, custodianship assign/transfer/history (AP-017/018/042), property-only statutory records, maintenance, document links, scope + audit (90; 167; incl. custodian-must-be-physical on create/assign/transfer, every eligible type accepted, `include_sub_organizations` + scope intersection, Anchalika admin view-only, `TestBelongsTo`: set/clear/filter, inactive org 422, no scope widening, custodian rule unaffected). NOT yet run
 │   ├── test_attendance.py         # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, review trigger/workflow, stats, live endpoint + concurrent-marking conflicts (126; 172). NOT yet run
 │   ├── test_audit.py              # Tier 5 — field-change-log viewer (13; 23)
 │   ├── test_auth.py               # Tier 5 — login, refresh, logout, change-password, sessions (39; 43)
@@ -55,13 +58,15 @@ tests/
 │   ├── test_person.py             # Tier 3 — person list, detail, search (55; 74)
 │   ├── test_person_address.py     # Person address POST/PATCH/DELETE: self-service + PERSON_MANAGE-in-scope, ADDRESS_TYPE validation, APPROVED-or-own-PENDING geography, single-primary invariant, soft delete (25; 25). NOT yet run
 │   ├── test_registration.py       # Tier 5 — self-registration, claim approval, /register/address-types (63; 79)
+│   ├── test_asset_custodian_parity.py # Assets & Property custodian rule (GDR-010 §2C): Python ASSET_CUSTODIAN_ORG_TYPES = SQL fn_is_asset_custodian_org_type body list = JS NSS.ASSET_CUSTODIAN_ORG_TYPES, build/validate wiring, 2026-11-02 owner-decision patch wiring (revoke / belongs-to, DB-free), live function + every ORGANIZATION_TYPE classified (22; 56). NOT yet run
 │   ├── test_sakha_asana_parity.py # Sakha Asana == Sakha: stray-'SAKHA_SANGHA'-literal scan, SAKHA_LIKE_ORG_TYPES cross-layer consistency, behavioural parity (37; 48). NOT yet run
 │   ├── test_sakha_branches.py     # Tier 2 — 175 Sakha branch seed data (33; 33)
 │   ├── test_rate_limit_per_user.py # per-user rate limit key + /live route limit (13; DB-free logic, 13 passed with --noconftest)
 │   ├── test_savepoint_isolation.py # tests/conftest.py SAVEPOINT architecture itself (11; 11). NOT yet run
 │   └── test_sorting.py            # Shared column-sort-whitelist helper (14; 27)
 │
-├── db/                  # Database integrity tests (direct SQL via write_conn) — 6 files
+├── db/                  # Database integrity tests (direct SQL via write_conn) — 8 files
+│   ├── test_assets_property_schema.py # Module #22 — constraint/index/trigger presence, no financial columns, property-only statutory records, reference-data/permission seed, XOR + one-ACTIVE-custodian + history-preservation + lifecycle guards (43; 150; incl. `fn_is_asset_custodian_org_type()` and the custodian-eligibility trigger on INSERT/UPDATE, the post-2026-11-02 grant set, withdrawn grants never active, `belongs_to_organization_pk` column + FK). NOT yet run
 │   ├── test_correspondence_schema.py # Tier 6 — Correspondence Register table invariants (32; 76)
 │   ├── test_credential_schema.py  # Credential-table schema invariants — document_number uniqueness, one-active-per-member, validity CHECK, counter uniqueness (6; 13)
 │   ├── test_data_integrity.py     # Cross-module entity smoke tests (23; 23)
@@ -70,7 +75,8 @@ tests/
 │   ├── test_home_affiliation_guard.py # deferred home-affiliation guard + fn_next_sakha_local_number (14). NOT yet run
 │   └── test_organization_singleton.py # trg_enforce_organization_singleton: KENDRA/NILACHALA_KUTIRA/SMRUTI_MANDIRA/ADVISORY_BOARD + central Mahila Sangha (7; 13). NOT yet run
 │
-├── security/            # Cross-tier security assertions — 16 files
+├── security/            # Cross-tier security assertions — 17 files
+│   ├── test_assets_property_security.py # Assets & Property: 401/403 matrix over all 34 (kind-expanded) route rows incl. Attendance Marker / Advisory Board admin / view-only role, custodian-scope refusals with exact messages, custodian-less records NSS-wide only, transfer needs both scopes (24; 292; incl. `include_sub_organizations` never widens scope, Mahila admin has no access, Anchalika/Zilla admins cannot write). NOT yet run
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17; 17)
 │   ├── test_admin_surface_security.py # Admin-surface 401/403 matrix, parametrized over endpoints (7; 97)
 │   ├── test_attendance_security.py    # Attendance auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat (22; 89). NOT yet run
@@ -113,6 +119,7 @@ tests/
     ├── test_ui_admin_tabs.py        # Admin sidebar tab switching / activeTab panels (2; 9)
     ├── test_ui_admin_users.py       # User list, search, filters, detail, INACTIVE styling (11; 11)
     ├── test_ui_advisory_board_dashboard.py # source-level: Advisory Board dashboard tab wiring (3; 3). NOT yet run
+    ├── test_ui_assets_property.py   # source-level: Assets & Property admin UI (sidebar/panel/init-guard gating, write buttons only for ASSET_MANAGE, endpoint URLs, lifecycle tables mirror the router, labels/badges, stale-response guards, markup/JS parity) (60; 72; incl. custodian pickers restricted to physical organizations, hint, include-sub-organizations checkbox, "belongs to" picker/filter/body fields). NOT yet run under pytest
     ├── test_ui_attendance.py        # Attendance register UI (admin.html / org dashboard; attendance-register.js) (68; 142). NOT yet run
     ├── test_ui_auth_refresh.py      # auth.js NSSAuth.apiFetch refresh/401-retry logic, fetch stubbed (18; 24)
     ├── test_ui_badges.py            # Shared badge system (badges.css) source-level checks (7; 13)
@@ -131,10 +138,10 @@ tests/
     └── test_ui_topbar.py            # nss-layout.js role-badge collapsing + topbar layout rules (11; 12)
 ```
 
-**Current totals** (re-counted 2026-11-02): **3979 collected items** (`pytest --collect-only -qq`) —
-`tests/api/` 2303 (35 files), `tests/db/` 199 (7 files), `tests/security/` 850 (16 files),
-`tests/ui/` 627 (32 test files). Integration (api + db + security) = 3352; UI = 627. AST count of
-`def test_*` functions: 2738 (api 1866, db 106, security 312, ui 454). Not executed in the refresh
+**Current totals** (re-counted 2026-11-03, after the 2026-11-03 owner-decision tests — disposal/retirement closes custody, acquisition method — and after adding the Assets & Property backend tests and the Assets & Property UI source-parsing tests, then the 2026-11-02 owner-decision tests: Anchalika/Zilla view-only, Mahila none, "belongs to"): **4819 collected items** (`pytest --collect-only -qq`) —
+`tests/api/` 2585 (37 files), `tests/db/` 372 (8 files), `tests/security/` 1152 (17 files),
+`tests/ui/` 710 (33 test files). Integration (api + db + security) = 4109; UI = 710. AST count of
+`def test_*` functions: 2980 (api 1978, db 149, security 336, ui 517). The Assets & Property backend files (`test_assets_property*.py` + `test_asset_custodian_parity.py`) add 757 collected items (api 213 + 69, db 173, security 302); `tests/ui/test_ui_assets_property.py` adds 83 (source parsing only; its logic was exercised outside pytest because the UI conftest needs a server). Not executed in the refresh
 session; the 2026-10-30/31 additions and all Attendance suites have never been run against a DB.
 There is no Playwright test file for the Governance admin tabs.
 
