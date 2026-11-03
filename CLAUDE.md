@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet). Assets & Property (Module #22) backend — DDL, seeds/patches, `assets_property.py`, tests, docs, GDR-010 — is written on top of it (2026-11-02) and **uncommitted**.
+> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet). Assets & Property (Module #22: DDL, patches, `assets_property.py`, admin UI, tests, docs, GDR-010) is committed on `feature/tier6-governance` on top of it (2026-11-03, 7 commits ahead of `develop`, not yet merged).
 
 ## Commands
 
