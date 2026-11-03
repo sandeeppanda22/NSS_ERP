@@ -20,14 +20,14 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 17 routers, 252 endpoints (decorator-counted). |
-| Database (`database/`) | Hand-written PostgreSQL DDL, 71 tables in schema `nss`, no migration tool. |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 18 routers, 278 endpoints (registered routes in the working tree — 266 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
+| Database (`database/`) | Hand-written PostgreSQL DDL, 78 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (3979 items collected). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (4819 items collected). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
-Mahila, Publications/UPBS, Finance, Reports/Backup), Assets & Property. Render.com + Neon.dev
+Mahila, Publications/UPBS, Finance, Reports/Backup) and the Assets & Property frontend (its backend is built). Render.com + Neon.dev
 deployment is declared (`render.yaml`, `render_build.sh`) but unverified in production.
 
 ### Tier status
@@ -41,12 +41,12 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 | 4 | Family + Membership | Released v0.10.0 (hotfixes v0.10.1-v0.10.3, performance v0.10.4) |
 | 5 | Authentication + Administration + Audit | Released v0.11.0 (on `develop` and `main`) |
 | 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Merged into the local `develop` 2026-11-02 (merge `bc6e42f`; 37 commits from `feature/tier6-governance`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not pushed or released**; fix 1 (per-user `/live` rate limit, `api/rate_limit.py`) and fix 2 (adaptive live polling in `attendance-register.js`, `_attRegisterShown()` hooks in `admin.js`/`dashboard.js`, UI tests) are committed |
-| 6 (rest) | Assets & Property | Design only |
+| 6 (rest) | Assets & Property (Module #22) | **Backend implemented 2026-11-02, uncommitted** — 7 tables (`ddl/11_assets_property/`, build Phase 11g), `assets_property.py` (26 endpoints), `ASSET_VIEW`/`ASSET_MANAGE`, 757 backend tests collected (never run against a DB); implementation decisions in GDR-010 (`Proposed`). Admin UI added 2026-11-02 (uncommitted): `admin.html` group "Assets & Property" with Properties / Assets tabs, logic in `assets-property.js`, 83 UI source-parsing tests; never opened in a browser. Owner decisions 2026-11-03 (GDR-010 §2E/§2F, uncommitted): optional `ACQUISITION_METHOD` master-data column on `property`/`asset`; DISPOSED/RETIRED END the active custodianship in the same transaction while the last custodian stays on the record (effective custodian = active, else the last ENDED one for a terminal record, used by detail/list/filters/scope checks; `custodian_is_last`/`custodian_ended_at`); patches `11_…acquisition_method_patch.sql`, `12_…terminal_custody_patch.sql`; guard `trg_custodianship_terminal_guard`. |
 | 7-13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Finance, Reports + Backup | Design only |
 
 `main` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
 locally; confirm it is pushed before relying on it); local `develop` = `bc6e42f` = `main` + Tier 6 (not pushed). Release notes: `docs/05_Releases/`. The
-Attendance tests and every test written 2026-10-30/31 have never been run against a DB (see
+Attendance tests, every test written 2026-10-30/31 and the Assets & Property tests have never been run against a DB (see
 `tests/README.md`).
 
 ## Architecture
@@ -59,7 +59,7 @@ Middleware: SlowAPI rate limit → CORS (only if configured) → security header
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
-  └─ /api/v1/<router>/...                           api/routers/*.py (17 routers)
+  └─ /api/v1/<router>/...                           api/routers/*.py (18 routers)
         │  Depends: get_current_user / require_permission / require_org_in_scope
         │  helpers: api/helpers.py   services: api/services/
         ▼
@@ -91,6 +91,7 @@ All mounted in `api/main.py` with the prefix shown. Auth model is **per router**
 | `correspondence.py` | `/api/v1/correspondence` | 19 | `CORRESPONDENCE_VIEW/MANAGE` + org scope; member-facing and approval-step endpoints |
 | `attendance.py` | `/api/v1/attendance` | 21 | `ATTENDANCE_VIEW/MANAGE` + scope; review actions gated by live Secretary/President seat |
 | `org_reparent.py` | `/api/v1/org-reparent` | 4 | login-only; Sakha re-parent approvals decided by live President seat (no admin override) |
+| `assets_property.py` | `/api/v1/assets-property` | 26 | `ASSET_VIEW/MANAGE` + admin scope on the record's EFFECTIVE custodian organization (the active one, or the last one for a DISPOSED/RETIRED record — the terminal transition ENDs the custodianship in the same transaction, GDR-010 §2F) (`ASSET_MANAGE`: Admin/Kendra/Sakha/Patha Chakra; Anchalika/Zilla view-only; Mahila none); records with no effective custodian global-authority only; transfer needs scope over both organizations; custodian must be a physical organization (422 otherwise); optional informational `belongs_to_organization_pk` and `acquisition_method_code` (master data `ACQUISITION_METHOD`, GDR-010 §2E); responses add `custodian_is_last`/`custodian_ended_at`; lists accept `include_sub_organizations`, `belongs_to_organization_pk` and `acquisition_method_code`; no member/public exposure |
 
 Endpoint-level contract: `docs/03_Solution/api/API_CONTRACT.md`. Per-file layer reference:
 `api/README.md`, `api/routers/README.md`, `api/services/README.md`.
@@ -152,11 +153,11 @@ Static pages served by `_serve_page()`, which rewrites `/assets/*.js|css` refere
 `/docs` and `/openapi.json` unshadowed. Pages: `login`, `register`, `dashboard` (role-aware member
 dashboard: personal, family tree, membership, attendance, governance, documents, change requests),
 `admin` (users, organizations, registration approvals, person/member directories, reference data,
-geography, geo approvals, governance, correspondence, attendance, system settings).
+geography, geo approvals, governance, correspondence, attendance, assets & property, system settings).
 Shared scripts: `auth.js` (JWT + authed fetch), `nss-config.js` (display names such as
 `PROBATIONARY` → "Darshaka", badge maps), `nss-layout.js`, `org-dashboard.js` (one Alpine component,
 six org-type layouts), `attendance-register.js` (one marking mixin used by `admin.js` and
-`org-dashboard.js`), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
+`org-dashboard.js`), `assets-property.js` (Assets & Property mixin installed into `admin.js`), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
 badge classes (never redefine inline). `tailwind.min.css` is a **committed, generated** file:
 rebuild it after changing any Tailwind/DaisyUI class (`npm run css:build`). The old six
 Tier 0-4 verification pages are deleted; their features live in `admin`/`dashboard`. Full file
@@ -164,12 +165,12 @@ reference: `frontend/README.md`, `frontend/assets/js/README.md`, `frontend/asset
 
 ### Data layer
 
-Hand-written DDL under `database/ddl/` (numbered module folders `00_bootstrap` … `10_attendance`),
+Hand-written DDL under `database/ddl/` (numbered module folders `00_bootstrap` … `11_assets_property`),
 seeds under `database/seed/`, scripts under `database/scripts/`. All tables are in schema `nss`
 with explicit `nss.` prefixes; extensions (pgcrypto, pg_trgm, btree_gin, postgis) live in
 `public`. Table inventory by phase: `database/README.md`. Table count by module:
 Bootstrap 3, Foundation 15 (incl. `system_event_log`), Organization 3 (`organization` + the 2 re-parent approval tables), Person 2, Family 6,
-Membership 16, Authentication 5, Administration 2, Governance 10, Correspondence 5, Attendance 4 = 71.
+Membership 16, Authentication 5, Administration 2, Governance 10, Correspondence 5, Attendance 4, Assets & Property 7 = 78.
 
 ### Documentation corpus (`03_Solution/` detail)
 
@@ -221,7 +222,7 @@ Per-folder detail: [`api/README.md`](../api/README.md), [`database/README.md`](.
 
 Run everything from the **repository root**.
 
-1. **Python deps:** `python3 -m pip install -r requirements.txt` (Windows: `py -m pip ...`).
+1. **Python deps:** Python **3.15** (`.python-version`, `render.yaml`; no virtual environment by owner choice): `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install -r requirements.txt` (Homebrew Pythons are PEP 668 "externally managed"; Windows: `py -m pip ...`).
    Includes FastAPI, Uvicorn, psycopg2-binary, Pydantic, python-dotenv, slowapi, argon2-cffi,
    PyJWT, pytest, httpx/httpx2 (needed by `TestClient`) and the Playwright stack.
 2. **Database** (details: `database/README.md`, `database/scripts/README.md`,
@@ -233,7 +234,7 @@ Run everything from the **repository root**.
       including a random `JWT_SECRET_KEY`. On Windows set passwords with `ALTER ROLE` and write
       `api/.env` by hand.
    4. `02_build.sh` / `02_build.ps1` (as `nss_db_owner`) — all DDL and seed in phase order
-      (0 Bootstrap RBAC … 11e Attendance, 11f Sakha re-parent approval, 12 writer grants, 13 admin seed, 13b geo backfill,
+      (0 Bootstrap RBAC … 11e Attendance, 11f Sakha re-parent approval, 11g Assets & Property, 12 writer grants, 13 admin seed, 13b geo backfill,
       14 audit, optional 15 demo seed). The Foundation seed includes all-India geography, so
       Phase 2 is slow. Seeds the admin superuser via `scripts/bootstrap_admin.py` (login `SS1`/`P1`,
       password `Admin@123`; INSERT-only, never resets an existing password).
@@ -275,8 +276,8 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `pytest --collect-only`
-reports 3979 items (api 2303, db 199, security 850, ui 627); per-file counts and the not-yet-run list are in
-`tests/README.md` (Attendance suites and everything written 2026-10-30/31 have never been run against a DB). No
+reports 4819 items (api 2585, db 372, security 1152, ui 710); per-file counts and the not-yet-run list are in
+`tests/README.md` (Attendance suites, everything written 2026-10-30/31 and the Assets & Property suites have never been run against a DB). No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)
@@ -437,6 +438,31 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   the original to ACTIONED when under the same register; assigning a responsible party auto-moves
   REGISTERED to PENDING_ACTION. `/dispatch` and `/broadcast` are the two deliberate exceptions to
   the admin-scope rule (they write into other organizations' registers).
+- **Assets & Property (`assets_property.py`, Module #22):** properties (`PROP<n>`) and assets (`AST<n>`) with a temporal
+  custodianship (one ACTIVE custodian; a transfer ENDs the old row with an end reason and opens a new one — history is
+  never overwritten), property-only statutory records, maintenance records and document links through Foundation
+  `document_master`. Authorization is `ASSET_VIEW/MANAGE` + admin scope on the record's CURRENT custodian
+  organization; a custodian-less record is global-authority only and a transfer needs scope over both organizations.
+  **The custodian must be a PHYSICAL organization** (owner rule 2026-11-02, GDR-010 §2C): Sakha (incl. Sakha Asana),
+  Patha Chakra, Kendra, Nilachala Kutira or Smruti Mandira — never a conceptual grouping (Anchalika/Zilla), a wing
+  organization or the Advisory Board (422 naming the organization's type; DB trigger `trg_custodianship_custodian_guard`
+  as backstop; one definition per layer: `ASSET_CUSTODIAN_ORG_TYPES` / `nss.fn_is_asset_custodian_org_type()` /
+  `NSS.ASSET_CUSTODIAN_ORG_TYPES`). Gotchas: an Anchalika/Zilla admin sees (read-only, `ASSET_VIEW` without `ASSET_MANAGE` — owner decision 2026-11-02)
+  the physical organizations beneath them through the ordinary admin-scope subtree rule (lists take
+  `include_sub_organizations=true` with a custodian filter); the Mahila admin holds no `ASSET_*` permission at all
+  (owner decision 2026-11-02; the 4 withdrawn grants are soft-deleted by `06_assets_property_permissions_revoke_patch.sql`);
+  a custodianship stored before the rule is left as is (`03_validate` WARNs). **"Belongs to"** (owner-directed
+  2026-11-02, GDR-010 §2D): `property`/`asset` carry an optional nullable `belongs_to_organization_pk` (FK `organization`,
+  any ACTIVE organization type, `null` clears, list filter of the same name) for an organization that differs from the
+  physical custodian (custodian Kendra, belongs to Mahila Sangha); informational only — no effect on authorization, scope,
+  the custodian rule or the lifecycle, and the filter never widens visibility. The admin UI picker uses the scoped
+  `/organization/organizations/in-scope` search (no type restriction), so a scoped admin can only pick organizations inside
+  their own admin scope while NSS-wide admins can pick any. Column delivered by `10_assets_property_belongs_to_patch.sql`
+  for existing databases and by `01_property.sql`/`02_asset.sql` for fresh ones. **Acquisition method** (owner decision 2026-11-03, GDR-010 §2E): optional nullable `acquisition_method_master_data_pk` (`ACQUISITION_METHOD` master data; PURCHASE/DONATION source-grounded, GIFT/BEQUEST/TRANSFER_IN/CONSTRUCTION/OTHER candidates), informational only, filterable; delivered by `11_assets_property_acquisition_method_patch.sql` (+ the DDL files for fresh builds). **Disposal/retirement closes custody** (owner decision 2026-11-03, GDR-010 §2F): the DISPOSED/RETIRED transition ENDs the ACTIVE custodianship in the same transaction (end reasons `DISPOSED`/`RETIRED`, reserved); the *effective custodian* (active, else the last ENDED one of a terminal record) feeds detail, lists, filters and every scope check so the record stays visible to the same admins; responses add `custodian_is_last`/`custodian_ended_at`; `12_assets_property_terminal_custody_patch.sql` repairs existing terminal records; `trg_custodianship_terminal_guard` refuses new custody on a terminal record. Lifecycle per SOL-AP-003 is enforced in the API and by DB triggers; disposal/retirement is *recorded*, not approved
+  (Governance), and no financial column exists (Finance). The PENDING value sets (property/asset type, end reason,
+  document relationship) are admin-extendable `master_data`; holding arrangement, location and condition are free
+  text — see GDR-010 (`Proposed`). Reference data and RBAC are delivered by idempotent patches, not by editing the
+  existence-gated Foundation/RBAC seeds.
 - **Governance (`governance.py`):** governing bodies, seats, elections, nominations, votes and
   results. `NSS_ERP_ADVISORY_BOARD_ADMIN` and other body-derived admin roles are auto-granted by
   `rbac_service.load_composite_grants()` (§63), not via `user_role`.
@@ -473,6 +499,25 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   `api/services/seat_service.py` (also used by Correspondence); logic in
   `api/services/org_reparent_service.py`; tables `organization_reparent_request`/`_step` (build
   Phase 11f). Other org types still re-parent directly.
+- **Assets & Property admin UI (Module #22, `admin.html` group "Assets & Property", 2026-11-02):** two tabs,
+  Properties (`#properties`) and Assets (`#assets`), rendered by ONE panel/ONE implementation
+  (`frontend/assets/js/assets-property.js`, an `NSSAssetsProperty.install()` mixin on `adminPanel()`; the
+  kind is the active tab). Visible when `/auth/me` carries `ASSET_VIEW` or `ASSET_MANAGE` (`canViewAssets`);
+  every write control (new/edit, lifecycle transition, archive, assign/transfer custody, maintenance,
+  statutory, document attach/detach) needs `ASSET_MANAGE` (`canManageAssets`), so Auditor and Report Viewer
+  are read-only. The `/admin` `init()` guard also admits a user whose only relevant permission is
+  `ASSET_VIEW`/`ASSET_MANAGE` (Report Viewer: no `ADMIN_*`, `MEMBERSHIP_APPROVE` or `GOVERNANCE_*`) and
+  lands them on Properties without the general loaders; the general groups stay hidden behind
+  `hasGeneralAdminAccess`. Records are scoped server-side by admin scope on the CURRENT custodian, so a
+  Sakha/org-scoped admin only ever receives their own records; the UI hides what the API would refuse
+  (first-custodian assignment is offered to NSS-wide admins only; REGISTERED -> first state only once a
+  custodian exists; archive only for REGISTERED/DISPOSED/RETIRED) and shows server errors verbatim
+  (`NSS.errorMessage`). Lifecycle tables, labels and badges are `NSS.ASSET_PROPERTY_*` (`nss-config.js`) and
+  `badge-ap-*` (`badges.css`); a test pins the tables to `api/routers/assets_property.py`. Disposal /
+  retirement asks for a "Governance decision reference" (sent as `remarks`) plus a confirm dialog and is
+  recorded, not approved. Organization pickers reuse the `corr*` type-ahead over
+  `/organization/organizations/in-scope`; documents are attached by choosing an existing row of
+  `GET /foundation/documents` (no upload path exists in the API). Never opened in a browser.
 - **Membership change requests:** member-initiated Sakha Transfer / Apply for Darshak; the source
   Sakha releases, then the destination accepts.
 - **Assign Role (`admin.html` modal -> `POST /admin/users/{pk}/roles`, `admin.py::assign_role()`):**
@@ -496,7 +541,7 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
 ### Role hierarchy by access (lowest → highest)
 
 Derived from `database/seed/00_bootstrap/02_role_master.sql`, `03_role_permission.sql` and the idempotent
-`04_role_permission_mahila_advisory_board_patch.sql` (166 `role_permission` rows). "Reach" is a
+`04_role_permission_mahila_advisory_board_patch.sql` (166 `role_permission` rows) plus the idempotent `05_assets_property_permissions_patch.sql` (`ASSET_VIEW`/`ASSET_MANAGE` and their 12 grants: 178 rows, 30 permissions), whose `06_assets_property_permissions_revoke_patch.sql` soft-deletes (`is_active = FALSE`) the 4 grants an earlier version created (a database that ran it holds 182 rows, 4 inactive; owner decisions 2026-11-02: Anchalika/Zilla admins view-only, Mahila admin none). "Reach" is a
 separate axis from permissions: an ORGANIZATIONAL role only acts inside its `admin_scope`
 subtree; `NSS_ERP_ADMIN` and Kendra/NSS-WIDE scope are global (`UserContext.is_nss_wide()`). Two NULL-organization scope levels
 are resolved in `rbac_service.actor_scope_root_org_pks()`: `KENDRA_MAHILA_SANGHA` -> every `MAHILA_SANGHA` organization + subtree;
@@ -505,18 +550,18 @@ are resolved in `rbac_service.actor_scope_root_org_pks()`: `KENDRA_MAHILA_SANGHA
 | Rank | Role (display name) | `role_code` | Scope level | Perms | Permissions | Access relationship |
 |---|---|---|---|---|---|---|
 | 1 | Attendance Marker | `NSS_ERP_ATTENDANCE_MARKER` | SAKHA | 2 | `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW` | `ATTENDANCE_MANAGE` + `ATTENDANCE_VIEW` only; subset of every role below that holds attendance perms (Sakha Admin and up) |
-| 2 | Report Viewer | `NSS_ERP_REPORT_VIEWER` | NSS-WIDE | 8 | `ATTENDANCE_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only views + `REPORT_VIEW`; subset of Auditor |
-| 3 | Auditor | `NSS_ERP_AUDITOR` | NSS-WIDE | 14 | `ADMIN_PERMISSION_VIEW`, `ADMIN_USER_VIEW`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Read-only across modules + `AUDIT_VIEW`, `PERSON_VIEW_SENSITIVE`, admin user/permission views; no write permission; subset of Kendra Admin and `NSS_ERP_ADMIN` |
-| 4 | Anchalika / Zilla / Patha Chakra Administrator | `NSS_ERP_ANCHALIKA_ADMIN`, `_ZILLA_ADMIN`, `_PATHA_CHAKRA_ADMIN` | ANCHALIKA / ZILLA / PATHA_CHAKRA | 15 each | `ATTENDANCE_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `REPORT_VIEW` | Identical permission sets (person, family, membership incl. approve, correspondence, view modules, `ATTENDANCE_VIEW`); differ only by scope; each a subset of Sakha, Mahila and Kendra Admin |
-| 5a | Kendra Mahila Sangha Administrator | `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` | KENDRA_MAHILA_SANGHA (no org; resolves to every `MAHILA_SANGHA` organization + subtree) | 18 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `ORGANIZATION_MANAGE` | Kendra Administrator's operational set (its 26 minus `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `AUDIT_VIEW`, `FOUNDATION_MANAGE`, `PERSON_VIEW_SENSITIVE`); subset of Kendra Admin, **not** of Sakha Admin (`ORGANIZATION_MANAGE`). Reach is bounded to Mahila Sanghas (owner decision 2026-10-30), so every `*_MANAGE` grant acts only there; never holds `ADMIN_*` |
-| 5b | Sakha Administrator | `NSS_ERP_SAKHA_ADMIN` | SAKHA | 18 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GEO_ENTRY_APPROVE`, `GOVERNANCE_MANAGE` | The rank-4 set plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `GEO_ENTRY_APPROVE`; same size as 5a but incomparable with it; **not** a subset of Kendra Admin (`GEO_ENTRY_APPROVE` is held by no other role, including Kendra Admin and `NSS_ERP_ADMIN`) |
-| 6 | Kendra Administrator | `NSS_ERP_KENDRA_ADMIN` | KENDRA (NSS-wide-equivalent, no org) | 26 | `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_MANAGE`, `FOUNDATION_VIEW`, `GOVERNANCE_MANAGE`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_MANAGE`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Everything `NSS_ERP_ADMIN` has except `FOUNDATION_CALENDAR_MANAGE`; includes `ADMIN_ROLE_MANAGE`/`ADMIN_SCOPE_MANAGE`/`ADMIN_USER_MANAGE` |
-| 7 | NSS ERP Administrator | `NSS_ERP_ADMIN` | NSS-WIDE | 27 | all of rank 6, plus `FOUNDATION_CALENDAR_MANAGE` | Superset of every other role except for `GEO_ENTRY_APPROVE` (held only by Sakha Administrator); the only holder of `FOUNDATION_CALENDAR_MANAGE` |
+| 2 | Report Viewer | `NSS_ERP_REPORT_VIEWER` | NSS-WIDE | 9 | `ASSET_VIEW`, `ATTENDANCE_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only views + `REPORT_VIEW`; subset of Auditor |
+| 3 | Auditor | `NSS_ERP_AUDITOR` | NSS-WIDE | 15 | `ADMIN_PERMISSION_VIEW`, `ADMIN_USER_VIEW`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Read-only across modules + `AUDIT_VIEW`, `PERSON_VIEW_SENSITIVE`, admin user/permission views; no write permission; subset of Kendra Admin and `NSS_ERP_ADMIN` |
+| 4 | Anchalika / Zilla / Patha Chakra Administrator | `NSS_ERP_ANCHALIKA_ADMIN`, `_ZILLA_ADMIN`, `_PATHA_CHAKRA_ADMIN` | ANCHALIKA / ZILLA / PATHA_CHAKRA | 17 (Patha Chakra); 16 (Anchalika, Zilla: no `ASSET_MANAGE`, view-only for assets) | `ASSET_MANAGE`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `REPORT_VIEW` | Identical permission sets except that Anchalika and Zilla admins hold `ASSET_VIEW` but not `ASSET_MANAGE` (owner decision 2026-11-02; they see the physical organizations beneath them read-only); differ by scope; each a subset of Sakha, Mahila and Kendra Admin |
+| 5a | Kendra Mahila Sangha Administrator | `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` | KENDRA_MAHILA_SANGHA (no org; resolves to every `MAHILA_SANGHA` organization + subtree) | 18 | all of rank 4 except `ASSET_MANAGE`/`ASSET_VIEW` (the Mahila admin holds no Assets & Property permission, owner decision 2026-11-02), plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `ORGANIZATION_MANAGE` | Kendra Administrator's operational set (its 28 minus `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `AUDIT_VIEW`, `FOUNDATION_MANAGE`, `PERSON_VIEW_SENSITIVE`); subset of Kendra Admin, **not** of Sakha Admin (`ORGANIZATION_MANAGE`). Reach is bounded to Mahila Sanghas (owner decision 2026-10-30), so every `*_MANAGE` grant acts only there; never holds `ADMIN_*` |
+| 5b | Sakha Administrator | `NSS_ERP_SAKHA_ADMIN` | SAKHA | 20 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GEO_ENTRY_APPROVE`, `GOVERNANCE_MANAGE` | The rank-4 set plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `GEO_ENTRY_APPROVE`; same size as 5a but incomparable with it; **not** a subset of Kendra Admin (`GEO_ENTRY_APPROVE` is held by no other role, including Kendra Admin and `NSS_ERP_ADMIN`) |
+| 6 | Kendra Administrator | `NSS_ERP_KENDRA_ADMIN` | KENDRA (NSS-wide-equivalent, no org) | 28 | `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `ASSET_MANAGE`, `ASSET_VIEW`, `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_MANAGE`, `FOUNDATION_VIEW`, `GOVERNANCE_MANAGE`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_MANAGE`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Everything `NSS_ERP_ADMIN` has except `FOUNDATION_CALENDAR_MANAGE`; includes `ADMIN_ROLE_MANAGE`/`ADMIN_SCOPE_MANAGE`/`ADMIN_USER_MANAGE` |
+| 7 | NSS ERP Administrator | `NSS_ERP_ADMIN` | NSS-WIDE | 29 | all of rank 6, plus `FOUNDATION_CALENDAR_MANAGE` | Superset of every other role except for `GEO_ENTRY_APPROVE` (held only by Sakha Administrator); the only holder of `FOUNDATION_CALENDAR_MANAGE` |
 | — | Advisory Board Administrator | `NSS_ERP_ADVISORY_BOARD_ADMIN` | ADVISORY_BOARD (no `organization_pk`; resolves to the singleton `ADVISORY_BOARD` organization) | 8 | `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_MANAGE`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW` | Off the ladder (subset of Sakha, Mahila, Kendra and Admin): auto-granted at runtime to the Advisory Board President/Secretary (§63, `rbac_service.load_composite_grants()`) and manually assignable. Body side: `GOVERNANCE_MANAGE` is confined server-side to ADVISORY_BOARD-type bodies (seat assignments, acting cover, removal requests — `governance.py::_require_scope_for_org_or_nss_wide(body_type_code=)`); the Sakha-nominated MEMBER seat stays with the nominating Sakha; other bodies, body-type/position catalogues and elections are refused. `MEMBERSHIP_VIEW` is the member search used to seat officers. Organization side (owner 2026-10-30, "Advisory Board should be an org type" / "needs a correspondence register"): `CORRESPONDENCE_VIEW`/`_MANAGE` bounded by admin scope to the Advisory Board organization's own register; `ORGANIZATION_VIEW` feeds the register switcher / recipient pickers; `FOUNDATION_VIEW` supplies the mandatory Medium catalogue. `PERSON_VIEW` (owner 2026-10-30) feeds the correspondence person pickers: `GET /person/persons` is scope-filtered (empty for this role), person detail is self/relative/scope-only (403), `/person/search` is the same NSS-wide trigram search the login-only `/search-selectable` already offers. Not granted: `BOOTSTRAP_VIEW`, `REPORT_VIEW`, `ORGANIZATION_MANAGE` and every `ADMIN_*` permission |
 
 #### What each permission means
 
-All 28 seeded permissions (`01_permission_master.sql`), in plain language. "Held by" is from `03_role_permission.sql`; Marker = Attendance Marker, Viewer = Report Viewer, Admin = NSS ERP Administrator.
+All 30 permissions (28 in `01_permission_master.sql` plus `ASSET_VIEW`/`ASSET_MANAGE` from the `05` patch), in plain language. "Held by" is from `03_role_permission.sql` (and, for the two `ASSET_*` permissions, the `05` patch minus the `06` withdrawals); Marker = Attendance Marker, Viewer = Report Viewer, Admin = NSS ERP Administrator.
 
 | Permission | In plain language | Held by |
 |---|---|---|
@@ -525,6 +570,8 @@ All 28 seeded permissions (`01_permission_master.sql`), in plain language. "Held
 | `ADMIN_SCOPE_MANAGE` | Decide which organization a role applies to (e.g. which Sakha someone administers). | Kendra, Admin |
 | `ADMIN_USER_MANAGE` | Create, deactivate, lock and unlock login accounts, and reset passwords. | Kendra, Admin |
 | `ADMIN_USER_VIEW` | See the list of login accounts and their details (no changes). | Auditor, Kendra, Admin |
+| `ASSET_MANAGE` | Register and edit properties and assets, record lifecycle events, assign/transfer custody, and record statutory obligations, maintenance and documents — only for records whose current custodian organization is in one's own admin scope. Approval of acquisition/disposal stays with Governance; payments with Finance. | Patha Chakra, Sakha, Kendra, Admin |
+| `ASSET_VIEW` | See properties, assets, custody history, statutory records, maintenance and documents within one's admin scope (no changes). | Viewer, Auditor, Anchalika/Zilla/Patha Chakra, Sakha, Kendra, Admin |
 | `ATTENDANCE_MANAGE` | Create the weekly Sangha Puja and mark each member present, absent or excused. Does not allow reviewing or closing attendance cases; that belongs to the Sakha Secretary/President seats. | Marker, Sakha, Mahila, Kendra, Admin |
 | `ATTENDANCE_VIEW` | See weekly puja events, attendance records, exceptions and reviews (no changes). | Marker, Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Kendra, Admin |
 | `AUDIT_VIEW` | See the audit trail: who changed what, and when. | Auditor, Kendra, Admin |
@@ -694,7 +741,9 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   filename.
 - Pending rules: `MEM-PENDING-001` (local Sakha number format / identity chain),
   `ATT-PENDING-001` (Visitor vs. approved Darshak threshold), `AP-066` (sacred articles:
-  Assets vs. Heritage).
+  Assets vs. Heritage) — still PENDING after the Assets & Property implementation; owner decisions for
+  GDR-010 (`Proposed`) are listed in its §7.
+- Build the Assets & Property frontend (admin.html tab) and review/approve GDR-010.
 - Freeze Module #21 (Programmes & Events).
 - Add `SOL-LIFE-001`/`SOL-LIFE-002` cross-references to the six lifecycle docs that restate the
   death-cascade rules.

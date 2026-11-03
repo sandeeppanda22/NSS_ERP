@@ -83,4 +83,4 @@ See `docs/PROJECT_DOCUMENTATION.md` for the code-verified current state and
 `docs/03_Solution/api/FOUNDATION_API_CONTRACT.md` for the Tier 1 API's formal contract. The same
 `docs/03_Solution/api/` directory also holds `BOOTSTRAP_API_CONTRACT.md` (Tier 0),
 `ORGANIZATION_API_CONTRACT.md` (Tier 2), `PERSON_API_CONTRACT.md` (Tier 3), and the new
-cross-tier `API_CONTRACT.md` quick reference (Tiers 0–6, 252 endpoints across 17 routers; see that folder's README for detail). These five code-explanation walkthroughs were written at the v0.11.0 / Tier 0–5 stage and have not been refreshed for Tier 6.
+cross-tier `API_CONTRACT.md` quick reference (Tiers 0–6, 278 endpoints across 18 routers; see that folder's README for detail). These five code-explanation walkthroughs were written at the v0.11.0 / Tier 0–5 stage and have not been refreshed for Tier 6.

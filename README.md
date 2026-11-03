@@ -83,7 +83,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Backend
 
 * FastAPI — the only web/API layer in the codebase (`api/`, raw `psycopg2`, no ORM):
-  17 routers (252 endpoints; `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02), one per tier/module (per-router endpoint counts: `api/README.md` and
+  18 routers (278 endpoints; `assets_property.py` (Module #22, 26 endpoints, uncommitted) plus `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02), one per tier/module (per-router endpoint counts: `api/README.md` and
   `docs/03_Solution/api/API_CONTRACT.md`); `bootstrap.py` is the only unauthenticated router
   besides public registration.
   Tiers 1-4 GET endpoints are gated by `require_permission(...)` (Foundation/Organization/
@@ -151,9 +151,9 @@ Browser / HTTP client
 Security Middleware (CORS, rate limiting, security headers, CSP, Cache-Control)
    │
    ▼
-FastAPI (api/main.py — 17 routers: bootstrap, foundation, organization, person, family,
+FastAPI (api/main.py — 18 routers: bootstrap, foundation, organization, person, family,
    │       membership, auth, registration, claim_approval, admin, audit, geo_approval,
-   │       governance, membership_change_request, correspondence, attendance, org_reparent — Tier 6)
+   │       governance, membership_change_request, correspondence, attendance, org_reparent, assets_property — Tier 6)
    │       JWT + RBAC guards (api/dependencies/), services (api/services/)
    ▼
 psycopg2 connection pools (api/database.py) — read pool (nss_db_backend) + write pool
@@ -717,10 +717,10 @@ Completed:
   values, shared across modules) — now consumed by the Tier 2 Organization API (see below). This
   diverges from the frozen 3-table module design — see `docs/PROJECT_DOCUMENTATION.md` →
   Gotchas. Combined with Foundation, Bootstrap RBAC, Person, Family, Membership, Authentication +
-  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6): **71 tables implemented** — see `database/README.md`)
+  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6, backend written 2026-11-02, uncommitted): **78 tables implemented** — see `database/README.md`)
 * Bootstrap RBAC DDL (`role_master`/`permission_master`/`role_permission`, `SOL-BOOT-001`/
   `SOL-ARCH-011` — DDL implemented and committed; `role_master` seeded with 11 roles
-  (incl. `NSS_ERP_ADVISORY_BOARD_ADMIN` and `NSS_ERP_ATTENDANCE_MARKER`, Tier 6); `permission_master` (28 permissions, incl.
+  (incl. `NSS_ERP_ADVISORY_BOARD_ADMIN` and `NSS_ERP_ATTENDANCE_MARKER`, Tier 6); `permission_master` (30 permissions, incl. `ASSET_VIEW`/`ASSET_MANAGE` from the idempotent `05_assets_property_permissions_patch.sql`, 12 grants - Anchalika/Zilla admins view-only, Mahila admin none, the 4 withdrawn grants soft-deleted by `06_assets_property_permissions_revoke_patch.sql`;
   `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`)/`role_permission` are now seeded too (Tier 5/6); ownership stays with Administration,
   see `docs/PROJECT_DOCUMENTATION.md` → Gotchas for a role-catalogue discrepancy this surfaced)
 * FastAPI Tier 0 Bootstrap API (`api/` — 4 read-only endpoints: health check, roles,
@@ -883,7 +883,7 @@ Completed:
   endpoints. **48 tables at release** (incl. `post_office`/festival tables added later on the branch). New routers at that point: `auth.py` (8 endpoints then; 10 now), `registration.py` (6 then; 13 now,
   public), `claim_approval.py` (5), `admin.py` (25 then; 32 now), `audit.py` (1), plus 9 endpoints added to
   `family.py` and 6 write endpoints added to `foundation.py` (`FOUNDATION_MANAGE`; 8 writes plus 4 member `propose` POSTs now) — **108
-  endpoints at that point (137 at the v0.11.0 release, 252 now incl. Tier 6)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
+  endpoints at that point (137 at the v0.11.0 release, 252 on `develop` incl. Tier 6, 278 in the working tree with `assets_property.py`)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
   auth/admin tables). `permission_master`/`role_permission` are seeded. Every Tier 4
   "verification"/demo seed file has been deleted — a fresh build produces **zero demo
   Person/Family/Membership data**; real data comes from the registration/approval flow or the
@@ -903,7 +903,7 @@ Completed:
   Two new routers: `governance.py` (56 endpoints, `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) and
   `membership_change_request.py` (5 endpoints, Sakha Transfer / Apply for Darshak workflow) and
   `correspondence.py` (19 endpoints, Correspondence Register, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`) —
-  **252 endpoints, 17 routers, 71 tables total (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
+  **252 endpoints, 17 routers, 71 tables on `develop` (278 / 18 / 78 with the uncommitted Assets & Property module: `assets_property.py` + 7 tables) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
   (auto-granted by `rbac_service.load_composite_grants`); 28 permissions (adds `CORRESPONDENCE_*`, `GEO_ENTRY_APPROVE`, `ATTENDANCE_*`), 11 roles (adds `NSS_ERP_ATTENDANCE_MARKER`).
 
 Current Focus:
@@ -914,7 +914,7 @@ Current Focus:
   documented modules — every module has a complete (or largely complete) design, and
   several groups have real SQL: Bootstrap RBAC (3 tables), Foundation (15), Organization (1, plus the 2 re-parent approval tables counted below), Person
   (2), Family (6), Membership (16), Authentication (5), Administration (2) and Governance (10), Correspondence (5), Attendance (4) and Organization re-parent approval (2, within the Organization module)
-  — 71 tables.
+  and Assets & Property (7, backend only, uncommitted) — 78 tables.
   Released API/UI slices: Tier 0 (v0.6.0), Foundation (v0.7.0), Organization (v0.8.0), Person
   (v0.9.0), Family + Membership (v0.10.0, hotfixes through v0.10.4). The pytest suite has grown
   well beyond its v0.10.4 size (410 tests) — see `tests/README.md` for current counts and the
@@ -934,7 +934,7 @@ Each tier follows the vertical slice pattern: **DB -> API -> Web UI -> Flutter M
 | **3** | Person | Person identity, contact, address (2 tables: `person`, `person_address`) | Done | Done (4 endpoints at release; 8 now) | Done (folded into `admin.html` Person Directory) | -- |
 | **4** | Family, Membership | Family groups/relationships + dynamic relationship graph (5 tables) + membership registration/approval/transfer/lifecycle (12 tables) | Done | Done (14 endpoints at release; 24 now incl. 9 Tier 5 Family endpoints) | Done (folded into `dashboard.html`/`admin.html`) | -- |
 | **5** | Authentication, Administration | `user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`, `user_role`, `admin_scope` (5 auth + 2 admin tables, plus supporting tables added to Family/Membership/Foundation) — RBAC management, JWT, audit | Done (v0.11.0) | Done (auth, registration, claim-approval, admin, audit, geo-approval routers; 108 endpoints at release incl. Tier 1-4 additions) | Done (login/register/dashboard/admin pages) | -- |
-| **6** | Governance (+ Correspondence, Membership change requests, Attendance); Assets & Property still planned | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly Sangha Puja attendance (Tier 6 `attendance.py`, 4 tables) and Sakha re-parent approvals (`org_reparent.py`, 2 tables) implemented; property/asset custodianship not started | In progress (10 governance + 5 correspondence + 4 attendance + 2 re-parent + 2 membership tables) | In progress (`governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19 + `attendance.py` 21 + `org_reparent.py` 4 endpoints, plus admin credential endpoints; 252 total across all tiers) | In progress | -- |
+| **6** | Governance (+ Correspondence, Membership change requests, Attendance, Assets & Property backend) | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly Sangha Puja attendance (Tier 6 `attendance.py`, 4 tables) and Sakha re-parent approvals (`org_reparent.py`, 2 tables) implemented; Assets & Property backend (`assets_property.py`, 7 tables, uncommitted; no frontend) | In progress (10 governance + 5 correspondence + 4 attendance + 2 re-parent + 2 membership + 7 assets & property tables) | In progress (`governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19 + `attendance.py` 21 + `org_reparent.py` 4 + `assets_property.py` 26 endpoints, plus admin credential endpoints; 278 total across all tiers) | In progress | -- |
 | **7** | Heritage (Founder & Heritage) | Founder record, teachings, objectives, milestones, publications framework (8 tables) | Not started | Not started | Not started | -- |
 | **8** | Programmes & Events | Common event framework (DRAFT, not frozen) — programme types, event instances, sessions | Not started | Not started | Not started | -- |
 | **9** | Kumari Sangha, Kishor Puja, Sevak Sangha | Youth/seva modules — KM/KH identity, annual events, guardian assignment, SS transition, Sevak volunteer/training/seva | Not started | Not started | Not started | -- |
@@ -981,7 +981,7 @@ Sakha Transfer / Apply for Darshak change-request workflow, ADVISORY_BOARD admin
 NSS_ERP
 │
 ├── api
-│   ├── routers              (17 routers: bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5 (v0.11.0): auth.py, admin.py, registration.py, claim_approval.py, audit.py, geo_approval.py; plus, Tier 6: governance.py, membership_change_request.py, correspondence.py; plus, Tier 6: attendance.py, org_reparent.py)
+│   ├── routers              (18 routers: bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5 (v0.11.0): auth.py, admin.py, registration.py, claim_approval.py, audit.py, geo_approval.py; plus, Tier 6: governance.py, membership_change_request.py, correspondence.py; plus, Tier 6: attendance.py, org_reparent.py, assets_property.py)
 │   ├── schemas               (bootstrap.py, foundation.py, organization.py, person.py, family.py, membership.py; plus, Tier 5: auth.py, admin.py, audit.py, geo_approval.py; plus, Tier 6: governance.py, membership_change_request.py, correspondence.py, attendance.py)
 │   ├── services              (family_graph.py — BFS relationship computation; plus, Tier 5: auth_service.py, rbac_service.py)
 │   ├── dependencies          (Tier 5 — auth.py, rbac.py: FastAPI dependency-injected JWT/RBAC guards)
@@ -991,7 +991,7 @@ NSS_ERP
 │   └── assets               (js/ — shared nss-*.js helpers, auth.js, org-dashboard.js + per-page files; css/ — badges.css, nss-layout.css, nss-datepicker.css, tailwind.min.css)
 │
 ├── database
-│   ├── ddl                  (00_bootstrap .. 05_membership; plus, Tier 5: 06_authentication, 07_administration; plus, Tier 6: 08_governance, 09_correspondence, 10_attendance)
+│   ├── ddl                  (00_bootstrap .. 05_membership; plus, Tier 5: 06_authentication, 07_administration; plus, Tier 6: 08_governance, 09_correspondence, 10_attendance, 11_assets_property)
 │   ├── seed                 (00_bootstrap, 01_foundation, 02_organization and 08_governance hold the SQL seeds, 03_person/04_family/05_membership hold only READMEs; 04_admin — the single admin superuser; demo/ — optional local-only demo seed run via RUN_DEMO_SEED)
 │   └── scripts              (00_create_database.sql .. 06_setup_env.sh, 02_build.sh/.ps1, 03_validate.sh/.ps1, grant scripts)
 │

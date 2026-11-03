@@ -80,7 +80,7 @@ PostGIS and dblink are **not used** in current DDL and are not required.
    - **Build command:** `./render_build.sh`
    - **Start command:** `uvicorn api.main:app --host 0.0.0.0 --port $PORT --workers 2`
    - **Plan:** Free
-   - **Python version:** 3.12.4
+   - **Python version:** 3.15.2 (switched from 3.12.4 on 2026-11-03 to match local development; confirm Render offers it and that all `requirements.txt` pins install on 3.15 before deploying)
 
 **⚠️ Unverified risk (Tier 5):** `render.yaml` declares
 `runtime: python`, but `render_build.sh` now runs `npm install` and `npx tailwindcss` as its

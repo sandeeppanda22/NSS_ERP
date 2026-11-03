@@ -120,15 +120,15 @@ Overall solution architecture documentation (cross-module, above the per-module 
 
 The Django-to-FastAPI migration (`TECH_STACK_DECISIONS.md` v1.3) has landed: the Django
 prototype was fully removed and FastAPI is the sole API layer (`api/`: 137 endpoints across 12
-routers at v0.11.0; 252 across 17 routers on `develop`; raw psycopg2, no ORM). Released through `v0.11.0` on
+routers at v0.11.0; 252 across 17 routers on `develop`, 278 across 18 with the uncommitted Assets & Property router; raw psycopg2, no ORM). Released through `v0.11.0` on
 `main`; **Tier 5 (Authentication + Administration, v0.11.0)** — JWT/RBAC, a second write-capable
 `nss_db_writer` pool, registration + claim approval, admin/audit routers, a DB-level audit
 trigger, a CSP, and a login/register/dashboard/admin frontend (Tailwind/DaisyUI pre-built via
 Tailwind CLI, Alpine.js from CDN) that replaced the six standalone Tier 0-4 verification pages.
-Implemented SQL covers 48 tables at v0.11.0 (71 in the working tree after Tier 6 Governance/Correspondence/Attendance/re-parent approvals) across Bootstrap RBAC (3), Foundation (15), Organization (1),
+Implemented SQL covers 48 tables at v0.11.0 (71 on `develop` after Tier 6 Governance/Correspondence/Attendance/re-parent approvals, 78 in the working tree with Assets & Property) across Bootstrap RBAC (3), Foundation (15), Organization (1),
 Person (2), Family (6), Membership (14), Authentication (5) and Administration (2); a fresh
 build seeds no demo Person/Family/Membership data (only 175 real Sakha branches and one admin
-superuser). The pytest suite (3979 items collected as of 2026-11-02, 2738 `test_*` functions; per-file counts in `tests/README.md`; the newest suites have never been run against a DB) spans `tests/api/`, `tests/db/`, `tests/security/`
+superuser). The pytest suite (4372 items collected as of 2026-11-02, 2863 `test_*` functions; per-file counts in `tests/README.md`; the newest suites have never been run against a DB) spans `tests/api/`, `tests/db/`, `tests/security/`
 and a Playwright `tests/ui/` layer. Deployment infrastructure (`render.yaml`,
 `render_build.sh`) exists but has not yet run in production.
 
