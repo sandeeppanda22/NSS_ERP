@@ -58,6 +58,31 @@ def is_sakha_like(org_type_code: str | None) -> bool:
     return org_type_code in SAKHA_LIKE_ORG_TYPES
 
 
+# Asset/property custodian-eligible organization types (owner rule 2026-11-02,
+# GDR-010 §2C): NSS has CONCEPTUAL organizations (Zilla / Anchalika Sangha —
+# administrative groupings, no premises) and PHYSICAL ones (Sakha incl. Sakha
+# Asana, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira). Property and
+# assets are HELD (custodian, AP-014/020) only by physical organizations; wing
+# organizations (Kumari, Sevak, local/central Mahila Sangha, Paribarik) and the
+# Advisory Board organization are not custodians. Built from
+# SAKHA_LIKE_ORG_TYPES so the Sakha pair stays defined once. SQL counterpart:
+# nss.fn_is_asset_custodian_org_type()
+# (database/ddl/11_assets_property/09_asset_custodian_org_type_function.sql);
+# JS counterpart: NSS.ASSET_CUSTODIAN_ORG_TYPES (frontend/assets/js/nss-config.js).
+ASSET_CUSTODIAN_NON_SAKHA_ORG_TYPES: tuple[str, ...] = (
+    "PATHA_CHAKRA", "KENDRA", "NILACHALA_KUTIRA", "SMRUTI_MANDIRA",
+)
+ASSET_CUSTODIAN_ORG_TYPES: tuple[str, ...] = SAKHA_LIKE_ORG_TYPES + ASSET_CUSTODIAN_NON_SAKHA_ORG_TYPES
+
+# Same tuple as a SQL ``IN`` list for static fragments (constants only, no user input).
+ASSET_CUSTODIAN_ORG_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in ASSET_CUSTODIAN_ORG_TYPES) + ")"
+
+
+def is_asset_custodian_org_type(org_type_code: str | None) -> bool:
+    """True for the physical organization types that may hold property/assets."""
+    return org_type_code in ASSET_CUSTODIAN_ORG_TYPES
+
+
 # ── Pagination defaults ──────────────────────────────────────────────────
 
 DEFAULT_LIMIT = 100
