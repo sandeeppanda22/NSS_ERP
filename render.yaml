@@ -33,8 +33,11 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      # Python 3.15.x (owner decision 2026-11-03: dev and deploy on the same minor).
+      # Confirm Render's native runtime offers 3.15.2 and that every pin in
+      # requirements.txt has a cp315 wheel before the next deploy (never tested here).
       - key: PYTHON_VERSION
-        value: "3.12.4"
+        value: "3.15.2"
       # Tier 5: Authentication + Administration
       - key: JWT_SECRET_KEY
         sync: false
