@@ -19,7 +19,7 @@
 
 # 1. Overview
 
-The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **283 endpoints** across 19
+The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **284 endpoints** across 19
 routers (252 / 17 on `develop`; the 26-endpoint Assets & Property router is uncommitted). Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
 (released as v0.11.0)** added JWT authentication, RBAC, write endpoints, and gated almost everything:
 
@@ -217,11 +217,12 @@ table; see `docs/03_Solution/api/ORGANIZATION_API_CONTRACT.md` §3.2.4 for the f
 | # | Method | Path | Filters | Description | Response Model |
 |---|---|---|---|---|---|
 | 28 | GET | `/persons` | `gender_code`, `marital_status_code`, `blood_group_code`, `limit`, `offset` | List persons (summary) | `PersonListResponse` (`{persons, total}`, see §2.1) |
-| 29 | GET | `/persons/{pk}` | — | Person detail (with aadhaar_last4) | `PersonDetailResponse` |
+| 29 | GET | `/persons/{pk}` | — | Person detail; `aadhaar_last4`/`aadhaar_full_on_file` null unless self or `PERSON_VIEW_SENSITIVE` in admin scope (GDR-011) | `PersonDetailResponse` |
 | 30 | GET | `/persons/{pk}/addresses` | — | Person addresses | `list[PersonAddressResponse]` |
 | 30a | POST | `/persons/{pk}/addresses` | — | Add an address (201); body `PersonAddressCreateRequest` | `PersonAddressResponse` |
 | 30b | PATCH | `/persons/{pk}/addresses/{person_address_pk}` | — | Partial address update; body `PersonAddressUpdateRequest` | `PersonAddressResponse` |
 | 30c | DELETE | `/persons/{pk}/addresses/{person_address_pk}` | — | Soft-delete an address | `MessageResponse` |
+| 30d | GET | `/persons/{pk}/aadhaar` | — | **Aadhaar reveal (GDR-011, Proposed):** `PERSON_VIEW_SENSITIVE` + admin scope; decrypted 12 digits; 403 for the person themself and for everyone else; 404 `Full Aadhaar not on record`; 429 per-user (`AADHAAR_REVEAL_RATE_LIMIT`, default 10/min); 500 (no value) if decryption fails; audited as `VIEW_SENSITIVE` without the value | `PersonAadhaarResponse` (`{person_pk, aadhaar_number}`) |
 | 120 | GET | `/search-selectable?q=` | `q` (min 2 chars, required), `limit` (default 50), `offset` | Same search as #31 but gated on authentication only, for the family-head add-member picker | `PersonListResponse` |
 | 31 | GET | `/search?q=` | `q` (min 2 chars, required), `limit` (default 50), `offset` | Trigram + prefix search across name + ID + contact | `PersonListResponse` (`{persons, total}`, see §2.1) |
 
@@ -839,7 +840,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 0 | Bootstrap | 4 |
 | 1 | Foundation | 33 (21 read + 8 admin write + 4 member propose) |
 | 2 | Organization | 12 |
-| 3 | Person | 8 (5 read + 3 address writes) |
+| 3 | Person | 9 (5 read + 3 address writes + 1 Aadhaar reveal, GDR-011) |
 | 4 | Family | 16 (7 original read + 9 Tier 5) |
 | 4 | Membership | 9 (8 + Tier 6 `/directory`) |
 | 5 | Authentication | 10 |
@@ -855,9 +856,9 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| **Total** | | **283** |
+| **Total** | | **284** |
 
-(per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 8, registration 13.)
+(per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 
 The endpoint numbers in the tables above are stable identifiers, not path order: #1-#46 are the
 original Tier 0-4 set; #47-#137 were appended as Tier 5 endpoints landed. Tier 6 endpoints (sections 8b, 12c and the `T6` admin rows) are not numbered.

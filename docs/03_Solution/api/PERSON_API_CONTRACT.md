@@ -30,8 +30,10 @@ administration and authorization exist.
 > `require_permission("PERSON_VIEW")`; `GET /persons/{pk}` and `GET /persons/{pk}/addresses`
 > use `get_current_user` plus an ownership check (`_require_person_view`) — the person
 > themself, or a holder of `PERSON_VIEW`. List endpoints accept `sort_by`/`sort_dir`
-> (whitelisted, 422 otherwise). Aadhaar masking is unchanged and unconditional
-> (`PERSON_VIEW_SENSITIVE` is seeded but not wired to any endpoint). Person *writes* are not
+> (whitelisted, 422 otherwise). *(Superseded 2026-11-04 by GDR-011, Proposed: `aadhaar_last4`
+> and the new `aadhaar_full_on_file` flag are null unless the caller is the person or holds
+> `PERSON_VIEW_SENSITIVE` in admin scope, and `GET /persons/{pk}/aadhaar` returns the decrypted
+> number to those holders only, audited. `aadhaar_encrypted`/`aadhaar_hash` are still never returned.)* Person *writes* are not
 > in this router: they live in `api/routers/admin.py` (`POST /api/v1/admin/persons`) and
 > `api/routers/registration.py`. Responses gain 401/403 beyond the statuses listed below.
 
@@ -193,9 +195,12 @@ When `blood_group_code` is provided, add: `AND bg.value_code = %s`
 GET /api/v1/person/persons/{person_pk}
 ```
 
-Returns a single person with full resolved context — includes Aadhaar last-4
-(masked display), emergency contact, and photo FK. Never returns
-`aadhaar_encrypted` or `aadhaar_hash`.
+Returns a single person with full resolved context — emergency contact and photo FK, plus
+`aadhaar_last4` (4 digits) and `aadhaar_full_on_file` (bool), both **null** unless the caller is
+the person themself or holds `PERSON_VIEW_SENSITIVE` within admin scope over the person
+(GDR-011, Proposed). Never returns `aadhaar_encrypted` or `aadhaar_hash`. The full number is
+only available from `GET /api/v1/person/persons/{person_pk}/aadhaar` (decrypted digits,
+`PERSON_VIEW_SENSITIVE` + admin scope, audited, rate limited).
 
 **Path Parameters:**
 

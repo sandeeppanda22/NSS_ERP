@@ -1,6 +1,6 @@
 # api/routers/
 
-One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers, 283 endpoints**
+One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers, 284 endpoints**
 (decorator-counted; `governance.py`, `membership_change_request.py`, `correspondence.py` and `attendance.py` are Tier 6, committed on `feature/tier6-governance`; `org_reparent.py` (Sakha re-parent approvals) is also Tier 6, committed on the same branch). Raw parameterized psycopg2 SQL, no ORM; response models live in
 `api/schemas/`. See `api/README.md` for the per-endpoint tables.
 
@@ -9,7 +9,7 @@ One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers,
 | `bootstrap.py` | `/api/v1/bootstrap` | 4 | none |
 | `foundation.py` | `/api/v1/foundation` | 33 (21 reads, 8 admin writes, 4 member `propose` POSTs) | `FOUNDATION_VIEW` / `FOUNDATION_MANAGE` (festival-calendar writes: `FOUNDATION_CALENDAR_MANAGE`); `propose` endpoints: login only, active Sangha Sevi |
 | `organization.py` | `/api/v1/organization` | 12 | `ORGANIZATION_VIEW` (incl. scope-filtered `/organizations/in-scope`); `/organizations/selectable` needs login only |
-| `person.py` | `/api/v1/person` | 8 (list, detail, addresses GET/POST/PATCH/DELETE, search, search-selectable) | `PERSON_VIEW` (list, search); login only (`/search-selectable`); self-or-`PERSON_VIEW` (detail, address reads); address writes: self or `PERSON_MANAGE` in admin scope |
+| `person.py` | `/api/v1/person` | 9 (list, detail, addresses GET/POST/PATCH/DELETE, search, search-selectable, `/{pk}/aadhaar` reveal) | `PERSON_VIEW` (list, search); login only (`/search-selectable`); self-or-`PERSON_VIEW` (detail, address reads; `aadhaar_last4`/`aadhaar_full_on_file` only for self or `PERSON_VIEW_SENSITIVE` in admin scope); address writes: self or `PERSON_MANAGE` in admin scope; `/{pk}/aadhaar` = `PERSON_VIEW_SENSITIVE` + admin scope, audited, per-user `AADHAAR_REVEAL_RATE_LIMIT` (GDR-011) |
 | `family.py` | `/api/v1/family` | 16 | `get_current_user` + ownership checks; `FAMILY_VIEW`/`FAMILY_MANAGE` override |
 | `membership.py` | `/api/v1/membership` | 9 | `MEMBERSHIP_VIEW` (list, search, darshak-summary); self-or-`MEMBERSHIP_VIEW` (per-member) |
 | `auth.py` | `/api/v1/auth` | 10 | none for login/refresh/forgot/reset; JWT for the rest |

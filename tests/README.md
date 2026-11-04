@@ -18,6 +18,7 @@ Per-file figures are `(N test functions; M collected)` — see the counting note
 ```
 tests/
 ├── conftest.py          # Shared fixtures: DB connection, SAVEPOINT rollback, TestClient, authed/anon clients
+├── aadhaar_support.py        # Shared fixtures for the Aadhaar modules (GDR-011; not a test file): random AES keys on `settings`, cast of NSS_ERP_ADMIN / scoped KENDRA_ADMIN in+out of scope / SAKHA_ADMIN / AUDITOR / subject member, `set_number()`/`db_row()` helpers
 ├── attendance_support.py     # Shared builders for the Attendance modules (not a test file; imports builders from tests/api/test_correspondence.py)
 ├── assets_property_support.py # Shared fixtures/builders for the Assets & Property modules (not a test file; builds on attendance_support.py: viewer_user/viewer_h (NSS_ERP_AUDITOR scoped to a Sakha), document_pks, make_property/make_asset/transition)
 ├── change_request_support.py # Shared builders for test_membership_change_request*.py (not a test file)
@@ -56,11 +57,14 @@ tests/
 │   ├── test_org_reparent.py       # Tier 6 — Sakha re-parent approval: direct-vs-request matrix, Sakha Asana, 4-step chain + fallback/collapse, live-seat-only authority, reject/cancel/supersede, apply + re-validation (60; 60). NOT yet run
 │   ├── test_org_singleton.py      # API singleton rules (KENDRA/NILACHALA_KUTIRA/SMRUTI_MANDIRA/ADVISORY_BOARD create 422; central Mahila Sangha create/re-parent 422; local Mahila unrestricted) (5; 8). NOT yet run
 │   ├── test_organization.py       # Tier 2 — org types, hierarchy, children, children-stats, stats (67; 67)
+│   ├── test_aadhaar_service.py    # GDR-011 crypto/validation unit tests (43; DB-free — `pytest --noconftest tests/api/test_aadhaar_service.py`; the 11 AES-GCM items skip without the `cryptography` package)
+│   ├── test_aadhaar.py            # GDR-011 capture (admin PATCH/create, 422/409/503, clear), last-4 gating matrix, reveal endpoint (200/403/404/401/500, audit row without value, rate limit), audit-trigger redaction (never run against a DB; needs `cryptography`)
 │   ├── test_person.py             # Tier 3 — person list, detail, search (55; 74)
 │   ├── test_person_address.py     # Person address POST/PATCH/DELETE: self-service + PERSON_MANAGE-in-scope, ADDRESS_TYPE validation, APPROVED-or-own-PENDING geography, single-primary invariant, soft delete (25; 25). NOT yet run
 │   ├── test_registration.py       # Tier 5 — self-registration, claim approval, /register/address-types (63; 79)
 │   ├── test_asset_custodian_parity.py # Assets & Property custodian rule (GDR-010 §2C): Python ASSET_CUSTODIAN_ORG_TYPES = SQL fn_is_asset_custodian_org_type body list = JS NSS.ASSET_CUSTODIAN_ORG_TYPES, build/validate wiring, 2026-11-02 owner-decision patch wiring (revoke / belongs-to, DB-free), live function + every ORGANIZATION_TYPE classified (22; 56). NOT yet run
 │   ├── test_sakha_asana_parity.py # Sakha Asana == Sakha: stray-'SAKHA_SANGHA'-literal scan, SAKHA_LIKE_ORG_TYPES cross-layer consistency, behavioural parity (37; 48). NOT yet run
+│   ├── test_sangha_sevi_insert_parity.py # no `INSERT INTO nss.sangha_sevi` under api/ outside helpers.py (the one shared creator); DB-free (3). Ran with --noconftest
 │   ├── test_sakha_branches.py     # Tier 2 — 175 Sakha branch seed data (33; 33)
 │   ├── test_live_changes.py       # live-refresh feed GET /live/changes: whitelist, JS<->Python table-map parity, SQL trigger list<->whitelist parity (TestSqlParity), per-user limit (DB-free), column-scoped `user_account` entry parity (ignored login-churn columns; login UPDATEs in auth.py touch only them), auth/shape/whitelist/change-number/churn integration (33; 49). Integration items NOT yet run
 │   ├── test_rate_limit_per_user.py # per-user rate limit key + /live and /live/changes route limits (13; DB-free logic, 13 passed with --noconftest)
@@ -83,6 +87,7 @@ tests/
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17; 17)
 │   ├── test_admin_surface_security.py # Admin-surface 401/403 matrix, parametrized over endpoints (7; 97)
 │   ├── test_audit_diagnostics_security.py # audit diagnostics endpoints: 401/403 on all four, no write verbs, not exposed under /foundation or /live, SQL metacharacters inert (40; 40). NOT yet run against a DB
+│   ├── test_aadhaar_security.py       # GDR-011 source/OpenAPI sweeps (DB-free: no model carries ciphertext/hash, full number only in requests + PersonAadhaarResponse, last-4 only in the two gated responses) + response sweep and PERSON_VIEW_SENSITIVE footprint (DB; never run)
 │   ├── test_live_security.py          # live-refresh feed gating: anonymous 401, login-only, no ids/non-whitelisted tables disclosed (14; 14). NOT yet run
 │   ├── test_attendance_security.py    # Attendance auth/permission/admin-scope gating (parametrized over every endpoint) + review authority is a body seat (22; 89). NOT yet run
 │   ├── test_audit_security.py         # Audit endpoint auth/RBAC gating (4; 4)
@@ -147,7 +152,7 @@ tests/
 
 **Current totals** (re-counted 2026-11-03, after the 2026-11-03 owner-decision tests — disposal/retirement closes custody, acquisition method — and after adding the Assets & Property backend tests and the Assets & Property UI source-parsing tests, then the 2026-11-02 owner-decision tests: Anchalika/Zilla view-only, Mahila none, "belongs to"): **4905 collected items** (`pytest --collect-only -qq`) —
 `tests/api/` 2631 (38 files), `tests/db/` 385 (9 files), `tests/security/` 1167 (18 files),
-`tests/ui/` 773 (34 test files); total 5033 incl. live-refresh batch 2 (2026-11-03: api 49, db 20, ui 45 live-refresh items); earlier note: total 4905 (live-refresh feed 2026-11-03, marker-table version: +46 api, +15 security, +12 ui, +13 db). Integration (api + db + security) = 4183; UI = 722. AST count of
+`tests/ui/` 787 (35 test files, incl. `test_ui_aadhaar.py` 14: Aadhaar capture/reveal UI source parsing + node-run parity of `NSS.aadhaar` with `api/services/aadhaar_service.py`, DB-free with `--noconftest`); total 5170 (2026-11-04 `pytest --collect-only`); earlier total 5033 incl. live-refresh batch 2 (2026-11-03: api 49, db 20, ui 45 live-refresh items); earlier note: total 4905 (live-refresh feed 2026-11-03, marker-table version: +46 api, +15 security, +12 ui, +13 db). Integration (api + db + security) = 4183; UI = 722. AST count of
 `def test_*` functions: 2980 (api 1978, db 149, security 336, ui 517). The Assets & Property backend files (`test_assets_property*.py` + `test_asset_custodian_parity.py`) add 757 collected items (api 213 + 69, db 173, security 302); `tests/ui/test_ui_assets_property.py` adds 83 (source parsing only; its logic was exercised outside pytest because the UI conftest needs a server). Not executed in the refresh
 session; the 2026-10-30/31 additions and all Attendance suites have never been run against a DB.
 There is no Playwright test file for the Governance admin tabs.
@@ -280,6 +285,12 @@ pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok
   `_USER_ACCOUNT_DEPENDENT_TABLES` there, or use the same `@example.com` marker
   on data it alone is responsible for cleaning up — the fixture only knows about
   the tables the current register→approve flow populates.
+
+- **Audit-actor FKs (2026-11-04):** every `*_by_sangha_sevi_pk` column has an FK to `sangha_sevi`
+  (build Phase 13c), so fixtures must write a real `sangha_sevi_pk` or NULL as an actor, never a fake
+  uuid; `tests/db/test_audit_actor_fk.py` guards it and `tests/ui/conftest.py::_purge_ui_test_rows`
+  NULLs actor references to throwaway members before deleting them. `tests/api/test_recursive_cte_guard.py`
+  fails on any `WITH RECURSIVE` in `api/` without the shared depth cap (never run against a DB).
 
 ## Related docs
 

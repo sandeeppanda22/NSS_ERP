@@ -99,6 +99,7 @@ Build phases (authoritative detail in `scripts/README.md`):
 | 12 | Grant `nss_db_writer` |
 | 13 | Admin bootstrap (`scripts/bootstrap_admin.py`) |
 | 13b | Geo attribution backfill of bulk-seeded geography rows |
+| 13c | Audit-actor foreign keys — idempotent catalog-driven patch `13_audit_actor_fk/01_audit_actor_fk_patch.sql` (FK on every `*_by_sangha_sevi_pk`, NOT VALID then VALIDATE; see Two-Pass DDL Strategy) |
 | 14 | Audit DDL — `system_event_log` + `fn_audit_trigger()` attached to every table |
 | 15 | (optional, local dev) demo seed via `RUN_DEMO_SEED` — `seed/demo/nss_demo_seed.sql`, gitignored, not in `render_build.sh` |
 
@@ -170,15 +171,19 @@ See module READMEs for per-file details:
 ## Two-Pass DDL Strategy (SOL-ARCH-010 §5, SOL-ARCH-011 §6)
 
 - **Pass 1:** CREATE TABLE statements (files in `ddl/`) — no audit-actor FKs
-- **Pass 2:** ALTER TABLE ADD CONSTRAINT for `*_by_sangha_sevi_pk` columns —
-  executed after `sangha_sevi` table exists and contains at least one record
-
-Pass 2 is not yet implemented. `sangha_sevi` (Membership DDL, Phase 7) exists, and
-`scripts/bootstrap_admin.py` (Phase 13, Tier 5) seeds the bootstrap administrator
-`SS1` — but no `ALTER TABLE ADD CONSTRAINT` step for the `*_by_sangha_sevi_pk` columns has been
-added to the build scripts, including for the Tier 5 tables themselves (`user_account`,
-`user_role`, `admin_scope`, etc. all carry the same nullable, unconstrained audit-actor columns)
-— Pass 2 remains deferred.
+- **Pass 2:** foreign keys on the `*_by_sangha_sevi_pk` audit-actor columns — implemented
+  (owner decision 2026-11-04) as ONE idempotent, catalog-driven patch,
+  `ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql`, build **Phase 13c** (after the admin bootstrap
+  and the geo backfill, before the audit trigger; `run_sql`/`Invoke-Sql` on every build; identical in
+  `02_build.sh`, `02_build.ps1`, `render_build.sh`). It adds `fk_<table>_<column>` (`FOREIGN KEY ...
+  REFERENCES nss.sangha_sevi (sangha_sevi_pk)`) to every such column of every `nss` base table that has
+  none yet (columns that already reference `sangha_sevi` keep their own constraint), as `NOT VALID`
+  first (new/updated rows are checked at once; existing dangling values cannot break a rebuild) and then
+  tries `VALIDATE`, only WARNing and leaving it NOT VALID on dangling data. Not 70 DDL edits: the loop
+  picks up any future table/column. `03_validate` WARNs on actor columns without an FK and on FKs still
+  NOT VALID; the diagnostic SELECT for dangling values is in `database/scripts/README.md` (Phase 13c).
+  `system_event_log.actor_sangha_sevi_pk` is deliberately not covered. Rule for new tables: declare an
+  audit-actor column as a plain nullable UUID named `*_by_sangha_sevi_pk`; the patch constrains it.
 
 ---
 
@@ -335,8 +340,6 @@ implemented modules in SOL-ARCH-011 phase order, as `nss_db_owner` (see the phas
 ./database/scripts/02_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
 ```
 
-**Not executed:** Pass 2 audit-actor FK constraints (deferred — see
-Two-Pass DDL Strategy above).
 
 Table DDL and seeds are **existence-gated** (`run_ddl`/`run_seed`, deterministic
 `to_regclass('nss.<table>')` check; `[EXISTS]`/`[SKIP]` for a table already present — its DDL **and**

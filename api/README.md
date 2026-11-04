@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-19 routers (283 registered endpoints — a `@router.*` decorator grep gives 271 because 12 of `assets_property.py`'s 26 are added by `_register_entity_routes`; Assets & Property adds `assets_property.py` 26; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
+19 routers (284 registered endpoints — a `@router.*` decorator grep gives 272 because 12 of `assets_property.py`'s 26 are added by `_register_entity_routes`; Assets & Property adds `assets_property.py` 26; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -195,11 +195,11 @@ api/
 │   │                    data (types, statuses), core organizations (list/detail/children — the
 │   │                    list query is a shared `fetch_organizations()` function, also called by
 │   │                    `registration.py`'s public reference-data endpoints), children-stats
-│   │                    (recursive, no depth-cap guard — see Known gaps), `/organizations/{pk}/stats`
+│   │                    (recursive, depth cap + cycle guard from `helpers.py`), `/organizations/{pk}/stats`
 │   │                    (same recursive counts collapsed to one row of whole-subtree totals for
 │   │                    the requested org, 403s outside the caller's own admin scope via
 │   │                    `require_org_in_scope`, backs the Org Dashboard tab), and a
-│   │                    self-referencing hierarchy tree via `WITH RECURSIVE` (depth guard at 10).
+│   │                    self-referencing hierarchy tree via `WITH RECURSIVE` (display cap `HIERARCHY_MAX_DEPTH` = 10).
 │   │                    `/organizations/{pk}/wings` + `/wings/{wing_type_code}/members`
 │   │                    (wing-body summary/roster). All gated by `require_permission("ORGANIZATION_VIEW")`
 │   │                    except `/organizations/selectable` (member-facing dropdown lookup;
@@ -388,7 +388,7 @@ api/
     │                     org_youtube_channel_url)
     ├── person.py         PersonResponse, PersonSummaryResponse, PersonAddressResponse,
     │                     PersonListResponse — PersonResponse/PersonSummaryResponse never
-    │                     include `aadhaar_encrypted`/`aadhaar_hash`, only `aadhaar_last4` for
+    │                     include `aadhaar_encrypted`/`aadhaar_hash`; `aadhaar_last4` (gated, GDR-011) for
     │                     masked display (PER-BR-081); audit columns excluded
     ├── family.py         8 original Pydantic models (FamilyGroupResponse, FamilyMemberResponse,
     │                     FamilyGraphMemberResponse, PersonMembershipSummaryResponse,
@@ -748,15 +748,20 @@ against Foundation's `master_data`. Trigram search relies on `pg_trgm` (installe
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/api/v1/person/persons` | Active persons (compact summary — no Aadhaar/emergency/photo fields); optional `gender_code`/`marital_status_code`/`blood_group_code` filters, `limit`/`offset` pagination (default 100, max 500) |
-| GET | `/api/v1/person/persons/{person_pk}` | Single person detail with full resolved context, incl. masked `aadhaar_last4`; 404 if missing/inactive |
+| GET | `/api/v1/person/persons/{person_pk}` | Single person detail with full resolved context; `aadhaar_last4` + `aadhaar_full_on_file` are non-null only for the person themself or a `PERSON_VIEW_SENSITIVE` holder in admin scope (GDR-011); 404 if missing/inactive |
+| GET | `/api/v1/person/persons/{person_pk}/aadhaar` | **Aadhaar reveal (GDR-011, Proposed):** `{person_pk, aadhaar_number}` — the DECRYPTED 12 digits. `PERSON_VIEW_SENSITIVE` + admin scope over the person (the person themself gets 403); 404 `Full Aadhaar not on record` without ciphertext; per-user `AADHAAR_REVEAL_RATE_LIMIT` (429); each success writes a `VIEW_SENSITIVE` `system_event_log` row without the value; 500 without a value if decryption fails. Uses the write pool only for that audit INSERT |
 | GET | `/api/v1/person/persons/{person_pk}/addresses` | Active addresses for a person, with resolved address type + city/village/postal-code/district/state/country chain; 404 if the person doesn't exist |
 | POST | `/api/v1/person/persons/{person_pk}/addresses` | Add an address (201 `PersonAddressResponse`); the person themself or `PERSON_MANAGE` in admin scope. `address_type_master_data_pk` must be an `ADDRESS_TYPE` value; city/village, postal code and post office must be APPROVED, or PENDING and proposed by this person; first address is auto-primary, `is_primary=true` demotes the previous primary |
 | PATCH | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Partial update (only fields sent change; explicit null clears optional ones); same auth/geo rules; un-primarying the primary address is 409 |
 | DELETE | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Soft delete (`is_active=false`, `deleted_at`); 409 on the primary address while other active addresses exist; 404 if the row is not this person's |
 | GET | `/api/v1/person/search` | Trigram similarity search (`pg_trgm`) on first/last name, plus prefix match on `person_id`/`mobile_number`; capped at 50 results |
 
-`aadhaar_encrypted` and `aadhaar_hash` are never returned by any endpoint — only
-`aadhaar_last4` for masked display (PER-BR-081). Full contract:
+`aadhaar_encrypted` and `aadhaar_hash` are never returned by any endpoint. The full number
+is captured (optional `aadhaar_number` on `POST /register`, `POST /admin/persons`,
+`PATCH /admin/persons/{pk}` and `PATCH /admin/claims/{pk}`; not on the self-service
+`PATCH /auth/profile`), stored encrypted by the one writer `aadhaar_service.set_person_aadhaar()`,
+and obtainable only through the reveal endpoint above; `aadhaar_last4` is shown only to the person
+and to scoped `PERSON_VIEW_SENSITIVE` holders (GDR-011, amends PER-BR-081). Full contract:
 `docs/03_Solution/api/PERSON_API_CONTRACT.md`. Verified by 55 pytest integration tests
 (`tests/api/test_person.py`; some of the original 61 were extracted into
 `tests/security/test_*_security.py` — see `CLAUDE.md` → Tests & lint).
@@ -832,9 +837,10 @@ Full contract and endpoint counts: `docs/03_Solution/api/API_CONTRACT.md`. Tests
   omits create-family and create-link), and `main.py` ("Verification UIs", "Read-only endpoints")
   no longer match their code. `middleware.py`'s docstring still says JS uses `?v=N` cache busting
   (now an automatic content hash, see `main.py`).
-- **`/children-stats` and `/stats` recursion has no depth cap** — the SQL comments say "capped at
-  depth 10" but neither CTE carries a depth column or `depth < 10` predicate; only `/hierarchy`
-  does.
+- **Recursive CTE guard (2026-11-04):** every `WITH RECURSIVE` uses `helpers.MAX_RECURSION_DEPTH`
+  (20) via `recursive_anchor_cols`/`recursive_step_cols`/`recursive_guard` (plus a path-array cycle
+  guard); the subtree walk is the single `helpers.org_subtree_cte_sql()`. `/hierarchy` keeps its
+  documented cap of 10 (`HIERARCHY_MAX_DEPTH`). `tests/api/test_recursive_cte_guard.py` enforces it.
 - **`API_PORT` is read by `config.py` but never used.**
 - **`next_id()` ignores `id_sequence_master.padding_length`** (returns `prefix + current_value`).
 - **`auth.py::forgot_password` does not deliver the OTP** (`# TODO: Send OTP via email/SMS`).

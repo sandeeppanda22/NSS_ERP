@@ -20,7 +20,7 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 19 routers, 283 endpoints (registered routes in the working tree — 271 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 19 routers, 284 endpoints (registered routes in the working tree — 272 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 79 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
 | Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5033 items collected). |
@@ -157,7 +157,7 @@ geography, geo approvals, governance, correspondence, attendance, assets & prope
 Shared scripts: `auth.js` (JWT + authed fetch), `nss-config.js` (display names such as
 `PROBATIONARY` → "Darshaka", badge maps), `nss-layout.js`, `org-dashboard.js` (one Alpine component,
 six org-type layouts), `audit-diagnostics.js` (AUDIT_VIEW tabs System Event Log / Live Change Markers mixin installed into `admin.js`), `live-refresh.js` (live-refresh mixin installed into `admin.js` and `dashboard.js`: one `/live/changes` poll per page, per-page table→tab maps), `attendance-register.js` (one marking mixin used by `admin.js` and
-`org-dashboard.js`), `assets-property.js` (Assets & Property mixin installed into `admin.js`), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
+`org-dashboard.js`), `assets-property.js` (Assets & Property mixin installed into `admin.js`), `nss-config.js` `NSS.aadhaar` (the one client-side Aadhaar validator, GDR-011: optional field on `register.html` and the admin Create Person / Profile Details / claim-edit forms, `aadhaar_number` sent only when non-empty, admin-only "Reveal Aadhaar" gated by `PERSON_VIEW_SENSITIVE` + `aadhaar_full_on_file`, value blanked on dialog close; not opened in a browser), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
 badge classes (never redefine inline). `tailwind.min.css` is a **committed, generated** file:
 rebuild it after changing any Tailwind/DaisyUI class (`npm run css:build`). The old six
 Tier 0-4 verification pages are deleted; their features live in `admin`/`dashboard`. Full file
@@ -224,7 +224,7 @@ Run everything from the **repository root**.
 
 1. **Python deps:** Python **3.15** (`.python-version`, `render.yaml`; no virtual environment by owner choice): `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install -r requirements.txt` (Homebrew Pythons are PEP 668 "externally managed"; Windows: `py -m pip ...`).
    Includes FastAPI, Uvicorn, psycopg2-binary, Pydantic, python-dotenv, slowapi, argon2-cffi,
-   PyJWT, pytest, httpx/httpx2 (needed by `TestClient`) and the Playwright stack.
+   PyJWT, cryptography (Aadhaar AES-256-GCM, GDR-011; version range unverified on Python 3.15), pytest, httpx/httpx2 (needed by `TestClient`) and the Playwright stack.
 2. **Database** (details: `database/README.md`, `database/scripts/README.md`,
    `docs/03_Solution/architecture/GETTING_STARTED.md`):
    1. `database/scripts/00_create_database.sql` (superuser) — database `nss_erp` and roles
@@ -234,7 +234,7 @@ Run everything from the **repository root**.
       including a random `JWT_SECRET_KEY`. On Windows set passwords with `ALTER ROLE` and write
       `api/.env` by hand.
    4. `02_build.sh` / `02_build.ps1` (as `nss_db_owner`) — all DDL and seed in phase order
-      (0 Bootstrap RBAC … 11e Attendance, 11f Sakha re-parent approval, 11g Assets & Property, 12 writer grants, 13 admin seed, 13b geo backfill,
+      (0 Bootstrap RBAC … 11e Attendance, 11f Sakha re-parent approval, 11g Assets & Property, 12 writer grants, 13 admin seed, 13b geo backfill, 13c audit-actor FKs,
       14 audit, optional 15 demo seed). The Foundation seed includes all-India geography, so
       Phase 2 is slow. Seeds the admin superuser via `scripts/bootstrap_admin.py` (login `SS1`/`P1`,
       password `Admin@123`; INSERT-only, never resets an existing password).
@@ -306,6 +306,9 @@ UTF-8 BOM tolerated). A template is at `api/.env.example`.
 | `CORS_ORIGINS` | empty | Comma-separated; empty means `CORSMiddleware` is never registered |
 | `RATE_LIMIT` | `300/minute` | Global per-IP (`slowapi` spec) |
 | `LIVE_ATTENDANCE_RATE_LIMIT` | `120/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /attendance/pujas/{pk}/live` only |
+| `AADHAAR_ENCRYPTION_KEYS` | none | GDR-011: `key_id:base64(32 bytes)` pairs, comma separated; first = active key, rest decrypt-only. Optional for startup; a capture/reveal without it is 503/500. `python3 scripts/generate_aadhaar_keys.py` |
+| `AADHAAR_HASH_PEPPER` | none | GDR-011: secret for `aadhaar_hash` (HMAC-SHA256); separate from the keys; changing it orphans stored hashes |
+| `AADHAAR_REVEAL_RATE_LIMIT` | `10/minute` | Per signed-in user; replaces `RATE_LIMIT` for the Aadhaar reveal route only |
 | `LIVE_CHANGES_RATE_LIMIT` | `60/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /live/changes` only |
 | `CSP_ENABLED`, `CSP_REPORT_ONLY` | `true`, `false` | Report-only emits `Content-Security-Policy-Report-Only` |
 | `CSP_SCRIPT_SRC_EXTRA`, `CSP_STYLE_SRC_EXTRA` | empty | Extra CSP origins without code change |
@@ -577,7 +580,7 @@ are resolved in `rbac_service.actor_scope_root_org_pks()`: `KENDRA_MAHILA_SANGHA
 |---|---|---|---|---|---|---|
 | 1 | Attendance Marker | `NSS_ERP_ATTENDANCE_MARKER` | SAKHA | 2 | `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW` | `ATTENDANCE_MANAGE` + `ATTENDANCE_VIEW` only; subset of every role below that holds attendance perms (Sakha Admin and up) |
 | 2 | Report Viewer | `NSS_ERP_REPORT_VIEWER` | NSS-WIDE | 9 | `ASSET_VIEW`, `ATTENDANCE_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only views + `REPORT_VIEW`; subset of Auditor |
-| 3 | Auditor | `NSS_ERP_AUDITOR` | NSS-WIDE | 15 | `ADMIN_PERMISSION_VIEW`, `ADMIN_USER_VIEW`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Read-only across modules + `AUDIT_VIEW`, `PERSON_VIEW_SENSITIVE`, admin user/permission views; no write permission; subset of Kendra Admin and `NSS_ERP_ADMIN` |
+| 3 | Auditor | `NSS_ERP_AUDITOR` | NSS-WIDE | 14 | `ADMIN_PERMISSION_VIEW`, `ADMIN_USER_VIEW`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only across modules + `AUDIT_VIEW`, admin user/permission views (`PERSON_VIEW_SENSITIVE` is soft-deleted from the Auditor by patch `07`, GDR-011); no write permission; subset of Kendra Admin and `NSS_ERP_ADMIN` |
 | 4 | Anchalika / Zilla / Patha Chakra Administrator | `NSS_ERP_ANCHALIKA_ADMIN`, `_ZILLA_ADMIN`, `_PATHA_CHAKRA_ADMIN` | ANCHALIKA / ZILLA / PATHA_CHAKRA | 17 (Patha Chakra); 16 (Anchalika, Zilla: no `ASSET_MANAGE`, view-only for assets) | `ASSET_MANAGE`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `REPORT_VIEW` | Identical permission sets except that Anchalika and Zilla admins hold `ASSET_VIEW` but not `ASSET_MANAGE` (owner decision 2026-11-02; they see the physical organizations beneath them read-only); differ by scope; each a subset of Sakha, Mahila and Kendra Admin |
 | 5a | Kendra Mahila Sangha Administrator | `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` | KENDRA_MAHILA_SANGHA (no org; resolves to every `MAHILA_SANGHA` organization + subtree) | 18 | all of rank 4 except `ASSET_MANAGE`/`ASSET_VIEW` (the Mahila admin holds no Assets & Property permission, owner decision 2026-11-02), plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `ORGANIZATION_MANAGE` | Kendra Administrator's operational set (its 28 minus `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `AUDIT_VIEW`, `FOUNDATION_MANAGE`, `PERSON_VIEW_SENSITIVE`); subset of Kendra Admin, **not** of Sakha Admin (`ORGANIZATION_MANAGE`). Reach is bounded to Mahila Sanghas (owner decision 2026-10-30), so every `*_MANAGE` grant acts only there; never holds `ADMIN_*` |
 | 5b | Sakha Administrator | `NSS_ERP_SAKHA_ADMIN` | SAKHA | 20 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GEO_ENTRY_APPROVE`, `GOVERNANCE_MANAGE` | The rank-4 set plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `GEO_ENTRY_APPROVE`; same size as 5a but incomparable with it; **not** a subset of Kendra Admin (`GEO_ENTRY_APPROVE` is held by no other role, including Kendra Admin and `NSS_ERP_ADMIN`) |
@@ -619,7 +622,7 @@ All 30 permissions (28 in `01_permission_master.sql` plus `ASSET_VIEW`/`ASSET_MA
 | `ORGANIZATION_VIEW` | See organizations, their hierarchy and statistics (no changes). | Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Advisory Board, Sakha, Kendra, Admin |
 | `PERSON_MANAGE` | Create, edit and deactivate person records. | Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Kendra, Admin |
 | `PERSON_VIEW` | See person records, except sensitive details (no changes). | Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Advisory Board, Kendra, Admin |
-| `PERSON_VIEW_SENSITIVE` | See sensitive identity details such as Aadhaar. (Seeded but not yet enforced; Aadhaar is currently always masked.) | Auditor, Kendra, Admin |
+| `PERSON_VIEW_SENSITIVE` | See sensitive identity details: `aadhaar_last4` (and `aadhaar_full_on_file`) of a person in admin scope, and the audited full-number reveal `GET /person/persons/{pk}/aadhaar` (GDR-011, Proposed). Enforced since 2026-11-04. | Kendra, Admin (the Auditor grant is soft-deleted by `seed/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql`) |
 | `REPORT_VIEW` | See reports and dashboards. | Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Kendra, Admin |
 
 Only `NSS_ERP_ADMIN` and `NSS_ERP_KENDRA_ADMIN` hold `ADMIN_ROLE_MANAGE`, so only they can reach
@@ -689,11 +692,10 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   never a premises address (DB-trigger enforced).
 - **Search:** member search is 7-field, person search 4-field, trigram threshold 0.45;
   email-shaped input is reduced with `re.split(r'[.@]', q)[0]`.
-- **Aadhaar** ciphertext/hash are never returned; masking is unconditional.
-  `PERSON_VIEW_SENSITIVE` is seeded but not wired.
-- **Sangha Sevi creation is split:** `sangha_sevi` is created on admin approval
-  (`claim_approval.py::approve_claim()`), and also independently by `admin.py::create_user()` and
-  `create_sangha_sevi()` — three `INSERT INTO nss.sangha_sevi` sites with no shared helper.
+- **Aadhaar** (GDR-011, Proposed; legal confirmation outstanding): the full 12-digit number is optionally captured (`aadhaar_number` on registration, admin create/edit person, claim edit) and stored by `aadhaar_service.set_person_aadhaar()` as AES-256-GCM ciphertext (+ HMAC-SHA256 hash with a separate pepper, + derived last-4); keys only in the environment. `aadhaar_encrypted`/`aadhaar_hash` are never returned; `aadhaar_last4`/`aadhaar_full_on_file` only to the person or a scoped `PERSON_VIEW_SENSITIVE` holder; the decrypted number only from the audited, rate-limited `GET /person/persons/{pk}/aadhaar`. Without keys a capture is 503. The audit trigger redacts the columns' values.
+- **Sangha Sevi creation has one owner:** every runtime path (claim approval, `admin.py::create_user()`,
+  `create_sangha_sevi()`) calls `helpers.create_sangha_sevi_with_home_affiliation()`, the only
+  `INSERT INTO nss.sangha_sevi` under `api/` (enforced by `tests/api/test_sangha_sevi_insert_parity.py`).
 - **Role assignment guard:** only `NSS_ERP_ADMIN` and `NSS_ERP_KENDRA_ADMIN` hold
   `ADMIN_ROLE_MANAGE`; see the self-assignment paragraph above.
 - **Admin bootstrap** runs after the schema exists but before the audit trigger, so the admin and
@@ -706,8 +708,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 - **Password reset OTPs are never delivered** (`api/routers/auth.py` TODO); they are visible only
   via `otp_debug` when `DEBUG_MODE` is set. There is deliberately no `/forgot-password` page — the
   flow is inline on `/login`.
-- **Recursive CTEs:** `/children-stats` and `/stats` have no depth cap (`/hierarchy` caps at 10).
-- **Audit-actor FKs** (`*_by_sangha_sevi_pk`) are still unconstrained on all tables (Pass 2).
+- **Recursive CTEs (2026-11-04):** every `WITH RECURSIVE` in `api/` (organization subtrees/ancestors, admin-scope resolution, membership/governance subtree checks, correspondence reply threads) carries a depth cap driven by the single constant `api/helpers.py::MAX_RECURSION_DEPTH` (20; the real hierarchy is ~5 levels) plus, for organization walks, a visited-path cycle guard, built from `recursive_anchor_cols`/`recursive_step_cols`/`recursive_guard`; the subtree walk used by `rbac_service` and the membership/governance checks exists once as `org_subtree_cte_sql()`. `/organization/hierarchy` keeps its documented UI cap of 10 (`HIERARCHY_MAX_DEPTH`). Legitimate trees return identical results. `tests/api/test_recursive_cte_guard.py` fails if a new `WITH RECURSIVE` lacks the guard.
+- **Audit-actor FKs (2026-11-04):** every `*_by_sangha_sevi_pk` column of every `nss` table has a foreign key to `nss.sangha_sevi` via the catalog-driven patch `database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (build Phase 13c; `fk_<table>_<column>`, NOT VALID first then a VALIDATE attempt that only warns). A bogus actor uuid is rejected for every new/updated row; non-Sangha-Sevi actors must write NULL. `03_validate` warns on missing/NOT VALID actor FKs; dangling-value diagnostic SELECT: `database/scripts/README.md`. `system_event_log.actor_sangha_sevi_pk` is out of scope. Tests: `tests/db/test_audit_actor_fk.py` (never run against a DB).
 - **Design-doc divergences** (not drift in code): the implemented `organization` table has
   `organization_code VARCHAR(10) NULL` and `short_code VARCHAR(5) NULL`, whereas
   `ORG-PENDING-001` froze `organization_short_code VARCHAR(5) NOT NULL`; seeded org-type codes are
@@ -751,7 +753,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   `NSS_ERP_ADMIN`).
 - Deliver forgot-password OTPs (email/SMS).
 - Run the newly written tests (SAVEPOINT isolation `tests/api/test_savepoint_isolation.py`, CORS `tests/security/test_cors_configured.py`, public-surface class in `tests/security/test_registration_security.py`) — written 2026-10-30, collected but never executed against a DB.
-- Wire `PERSON_VIEW_SENSITIVE` or drop it.
+- GDR-011 (Aadhaar capture + gated reveal): owner approval, legal/compliance confirmation, key management, retention and the frontend (forms, person card, Reveal action) are open; generate keys with `scripts/generate_aadhaar_keys.py` and set them locally/on Render.
 - Correspondence: the `correspondence_finance_reference.financial_transaction_pk` FK is deferred
   until Finance; `CORR-BR-018` relationship types are PENDING; there is no reverse "replies to
   this" listing.
