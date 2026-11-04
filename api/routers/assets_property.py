@@ -263,7 +263,10 @@ def _effective_custodian_join(k: _Kind, entity_alias: str = "e") -> str:
     the ACTIVE custodianship; else, only for a TERMINAL record (DISPOSED
     property / RETIRED asset - its custody was ENDed by the terminal
     transition), the most recently ENDED one (latest effective_to, then
-    effective_from, then created_at). Non-terminal records never fall back to
+    effective_from, then the custodianship ended by the reserved terminal end
+    reason - the LAST one, even when a transfer and the disposal fall on the
+    same day - then created_at; pks are UUIDs and created_at is the transaction
+    start, so neither is a reliable clock). Non-terminal records never fall back to
     ENDED history, so a mid-life record with no active custodian stays
     'custodian-less' exactly as before. Used by detail, list, filters and every
     scope check - never re-derive it.
@@ -277,7 +280,14 @@ def _effective_custodian_join(k: _Kind, entity_alias: str = "e") -> str:
               AND (c.status = 'ACTIVE'
                    OR (c.status = 'ENDED' AND {entity_alias}.status = '{k.terminal_status}'))
             ORDER BY (c.status = 'ACTIVE') DESC, c.effective_to DESC NULLS FIRST,
-                     c.effective_from DESC, c.created_at DESC
+                     c.effective_from DESC,
+                     EXISTS (SELECT 1
+                             FROM nss.master_data er
+                             JOIN nss.master_category erc ON erc.master_category_pk = er.master_category_pk
+                             WHERE er.master_data_pk = c.end_reason_master_data_pk
+                               AND erc.category_code = 'CUSTODIANSHIP_END_REASON'
+                               AND er.value_code = '{k.terminal_status}') DESC,
+                     c.created_at DESC
             LIMIT 1
         ) cu ON TRUE
     """
