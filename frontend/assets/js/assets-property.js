@@ -233,11 +233,14 @@
             },
 
             // ── List ──────────────────────────────────────────────────
-            async apLoadList() {
+            // opts.silent (live refresh): no spinner / error reset, filters and page kept.
+            async apLoadList(opts = {}) {
                 const kind = this.apKind;
                 const seq = ++this._apListSeq;
-                this.apLoading = true;
-                this.apError = "";
+                if (!opts.silent) {
+                    this.apLoading = true;
+                    this.apError = "";
+                }
                 try {
                     const params = new URLSearchParams({ page: this.apPage, page_size: this.apPageSize });
                     if (this.apQ.trim()) params.set("q", this.apQ.trim());
@@ -260,6 +263,7 @@
                     this.apTotal = data.total;
                 } catch (err) {
                     if (seq !== this._apListSeq) return;
+                    if (opts.silent) return;   // keep the rows already on screen
                     this.apItems = []; this.apTotal = 0;
                     this.apError = err.message || `Failed to load ${this.apPluralTitle.toLowerCase()}.`;
                 } finally {
@@ -322,15 +326,40 @@
                     if (seq !== this._apDetailSeq) return;
                     this.apSelected = rec;
                     this.apLoadCatalogs();
-                    this.apLoadCustody();
-                    this.apLoadMaintenance();
-                    if (kind === "properties") this.apLoadStatutory();
-                    this.apLoadDocuments();
+                    this._apLoadSubs();
                 } catch (err) {
                     if (seq !== this._apDetailSeq) return;
                     this.apDetailError = err.message || `Failed to load this ${this.apNoun}.`;
                 } finally {
                     if (seq === this._apDetailSeq) this.apDetailLoading = false;
+                }
+            },
+
+            // The record's four sub-lists (statutory records are properties-only).
+            _apLoadSubs() {
+                this.apLoadCustody();
+                this.apLoadMaintenance();
+                if (this.apKind === "properties") this.apLoadStatutory();
+                this.apLoadDocuments();
+            },
+
+            // ── Live refresh (live-refresh.js; see admin.js LIVE_TABLE_TABS) ──
+            // True while any form / dialog on this tab is open: a live reload then
+            // waits behind the banner instead of replacing what the user is editing.
+            apLiveBusy() {
+                return [this.apForm, this.apTransition, this.apTransfer, this.apAssign,
+                        this.apMaintForm, this.apStatForm, this.apDocForm].some((f) => f && f.show);
+            },
+
+            // Re-run what the tab is showing, keeping filters, paging and the open
+            // record: the open record + its sub-lists, or the (silent) list.
+            async apLiveReload() {
+                if (this.apDetailLoading) return;
+                if (this.apSelected) {
+                    await this._apReloadSelected("This record is no longer in your scope.");
+                    if (this.apSelected) this._apLoadSubs();
+                } else {
+                    await this.apLoadList({ silent: true });
                 }
             },
 

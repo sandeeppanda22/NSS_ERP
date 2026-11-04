@@ -342,3 +342,10 @@
 .badge-ap-maintenance  { background-color: #d97706 !important; color: #fff !important; }  /* amber-600 — UNDER_MAINTENANCE              */
 .badge-ap-terminal     { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500  — DISPOSED / RETIRED (terminal)  */
 .badge-ap-ended        { background-color: #9ca3af !important; color: #fff !important; }  /* gray-400  — ended custodianship            */
+
+/* ── Audit & Diagnostics (audit-diagnostics.js) ─────────────────────────
+ *   badge-audit-success  — event succeeded / table is on the live whitelist
+ *   badge-audit-failed   — event failed / table is not on the live whitelist
+ */
+.badge-audit-success { background-color: #16a34a !important; color: #fff !important; }  /* green-600 */
+.badge-audit-failed  { background-color: #dc2626 !important; color: #fff !important; }  /* red-600   */

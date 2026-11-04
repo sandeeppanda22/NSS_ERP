@@ -284,6 +284,112 @@ function _buildCoupleTree(allPersons) {
 }
 
 
+// ── Live refresh (live-refresh.js) ─────────────────────────────────────────
+// Which tab(s) each watched table feeds on THIS page. Every table named here
+// MUST be in the server whitelist LIVE_FEED_TABLES (api/routers/live.py - the
+// authoritative list); tests/api/test_live_changes.py::TestJsMapParity parses
+// this block, so keep one `table: [tabs]` entry per line.
+// LIVE_TABLE_TABS:begin
+const LIVE_TABLE_TABS = {
+    registration_claim: ["pendingItems"],
+    correspondence_approval_step: ["pendingItems"],
+    organization_reparent_request: ["pendingItems"],
+    organization_reparent_step: ["pendingItems"],
+    acting_position_assignment: ["pendingItems", "orgDashboard", "governance"],
+    election: ["pendingItems", "orgDashboard", "governance"],
+    election_nomination: ["pendingItems", "governance"],
+    election_result: ["governance"],
+    body_master: ["orgDashboard", "governance"],
+    body_member_assignment: ["orgDashboard", "governance"],
+    body_type_master: ["governance"],
+    position_master: ["governance"],
+    correspondence: ["orgDashboard"],
+    organization: ["orgDashboard", "membership", "documents", "adminStats"],
+    membership_sakha_affiliation: ["orgDashboard", "membership", "documents", "adminStats"],
+    parichaya_patra: ["orgDashboard", "membership", "documents"],
+    family_group: ["orgDashboard", "family", "adminStats"],
+    darshak_attendance_registration: ["orgDashboard"],
+    // ── Batch 2: member dashboard personal / membership / family / governance tabs ──
+    // The Documents tab shows the same Parichaya / Anumati data as Membership,
+    // so it shares that entry's loader (reloadOnOpen is default: opening reloads).
+    person: ["personal"],
+    person_address: ["personal"],
+    master_data: ["personal", "membership", "documents", "adminStats"],
+    sangha_sevi: ["orgDashboard", "personal", "membership", "documents", "adminStats"],
+    anumati_patra: ["membership", "documents"],
+    membership_journey_event: ["membership", "documents"],
+    membership_change_request: ["membership", "documents"],
+    membership_renewal_request: ["adminStats"],
+    family_relationship: ["personal", "family", "adminStats"],
+    family_head_history: ["family"],
+    family_admin: ["family"],
+    family_link: ["family"],
+    family_transition_history: ["family"],
+};
+// LIVE_TABLE_TABS:end
+
+// Pending Items feeds the sidebar badges for every user, so it reloads even when
+// its tab is not on screen (background); it is "busy" only while a remark typed
+// into an approval row is unsent. The org dashboard is a nested component that
+// registers itself (org-dashboard.js).
+const LIVE_MEMBERSHIP_TAB = {
+    reload: (h) => Promise.all([h._fetchPersonalDetail({ silent: true }),
+        h._fetchMembershipDetail(), h._loadMyChangeRequests({ silent: true })]),
+    busy: (h) => !!(h.showChangeRequestModal || h.changeRequestSaving),
+};
+
+const LIVE_REFRESH_CONFIG = {
+    tableTabs: LIVE_TABLE_TABS,
+    activeTab: (h) => h.tab,
+    tabs: {
+        pendingItems: {
+            background: true,
+            reload: (h) => h._loadPendingItems(),
+            busy: (h) => [h.sendApp.decisionRemarks, h.reparentRemarks]
+                .some((m) => Object.values(m || {}).some((v) => String(v || "").trim() !== "")),
+        },
+        orgDashboard: {
+            reload: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return t ? t.liveReload() : null; },
+            busy: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return !!(t && t.liveBusy()); },
+        },
+
+        // ── Batch 2 ──
+        // Personal: person, addresses, own membership record and family. Busy while the
+        // profile editor or the address form is open or saving.
+        personal: {
+            reload: (h) => h._fetchPersonalDetail({ silent: true }),
+            busy: (h) => !!(h.editingProfile || h.addrForm.show || h.addrSaving || h.profileSaving),
+        },
+        // Membership and Documents (the same Parichaya / Anumati data): the member
+        // record, affiliations, credentials, journey and own change requests.
+        membership: LIVE_MEMBERSHIP_TAB,
+        documents: LIVE_MEMBERSHIP_TAB,
+        family: {
+            reload: (h) => (h.family && h.family.family_group_pk ? h._fetchFamilyDetail({ silent: true }) : null),
+            busy: (h) => !!(h.showAddMemberModal || h.addMemberSaving || h.showCreateFamilyModal
+                || h.createFamilySubmitting || h.transferHeadTarget || h.assignAdminTarget
+                || h.removeMemberLoading),
+        },
+        // Governance: national bodies, own Sakha bodies, open elections, own positions,
+        // delegations and acting approvals. Busy while a delegation / exception form is
+        // in progress or a ballot is being submitted.
+        governance: {
+            reload: (h) => Promise.all([h._loadGovernanceBodies({ silent: true }), h._loadMySakhaBodies(),
+                h._loadOpenElectionsForVoting({ silent: true }), h._loadMyGovPositions(),
+                h._loadMyGovDelegations(), h._loadMyPendingActingApprovals()]),
+            busy: (h) => !!(h.delegateForm.stage !== "form" || Object.keys(h.delegateForm.selections || {}).length
+                || h.parichalakExceptionForm.show || Object.values(h.govVoteSubmitting || {}).some(Boolean)),
+        },
+        // Admin tab stat tiles (sidebar-independent; background = refresh even when the
+        // admin tab is not on screen). Attendance % is NOT on the feed (own poller),
+        // so that one tile refreshes with the next stats reload.
+        adminStats: {
+            background: true,
+            reload: (h) => (h.adminTabs && h.adminTabs.length ? h._loadAdminStats() : null),
+        },
+    },
+};
+
 function dashboardApp() {
     // NSSAttendanceRegister.install() adds the shared attendance-register
     // members (permission getters, roster rows, tallies, filter,
@@ -291,7 +397,9 @@ function dashboardApp() {
     // this dashboard's own Attendance Register nav tab both run — see
     // assets/js/attendance-register.js. install() never overwrites a
     // property defined below, which is how `_afterAttendanceSaved` wins.
-    return NSSAttendanceRegister.install({
+    // NSSLiveRefresh.install() adds the shared live-refresh poller (one
+    // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
+    return NSSLiveRefresh.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -986,11 +1094,11 @@ function dashboardApp() {
                 // login-only (returning an empty list for a caller with
                 // nothing pending — safe for every user) or, for the claims
                 // count, internally gated on canApproveRegistrations.
-                this._loadMyPendingActingApprovals();
-                this._loadPendingApprovals();
-                this._loadReparentApprovals();
-                this._loadOpenElectionsForVoting();
-                this._loadPendingClaimsCount();
+                this._loadPendingItems();
+
+                // Live refresh: one /live/changes poll for this page (live-refresh.js).
+                this.liveStart();
+                this.$watch("tab", (t) => this.liveTabOpened(t));
 
                 // Step 2: Fetch person + membership + family data
                 await this._fetchPersonalDetail();
@@ -1092,9 +1200,12 @@ function dashboardApp() {
         },
 
         // ── Family detail fetch ──────────────────────────
-        async _fetchFamilyDetail() {
+        // opts.silent (live refresh): no spinner, no flash of the tree; the response
+        // is dropped if the member has navigated to another family meanwhile.
+        async _fetchFamilyDetail(opts = {}) {
             if (!this.family) return;
-            this.familyLoading = true;
+            const famPk = this.family.family_group_pk;
+            if (!opts.silent) this.familyLoading = true;
             try {
                 const [membersRes, headRes, adminsRes] = await Promise.all([
                     NSSAuth.apiFetch(`/api/v1/family/families/${this.family.family_group_pk}/members`)
@@ -1104,18 +1215,19 @@ function dashboardApp() {
                     NSSAuth.apiFetch(`/api/v1/family/families/${this.family.family_group_pk}/admins?current_only=true`)
                         .then(r => r.ok ? r.json() : []).catch(() => []),
                 ]);
+                if (opts.silent && (!this.family || this.family.family_group_pk !== famPk)) return;
                 this.familyMembers = membersRes;
                 this.familyHeadHistory = headRes;
                 this.familyAdmins = adminsRes;
             } catch (err) {
                 console.error("[Dashboard] _fetchFamilyDetail failed:", err);
             } finally {
-                this.familyLoading = false;
+                if (!opts.silent) this.familyLoading = false;
             }
 
             // Fetch summaries + graph in parallel (non-blocking)
             this._fetchFamilyMemberSummaries();
-            this._fetchFamilyGraph();
+            this._fetchFamilyGraph(opts);
         },
 
         // ── Family member membership summaries ──────────
@@ -1141,7 +1253,7 @@ function dashboardApp() {
         //  FAMILY TREE — Graph API + recursive tree builder
         // ═══════════════════════════════════════════════════
 
-        async _fetchFamilyGraph() {
+        async _fetchFamilyGraph(opts = {}) {
             if (!this.family) return;
 
             // Viewer is always the logged-in user's person_pk.
@@ -1150,23 +1262,26 @@ function dashboardApp() {
             // them as a departed member so BFS still works.
             this.viewerPersonPk = this.user.person_pk;
 
-            await this._loadGraph();
+            await this._loadGraph(opts);
         },
 
-        async _loadGraph() {
+        // opts.silent (live refresh): no spinner and a failure keeps the tree on screen.
+        async _loadGraph(opts = {}) {
             if (!this.family || !this.viewerPersonPk) return;
-            this.graphLoading = true;
-            this.graphError = false;
+            const famPk = this.family.family_group_pk;
+            if (!opts.silent) { this.graphLoading = true; this.graphError = false; }
             try {
-                const url = `/api/v1/family/families/${this.family.family_group_pk}/graph?viewer_person_pk=${this.viewerPersonPk}`;
+                const url = `/api/v1/family/families/${famPk}/graph?viewer_person_pk=${this.viewerPersonPk}`;
                 const res = await NSSAuth.apiFetch(url);
                 if (!res.ok) throw new Error(res.statusText);
-                this.graphMembers = await res.json();
+                const members = await res.json();
+                if (opts.silent && (!this.family || this.family.family_group_pk !== famPk)) return;
+                this.graphMembers = members;
                 this._buildTree();
             } catch {
-                this.graphError = true;
+                if (!opts.silent) this.graphError = true;
             } finally {
-                this.graphLoading = false;
+                if (!opts.silent) this.graphLoading = false;
             }
         },
 
@@ -2509,9 +2624,9 @@ function dashboardApp() {
         // forces this to the caller's own rows when they hold neither
         // MEMBERSHIP_VIEW nor MEMBERSHIP_APPROVE, mirroring the self-or-
         // permission pattern Person/Membership detail already use).
-        async _loadMyChangeRequests() {
+        async _loadMyChangeRequests(opts = {}) {
             if (!this.user?.sangha_sevi_pk) return;
-            this.myChangeRequestsLoading = true;
+            if (!opts.silent) this.myChangeRequestsLoading = true;
             try {
                 const res = await NSSAuth.apiFetch(
                     // page_size caps at 100 server-side (api/routers/
@@ -2527,7 +2642,7 @@ function dashboardApp() {
             } catch (e) {
                 console.error("Failed to load change requests", e);
             } finally {
-                this.myChangeRequestsLoading = false;
+                if (!opts.silent) this.myChangeRequestsLoading = false;
             }
         },
 
@@ -3384,9 +3499,9 @@ function dashboardApp() {
         },
 
         // ── Governance tab loader ────────────────────────
-        async _loadGovernanceBodies() {
-            this.govLoading = true;
-            this.govError = "";
+        // opts.silent (live refresh): no spinner/error flash.
+        async _loadGovernanceBodies(opts = {}) {
+            if (!opts.silent) { this.govLoading = true; this.govError = ""; }
             try {
                 const res = await NSSAuth.apiFetch(
                     `/api/v1/governance/public/national-bodies`
@@ -3395,14 +3510,14 @@ function dashboardApp() {
                     const data = await res.json();
                     this.govBodies = data.bodies || [];
                     await this._mergeMahilaInheritedParichalak();
-                } else {
+                } else if (!opts.silent) {
                     this.govError = "Failed to load governance bodies.";
                 }
             } catch (e) {
                 console.error("Failed to load governance bodies", e);
-                this.govError = "Failed to load governance bodies.";
+                if (!opts.silent) this.govError = "Failed to load governance bodies.";
             } finally {
-                this.govLoading = false;
+                if (!opts.silent) this.govLoading = false;
                 this.govLoaded = true;
             }
         },
@@ -4015,9 +4130,8 @@ function dashboardApp() {
         },
 
         // ── Open elections — member self-service voting (GOV-BR-045) ──
-        async _loadOpenElectionsForVoting() {
-            this.govVotingLoading = true;
-            this.govVotingError = "";
+        async _loadOpenElectionsForVoting(opts = {}) {
+            if (!opts.silent) { this.govVotingLoading = true; this.govVotingError = ""; }
             try {
                 const res = await NSSAuth.apiFetch(
                     `/api/v1/governance/elections/open-for-voting`
@@ -4025,14 +4139,14 @@ function dashboardApp() {
                 if (res.ok) {
                     const data = await res.json();
                     this.govOpenElections = data.items || [];
-                } else {
+                } else if (!opts.silent) {
                     this.govVotingError = "Failed to load open elections.";
                 }
             } catch (e) {
                 console.error("Failed to load open elections", e);
-                this.govVotingError = "Failed to load open elections.";
+                if (!opts.silent) this.govVotingError = "Failed to load open elections.";
             } finally {
-                this.govVotingLoading = false;
+                if (!opts.silent) this.govVotingLoading = false;
             }
         },
 
@@ -5009,8 +5123,13 @@ function dashboardApp() {
          * happened to resolve while attention was elsewhere, not because
          * anything actually re-fetched. Safe to call more than once —
          * every assignment below is a plain overwrite.
+         *
+         * opts.silent (live refresh): the member's own family is refreshed in
+         * `ownFamily`, but `family` (which the Family tab may have navigated
+         * to ANOTHER family) is only replaced when it still points at the
+         * member's own family (or at nothing).
          */
-        async _fetchPersonalDetail() {
+        async _fetchPersonalDetail(opts = {}) {
             const fetches = [];
 
             // Person details
@@ -5075,7 +5194,9 @@ function dashboardApp() {
 
             // Process family — use first family
             if (Array.isArray(familiesData) && familiesData.length > 0) {
-                this.family = familiesData[0];
+                const viewingOwn = !this.family || !this.ownFamily
+                    || this.family.family_group_pk === this.ownFamily.family_group_pk;
+                if (!opts.silent || viewingOwn) this.family = familiesData[0];
                 this.ownFamily = familiesData[0];
             }
         },
@@ -5135,11 +5256,7 @@ function dashboardApp() {
                     // every other tab, since any of them can have changed
                     // since the user last looked (e.g. an admin nominated
                     // them for a fresh acting delegation in the meantime).
-                    this._loadMyPendingActingApprovals();
-                    this._loadPendingApprovals();
-                    this._loadReparentApprovals();
-                    this._loadOpenElectionsForVoting();
-                    this._loadPendingClaimsCount();
+                    this._loadPendingItems();
                 }
                 // personal: see _fetchPersonalDetail() above — it is now a
                 // real reusable loader, called both from init() and (as a
@@ -5489,6 +5606,18 @@ function dashboardApp() {
             return CLAIM_APPROVAL_PERMISSIONS.some(p => perms.includes(p));
         },
 
+        // Every Pending Items source in one place: the sidebar badges (init), a
+        // revisit of the tab (_refreshTab) and live refresh all run exactly this.
+        _loadPendingItems() {
+            return Promise.all([
+                this._loadMyPendingActingApprovals(),
+                this._loadPendingApprovals(),
+                this._loadReparentApprovals(),
+                this._loadOpenElectionsForVoting(),
+                this._loadPendingClaimsCount(),
+            ]);
+        },
+
         // Pending Items tab (owner request, 2026-10-25, item 2: "pending
         // items can be anything related to the logged-in user... a
         // separate box for each foreseeable item") — a lightweight count
@@ -5612,6 +5741,7 @@ function dashboardApp() {
             };
         },
 
+        _adminStatsSeq: 0,
         async _loadAdminStats() {
             try {
                 // One /dashboard-stats call per DISTINCT org scope among the
@@ -5637,6 +5767,7 @@ function dashboardApp() {
                     groups.get(key).tabs.push(tab);
                 }
 
+                const seq = ++this._adminStatsSeq;   // a newer load supersedes this one
                 await Promise.all([...groups.values()].map(async ({ orgPk, tabs }) => {
                     const url = orgPk
                         ? `/api/v1/admin/dashboard-stats?org_pk=${encodeURIComponent(orgPk)}`
@@ -5644,6 +5775,7 @@ function dashboardApp() {
                     const res = await NSSAuth.apiFetch(url);
                     if (!res.ok) return;   // silently keep placeholders on auth/permission failure
                     const data = await res.json();
+                    if (seq !== this._adminStatsSeq) return;
 
                     // Apply fetched numbers to every tab sharing this org scope.
                     //
@@ -5801,5 +5933,5 @@ function dashboardApp() {
 
             return data[field] ?? "—";
         },
-    });
+    }), LIVE_REFRESH_CONFIG);
 }

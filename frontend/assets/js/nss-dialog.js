@@ -137,6 +137,11 @@ const NSSDialog = {
         this._modalEl.style.display = "none";
     },
 
+    /** True while an alert/confirm/prompt is on screen (live refresh never reloads under one). */
+    isOpen() {
+        return !!this._modalEl && this._modalEl.style.display === "flex";
+    },
+
     /**
      * Show an alert dialog (single OK button).
      * Replaces native alert().
