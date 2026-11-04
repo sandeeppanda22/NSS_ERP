@@ -374,7 +374,7 @@ class TestPersonDetail:
             "blood_group_master_data_pk", "blood_group_code",
             "blood_group_name",
             "country_phone_code", "mobile_number", "email",
-            "aadhaar_last4",
+            "aadhaar_last4", "aadhaar_full_on_file",   # present, null unless permitted (GDR-011)
             "photo_document_master_pk",
             "emergency_contact_name", "emergency_contact_phone",
             "emergency_relationship_master_data_pk",

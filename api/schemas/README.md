@@ -12,7 +12,7 @@ Conventions:
 
 - Response models never include audit columns, with one deliberate exception:
   `audit.py::FieldChangeLogResponse` exists to expose the change-log actor columns.
-- `person.py` models never include `aadhaar_encrypted`/`aadhaar_hash`, only `aadhaar_last4`
+- `person.py` models never include `aadhaar_encrypted`/`aadhaar_hash`; `aadhaar_last4` + `aadhaar_full_on_file` are gated (GDR-011) and only `PersonAadhaarResponse` carries the full number
   (PER-BR-081).
 - `foundation.py::SequenceResponse` omits `current_value`.
 - `*ListResponse` models (`PersonListResponse`, `MemberListResponse`, `UserListResponse`, ...)

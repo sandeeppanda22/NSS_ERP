@@ -65,6 +65,21 @@ class Settings:
     # 12/min; 60/min leaves room for a few open pages and back-off retries.
     LIVE_CHANGES_RATE_LIMIT: str = os.environ.get("LIVE_CHANGES_RATE_LIMIT", "60/minute")
 
+    # ── Aadhaar capture (GDR-011, Proposed) ──────────────────────────────
+    # AADHAAR_ENCRYPTION_KEYS — comma-separated "key_id:base64(32 bytes)"
+    #   pairs; the FIRST is the active (encrypting) key, the rest stay
+    #   decrypt-only so a key can be rotated without re-encrypting at once.
+    # AADHAAR_HASH_PEPPER     — secret for the HMAC-SHA256 lookup hash;
+    #   deliberately SEPARATE from the encryption keys and never rotated
+    #   casually (changing it orphans every stored aadhaar_hash).
+    # AADHAAR_REVEAL_RATE_LIMIT — per-USER limit on the full-number reveal.
+    # None of these is needed to start the app: capturing a full number
+    # without them is a 503 (api/services/aadhaar_service.py), never a
+    # silent fall-back to last-4 only.
+    AADHAAR_ENCRYPTION_KEYS: str = os.environ.get("AADHAAR_ENCRYPTION_KEYS", "")
+    AADHAAR_HASH_PEPPER: str = os.environ.get("AADHAAR_HASH_PEPPER", "")
+    AADHAAR_REVEAL_RATE_LIMIT: str = os.environ.get("AADHAAR_REVEAL_RATE_LIMIT", "10/minute")
+
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).
     # CSP_REPORT_ONLY  — emit as Content-Security-Policy-Report-Only, which

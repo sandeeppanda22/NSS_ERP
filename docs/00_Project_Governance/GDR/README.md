@@ -43,3 +43,8 @@ approving, recording, monitoring, and retiring individual governance decisions.
   handled — master_data-driven or free text, nothing frozen — plus the lifecycle interpretations
   (SOL-AP-003) the `ASSET_VIEW`/`ASSET_MANAGE` authorization footprint, and (owner-directed 2026-11-02, §2C) the rule that custodians are PHYSICAL organizations only (Sakha incl. Asana, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira — never Anchalika/Zilla, wings or the Advisory Board); owner decisions 2026-11-02: view-only `ASSET_VIEW` for Anchalika/Zilla admins, no `ASSET_*` for the Mahila admin (§2B.2, revoke patch `06`), and an optional informational "belongs to" organization on property/asset (§2D). Status **`Proposed`**
   (owner approval pending; owner decisions listed in §7).
+- `GDR-011_Aadhaar_Number_Capture_Encryption_and_Gated_Reveal.md` — owner-directed (2026-11-04): capture the full
+  Aadhaar number (AES-256-GCM, environment-held keys, HMAC hash with a separate pepper), gate `aadhaar_last4`
+  and a full-number reveal behind `PERSON_VIEW_SENSITIVE` + admin scope (person themself sees masked last-4
+  only), audited reveal, audit-trigger redaction; amends PER-BR-081 and SOL-PER-004 §49. Status **`Proposed`**
+  (owner approval pending; legal/compliance confirmation for Aadhaar storage is the first open question, §6).
