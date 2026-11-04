@@ -76,6 +76,7 @@ from api.routers import correspondence
 from api.routers import attendance
 from api.routers import org_reparent
 from api.routers import assets_property
+from api.routers import live
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -326,6 +327,7 @@ app.include_router(correspondence.router)
 app.include_router(attendance.router)
 app.include_router(org_reparent.router)
 app.include_router(assets_property.router)
+app.include_router(live.router)
 
 # ── Frontend ─────────────────────────────────────────────────────────────
 # Serve static assets at /assets/*, index.html at /

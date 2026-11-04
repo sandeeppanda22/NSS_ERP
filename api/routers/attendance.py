@@ -26,7 +26,7 @@ keyed on sangha_sevi_pk, never a second identity (ATT-001/002).
 """
 
 import hashlib
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
@@ -36,7 +36,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
 from api.dependencies.rbac import require_any_permission, require_permission
 from api.rate_limit import limiter, user_or_ip_key
-from api.helpers import MAX_LIMIT, get_master_data_pk, log_audit, require_entity, require_sakha_organization
+from api.helpers import MAX_LIMIT, as_utc, get_master_data_pk, log_audit, require_entity, require_sakha_organization
 from api.routers.governance import _CURRENT_ASSIGNMENT_SQL, _person_name_sql
 from api.schemas.attendance import (
     AttendanceConflict,
@@ -415,11 +415,6 @@ def list_pujas(
 # 2. Attendance Marking
 # ═══════════════════════════════════════════════════════════════════════
 
-def _as_utc(dt: datetime) -> datetime:
-    """A naive client timestamp is taken as UTC; aware ones are left alone."""
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-
-
 def _find_attendance_conflicts(cur, puja_pk, body: MarkAttendanceRequest, actor_pk) -> list[AttendanceConflict]:
     """
     Optimistic-concurrency check for the shared live register. Locks the
@@ -462,7 +457,7 @@ def _find_attendance_conflicts(cur, puja_pk, body: MarkAttendanceRequest, actor_
             continue
         _, _, current_code, marker_name, marker_sevi_id, version, marker_pk = row
         version_matches = (
-            item.expected_version is not None and _as_utc(item.expected_version) == _as_utc(version)
+            item.expected_version is not None and as_utc(item.expected_version) == as_utc(version)
         )
         by_someone_else = marker_pk is not None and str(marker_pk) != str(actor_pk)
         if version_matches and not by_someone_else:
@@ -659,7 +654,7 @@ def live_attendance(
         params: list = [str(weekly_sangha_puja_pk)]
         if since is not None:
             conditions.append(f"{_ATT_VERSION_SQL} > %s - make_interval(secs => %s)")
-            params += [_as_utc(since), _LIVE_OVERLAP_SECONDS]
+            params += [as_utc(since), _LIVE_OVERLAP_SECONDS]
         cur.execute(
             f"""
             SELECT a.sangha_sevi_pk, a.attendance_pk, md.value_code, a.is_active, {_ATT_MARKER_COLUMNS_SQL}

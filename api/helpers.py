@@ -53,6 +53,11 @@ SAKHA_LIKE_ORG_TYPES: tuple[str, ...] = ("SAKHA_SANGHA", "SAKHA_ASANA")
 SAKHA_LIKE_ORG_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in SAKHA_LIKE_ORG_TYPES) + ")"
 
 
+def as_utc(dt: datetime) -> datetime:
+    """A naive client timestamp is taken as UTC; aware ones are left alone."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
 def is_sakha_like(org_type_code: str | None) -> bool:
     """True for SAKHA_SANGHA and SAKHA_ASANA."""
     return org_type_code in SAKHA_LIKE_ORG_TYPES

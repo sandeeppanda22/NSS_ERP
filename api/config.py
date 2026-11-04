@@ -60,6 +60,10 @@ class Settings:
     # members sharing a Sakha's WiFi no longer split one 300/min IP budget
     # (2 s polling = 30/min per open register). 120/min allows ~4 open tabs.
     LIVE_ATTENDANCE_RATE_LIMIT: str = os.environ.get("LIVE_ATTENDANCE_RATE_LIMIT", "120/minute")
+    # Per-USER limit for the live-refresh change feed (GET /live/changes,
+    # api/routers/live.py). One poll per open page every 5 s while active =
+    # 12/min; 60/min leaves room for a few open pages and back-off retries.
+    LIVE_CHANGES_RATE_LIMIT: str = os.environ.get("LIVE_CHANGES_RATE_LIMIT", "60/minute")
 
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).
