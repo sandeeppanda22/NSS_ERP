@@ -313,6 +313,8 @@ run_sql "role_permission mahila/advisory-board patch" "${SEED_BASE}/00_bootstrap
 run_sql "assets_property permissions patch" "${SEED_BASE}/00_bootstrap/05_assets_property_permissions_patch.sql"
 # Idempotent patch (2026-11-02, GDR-010 owner decision): soft-deletes (is_active=FALSE) the 4 grants an earlier version of the patch above created (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE) on databases that already ran it; no-op on fresh builds.
 run_sql "assets_property permissions revoke patch" "${SEED_BASE}/00_bootstrap/06_assets_property_permissions_revoke_patch.sql"
+# Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
+run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -608,6 +610,10 @@ else
     echo "${output}" | sed 's/^/         /'
     exit 1
 fi
+
+echo ""
+echo "--- Phase 13c: Audit-actor foreign keys (*_by_sangha_sevi_pk -> sangha_sevi; idempotent, NOT VALID then VALIDATE) ---"
+run_sql "audit_actor_fk_patch" "${DDL_BASE}/13_audit_actor_fk/01_audit_actor_fk_patch.sql"
 
 echo ""
 echo "--- Phase 14: Audit — DDL (1 table + trigger) ---"

@@ -86,6 +86,7 @@
 #              post_office submitted_by_person_pk -> P1, for rows the
 #              Phase 2 bulk seed left unattributed; must run after
 #              Phase 13 since P1's person_pk doesn't exist before it)
+#   Phase 13c- Audit-actor FKs (ddl\13_audit_actor_fk\01_audit_actor_fk_patch.sql: FK on every *_by_sangha_sevi_pk, NOT VALID then VALIDATE)
 #   Phase 14 - Audit DDL (system_event_log table + DB trigger)
 #   Phase 15 - (OPTIONAL, local dev only) demo/test seed, run only when
 #              $env:RUN_DEMO_SEED is truthy and database\seed\demo\nss_demo_seed.sql
@@ -97,6 +98,7 @@
 #   Phase 0   seed/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql
 #             seed/00_bootstrap/05_assets_property_permissions_patch.sql
 #             seed/00_bootstrap/06_assets_property_permissions_revoke_patch.sql
+#             seed/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql
 #   Phase 3   ddl/02_organization/08_organization_singleton_trigger.sql
 #             ddl/02_organization/10_sakha_like_org_type_function.sql
 #   Phase 4   seed/02_organization/07_advisory_board_organization_patch.sql
@@ -120,7 +122,6 @@
 #   - database/seed/03_person/ (no seed data - Person data lives in
 #     Foundation master_data; the superseded 01_person_master_tables.sql
 #     DDL/seed were removed 2026-10-01, dead code with zero references)
-#   - Pass 2 audit-actor FK constraints (deferred)
 # =====================================================
 
 param(
@@ -268,6 +269,8 @@ Invoke-Sql "role_permission mahila/advisory-board patch" "$SeedBase\00_bootstrap
 Invoke-Sql "assets_property permissions patch" "$SeedBase\00_bootstrap\05_assets_property_permissions_patch.sql"
 # Idempotent patch (2026-11-02, GDR-010 owner decision): soft-deletes (is_active=FALSE) the 4 grants an earlier version of the patch above created (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE) on databases that already ran it; no-op on fresh builds.
 Invoke-Sql "assets_property permissions revoke patch" "$SeedBase\00_bootstrap\06_assets_property_permissions_revoke_patch.sql"
+# Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
+Invoke-Sql "person_view_sensitive auditor revoke patch" "$SeedBase\00_bootstrap\07_person_view_sensitive_auditor_revoke_patch.sql"
 Write-Host ""
 
 # Phase 1: Foundation DDL
@@ -710,6 +713,17 @@ if ($psqlExit -eq 0) {
 Write-Host ""
 
 # -------------------------------------------------
+# Phase 13c: Audit-actor foreign keys (owner decision 2026-11-04)
+# Catalog-driven and idempotent (run EVERY build): adds
+# FOREIGN KEY -> nss.sangha_sevi to every *_by_sangha_sevi_pk column
+# that has none (NOT VALID, then a VALIDATE attempt that only WARNs).
+# Must run after every table exists (all DDL phases above).
+# -------------------------------------------------
+Write-Host "[Phase 13c] Audit-actor foreign keys (*_by_sangha_sevi_pk -> sangha_sevi)" -ForegroundColor Cyan
+Invoke-Sql "audit_actor_fk_patch" "$DdlBase\13_audit_actor_fk\01_audit_actor_fk_patch.sql"
+Write-Host ""
+
+# -------------------------------------------------
 # Phase 14: Audit DDL (system_event_log + DB trigger)
 # Must run AFTER all other DDL so the trigger can
 # attach to every table in the nss schema.
@@ -753,9 +767,6 @@ Write-Host ""
 
 if ($failed -eq 0) {
     Write-Host "  Database build completed successfully." -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Not executed (future phases):" -ForegroundColor Yellow
-    Write-Host "    - Pass 2 audit-actor FK constraints"
     exit 0
 } else {
     Write-Host "  Database build FAILED ($failed errors)." -ForegroundColor Red

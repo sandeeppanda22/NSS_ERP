@@ -45,6 +45,7 @@ SOL-ARCH-011 phase order. Authority: SOL-ARCH-010 (DDL Creation Order), SOL-ARCH
 | Seed | `seed/00_bootstrap/03_role_permission.sql` | 166 role↔permission mappings (`NSS_ERP_ADMIN` 27, `NSS_ERP_KENDRA_ADMIN` 26 — `FOUNDATION_CALENDAR_MANAGE` is ADMIN-only; `NSS_ERP_SAKHA_ADMIN` 18; `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` 18; `ANCHALIKA`/`ZILLA`/`PATHA_CHAKRA` admins 15 each, `NSS_ERP_AUDITOR` 14, `NSS_ERP_REPORT_VIEWER` 8, `NSS_ERP_ATTENDANCE_MARKER` 2; `NSS_ERP_ADVISORY_BOARD_ADMIN` 8) | — |
 | Patch | `seed/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql` | idempotent `run_sql` after the seed above (the seed is existence-gated): Mahila admin +3, Advisory Board admin 8 rows | — |
 | Patch | `seed/00_bootstrap/05_assets_property_permissions_patch.sql` | idempotent `run_sql` right after `04` (Assets & Property, GDR-010): `ASSET_VIEW`/`ASSET_MANAGE` + 12 grants (28 → 30 permissions, 166 → 178 mappings) | — |
+| Patch | `seed/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql` | idempotent `run_sql` after `06` (GDR-011, owner decision 2026-11-04): soft-deletes (`is_active = FALSE`, never DELETE) the `NSS_ERP_AUDITOR` ↔ `PERSON_VIEW_SENSITIVE` grant that the existence-gated base seed still inserts; `NSS_ERP_ADMIN` and `NSS_ERP_KENDRA_ADMIN` keep theirs. `03_validate` checks the Auditor holds no active grant. |
 | Patch | `seed/00_bootstrap/06_assets_property_permissions_revoke_patch.sql` | idempotent `run_sql` right after `05` (owner decisions 2026-11-02): soft-deletes (`is_active = FALSE`) the 4 grants an earlier `05` created (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE); no-op on fresh builds | — |
 | Patch | `ddl/11_assets_property/11_assets_property_acquisition_method_patch.sql` | idempotent `run_sql` after `10` (GDR-010 §2E): nullable `acquisition_method_master_data_pk` + FK + partial index on `property` and `asset` for databases built before the column existed | — |
 | Patch | `ddl/11_assets_property/12_assets_property_terminal_custody_patch.sql` | idempotent `run_sql` AFTER `seed/11_assets_property/01_…reference_data_patch.sql` (needs its `DISPOSED`/`RETIRED` end reasons; GDR-010 §2F): ENDs the still-ACTIVE custodianship of already DISPOSED properties / RETIRED assets; no-op on fresh builds | — |
@@ -317,12 +318,34 @@ Both catalogues remain caller-extensible via the Governance API (`POST`/`PATCH /
 > authentication and administration **tables** are created by their DDL
 > (Phases 10–11); they need no seed data beyond the admin bootstrap.
 
+### Phase 13c — Audit-actor foreign keys (patch, owner decision 2026-11-04)
+
+`ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (`run_sql`/`Invoke-Sql` on every build; identical in `02_build.sh`, `02_build.ps1`, `render_build.sh`). A catalog-driven `DO` block gives **every** `*_by_sangha_sevi_pk` column of every `nss` base table (`created_/updated_/deleted_/approved_/reviewed_/submitted_/...`) a `FOREIGN KEY ... REFERENCES nss.sangha_sevi (sangha_sevi_pk)` named `fk_<table>_<column>` (over 63 characters: truncated + md5 suffix). Columns that already carry an FK to `sangha_sevi` (the four Foundation geography tables, inline `REFERENCES`) are left alone. New constraints are added `NOT VALID` (enforced for every new/updated row, existing rows not scanned, so a dangling historical value never breaks a rebuild), then each NOT VALID actor FK gets a `VALIDATE` attempt; a failure is a WARNING and the constraint stays NOT VALID until the dangling rows are fixed and the build is re-run. Never fails the build. No hard-coded table list: a table or column added later is picked up on the next run. `03_validate` WARNs on (a) actor columns without any FK and (b) actor FKs still NOT VALID. Diagnostic SELECT for dangling values (read-only; lists the columns that hold actor values with no matching `sangha_sevi` row):
+
+```sql
+SELECT table_name, column_name, dangling_rows FROM (
+  SELECT c.relname AS table_name, a.attname AS column_name,
+         (xpath('/row/n/text()', query_to_xml(format(
+            'SELECT count(*) AS n FROM nss.%I t WHERE t.%I IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nss.sangha_sevi s WHERE s.sangha_sevi_pk = t.%I)',
+            c.relname, a.attname, a.attname), false, true, '')))[1]::text::bigint AS dangling_rows
+    FROM pg_attribute a
+    JOIN pg_class c     ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'nss' AND c.relkind IN ('r','p') AND a.attnum > 0 AND NOT a.attisdropped
+     AND a.attname LIKE '%\_by\_sangha\_sevi\_pk') x
+WHERE dangling_rows > 0 ORDER BY dangling_rows DESC;
+```
+
+Fix by `UPDATE ... SET <col> = NULL` (or the right Sangha Sevi) per table (the writer role has UPDATE; audit trigger records it), then re-run `02_build`. Referential checks run with the table owner's privileges, so `nss_db_writer` (no `REFERENCES`) still writes. Actors that are not Sangha Sevis (system jobs) must write NULL; `system_event_log.actor_sangha_sevi_pk` is deliberately not covered (the event log must never reject an event); `field_change_log.changed_by_sangha_sevi_pk` is covered.
+
 ### Phase 14 — Audit DDL (1 table + trigger)
 
 | Step | File | Table | Depth |
 |-----:|------|-------|------:|
 | DDL | `ddl/01_foundation/14_system_event_log.sql` | `system_event_log` | — |
 | DDL | `ddl/01_foundation/15_audit_trigger.sql` | *(`fn_audit_trigger()`, no table)* | — |
+
+GDR-011 (v1.4 of the trigger, idempotent `CREATE OR REPLACE`, re-applied by every build — no patch needed): for `nss.person` the values of `aadhaar_encrypted`, `aadhaar_hash` and `aadhaar_last4` are replaced by `[REDACTED]` in `field_change_log` and in the `system_event_log` detail (the change itself is still logged; diffing uses the raw values). Recorded in `CROSS_MODULE_PRINCIPLES.md` §7.1.
 
 Must run **after** every other phase — `15_audit_trigger.sql` attaches `trg_audit_<table>`
 (`AFTER INSERT OR UPDATE OR DELETE`) to every table currently in the `nss` schema, except
@@ -451,8 +474,6 @@ WHERE c.is_active = TRUE AND NOT nss.fn_is_asset_custodian_org_type(md.value_cod
 
 ### Not executed (future phases)
 
-- Pass 2 audit-actor FK constraints (`*_by_sangha_sevi_pk` — still deferred, including on every
-  Tier 5 table)
 - MFA enforcement (Tier 5.1) — self-reset OTP (forgot-password) and permission-gating on
   Tier 1–4 endpoints are both already implemented, not future work
 - All remaining modules — Governance (Phase 11b/11c, 10 tables), Correspondence (Phase 11d, 5 tables), Attendance (Phase 11e, 4 tables) and Organization re-parent approval (Phase 11f, 2 tables) are

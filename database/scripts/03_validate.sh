@@ -199,6 +199,7 @@ check_row_count "role_master" 11
 check_row_count "permission_master" 30
 # 178 = 166 + 12 asset grants. A DB that ran the original 16-row patch holds 182 rows, 4 of them
 # soft-deleted (is_active = FALSE, history is never hard-deleted): still >= 178, so the minimum holds.
+# Since 2026-11-04 (GDR-011) one more row (Auditor PERSON_VIEW_SENSITIVE) is soft-deleted by patch 07: 178 rows, 177 active; the minimum counts all rows.
 check_row_count "role_permission" 178
 
 echo "  Unique constraints:"
@@ -700,6 +701,10 @@ check_fk_integrity "ASSET_VIEW actively granted to >= 8 roles (permissions patch
     "SELECT GREATEST(8 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE pm.permission_code = 'ASSET_VIEW' AND rp.is_active = TRUE;"
 check_fk_integrity "Assets & Property: the 4 withdrawn grants are NOT active (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE - 06_assets_property_permissions_revoke_patch.sql ran)" \
     "SELECT COUNT(*) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE rp.is_active = TRUE AND ((rm.role_code = 'NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN' AND pm.permission_code IN ('ASSET_VIEW', 'ASSET_MANAGE')) OR (rm.role_code IN ('NSS_ERP_ANCHALIKA_ADMIN', 'NSS_ERP_ZILLA_ADMIN') AND pm.permission_code = 'ASSET_MANAGE'));"
+check_fk_integrity "PERSON_VIEW_SENSITIVE is NOT active for NSS_ERP_AUDITOR (07_person_view_sensitive_auditor_revoke_patch.sql ran, GDR-011)" \
+    "SELECT COUNT(*) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE rp.is_active = TRUE AND rm.role_code = 'NSS_ERP_AUDITOR' AND pm.permission_code = 'PERSON_VIEW_SENSITIVE';"
+check_fk_integrity "PERSON_VIEW_SENSITIVE active for NSS_ERP_ADMIN" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE rp.is_active = TRUE AND rm.role_code = 'NSS_ERP_ADMIN' AND pm.permission_code = 'PERSON_VIEW_SENSITIVE') THEN 0 ELSE 1 END;"
 check_fk_integrity "property -> organization (belongs-to)" \
     "SELECT COUNT(*) FROM nss.property p LEFT JOIN nss.organization o ON p.belongs_to_organization_pk = o.organization_pk WHERE p.belongs_to_organization_pk IS NOT NULL AND o.organization_pk IS NULL;"
 check_fk_integrity "asset -> organization (belongs-to)" \
@@ -738,6 +743,16 @@ check_warn_count "live_change_marker: watched tables whose trigger has no marker
     "SELECT COUNT(*) FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND g.tgname = 'trg_live_change_marker' AND NOT g.tgisinternal AND NOT EXISTS (SELECT 1 FROM nss.live_change_marker m WHERE m.table_name = c.relname);"
 check_fk_integrity "live_change_marker is NOT audited (excluded in 15_audit_trigger.sql)" \
     "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'nss.live_change_marker'::regclass AND tgname LIKE 'trg_audit_%';"
+echo ""
+
+# =====================================================
+# Audit-actor foreign keys (Phase 13c, owner decision 2026-11-04)
+# =====================================================
+echo -e "${CYAN}--- Audit-actor FKs ---${NC}"
+check_warn_count "audit actor columns (*_by_sangha_sevi_pk) WITHOUT a foreign key to sangha_sevi (re-run the build: Phase 13c, ddl/13_audit_actor_fk)" \
+    "SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND c.relkind IN ('r','p') AND a.attnum > 0 AND NOT a.attisdropped AND a.attname LIKE '%\_by\_sangha\_sevi\_pk' AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND k.conkey = ARRAY[a.attnum]::smallint[]);"
+check_warn_count "audit actor FKs still NOT VALID (dangling actor values exist; find them with the diagnostic SELECT in database/scripts/README.md, fix, re-run the build)" \
+    "SELECT COUNT(*) FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.conkey[1] WHERE n.nspname = 'nss' AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND NOT k.convalidated AND a.attname LIKE '%\_by\_sangha\_sevi\_pk';"
 echo ""
 
 # =====================================================

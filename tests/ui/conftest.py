@@ -397,6 +397,26 @@ def _purge_ui_test_rows(conn) -> int:
                     f"DELETE FROM nss.{table} WHERE sangha_sevi_pk = ANY(%s::uuid[])",
                     (sevi_pks,),
                 )
+            # Every *_by_sangha_sevi_pk column now has an FK to sangha_sevi
+            # (database/ddl/13_audit_actor_fk): detach any audit-actor reference
+            # to the throwaway members first (best effort; the DELETE below
+            # still raises if something genuinely blocks it).
+            cur.execute(
+                "SELECT c.relname, a.attname FROM pg_attribute a "
+                "JOIN pg_class c ON c.oid = a.attrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'nss' AND c.relkind IN ('r', 'p') "
+                "AND a.attnum > 0 AND NOT a.attisdropped "
+                "AND a.attname LIKE '%%\\_by\\_sangha\\_sevi\\_pk'"
+            )
+            for rel, col in cur.fetchall():
+                try:
+                    cur.execute(
+                        f'UPDATE nss."{rel}" SET "{col}" = NULL WHERE "{col}" = ANY(%s::uuid[])',
+                        (sevi_pks,),
+                    )
+                except Exception:  # pragma: no cover - cleanup is best effort
+                    pass
             cur.execute(
                 "DELETE FROM nss.sangha_sevi WHERE sangha_sevi_pk = ANY(%s::uuid[])",
                 (sevi_pks,),

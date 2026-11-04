@@ -9,7 +9,7 @@
 --          row per field, for all three operations) to
 --          field_change_log — all automatically, so no
 --          application code can bypass it.
--- Version: 1.3
+-- Version: 1.4 (GDR-011: person.aadhaar_* values redacted in both logs)
 -- Authority: SOL-AUDIT-004
 -- Owner: NSS_ERP_ADMIN
 -- Depends: 14_system_event_log.sql, 07_field_change_log.sql
@@ -64,6 +64,18 @@ DECLARE
         'credential_sequence_counter'
     ];
     v_log_fields    BOOLEAN;
+    -- Sensitive columns whose VALUES must never reach the audit tables
+    -- (GDR-011): the Aadhaar ciphertext, its lookup hash and last-4. The
+    -- change itself is still logged (field + action + actor + time); only the
+    -- value is replaced by the marker below in field_change_log and in the
+    -- system_event_log detail. Diffing still uses the raw values.
+    v_redact_cols   TEXT[] := CASE WHEN TG_TABLE_NAME = 'person'
+                                   THEN ARRAY['aadhaar_encrypted', 'aadhaar_hash', 'aadhaar_last4']
+                                   ELSE ARRAY[]::TEXT[] END;
+    v_old_log       JSONB;
+    v_new_log       JSONB;
+    v_changed_log   JSONB;
+    v_col           TEXT;
 BEGIN
     -- ── Determine action ────────────────────────────
     IF TG_OP = 'INSERT' THEN
@@ -124,6 +136,28 @@ BEGIN
          WHERE v_old_data -> key IS DISTINCT FROM value;
     END IF;
 
+    -- ── Redacted copies for logging (see v_redact_cols) ──
+    v_old_log     := v_old_data;
+    v_new_log     := v_new_data;
+    v_changed_log := v_changed;
+    FOREACH v_col IN ARRAY v_redact_cols LOOP
+        IF v_old_log IS NOT NULL AND v_old_log -> v_col IS NOT NULL
+           AND v_old_log -> v_col <> 'null'::jsonb THEN
+            v_old_log := jsonb_set(v_old_log, ARRAY[v_col], '"[REDACTED]"'::jsonb);
+        END IF;
+        IF v_new_log IS NOT NULL AND v_new_log -> v_col IS NOT NULL
+           AND v_new_log -> v_col <> 'null'::jsonb THEN
+            v_new_log := jsonb_set(v_new_log, ARRAY[v_col], '"[REDACTED]"'::jsonb);
+        END IF;
+        IF v_changed_log IS NOT NULL AND v_changed_log ? v_col THEN
+            v_changed_log := jsonb_set(v_changed_log, ARRAY[v_col], jsonb_build_object(
+                'old', CASE WHEN v_changed_log -> v_col -> 'old' = 'null'::jsonb
+                            THEN 'null'::jsonb ELSE '"[REDACTED]"'::jsonb END,
+                'new', CASE WHEN v_changed_log -> v_col -> 'new' = 'null'::jsonb
+                            THEN 'null'::jsonb ELSE '"[REDACTED]"'::jsonb END));
+        END IF;
+    END LOOP;
+
     -- ── Read actor from session variables ───────────
     BEGIN
         v_actor_ss := current_setting('nss.actor_sangha_sevi_pk', TRUE)::UUID;
@@ -157,8 +191,8 @@ BEGIN
             changed_by_sangha_sevi_pk, changed_by_user_account_pk
         )
         SELECT 'UPDATE', TG_TABLE_NAME, v_record_pk, ec.key,
-               v_old_data ->> ec.key,
-               v_new_data ->> ec.key,
+               v_old_log ->> ec.key,
+               v_new_log ->> ec.key,
                v_actor_ss, v_actor_ua
           FROM jsonb_each(v_new_data) AS ec(key, value)
          WHERE v_old_data -> ec.key IS DISTINCT FROM ec.value
@@ -172,7 +206,7 @@ BEGIN
         )
         SELECT 'CREATE', TG_TABLE_NAME, v_record_pk, ec.key,
                NULL,
-               v_new_data ->> ec.key,
+               v_new_log ->> ec.key,
                v_actor_ss, v_actor_ua
           FROM jsonb_each(v_new_data) AS ec(key, value)
          WHERE ec.value IS DISTINCT FROM 'null'::jsonb
@@ -185,7 +219,7 @@ BEGIN
             changed_by_sangha_sevi_pk, changed_by_user_account_pk
         )
         SELECT 'DELETE', TG_TABLE_NAME, v_record_pk, ec.key,
-               v_old_data ->> ec.key,
+               v_old_log ->> ec.key,
                NULL,
                v_actor_ss, v_actor_ua
           FROM jsonb_each(v_old_data) AS ec(key, value)
@@ -212,9 +246,9 @@ BEGIN
         'trigger',
         v_action || ' on ' || TG_TABLE_NAME,
         CASE
-            WHEN TG_OP = 'INSERT' THEN jsonb_build_object('new', v_new_data)
-            WHEN TG_OP = 'DELETE' THEN jsonb_build_object('old', v_old_data)
-            WHEN TG_OP = 'UPDATE' THEN jsonb_build_object('changed', v_changed)
+            WHEN TG_OP = 'INSERT' THEN jsonb_build_object('new', v_new_log)
+            WHEN TG_OP = 'DELETE' THEN jsonb_build_object('old', v_old_log)
+            WHEN TG_OP = 'UPDATE' THEN jsonb_build_object('changed', v_changed_log)
         END
     );
 
