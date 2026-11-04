@@ -1349,3 +1349,78 @@ NSS.ASSET_CUSTODIAN_ORG_TYPES = [...NSS.SAKHA_LIKE_ORG_TYPES, "PATHA_CHAKRA", "K
 
 /** True for the organization types that may hold property/assets. */
 NSS.isAssetCustodianOrgType = (typeCode) => NSS.ASSET_CUSTODIAN_ORG_TYPES.includes(typeCode);
+
+/* ── Aadhaar number: the ONE client-side validator (GDR-011) ──────────────
+ * Mirrors api/services/aadhaar_service.py::normalise_aadhaar() rule for rule:
+ * spaces/hyphens stripped, exactly 12 ASCII digits, first digit not 0/1,
+ * Verhoeff checksum. Used by register.html, the admin Create Person / Profile
+ * Details / claim-edit forms and nothing else (the member self-service profile
+ * takes no Aadhaar). The server stays authoritative; this only gives inline
+ * feedback. tests/ui/test_ui_aadhaar.py runs this block under node against the
+ * Python service's vectors. Never log, store or echo a value passed in here.
+ */
+/* AADHAAR-BEGIN */
+NSS.aadhaar = (() => {
+    const D = [
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+        [2, 3, 4, 0, 1, 7, 8, 9, 5, 6], [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+        [4, 0, 1, 2, 3, 9, 5, 6, 7, 8], [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+        [6, 5, 9, 8, 7, 1, 0, 4, 3, 2], [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+        [8, 7, 6, 5, 9, 3, 2, 1, 0, 4], [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+    ];
+    const P = [
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+        [5, 8, 0, 3, 7, 9, 6, 1, 4, 2], [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+        [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+        [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+    ];
+    const MESSAGE = "Aadhaar number must be exactly 12 digits (spaces or hyphens allowed), "
+        + "must not start with 0 or 1 and must pass the Verhoeff checksum.";
+
+    function verhoeffValid(digits) {
+        if (!/^[0-9]+$/.test(digits || "")) return false;
+        let c = 0;
+        const rev = digits.split("").reverse();
+        for (let i = 0; i < rev.length; i++) c = D[c][P[i % 8][Number(rev[i])]];
+        return c === 0;
+    }
+
+    /** The 12 plain digits when valid, else null. */
+    function normalise(raw) {
+        if (typeof raw !== "string") return null;
+        const digits = raw.replace(/[\s-]/g, "");
+        if (!/^[0-9]{12}$/.test(digits) || "01".includes(digits[0]) || !verhoeffValid(digits)) return null;
+        return digits;
+    }
+
+    /** "" when blank (the field is optional) or valid, else the error text. */
+    function validate(raw) {
+        if (!raw || !String(raw).trim()) return "";
+        return normalise(raw) ? "" : MESSAGE;
+    }
+
+    /** Display grouping while typing: digits only, at most 12, "XXXX XXXX XXXX". */
+    function group(raw) {
+        const digits = String(raw || "").replace(/\D/g, "").slice(0, 12);
+        return (digits.match(/.{1,4}/g) || []).join(" ");
+    }
+
+    /** Masked display of a stored last-4. */
+    function mask(last4) {
+        return last4 ? "XXXX-XXXX-" + last4 : "";
+    }
+
+    /**
+     * Value to put in a request body, or undefined to omit the key.
+     * Blank -> omit (register/create: none; PATCH: no change). `clear` ->
+     * "" (PATCH only: remove the stored number). Otherwise the 12 digits.
+     */
+    function payloadValue(raw, clear) {
+        if (clear) return "";
+        const v = String(raw || "").trim();
+        return v ? (normalise(v) || v) : undefined;
+    }
+
+    return { MESSAGE, verhoeffValid, normalise, validate, group, mask, payloadValue };
+})();
+/* AADHAAR-END */

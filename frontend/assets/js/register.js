@@ -82,6 +82,9 @@ function registerApp() {
             country_phone_code: NSS.DEFAULT_COUNTRY_CODE,
             mobile_number: "",
             email: "",
+            // Optional Aadhaar (GDR-011). Never persisted in the sessionStorage
+            // draft (saveDraft strips it) and cleared after a successful submit.
+            aadhaar_number: "",
             // Address
             country_pk: "",
             state_pk: "",
@@ -190,7 +193,7 @@ function registerApp() {
             if (this.step >= 4) return;
             if (this.mode === "existing") return; // don't clobber a 'new' draft with existing-mode state
             try {
-                const { password, ...formNoPassword } = this.form;
+                const { password, aadhaar_number, ...formNoPassword } = this.form;
                 sessionStorage.setItem("nss_register_draft", JSON.stringify({
                     step: this.step,
                     form: formNoPassword,
@@ -468,6 +471,12 @@ function registerApp() {
                 this.error = emailErr;
                 return;
             }
+            // Optional Aadhaar (GDR-011): blank is fine, otherwise the shared validator.
+            const aadhaarErr = NSS.aadhaar.validate(this.form.aadhaar_number);
+            if (aadhaarErr) {
+                this.error = aadhaarErr;
+                return;
+            }
 
             // ── Check for duplicate mobile/email before proceeding ────
             // POST with a JSON body, not GET with query params (2026-10-05) —
@@ -707,6 +716,8 @@ function registerApp() {
                     payload.mobile_number = this.form.mobile_number;
                 }
                 if (this.form.email) payload.email = this.form.email.trim();
+                const aadhaarValue = NSS.aadhaar.payloadValue(this.form.aadhaar_number, false);
+                if (aadhaarValue !== undefined) payload.aadhaar_number = aadhaarValue;
 
                 // Address — mandatory (MBR-030H-adjacent user decision, 2026-10-03):
                 // country/state/district/city/PIN plus Address Line 1 are all
@@ -761,6 +772,7 @@ function registerApp() {
                     message: data.message,
                 };
                 this.step = 4;
+                this.form.aadhaar_number = "";
                 sessionStorage.removeItem("nss_register_draft");
 
             } catch (err) {

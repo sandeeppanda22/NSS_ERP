@@ -147,7 +147,7 @@ const LIVE_REFRESH_CONFIG = {
     tabs: {
         claims: {
             reload: (h) => h.loadClaims({ silent: true }),
-            busy: (h) => !!h.claimEditing || (h.adminRemarks || "").trim() !== "",
+            busy: (h) => !!h.claimEditing || (h.adminRemarks || "").trim() !== "" || !!h.aadhaarReveal.open,
         },
         claimsBadge: { background: true, reload: (h) => h.loadClaimsPendingCount() },
         changeRequests: {
@@ -198,7 +198,10 @@ const LIVE_REFRESH_CONFIG = {
             busy: (h) => !!(h.editingOrgPk || h.editOrgDetailPk || h.savingOrgDetail || h.savingShortCode),
         },
         orgHierarchy: { reload: (h) => h.loadOrgHierarchy({ silent: true }) },
-        personDir: { reload: (h) => h.fetchPersonDirectory({ silent: true }) },
+        personDir: {
+            reload: (h) => h.fetchPersonDirectory({ silent: true }),
+            busy: (h) => !!h.aadhaarReveal.open,
+        },
         memberDir: {
             reload: (h) => h.fetchMemberDirectory({ silent: true }),
             busy: (h) => !!h.patraCorrect.pk,
@@ -334,6 +337,7 @@ function adminApp() {
             date_of_birth: "", gender_master_data_pk: "",
             country_phone_code: NSS.DEFAULT_COUNTRY_CODE,
             mobile_number: "", email: "",
+            aadhaar_number: "",   // optional (GDR-011); sent only when non-empty
         },
         newPersonLoading: false,
         // Live duplicate-contact lookup for the new-person form. Each holds
@@ -360,7 +364,17 @@ function adminApp() {
                 emergency_relationship_master_data_pk: "", remarks: "",
             },
             reason: "",
+            // Aadhaar (GDR-011). last4/fullOnFile come from GET /admin/persons/{pk}
+            // (null when the caller may not see them or none is stored). `input` is
+            // the NEW number being typed: blank = no change; `clear` sends "".
+            aadhaar: { last4: null, fullOnFile: null, input: "", clear: false },
         },
+
+        // ── Aadhaar reveal dialog (GDR-011) ───────────────────
+        // The full number lives ONLY in aadhaarReveal.value while the dialog is
+        // open; closeAadhaarReveal() blanks it. Never stored, logged or part of
+        // any live-refresh reload state.
+        aadhaarReveal: { open: false, loading: false, value: "", personName: "", error: "" },
 
         // ── Create Sangha Sevi ────────────────────────────────
         ssForm: {
@@ -915,6 +929,11 @@ function adminApp() {
         },
 
         // ── Governance (Tier 6) permissions ──────────────────────
+        // PERSON_VIEW_SENSITIVE (GDR-011): may reveal a stored full Aadhaar number.
+        get canViewSensitive() {
+            return !!(this.currentUser && (this.currentUser.permissions || []).includes("PERSON_VIEW_SENSITIVE"));
+        },
+
         get canViewGovernance() {
             return this.currentUser &&
                 (this.currentUser.permissions.includes("GOVERNANCE_VIEW") ||
@@ -1930,7 +1949,8 @@ function adminApp() {
         // True while a Users-area modal or the Profile Details editor is open.
         _usersLiveBusy() {
             return !!(this.showResetModal || this.showRoleModal || this.showCreateAccountModal
-                || (this.profileEdit && this.profileEdit.editing));
+                || (this.profileEdit && this.profileEdit.editing)
+                || this.aadhaarReveal.open);
         },
 
         backToList() {
@@ -2014,6 +2034,8 @@ function adminApp() {
                 if (npMobileErr) { this.createError = npMobileErr; return; }
                 const npEmailErr = NSS.validateEmail(f.email.trim());
                 if (npEmailErr) { this.createError = npEmailErr; return; }
+                const npAadhaarErr = NSS.aadhaar.validate(f.aadhaar_number);
+                if (npAadhaarErr) { this.createError = npAadhaarErr; return; }
 
                 const payload = {
                     first_name: f.first_name.trim(),
@@ -2026,6 +2048,8 @@ function adminApp() {
                 if (f.country_phone_code.trim()) payload.country_phone_code = f.country_phone_code.trim();
                 if (f.mobile_number.trim()) payload.mobile_number = f.mobile_number.trim();
                 if (f.email.trim()) payload.email = f.email.trim();
+                const npAadhaar = NSS.aadhaar.payloadValue(f.aadhaar_number, false);
+                if (npAadhaar !== undefined) payload.aadhaar_number = npAadhaar;
 
                 // Use the registration endpoint to create person (admin bypass)
                 const res = await NSSAuth.apiFetch("/api/v1/admin/persons", {
@@ -2054,6 +2078,7 @@ function adminApp() {
                     date_of_birth: "", gender_master_data_pk: "",
                     country_phone_code: NSS.DEFAULT_COUNTRY_CODE,
                     mobile_number: "", email: "",
+                    aadhaar_number: "",
                 };
                 this.contactCheck = { mobile: null, email: null };
             } catch (err) {
@@ -2844,6 +2869,11 @@ function adminApp() {
                     remarks: p.remarks || "",
                 };
                 this.profileEdit.reason = "";
+                this.profileEdit.aadhaar = {
+                    last4: p.aadhaar_last4 || null,
+                    fullOnFile: p.aadhaar_full_on_file === true ? true : (p.aadhaar_full_on_file === false ? false : null),
+                    input: "", clear: false,
+                };
             } catch (err) {
                 this.profileEdit.error = err.message || "Failed to load profile details.";
             } finally {
@@ -2854,11 +2884,15 @@ function adminApp() {
         startEditProfile() {
             this.profileEdit.editing = true;
             this.profileEdit.saveError = null;
+            this.profileEdit.aadhaar.input = "";
+            this.profileEdit.aadhaar.clear = false;
         },
 
         cancelEditProfile() {
             this.profileEdit.editing = false;
             this.profileEdit.saveError = null;
+            this.profileEdit.aadhaar.input = "";
+            this.profileEdit.aadhaar.clear = false;
             if (this.selectedUser) this.loadProfileEdit(this.selectedUser.person_pk);
         },
 
@@ -2867,6 +2901,11 @@ function adminApp() {
             const f = this.profileEdit.form;
             if (!f.first_name || !f.first_name.trim()) {
                 this.profileEdit.saveError = "First name is required.";
+                return;
+            }
+            const aadhaarErr = this.profileEdit.aadhaar.clear ? "" : NSS.aadhaar.validate(this.profileEdit.aadhaar.input);
+            if (aadhaarErr) {
+                this.profileEdit.saveError = aadhaarErr;
                 return;
             }
             this.profileEdit.saving = true;
@@ -2889,6 +2928,9 @@ function adminApp() {
                     remarks: f.remarks,
                     reason: this.profileEdit.reason || null,
                 };
+                // Blank = no change (key omitted); "Clear stored Aadhaar" sends "".
+                const aadhaarValue = NSS.aadhaar.payloadValue(this.profileEdit.aadhaar.input, this.profileEdit.aadhaar.clear);
+                if (aadhaarValue !== undefined) payload.aadhaar_number = aadhaarValue;
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/persons/${this.selectedUser.person_pk}`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
@@ -2896,6 +2938,8 @@ function adminApp() {
                 });
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 this.profileEdit.editing = false;
+                this.profileEdit.aadhaar.input = "";
+                this.profileEdit.aadhaar.clear = false;
                 // Name/contact also surface on the Account Details card and
                 // the Users list — viewUser() refreshes both, and triggers
                 // loadProfileEdit() itself for this card too.
@@ -2907,6 +2951,46 @@ function adminApp() {
             } finally {
                 this.profileEdit.saving = false;
             }
+        },
+
+        // ── Aadhaar reveal (GDR-011) ──────────────────────────
+        // Confirm (the reveal is audited) -> GET /person/persons/{pk}/aadhaar ->
+        // show in a dialog. The value is held only in aadhaarReveal.value and is
+        // blanked by closeAadhaarReveal(); no storage, no logging.
+        async revealAadhaar(personPk, personName) {
+            if (!this.canViewSensitive || !personPk || this.aadhaarReveal.loading) return;
+            const ok = await NSSDialog.confirm(
+                "This reveal is recorded in the audit log. Show the full Aadhaar number?",
+                { title: "Reveal Aadhaar", confirmText: "Reveal" }
+            );
+            if (!ok) return;
+            this.aadhaarReveal = { open: true, loading: true, value: "", personName: personName || "", error: "" };
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/person/persons/${personPk}/aadhaar`);
+                if (!this.aadhaarReveal.open) return;   // closed while loading
+                if (res.ok) {
+                    const data = await res.json();
+                    this.aadhaarReveal.value = NSS.aadhaar.group(data.aadhaar_number || "");
+                } else if (res.status === 403) {
+                    this.aadhaarReveal.error = "You are not permitted to view this person's Aadhaar number.";
+                } else if (res.status === 404) {
+                    this.aadhaarReveal.error = "No full Aadhaar number is on record for this person.";
+                } else if (res.status === 429) {
+                    this.aadhaarReveal.error = "Too many reveal requests. Please wait a minute and try again.";
+                } else if (res.status >= 500) {
+                    this.aadhaarReveal.error = "The stored Aadhaar number could not be read. Contact the system administrator.";
+                } else {
+                    this.aadhaarReveal.error = await NSS.extractError(res);
+                }
+            } catch {
+                if (this.aadhaarReveal.open) this.aadhaarReveal.error = "Unable to connect to server.";
+            } finally {
+                this.aadhaarReveal.loading = false;
+            }
+        },
+
+        closeAadhaarReveal() {
+            this.aadhaarReveal = { open: false, loading: false, value: "", personName: "", error: "" };
         },
 
         async fetchOrganizations() {
@@ -4098,6 +4182,8 @@ function adminApp() {
                 country_phone_code: c.country_phone_code || NSS.DEFAULT_COUNTRY_CODE,
                 mobile_number: c.mobile_number || "",
                 email: c.email || "",
+                aadhaar_number: "",      // never prefilled (never echoed by the API)
+                aadhaar_clear: false,
             };
 
             this.claimEditForm = formData;
@@ -4114,6 +4200,7 @@ function adminApp() {
         },
 
         cancelClaimEdit() {
+            this.claimEditForm.aadhaar_number = "";
             this.claimEditing = false;
             this.claimEditError = "";
         },
@@ -4126,6 +4213,8 @@ function adminApp() {
             if (ceMobileErr) { this.claimEditError = ceMobileErr; return; }
             const ceEmailErr = NSS.validateEmail((this.claimEditForm.email || "").trim());
             if (ceEmailErr) { this.claimEditError = ceEmailErr; return; }
+            const ceAadhaarErr = this.claimEditForm.aadhaar_clear ? "" : NSS.aadhaar.validate(this.claimEditForm.aadhaar_number);
+            if (ceAadhaarErr) { this.claimEditError = ceAadhaarErr; return; }
             this.claimEditLoading = true;
             try {
                 const payload = {};
@@ -4167,6 +4256,9 @@ function adminApp() {
                     payload.mobile_number = f.mobile_number;
                 if (f.email.toLowerCase() !== (c.email || "").toLowerCase())
                     payload.email = f.email;
+                // Aadhaar (GDR-011): blank = no change; the clear checkbox sends "".
+                const ceAadhaar = NSS.aadhaar.payloadValue(f.aadhaar_number, f.aadhaar_clear);
+                if (ceAadhaar !== undefined) payload.aadhaar_number = ceAadhaar;
 
                 if (Object.keys(payload).length === 0) {
                     this.claimEditing = false;
@@ -4185,6 +4277,7 @@ function adminApp() {
                 }
 
                 this.claimEditing = false;
+                this.claimEditForm = {};
                 await this.viewClaim(c.registration_claim_pk);
             } catch {
                 this.claimEditError = "Unable to connect to server.";

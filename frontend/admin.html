@@ -1347,6 +1347,16 @@
                                                     <span class="data-label">Remarks</span>
                                                     <span class="data-value" x-text="profileEdit.form.remarks || '—'"></span>
                                                 </div>
+                                                <div class="data-row" x-show="profileEdit.aadhaar.last4">
+                                                    <span class="data-label">Aadhaar</span>
+                                                    <span class="data-value">
+                                                        <span class="mono" x-text="NSS.aadhaar.mask(profileEdit.aadhaar.last4)"></span>
+                                                        <span style="font-size: 0.75rem; color: #6b7280;" x-show="profileEdit.aadhaar.fullOnFile"> (full number on file)</span>
+                                                        <button type="button" class="btn-action" style="margin-left: 0.5rem;"
+                                                                x-show="canViewSensitive && profileEdit.aadhaar.fullOnFile"
+                                                                @click="revealAadhaar(selectedUser.person_pk, selectedUser.person_name)">Reveal Aadhaar</button>
+                                                    </span>
+                                                </div>
                                             </div>
                                         </template>
 
@@ -1440,6 +1450,19 @@
                                                 <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
                                                     <label class="form-label">Remarks</label>
                                                     <textarea class="form-input" rows="2" x-model="profileEdit.form.remarks"></textarea>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Aadhaar number (optional)</label>
+                                                    <div class="form-hint" x-show="profileEdit.aadhaar.last4" x-text="'Currently on file: ' + NSS.aadhaar.mask(profileEdit.aadhaar.last4) + (profileEdit.aadhaar.fullOnFile ? ' (full number on file). Leave blank to keep it.' : '')"></div>
+                                                    <input type="text" class="form-input" x-model="profileEdit.aadhaar.input"
+                                                           @input="profileEdit.aadhaar.input = NSS.aadhaar.group(profileEdit.aadhaar.input)"
+                                                           inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="profileEdit.aadhaar.clear">
+                                                    <div class="form-hint" x-show="!NSS.aadhaar.validate(profileEdit.aadhaar.input)">Stored encrypted and used only by authorised administrators.</div>
+                                                    <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(profileEdit.aadhaar.input)" x-text="NSS.aadhaar.validate(profileEdit.aadhaar.input)"></div>
+                                                    <label class="remember-label" style="margin-top: 0.35rem;">
+                                                        <input type="checkbox" class="nss-checkbox" x-model="profileEdit.aadhaar.clear">
+                                                        Clear stored Aadhaar
+                                                    </label>
                                                 </div>
                                                 <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
                                                     <label class="form-label">Reason for Correction (optional, recorded in audit log)</label>
@@ -1731,6 +1754,14 @@
                                                         <span x-text="'(' + contactCheck.email.person_id + ')'"></span>.
                                                     </div>
                                                 </template>
+                                            </div>
+                                            <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                <label class="form-label">Aadhaar number (optional)</label>
+                                                <input type="text" class="form-input" x-model="newPersonForm.aadhaar_number"
+                                                       @input="newPersonForm.aadhaar_number = NSS.aadhaar.group(newPersonForm.aadhaar_number)"
+                                                       inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX">
+                                                <div class="form-hint" x-show="!NSS.aadhaar.validate(newPersonForm.aadhaar_number)">Stored encrypted and used only by authorised administrators.</div>
+                                                <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(newPersonForm.aadhaar_number)" x-text="NSS.aadhaar.validate(newPersonForm.aadhaar_number)"></div>
                                             </div>
                                         </div>
                                         <button class="btn-action primary" style="margin-top: 0.5rem; font-size: 0.8rem;"
@@ -3071,6 +3102,19 @@
                                                 <label class="form-label">Email</label>
                                                 <input type="email" class="form-input" x-model="claimEditForm.email">
                                             </div>
+                                            <div class="form-group">
+                                                <label class="form-label">Aadhaar number (optional)</label>
+                                                <div class="form-hint">Leave blank to keep what is on file.</div>
+                                                <input type="text" class="form-input" x-model="claimEditForm.aadhaar_number"
+                                                       @input="claimEditForm.aadhaar_number = NSS.aadhaar.group(claimEditForm.aadhaar_number)"
+                                                       inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="claimEditForm.aadhaar_clear">
+                                                <div class="form-hint" x-show="!NSS.aadhaar.validate(claimEditForm.aadhaar_number)">Stored encrypted and used only by authorised administrators.</div>
+                                                <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(claimEditForm.aadhaar_number)" x-text="NSS.aadhaar.validate(claimEditForm.aadhaar_number)"></div>
+                                                <label class="remember-label" style="margin-top: 0.35rem;">
+                                                    <input type="checkbox" class="nss-checkbox" x-model="claimEditForm.aadhaar_clear">
+                                                    Clear stored Aadhaar
+                                                </label>
+                                            </div>
 
                                             <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
                                                 <button class="btn-action primary" style="flex: 1; justify-content: center; padding: 0.5rem;"
@@ -3559,7 +3603,7 @@
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.mobile_number"><span class="data-label">Mobile</span><span class="data-value mono" x-text="pdSelected ? ((pdSelected.country_phone_code || '') + ' ' + (pdSelected.mobile_number || '')) : ''"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.email"><span class="data-label">Email</span><span class="data-value" x-text="pdSelected && pdSelected.email"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.emergency_contact_name"><span class="data-label">Emergency Contact</span><span class="data-value" style="text-align: right;"><span x-text="pdSelected && pdSelected.emergency_contact_name"></span><span style="color:#64748b;" x-show="pdSelected && pdSelected.emergency_relationship_name" x-text="pdSelected && pdSelected.emergency_relationship_name ? ' (' + pdSelected.emergency_relationship_name + ')' : ''"></span><span class="mono" style="display:block; color:#64748b; font-size:0.78rem;" x-show="pdSelected && pdSelected.emergency_contact_phone" x-text="pdSelected && pdSelected.emergency_contact_phone"></span></span></div>
-                                                                <div class="data-row" x-show="pdSelected && pdSelected.aadhaar_last4"><span class="data-label">Aadhaar</span><span class="data-value mono" x-text="pdSelected ? ('•••• ' + pdSelected.aadhaar_last4) : ''"></span></div>
+                                                                <div class="data-row" x-show="pdSelected && pdSelected.aadhaar_last4"><span class="data-label">Aadhaar</span><span class="data-value"><span class="mono" x-text="pdSelected ? NSS.aadhaar.mask(pdSelected.aadhaar_last4) : ''"></span><span style="font-size:0.75rem;color:#6b7280;" x-show="pdSelected && pdSelected.aadhaar_full_on_file"> (full number on file)</span><button type="button" class="btn-action" style="margin-left:0.5rem;" x-show="canViewSensitive && pdSelected && pdSelected.aadhaar_full_on_file" @click="revealAadhaar(pdSelected.person_pk, pdSelected.person_name)">Reveal Aadhaar</button></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.remarks"><span class="data-label">Remarks</span><span class="data-value" x-text="pdSelected && pdSelected.remarks"></span></div>
                                                             </div>
 
@@ -9194,6 +9238,34 @@
                         <div class="spinner-sm" x-show="promoteLoading"></div>
                         Promote
                     </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Aadhaar reveal (GDR-011): the value exists only while this template is rendered
+         (x-if) and aadhaarReveal.value is blanked on close. -->
+    <template x-if="aadhaarReveal.open">
+        <div class="modal-overlay" @click.self="closeAadhaarReveal()">
+            <div class="modal-card">
+                <div class="modal-card-header">
+                    <h3>Aadhaar number</h3>
+                    <p x-show="aadhaarReveal.personName"><strong x-text="aadhaarReveal.personName"></strong></p>
+                </div>
+                <div class="modal-card-body">
+                    <div class="spinner-sm" x-show="aadhaarReveal.loading"></div>
+                    <template x-if="aadhaarReveal.error">
+                        <div class="alert-msg alert-error" x-text="aadhaarReveal.error"></div>
+                    </template>
+                    <template x-if="aadhaarReveal.value">
+                        <div>
+                            <div class="mono" style="font-size: 1.4rem; letter-spacing: 0.08em; text-align: center; padding: 0.75rem 0;" x-text="aadhaarReveal.value"></div>
+                            <p class="form-hint" style="text-align: center;">This reveal has been recorded in the audit log. Close this window when done.</p>
+                        </div>
+                    </template>
+                </div>
+                <div class="modal-card-footer">
+                    <button type="button" class="btn-action primary" @click="closeAadhaarReveal()">Close</button>
                 </div>
             </div>
         </div>
