@@ -27,6 +27,7 @@ from api.rate_limit import limiter, user_or_ip_key
 from api.services.auth_service import create_access_token
 
 LIVE_ROUTE = "api.routers.attendance.live_attendance"
+AADHAAR_REVEAL_ROUTE = "api.routers.person.reveal_person_aadhaar"  # per-user reveal limit (AADHAAR_REVEAL_RATE_LIMIT)
 LIVE_CHANGES_ROUTE = "api.routers.live.live_changes"  # live-refresh feed (tests/api/test_live_changes.py)
 
 
@@ -70,7 +71,7 @@ class TestRouteLimit:
         assert settings.RATE_LIMIT == "300/minute"
 
     def test_other_routes_keep_only_the_global_per_ip_limit(self):
-        others = [name for name in limiter._route_limits if name not in (LIVE_ROUTE, LIVE_CHANGES_ROUTE)]
+        others = [name for name in limiter._route_limits if name not in (LIVE_ROUTE, LIVE_CHANGES_ROUTE, AADHAAR_REVEAL_ROUTE)]
         assert others == []
 
 

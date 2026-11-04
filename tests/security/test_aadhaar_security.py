@@ -200,7 +200,11 @@ class TestResponseSweep:
         n = unique_aadhaar()
         assert set_number(client, admin_h, m["person_pk"], n).status_code == 200
         row = db_row(write_conn, m["person_pk"])
-        secrets_ = [n, row["hash"], row["enc"].decode(), "aadhaar_encrypted", "aadhaar_hash"]
+        # Values that must never appear anywhere (digits, stored hash, stored blob).
+        secrets_ = [n, row["hash"], row["enc"].decode()]
+        # Column NAMES must not appear in ordinary responses; the audit endpoints legitimately list
+        # the field names (with the value redacted), so they are exempt from the name check only.
+        column_names = ["aadhaar_encrypted", "aadhaar_hash"]
         urls = [
             f"/api/v1/person/persons/{m['person_pk']}",
             f"/api/v1/person/persons/{m['person_pk']}/addresses",
@@ -215,7 +219,8 @@ class TestResponseSweep:
             for url in urls:
                 r = client.get(url, headers=headers)
                 body = r.text
-                for s in secrets_:
+                checks = secrets_ if "/audit/" in url else secrets_ + column_names
+                for s in checks:
                     assert s not in body, f"{url} leaked {s[:6]}… to a caller"
 
     def test_change_log_shows_the_columns_only_as_redacted(self, client, write_conn, admin_h, register_org_pk, aadhaar_keys):

@@ -148,13 +148,20 @@ class TestAllocator:
         assert exc.value.status_code == 409
 
     def test_missing_short_code_fails_loudly_with_422(self, write_conn, sakha, type_pks):
+        # The module shares ONE transaction: undo the NULLing in a savepoint, otherwise every
+        # later test in this module sees a Sakha without a short_code.
         cur = write_conn.cursor()
-        cur.execute("UPDATE nss.organization SET short_code = NULL WHERE organization_pk = %s", (sakha,))
-        cur.close()
-        with pytest.raises(HTTPException) as exc:
-            _create(write_conn, sakha, type_pks["REGULAR"])
-        assert exc.value.status_code == 422
-        assert "short_code" in exc.value.detail
+        cur.execute("SAVEPOINT null_short_code")
+        try:
+            cur.execute("UPDATE nss.organization SET short_code = NULL WHERE organization_pk = %s", (sakha,))
+            with pytest.raises(HTTPException) as exc:
+                _create(write_conn, sakha, type_pks["REGULAR"])
+            assert exc.value.status_code == 422
+            assert "short_code" in exc.value.detail
+        finally:
+            cur.execute("ROLLBACK TO SAVEPOINT null_short_code")
+            cur.execute("RELEASE SAVEPOINT null_short_code")
+            cur.close()
 
 
 class TestSharedCreator:

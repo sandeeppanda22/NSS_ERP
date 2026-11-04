@@ -83,7 +83,7 @@ def org_of_type(write_conn, type_code: str, parent_pk=None) -> str:
         return str(row[0])
     return _create_test_organization(
         write_conn, name_prefix=f"AP test {type_code}", type_code=type_code, parent_pk=parent_pk,
-        short_code=f"AP{uuid4().hex[:4].upper()}",
+        short_code=f"A{uuid4().hex[:4].upper()}"  # nss.organization.short_code is VARCHAR(5),
     )
 
 

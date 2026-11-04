@@ -140,7 +140,15 @@ class TestBehaviour:
             if cur.fetchone()[0] < 3:
                 cur.execute("ROLLBACK TO SAVEPOINT lcm3")
                 pytest.skip("needs at least 3 organization rows")
-        # Marker numbers advance by the same step for a 1-row and a 3-row UPDATE.
+        # Marker numbers advance by the same step for a 1-row and a 3-row UPDATE. The step is a
+        # distance on the ONE global sequence (not a bump count): the first update after a
+        # long idle period also jumps over every other table's bumps since this marker last
+        # moved, and each bump consumes two numbers (nextval in VALUES and again in the
+        # ON CONFLICT branch). A warm-up statement brings this table's marker current so the
+        # two measured steps cover exactly one bump each.
+        with write_conn.cursor() as cur:
+            cur.execute("UPDATE nss.organization SET updated_at = updated_at WHERE organization_pk = "
+                        "(SELECT organization_pk FROM nss.organization ORDER BY organization_pk LIMIT 1)")
         steps = []
         for limit in (1, 3):
             before = _seq(write_conn, "organization")

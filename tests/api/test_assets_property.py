@@ -930,7 +930,7 @@ class TestBelongsTo:
         from tests.api.test_correspondence import _create_test_organization
         dead = _create_test_organization(
             write_conn, name_prefix="AP dead belongs-to", type_code="SEVAK_SANGHA", parent_pk=None,
-            short_code=f"BD{uuid4().hex[:4].upper()}",
+            short_code=f"B{uuid4().hex[:4].upper()}",
         )
         with write_conn.cursor() as cur:
             cur.execute("UPDATE nss.organization SET is_active = FALSE, deleted_at = NOW() WHERE organization_pk = %s", (dead,))

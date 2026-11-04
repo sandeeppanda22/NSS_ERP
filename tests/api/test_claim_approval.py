@@ -479,11 +479,14 @@ class TestApproveNonDarshakaAndDarshak:
                 INSERT INTO nss.registration_claim (
                     user_account_pk, person_pk, claimed_organization_pk,
                     claimed_membership_type_master_data_pk,
-                    claimed_local_sakha_number, is_legacy_member, claim_status
-                ) VALUES (%s, %s, %s, %s, %s, TRUE, 'PENDING')
+                    claimed_local_sakha_number, claimed_credential_document_number,
+                    is_legacy_member, claim_status
+                ) VALUES (%s, %s, %s, %s, %s, %s, TRUE, 'PENDING')
                 RETURNING registration_claim_pk
                 """,
-                (ua_pk, person["person_pk"], sakha_orgs["org_a"], non_darshaka_type_pk, local_number),
+                (ua_pk, person["person_pk"], sakha_orgs["org_a"], non_darshaka_type_pk, local_number,
+                 # a legacy Regular member must supply the number on the card (GDR-009 §2A)
+                 non_darshaka_credential_number()),
             )
             second_claim_pk = str(cur.fetchone()[0])
 

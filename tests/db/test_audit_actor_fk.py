@@ -55,17 +55,18 @@ class TestEveryActorColumnHasAnFk:
         assert len(_actor_columns(write_conn)) > 100
 
     def test_every_actor_column_has_a_foreign_key_to_sangha_sevi(self, write_conn):
+        # A failure here on a dev DB built before Phase 13c existed means: re-run the build (Phase 13c).
         missing = [f"{t}.{c}" for t, c, num in _actor_columns(write_conn) if not _has_fk(write_conn, t, num)]
         assert missing == [], f"actor columns without an FK to nss.sangha_sevi: {missing}"
 
     def test_known_columns_are_covered(self, write_conn):
         covered = {(t, c) for t, c, _ in _actor_columns(write_conn)}
         for pair in (
-            ("organization", "created_by_sangha_sevi_pk"),
+            ("person", "created_by_sangha_sevi_pk"),
             ("sangha_sevi", "updated_by_sangha_sevi_pk"),
             ("district", "submitted_by_sangha_sevi_pk"),
             ("property", "created_by_sangha_sevi_pk"),
-            ("correspondence_approval_step", "destination_decided_by_sangha_sevi_pk"),
+            ("membership_change_request", "destination_decided_by_sangha_sevi_pk"),
         ):
             assert pair in covered, pair
 
@@ -74,7 +75,7 @@ class TestEveryActorColumnHasAnFk:
         assert ("system_event_log", "actor_sangha_sevi_pk") not in covered
 
 
-@pytest.mark.parametrize("table", ["sangha_sevi", "organization", "master_data"])
+@pytest.mark.parametrize("table", ["sangha_sevi", "person", "family_group"])
 def test_bogus_actor_is_rejected(write_conn, table):
     """An UPDATE that points an actor column at a non-existent Sangha Sevi must fail (NOT VALID still enforces)."""
     with write_conn.cursor() as cur:
@@ -95,15 +96,16 @@ def test_bogus_actor_is_rejected(write_conn, table):
 
 
 def test_null_actor_is_accepted(write_conn):
+    # nss.organization / nss.master_data carry no *_by_sangha_sevi_pk columns, so probe person.
     with write_conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM nss.organization")
+        cur.execute("SELECT count(*) FROM nss.person")
         if cur.fetchone()[0] == 0:
-            pytest.skip("no organization rows")
+            pytest.skip("no person rows")
         cur.execute("SAVEPOINT actor_fk_null")
         try:
             cur.execute(
-                "UPDATE nss.organization SET updated_by_sangha_sevi_pk = NULL "
-                "WHERE ctid = (SELECT ctid FROM nss.organization LIMIT 1)"
+                "UPDATE nss.person SET updated_by_sangha_sevi_pk = NULL "
+                "WHERE ctid = (SELECT ctid FROM nss.person LIMIT 1)"
             )
         finally:
             cur.execute("ROLLBACK TO SAVEPOINT actor_fk_null")
