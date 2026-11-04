@@ -88,6 +88,17 @@ def _get_all_members(client):
     return _list_members(client)
 
 
+def _get_member_by_id(client, sangha_sevi_id):
+    """Return the member whose business id (e.g. 'SS5') matches exactly, or None."""
+    r = client.get(f"{BASE}/search", params={"q": sangha_sevi_id})
+    if r.status_code != 200:
+        return None
+    for m in r.json()["members"]:
+        if m["sangha_sevi_id"] == sangha_sevi_id:
+            return m
+    return None
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. MEMBER LIST
 # ═══════════════════════════════════════════════════════════════════════════

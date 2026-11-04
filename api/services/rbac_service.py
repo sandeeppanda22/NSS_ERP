@@ -21,6 +21,8 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
+from api.helpers import org_subtree_cte_sql
+
 
 # ── NULL-organization scope levels (owner decision 2026-10-30) ───────────
 # Scope levels whose admin_scope row carries organization_pk = NULL but which
@@ -548,15 +550,7 @@ def actor_scope_org_pks(cur, user: UserContext) -> set[str] | None:
     placeholders = ",".join(["%s"] * len(roots))
     cur.execute(
         f"""
-        WITH RECURSIVE subtree AS (
-            SELECT organization_pk
-            FROM nss.organization
-            WHERE organization_pk IN ({placeholders})
-            UNION ALL
-            SELECT o.organization_pk
-            FROM nss.organization o
-            JOIN subtree s ON o.parent_organization_pk = s.organization_pk
-        )
+        {org_subtree_cte_sql(f"SELECT organization_pk FROM nss.organization WHERE organization_pk IN ({placeholders})")}
         SELECT organization_pk FROM subtree
         """,
         roots,
@@ -581,16 +575,8 @@ def org_subtree_pks(cur, organization_pk) -> set[str]:
     — this function trusts its input and applies no authorization.
     """
     cur.execute(
-        """
-        WITH RECURSIVE subtree AS (
-            SELECT organization_pk
-            FROM nss.organization
-            WHERE organization_pk = %s
-            UNION ALL
-            SELECT o.organization_pk
-            FROM nss.organization o
-            JOIN subtree s ON o.parent_organization_pk = s.organization_pk
-        )
+        f"""
+        {org_subtree_cte_sql("SELECT organization_pk FROM nss.organization WHERE organization_pk = %s")}
         SELECT organization_pk FROM subtree
         """,
         (str(organization_pk),),

@@ -56,7 +56,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
 from api.dependencies.rbac import require_any_permission, require_permission
-from api.helpers import get_master_data_pk, log_audit, next_correspondence_reference_number
+from api.helpers import MAX_RECURSION_DEPTH, get_master_data_pk, log_audit, next_correspondence_reference_number
 from api.routers.governance import _active_office_bearer, _home_sakha
 from api.schemas.correspondence import (
     ApprovalStepDecisionRequest,
@@ -981,10 +981,9 @@ _HISTORY_EVENTS_SELECT = """
     ORDER BY sel.event_at ASC
 """
 
-# Depth cap mirrors the project's existing convention for unbounded
-# recursive CTEs (e.g. /organization/hierarchy caps at 10) — a reply
-# thread 20 deep is already pathological, not a real use case being cut off.
-_THREAD_DEPTH_CAP = 20
+# Reply-thread depth cap = the project-wide recursive-CTE cap (api/helpers.py
+# MAX_RECURSION_DEPTH, used directly below) — a thread that deep is already
+# pathological, not a real use case being cut off.
 
 _THREAD_ANCESTORS_SELECT = f"""
     WITH RECURSIVE ancestors AS (
@@ -995,7 +994,7 @@ _THREAD_ANCESTORS_SELECT = f"""
         SELECT c.correspondence_pk, c.in_reply_to_correspondence_pk, a.depth + 1
         FROM nss.correspondence c
         JOIN ancestors a ON c.correspondence_pk = a.in_reply_to_correspondence_pk
-        WHERE a.depth < {_THREAD_DEPTH_CAP}
+        WHERE a.depth < {MAX_RECURSION_DEPTH}
     )
     SELECT {_THREAD_NODE_SELECT_COLUMNS}, a.depth
     FROM ancestors a
@@ -1014,7 +1013,7 @@ _THREAD_DESCENDANTS_SELECT = f"""
         SELECT c.correspondence_pk, d.depth + 1
         FROM nss.correspondence c
         JOIN descendants d ON c.in_reply_to_correspondence_pk = d.correspondence_pk
-        WHERE d.depth < {_THREAD_DEPTH_CAP}
+        WHERE d.depth < {MAX_RECURSION_DEPTH}
     )
     SELECT {_THREAD_NODE_SELECT_COLUMNS}, d.depth
     FROM descendants d

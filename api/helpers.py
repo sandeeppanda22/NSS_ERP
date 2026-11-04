@@ -28,6 +28,8 @@ from fastapi import HTTPException, status
 
 import psycopg2.errors
 
+from api.services.aadhaar_service import set_person_aadhaar
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +53,44 @@ SAKHA_LIKE_ORG_TYPES: tuple[str, ...] = ("SAKHA_SANGHA", "SAKHA_ASANA")
 # f-strings). Generated from SAKHA_LIKE_ORG_TYPES — never a second literal list.
 # Contains only constant identifiers (no user input), so interpolation is safe.
 SAKHA_LIKE_ORG_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in SAKHA_LIKE_ORG_TYPES) + ")"
+
+
+# ── Recursive-CTE depth guard (owner decision 2026-11-04) ───────────────────
+# EVERY ``WITH RECURSIVE`` in api/ (organization subtrees/ancestors, scope
+# resolution, correspondence reply threads) carries a depth cap and — for the
+# organization walks — a visited-path cycle guard, so a corrupt cyclic
+# ``parent_organization_pk`` can neither loop forever nor silently inflate
+# counts. One constant, one set of SQL fragments; no per-site magic numbers.
+# tests/api/test_recursive_cte_guard.py parses api/ and fails if a
+# ``WITH RECURSIVE`` lacks one of these.
+#
+# MAX_RECURSION_DEPTH: levels below the anchor that are followed. The real
+# organization hierarchy is ~5 levels (Kendra > Anchalika/Zilla > Sakha > wing)
+# and reply threads are shallow, so 20 is far above any legitimate depth and
+# results for real data are identical to the previous unbounded walk.
+MAX_RECURSION_DEPTH = 20
+# GET /organization/hierarchy keeps its documented, UI-facing cap of 10 levels
+# (a display limit, not a safety net) — a named constant instead of a literal.
+HIERARCHY_MAX_DEPTH = 10
+
+
+def recursive_anchor_cols(pk_expr: str) -> str:
+    """Extra SELECT columns for the ANCHOR term: ``tree_depth`` and ``tree_path``.
+
+    ``pk_expr`` is the SQL expression of the node key (e.g. ``o.organization_pk``
+    or ``%s::uuid``). Append after the term's own columns. Constant SQL only.
+    """
+    return f"0 AS tree_depth, ARRAY[{pk_expr}] AS tree_path"
+
+
+def recursive_step_cols(cte: str, pk_expr: str) -> str:
+    """Extra SELECT columns for the RECURSIVE term (matches ``recursive_anchor_cols``)."""
+    return f"{cte}.tree_depth + 1, {cte}.tree_path || {pk_expr}"
+
+
+def recursive_guard(cte: str, pk_expr: str, max_depth: int = MAX_RECURSION_DEPTH) -> str:
+    """WHERE predicate for the RECURSIVE term: depth cap + not already on the path."""
+    return f"{cte}.tree_depth < {max_depth} AND NOT {pk_expr} = ANY({cte}.tree_path)"
 
 
 def as_utc(dt: datetime) -> datetime:
@@ -2926,7 +2966,12 @@ def apply_person_profile_update(
             _validate_master_data_category(cur, val, category_code)
             updates[field] = str(val)
 
-    if not updates:
+    # ── Aadhaar (GDR-011): admin surface only — the self-service request has no
+    # such attribute, so getattr() is None there. Blank clears. Written through
+    # the one shared writer after the plain-column update below.
+    aadhaar_raw = getattr(body, "aadhaar_number", None)
+
+    if not updates and aadhaar_raw is None:
         return False
 
     # ── Contact validation on EFFECTIVE values (mirror self-service rules) ──
@@ -2952,22 +2997,30 @@ def apply_person_profile_update(
         )
 
     # ── Build + execute UPDATE ──
-    set_parts = ["updated_at = NOW()"]
-    params: list = []
-    if updated_by_sangha_sevi_pk is not None:
-        set_parts.append("updated_by_sangha_sevi_pk = %s")
-        params.append(str(updated_by_sangha_sevi_pk))
-    for col, val in updates.items():
-        set_parts.append(f"{col} = %s")
-        params.append(val)
-    params.append(str(person_pk))
+    updated = False
+    if updates:
+        set_parts = ["updated_at = NOW()"]
+        params: list = []
+        if updated_by_sangha_sevi_pk is not None:
+            set_parts.append("updated_by_sangha_sevi_pk = %s")
+            params.append(str(updated_by_sangha_sevi_pk))
+        for col, val in updates.items():
+            set_parts.append(f"{col} = %s")
+            params.append(val)
+        params.append(str(person_pk))
 
-    cur.execute(
-        f"UPDATE nss.person SET {', '.join(set_parts)} "
-        f"WHERE person_pk = %s AND is_active = TRUE",
-        params,
-    )
-    return cur.rowcount > 0
+        cur.execute(
+            f"UPDATE nss.person SET {', '.join(set_parts)} "
+            f"WHERE person_pk = %s AND is_active = TRUE",
+            params,
+        )
+        updated = cur.rowcount > 0
+    if aadhaar_raw is not None:
+        updated = set_person_aadhaar(
+            cur, person_pk, aadhaar_raw,
+            updated_by_sangha_sevi_pk=updated_by_sangha_sevi_pk,
+        ) or updated
+    return updated
 
 
 # ── Password history ───────────────────────────────────────────────────
@@ -3169,3 +3222,26 @@ USER_ACCOUNT_MEMBERSHIP_JOINS_SQL = """
           )
 """
 
+
+def org_subtree_cte_sql(anchor_select: str, name: str = "subtree") -> str:
+    """
+    Recursive CTE named ``<name>``: the anchor organization(s) plus every
+    descendant (``organization.parent_organization_pk`` walk), with the shared
+    depth cap and cycle guard. Exposes ``<name>.organization_pk`` (plus the
+    guard columns ``tree_depth``/``tree_path``).
+
+    ``anchor_select`` is a constant SELECT returning exactly one uuid column
+    (e.g. ``SELECT %s::uuid`` or ``SELECT organization_pk FROM nss.organization
+    WHERE organization_pk IN (...)``); its bind placeholders stay positional.
+    The single definition behind rbac_service scope resolution and the
+    membership/governance subtree checks (standing no-duplicates rule).
+    """
+    return f"""WITH RECURSIVE {name} AS (
+            SELECT a.organization_pk, {recursive_anchor_cols('a.organization_pk')}
+            FROM ({anchor_select}) AS a(organization_pk)
+            UNION ALL
+            SELECT o.organization_pk, {recursive_step_cols('s', 'o.organization_pk')}
+            FROM nss.organization o
+            JOIN {name} s ON o.parent_organization_pk = s.organization_pk
+            WHERE {recursive_guard('s', 'o.organization_pk')}
+        )"""
