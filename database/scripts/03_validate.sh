@@ -21,7 +21,7 @@
 #   DB_HOST  = localhost
 #   DB_PORT  = 5432
 #
-# Modules validated (78 tables in all):
+# Modules validated (79 tables in all):
 #   - Bootstrap RBAC (3 tables)
 #   - Foundation (12 tables)
 #   - Organization (1 table — type/status in Foundation master_data)
@@ -723,6 +723,21 @@ check_warn_count "Assets & Property: existing custodianships held by a NON-eligi
 
 check_no_duplicates "property" "property_id"
 check_no_duplicates "asset" "asset_id"
+echo ""
+
+# =====================================================
+# Module 11: Live refresh (1 table, cross-cutting, owner decision 2026-11-03)
+# =====================================================
+echo -e "${CYAN}Module 11: Live refresh${NC}"
+check_table_exists "live_change_marker"
+check_column_exists "live_change_marker" "table_name"
+check_column_exists "live_change_marker" "change_seq"
+check_fk_integrity "live_change_marker: change-marker triggers present (02_live_change_triggers.sql ran)" \
+    "SELECT 1 - LEAST(1, COUNT(*)) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'trg_live_change_marker';"
+check_warn_count "live_change_marker: watched tables whose trigger has no marker row (re-run the build)" \
+    "SELECT COUNT(*) FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND g.tgname = 'trg_live_change_marker' AND NOT g.tgisinternal AND NOT EXISTS (SELECT 1 FROM nss.live_change_marker m WHERE m.table_name = c.relname);"
+check_fk_integrity "live_change_marker is NOT audited (excluded in 15_audit_trigger.sql)" \
+    "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'nss.live_change_marker'::regclass AND tgname LIKE 'trg_audit_%';"
 echo ""
 
 # =====================================================

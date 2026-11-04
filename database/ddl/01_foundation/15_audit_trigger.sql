@@ -229,7 +229,9 @@ $$;
 
 
 -- ── Attach trigger to ALL business tables ───────────
--- Excludes: system_event_log (self), field_change_log (audit infra)
+-- Excludes: system_event_log (self), field_change_log (audit infra),
+-- live_change_marker (system counter table bumped by the live-refresh
+-- triggers; CROSS_MODULE_PRINCIPLES.md §7.1)
 
 DO $$
 DECLARE
@@ -237,7 +239,8 @@ DECLARE
     trigger_name TEXT;
     excluded_tables TEXT[] := ARRAY[
         'system_event_log',
-        'field_change_log'
+        'field_change_log',
+        'live_change_marker'
     ];
 BEGIN
     FOR t IN

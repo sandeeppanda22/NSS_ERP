@@ -142,8 +142,9 @@
 #
 # Keep phase order in sync with database/scripts/02_build.sh
 # if it changes. Verified identical on 2026-11-02: every DDL/seed/patch file
-# below is run in the same order as 02_build.sh (78 tables; Phase 11g
-# Assets & Property + the ASSET_* permissions patch added 2026-11-02).
+# below is run in the same order as 02_build.sh (79 tables; Phase 11g
+# Assets & Property + the ASSET_* permissions patch added 2026-11-02; Phase 11h
+# live-refresh change marker added 2026-11-03).
 #
 # Idempotent patch files run on EVERY deploy via run_sql (never existence-
 # gated; they carry changes to already-existing tables/seeds): role_permission
@@ -548,6 +549,12 @@ run_sql "assets_property_acquisition_method_patch" "${DDL_BASE}/11_assets_proper
 run_sql "assets_property reference data patch" "${SEED_BASE}/11_assets_property/01_assets_property_reference_data_patch.sql"
 # Idempotent patch (2026-11-03, GDR-010 §2F): ENDs the still-ACTIVE custodianship of already DISPOSED properties / RETIRED assets (end reason DISPOSED / RETIRED, seeded by the reference data patch above, so it MUST run after it); no-op on fresh builds.
 run_sql "assets_property_terminal_custody_patch" "${DDL_BASE}/11_assets_property/12_assets_property_terminal_custody_patch.sql"
+
+echo ""
+echo "--- Phase 11h: Live refresh — DDL (1 table: live_change_marker + idempotent change-marker triggers on the watched tables, owner decision 2026-11-03) ---"
+run_ddl "live_change_marker" "live_change_marker" "${DDL_BASE}/12_live_refresh/01_live_change_marker.sql"
+# Idempotent, runs EVERY deploy: the watched-table list may grow; must run after every table it names exists.
+run_sql "live_change_triggers" "${DDL_BASE}/12_live_refresh/02_live_change_triggers.sql"
 
 echo ""
 echo "--- Phase 12: Grant nss_db_writer write access ---"

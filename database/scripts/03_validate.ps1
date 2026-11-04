@@ -7,6 +7,7 @@
 # run 02_build.ps1 first.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
+# Version: 1.6 - add Module 11 live_change_marker (1 table, 79 total) (2026-11-03; desk-checked, never run on PowerShell).
 # Version: 1.5 - minimums recomputed after ACQUISITION_METHOD + DISPOSED/RETIRED end reasons: master_category 26,
 #                 master_data 156 (2026-11-03; desk-checked, never run on PowerShell).
 # Version: 1.4 - add Assets & Property (7 tables, 78 total), ASSET_* grants, raised
@@ -531,6 +532,15 @@ Check-WarnCount "Assets & Property: existing custodianships held by a NON-eligib
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "property" "property_id"
 Check-NoDuplicates "asset" "asset_id"
+Write-Host ""
+
+Write-Host "Module 11: Live refresh" -ForegroundColor Cyan
+Check-TableExists "live_change_marker"
+Check-ColumnExists "live_change_marker" "table_name"
+Check-ColumnExists "live_change_marker" "change_seq"
+Check-FkIntegrity "live_change_marker: change-marker triggers present (02_live_change_triggers.sql ran)" "SELECT 1 - LEAST(1, COUNT(*)) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'trg_live_change_marker';"
+Check-WarnCount "live_change_marker: watched tables whose trigger has no marker row (re-run the build)" "SELECT COUNT(*) FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND g.tgname = 'trg_live_change_marker' AND NOT g.tgisinternal AND NOT EXISTS (SELECT 1 FROM nss.live_change_marker m WHERE m.table_name = c.relname);"
+Check-FkIntegrity "live_change_marker is NOT audited (excluded in 15_audit_trigger.sql)" "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'nss.live_change_marker'::regclass AND tgname LIKE 'trg_audit_%';"
 Write-Host ""
 
 # Summary

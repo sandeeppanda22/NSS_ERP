@@ -7,6 +7,8 @@
 # modules only.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
+# Version: 2.9  - Phase 11h live-refresh change marker (1 table, 79 total) (2026-11-03);
+#          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
 # Version: 2.8  - Phase 11g Assets & Property (7 tables, 78 total) + Phase 0 ASSET_VIEW/ASSET_MANAGE patch (2026-11-02);
 #          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
 # Version: 2.7  - header/phase audit (2026-11-01): 71 tables in 13 table-creating phases; all
@@ -76,6 +78,8 @@
 #              property_statutory_record, maintenance_record, property_document,
 #              asset_document - Module #22, Tier 6) + lifecycle/history guard
 #              triggers + reference-data patch (GDR-010)
+#   Phase 11h- Live refresh DDL (1 table: live_change_marker + sequence live_change_seq;
+#              idempotent statement-level triggers on the watched tables)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
 #   Phase 13 - Admin bootstrap seed (NSS Admin superuser)
 #   Phase 13b- Geo attribution backfill (city_village/postal_code/
@@ -110,7 +114,7 @@
 #             ddl/11_assets_property/11_assets_property_acquisition_method_patch.sql
 #             seed/11_assets_property/01_assets_property_reference_data_patch.sql
 #             ddl/11_assets_property/12_assets_property_terminal_custody_patch.sql
-# Table count: 78 (3+14+1+2+6+16+5+2+10+5+4+2+7+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,14).
+# Table count: 79 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,14).
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data - Person data lives in
@@ -598,6 +602,19 @@ Invoke-Sql "assets_property_acquisition_method_patch" "$DdlBase\11_assets_proper
 Invoke-Sql "assets_property reference data patch" "$SeedBase\11_assets_property\01_assets_property_reference_data_patch.sql"
 # Idempotent patch (2026-11-03, GDR-010 §2F): ENDs the still-ACTIVE custodianship of already DISPOSED properties / RETIRED assets (end reason DISPOSED / RETIRED, seeded by the reference data patch above, so it MUST run after it); no-op on fresh builds.
 Invoke-Sql "assets_property_terminal_custody_patch" "$DdlBase\11_assets_property\12_assets_property_terminal_custody_patch.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11h: Live refresh (1 table + 1 sequence, cross-cutting, owner decision 2026-11-03)
+# nss.live_change_marker + nss.live_change_seq (existence-gated), then the
+# idempotent statement-level triggers on the watched tables (run EVERY build:
+# the table list in 02_live_change_triggers.sql may grow; must run after every
+# table it names exists, i.e. after Phase 11g). Placed before Phase 12/14 so the
+# writer grant covers the marker table; Phase 14's audit trigger EXCLUDES it.
+# -------------------------------------------------
+Write-Host "[Phase 11h] Live refresh - DDL (1 table + change-marker triggers)" -ForegroundColor Cyan
+Invoke-Ddl "live_change_marker" "live_change_marker" "$DdlBase\12_live_refresh\01_live_change_marker.sql"
+Invoke-Sql "live_change_triggers" "$DdlBase\12_live_refresh\02_live_change_triggers.sql"
 Write-Host ""
 
 # -------------------------------------------------
