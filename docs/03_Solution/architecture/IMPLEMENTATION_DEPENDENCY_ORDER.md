@@ -1745,7 +1745,7 @@ TIER 6 IN PROGRESS (merged into the local `develop` 2026-11-02, not pushed or re
 (`governance.py`, 56 endpoints), the Correspondence Register (5 tables, 19 endpoints), the Membership change-request workflow,
 Weekly Sangha Puja Attendance (4 tables, `attendance.py`, 21 endpoints) and Sakha re-parent approvals (2 tables, `org_reparent.py`, 4 endpoints) are implemented
 (committed and merged into the local `develop`; the per-user `/live` rate limit and the adaptive live-poll change are committed); Assets & Property (Module #22: 7 tables, `assets_property.py`, 26 endpoints, `ASSET_VIEW`/`ASSET_MANAGE`) backend is implemented 2026-11-02 (uncommitted, never run against a DB; frontend not built; decisions in GDR-010 `Proposed`). 71 tables / 17 routers / 252
-endpoints on `develop`; 78 / 18 / 278 in the working tree. See the root `README.md` Tier-Wise Implementation Status table.
+endpoints on `develop`; 79 / 18 / 278 in the working tree. See the root `README.md` Tier-Wise Implementation Status table.
 
 **NEXT:**  
 VERIFY AND MERGE TIER 6 GOVERNANCE → ATTENDANCE / ASSETS & PROPERTY → TIER 7

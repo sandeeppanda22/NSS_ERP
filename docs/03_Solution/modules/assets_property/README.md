@@ -55,7 +55,7 @@ approval pending). The design documents above are unchanged.
 
 | Layer | Where |
 |---|---|
-| DDL (7 tables + guard triggers) | `database/ddl/11_assets_property/` (build Phase 11g of `02_build.sh`/`.ps1`/`render_build.sh`; 78 tables in total) |
+| DDL (7 tables + guard triggers) | `database/ddl/11_assets_property/` (build Phase 11g of `02_build.sh`/`.ps1`/`render_build.sh`; 78 tables with this module; 79 with the live-refresh marker table) |
 | Reference data | `database/seed/11_assets_property/01_assets_property_reference_data_patch.sql` — `PROPERTY` (`PROP<n>`) / `ASSET` (`AST<n>`) id sequences, 7 master categories (incl. `ACQUISITION_METHOD`), 38 values (incl. `DISPOSED`/`RETIRED` end reasons; idempotent patch: the Foundation seeds are existence-gated) |
 | RBAC | `database/seed/00_bootstrap/05_assets_property_permissions_patch.sql` — `ASSET_VIEW` / `ASSET_MANAGE` + 12 grants (28 → 30 permissions, 166 → 178 mappings; owner decisions 2026-11-02: Anchalika/Zilla admins view-only, Mahila admin none); `06_assets_property_permissions_revoke_patch.sql` soft-deletes the 4 grants an earlier version of `05` created. Optional "belongs to" column: `database/ddl/11_assets_property/10_assets_property_belongs_to_patch.sql`; optional acquisition-method column: `11_assets_property_acquisition_method_patch.sql`; `12_assets_property_terminal_custody_patch.sql` ENDs the ACTIVE custodianship of already DISPOSED/RETIRED records |
 | API | `api/routers/assets_property.py` + `api/schemas/assets_property.py` — 26 endpoints under `/api/v1/assets-property` (contract: `docs/03_Solution/api/API_CONTRACT.md` §12g) |

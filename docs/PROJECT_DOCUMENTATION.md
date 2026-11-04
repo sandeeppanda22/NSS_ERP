@@ -20,10 +20,10 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 18 routers, 278 endpoints (registered routes in the working tree — 266 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
-| Database (`database/`) | Hand-written PostgreSQL DDL, 78 tables in schema `nss`, no migration tool. |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 19 routers, 283 endpoints (registered routes in the working tree — 271 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
+| Database (`database/`) | Hand-written PostgreSQL DDL, 79 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (4819 items collected). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5033 items collected). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
@@ -59,7 +59,7 @@ Middleware: SlowAPI rate limit → CORS (only if configured) → security header
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
-  └─ /api/v1/<router>/...                           api/routers/*.py (18 routers)
+  └─ /api/v1/<router>/...                           api/routers/*.py (19 routers)
         │  Depends: get_current_user / require_permission / require_org_in_scope
         │  helpers: api/helpers.py   services: api/services/
         ▼
@@ -84,7 +84,7 @@ All mounted in `api/main.py` with the prefix shown. Auth model is **per router**
 | `admin.py` | `/api/v1/admin` | 32 | `ADMIN_*` / `ORGANIZATION_*` permissions + admin scope |
 | `registration.py` | `/api/v1/register` | 13 | Public (reference data incl. `/address-types`, register, lookup-existing, claim) |
 | `claim_approval.py` | `/api/v1/admin/claims` | 5 | Permission + admin scope |
-| `audit.py` | `/api/v1/audit` | 1 | `AUDIT_VIEW` (read pool) |
+| `audit.py` | `/api/v1/audit` | 5 (`/change-log`, `/events`, `/events/facets`, `/events/{pk}`, `/live-change-markers`) | `AUDIT_VIEW` (read pool) |
 | `geo_approval.py` | `/api/v1/admin/geo-entries` | 4 | `FOUNDATION_MANAGE` + admin scope |
 | `governance.py` | `/api/v1/governance` | 56 | `GOVERNANCE_VIEW/MANAGE` + org scope; `/public/*`, open-for-voting and `votes/self` need login only |
 | `membership_change_request.py` | `/api/v1/membership/change-requests` | 5 | Member-initiated Sakha Transfer / Apply for Darshak |
@@ -134,12 +134,12 @@ Two write paths, both intentional:
    `system_event_log` rows of different shape — accepted.
 
 `field_change_log` is deliberately not exposed under `/foundation` (a test enforces this); it is
-read via `audit.py`.
+read via `audit.py`. The same router serves the admin console's Audit & Diagnostics tabs: a System Event Log explorer over `system_event_log` (`#auditEvents`; default window last 24 h, count capped at 10,000, detail view joins the field-level rows of the same transaction from `/change-log`) and a Live Change Markers page over `live_change_marker` (`#liveMarkers`, 5 s own poll while visible; whitelist flag from `live.py::LIVE_FEED_TABLES`). Both gated by `AUDIT_VIEW` (`canViewAudit`), logic in `audit-diagnostics.js`.
 
 ### Middleware
 
 Registered in `api/main.py` / `api/middleware.py`: `SlowAPIMiddleware` (one global per-IP limit,
-`RATE_LIMIT`, default `300/minute`; the one per-route override is the per-user `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance `/live` poll), `CORSMiddleware` only when
+`RATE_LIMIT`, default `300/minute`; the per-route overrides are the per-user `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance `/live` poll and `LIVE_CHANGES_RATE_LIMIT` on `GET /live/changes`), `CORSMiddleware` only when
 `CORS_ORIGINS` is non-empty (GET/POST/PATCH/DELETE, credentials, never a wildcard), and security
 headers (`nosniff`, `X-Frame-Options: DENY`, referrer/permissions policy, `no-store` on `/api/*`,
 86400s cache on `/assets/*`) plus a Content-Security-Policy from `build_csp()`. CSP `script-src`
@@ -156,7 +156,7 @@ dashboard: personal, family tree, membership, attendance, governance, documents,
 geography, geo approvals, governance, correspondence, attendance, assets & property, system settings).
 Shared scripts: `auth.js` (JWT + authed fetch), `nss-config.js` (display names such as
 `PROBATIONARY` → "Darshaka", badge maps), `nss-layout.js`, `org-dashboard.js` (one Alpine component,
-six org-type layouts), `attendance-register.js` (one marking mixin used by `admin.js` and
+six org-type layouts), `audit-diagnostics.js` (AUDIT_VIEW tabs System Event Log / Live Change Markers mixin installed into `admin.js`), `live-refresh.js` (live-refresh mixin installed into `admin.js` and `dashboard.js`: one `/live/changes` poll per page, per-page table→tab maps), `attendance-register.js` (one marking mixin used by `admin.js` and
 `org-dashboard.js`), `assets-property.js` (Assets & Property mixin installed into `admin.js`), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
 badge classes (never redefine inline). `tailwind.min.css` is a **committed, generated** file:
 rebuild it after changing any Tailwind/DaisyUI class (`npm run css:build`). The old six
@@ -170,7 +170,7 @@ seeds under `database/seed/`, scripts under `database/scripts/`. All tables are 
 with explicit `nss.` prefixes; extensions (pgcrypto, pg_trgm, btree_gin, postgis) live in
 `public`. Table inventory by phase: `database/README.md`. Table count by module:
 Bootstrap 3, Foundation 15 (incl. `system_event_log`), Organization 3 (`organization` + the 2 re-parent approval tables), Person 2, Family 6,
-Membership 16, Authentication 5, Administration 2, Governance 10, Correspondence 5, Attendance 4, Assets & Property 7 = 78.
+Membership 16, Authentication 5, Administration 2, Governance 10, Correspondence 5, Attendance 4, Assets & Property 7, Live refresh 1 = 79.
 
 ### Documentation corpus (`03_Solution/` detail)
 
@@ -276,7 +276,7 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `pytest --collect-only`
-reports 4819 items (api 2585, db 372, security 1152, ui 710); per-file counts and the not-yet-run list are in
+reports 5033 items (api 2661, db 392, security 1207, ui 773); per-file counts and the not-yet-run list are in
 `tests/README.md` (Attendance suites, everything written 2026-10-30/31 and the Assets & Property suites have never been run against a DB). No
 lint/format tooling is configured.
 
@@ -306,6 +306,7 @@ UTF-8 BOM tolerated). A template is at `api/.env.example`.
 | `CORS_ORIGINS` | empty | Comma-separated; empty means `CORSMiddleware` is never registered |
 | `RATE_LIMIT` | `300/minute` | Global per-IP (`slowapi` spec) |
 | `LIVE_ATTENDANCE_RATE_LIMIT` | `120/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /attendance/pujas/{pk}/live` only |
+| `LIVE_CHANGES_RATE_LIMIT` | `60/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /live/changes` only |
 | `CSP_ENABLED`, `CSP_REPORT_ONLY` | `true`, `false` | Report-only emits `Content-Security-Policy-Report-Only` |
 | `CSP_SCRIPT_SRC_EXTRA`, `CSP_STYLE_SRC_EXTRA` | empty | Extra CSP origins without code change |
 | `DISABLE_DOCS` | `false` | Truthy removes Swagger/ReDoc/OpenAPI |
@@ -536,6 +537,31 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   password inputs.
 
 
+### 6. Live refresh (owner decision 2026-11-03)
+
+Pages refresh themselves instead of asking users to reload. `GET /api/v1/live/changes` (`api/routers/live.py`,
+login only, read pool, per-user `LIVE_CHANGES_RATE_LIMIT`) reads the marker table `nss.live_change_marker` (one row
+per watched table: `table_name`, `change_seq` from the single global sequence `nss.live_change_seq`, `changed_at`)
+and answers `{changed:[{table_name, change_seq}]}` for the whitelisted tables, no data, no ids. A statement-level
+trigger (`trg_live_change_marker` -> `fn_live_change_marker()`, SECURITY DEFINER, `ddl/12_live_refresh/`, build
+Phase 11h) bumps the table's marker with one UPSERT, so the new number is visible exactly when the writing
+transaction COMMITS and vanishes on rollback: no look-back window and no dependence on `system_event_log`. There is
+deliberately no cursor: `change_seq` is taken at write time, so a global cursor could skip a slower transaction
+that commits later with a smaller number; the client compares each table's number with the one it saw last
+(`changedTabs()`; the first reply is only the baseline). The whitelist `LIVE_FEED_TABLES` in `live.py` is
+authoritative (credential/session/counter/ballot tables never appear) and must equal the literal table list in
+`02_live_change_triggers.sql` (`tests/api/test_live_changes.py::TestSqlParity`; 55 tables since batch 2). An entry of that list may carry an ignored-column suffix, `'table!col1,col2'`: the trigger is then created `AFTER INSERT OR DELETE OR UPDATE OF <every other column>`. Only `user_account` uses it (`failed_login_attempts, locked_until, last_failed_login_at, last_login_at, updated_at` are login bookkeeping and never bump its marker; status, password, force-change and soft-delete changes do). Batch 2 (Users, Organizations, Person/Member directories, Credentials, Reference Data, Geography, Location Approvals, System Settings and the member dashboard personal/membership/family/governance tabs + admin stat tiles) was added by editing that list and the whitelist; existing databases pick up the new triggers and marker rows by re-running `02_live_change_triggers.sql` (Phase 11h, every build). The marker table is excluded from
+`fn_audit_trigger()` (CROSS_MODULE_PRINCIPLES §7.1). `frontend/assets/js/live-refresh.js` runs ONE poll per
+open page (policy `LIVE_FEED`: 5 s active, 15 s after 60 s idle, 4/8/16/30 s back-off with `Retry-After`, paused
+while the browser tab is hidden, immediate poll on return). `admin.js` and `dashboard.js` each declare a
+`LIVE_TABLE_TABS` map (table → tabs) and a `LIVE_REFRESH_CONFIG` of per-tab `reload`/`busy` hooks; a changed table
+re-runs the ACTIVE tab's existing loader (`{silent:true}`: no spinner, filters/paging/selection kept; stale-response
+guarded), other tabs reload when opened, `background` entries (sidebar badges) always reload. A tab that is `busy`
+(form/modal/dialog/typed input open) is never reloaded — a "This view has new updates — Refresh" banner appears
+instead. The reply never carries data, so permissions and admin scope are untouched: pages reload through their own
+scoped endpoints. The attendance register keeps its own finer poller. Parity test:
+`tests/api/test_live_changes.py::TestJsMapParity` (every table in a JS map must be on the whitelist) and `::TestSqlParity` (SQL trigger list == whitelist).
+
 ## Conventions & gotchas
 
 ### Role hierarchy by access (lowest → highest)
@@ -631,6 +657,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 
 ### Gotchas
 
+- **Live refresh is table-level and commit-visible.** `/live/changes` returns every watched table's `change_seq` (marker table, bumped by a statement-level trigger); there is no cursor and no look-back. Concurrent writers to one table queue on its marker row until commit; a transaction that touches several watched tables in opposite orders can deadlock on marker rows (PostgreSQL aborts one with 40P01) - keep write transactions short. Adding a table to a page's `LIVE_TABLE_TABS` requires adding it to `LIVE_FEED_TABLES` AND to the `watched` list in `02_live_change_triggers.sql` (parity tests), then re-running the build. Election ballot tables stay off the feed (ballot timing is private); attendance tables stay off it (own poller).
+
 - **Tier 5 gating is per router** (see the router table). `bootstrap.py` and the public
   registration/auth endpoints are the only ones reachable without a JWT. Family's ownership model
   is deliberate, not a missing gate.
@@ -697,6 +725,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   (e.g. `postal_code`, `city_village_postal_code_map`).
 
 ## Open questions / TODOs
+
+- **`system_event_log` retention/growth:** append-only with no retention policy today (independent of the live-refresh feed, which no longer reads it). Owner decision needed if it grows large. Live refresh scope (batches 1 and 2) and what stays off the feed (election tally/ballots, attendance tables, id/credential counters, sessions): see CLAUDE.md Open items.
 
 **Release / process**
 - Push local `develop` (Tier 6 merged 2026-11-02) and decide when it is released (tag, `docs/05_Releases/vX.Y.Z.md`, GitHub Release).

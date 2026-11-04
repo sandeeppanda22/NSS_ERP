@@ -95,6 +95,7 @@ Build phases (authoritative detail in `scripts/README.md`):
 | 11e | Attendance DDL — 4 tables (`10_attendance/`) + idempotent live-register index patch `05_attendance_live_version_index_patch.sql` |
 | 11f | Organization re-parent approval DDL — 2 tables (`02_organization/06`-`07`) + source-role patch (`09_`) |
 | 11g | Assets & Property DDL — 7 tables (`11_assets_property/`) + idempotent guard triggers `08_assets_property_guards.sql` + idempotent `09_asset_custodian_org_type_function.sql` (custodian-eligible org types function + `trg_custodianship_custodian_guard`) + idempotent patches `10_…belongs_to_patch.sql`, `11_…acquisition_method_patch.sql` (GDR-010 §2E) and `12_…terminal_custody_patch.sql` (GDR-010 §2F, after the reference data) + idempotent reference-data patch (`seed/11_assets_property/01_…_patch.sql`: `PROPERTY`/`ASSET` id sequences, 7 master categories incl. `ACQUISITION_METHOD`, 38 values incl. the `DISPOSED`/`RETIRED` custodianship end reasons) |
+| 11h | Live refresh DDL — 1 table `live_change_marker` + sequence `live_change_seq` (`12_live_refresh/01_`, existence-gated) and the idempotent statement-level change-marker triggers on the watched tables (`02_live_change_triggers.sql`, `run_sql` every build; owner decision 2026-11-03). `live_change_marker` is excluded from `fn_audit_trigger()` (Phase 14) |
 | 12 | Grant `nss_db_writer` |
 | 13 | Admin bootstrap (`scripts/bootstrap_admin.py`) |
 | 13b | Geo attribution backfill of bulk-seeded geography rows |
@@ -145,8 +146,8 @@ Depth/Seq# breakdown lives in their own module READMEs rather than being duplica
   `festival_master`/`festival_calendar_date`, and Phase 14's
   `system_event_log` (15th Foundation table) and `fn_audit_trigger()`
 
-**Total implemented: 78 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
-3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance + 7 Assets & Property
+**Total implemented: 79 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
+3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance + 7 Assets & Property + 1 Live refresh (`live_change_marker`)
 (verified by counting `CREATE TABLE` across `database/ddl/**`). Of those, 11 are Tier 5 additions
 (see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) 4 are Tier 6 (Attendance) and 7 are Assets & Property (Module #22, Tier 6, uncommitted); the v0.10.4
 baseline was 34.
@@ -255,7 +256,7 @@ There is no `database/migrations/` or `database/fixes/` folder.
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their
-DDL files (total 78). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
+DDL files (total 79). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
 figures used in earlier planning (3 and 9 respectively) — the implemented slice grew during
 design; this is a known SOL-ARCH-010 inventory drift to reconcile in a future governance pass,
 not a build error. Modules not listed above have frozen table counts but are further down the

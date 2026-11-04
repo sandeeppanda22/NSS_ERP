@@ -717,7 +717,7 @@ Completed:
   values, shared across modules) — now consumed by the Tier 2 Organization API (see below). This
   diverges from the frozen 3-table module design — see `docs/PROJECT_DOCUMENTATION.md` →
   Gotchas. Combined with Foundation, Bootstrap RBAC, Person, Family, Membership, Authentication +
-  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6, backend written 2026-11-02, uncommitted): **78 tables implemented** — see `database/README.md`)
+  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6, backend written 2026-11-02, uncommitted): **79 tables implemented** — see `database/README.md`)
 * Bootstrap RBAC DDL (`role_master`/`permission_master`/`role_permission`, `SOL-BOOT-001`/
   `SOL-ARCH-011` — DDL implemented and committed; `role_master` seeded with 11 roles
   (incl. `NSS_ERP_ADVISORY_BOARD_ADMIN` and `NSS_ERP_ATTENDANCE_MARKER`, Tier 6); `permission_master` (30 permissions, incl. `ASSET_VIEW`/`ASSET_MANAGE` from the idempotent `05_assets_property_permissions_patch.sql`, 12 grants - Anchalika/Zilla admins view-only, Mahila admin none, the 4 withdrawn grants soft-deleted by `06_assets_property_permissions_revoke_patch.sql`;
@@ -903,7 +903,7 @@ Completed:
   Two new routers: `governance.py` (56 endpoints, `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) and
   `membership_change_request.py` (5 endpoints, Sakha Transfer / Apply for Darshak workflow) and
   `correspondence.py` (19 endpoints, Correspondence Register, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`) —
-  **252 endpoints, 17 routers, 71 tables on `develop` (278 / 18 / 78 with the uncommitted Assets & Property module: `assets_property.py` + 7 tables) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
+  **252 endpoints, 17 routers, 71 tables on `develop` (278 / 18 / 79 with the uncommitted Assets & Property module: `assets_property.py` + 7 tables, and the live-refresh marker table `live_change_marker`) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
   (auto-granted by `rbac_service.load_composite_grants`); 28 permissions (adds `CORRESPONDENCE_*`, `GEO_ENTRY_APPROVE`, `ATTENDANCE_*`), 11 roles (adds `NSS_ERP_ATTENDANCE_MARKER`).
 
 Current Focus:
@@ -914,7 +914,7 @@ Current Focus:
   documented modules — every module has a complete (or largely complete) design, and
   several groups have real SQL: Bootstrap RBAC (3 tables), Foundation (15), Organization (1, plus the 2 re-parent approval tables counted below), Person
   (2), Family (6), Membership (16), Authentication (5), Administration (2) and Governance (10), Correspondence (5), Attendance (4) and Organization re-parent approval (2, within the Organization module)
-  and Assets & Property (7, backend only, uncommitted) — 78 tables.
+  and Assets & Property (7, backend only, uncommitted) and Live refresh (1, `live_change_marker`, uncommitted) — 79 tables.
   Released API/UI slices: Tier 0 (v0.6.0), Foundation (v0.7.0), Organization (v0.8.0), Person
   (v0.9.0), Family + Membership (v0.10.0, hotfixes through v0.10.4). The pytest suite has grown
   well beyond its v0.10.4 size (410 tests) — see `tests/README.md` for current counts and the

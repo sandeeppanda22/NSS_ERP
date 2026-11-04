@@ -19,7 +19,7 @@
 
 # 1. Overview
 
-The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **278 endpoints** across 18
+The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **283 endpoints** across 19
 routers (252 / 17 on `develop`; the 26-endpoint Assets & Property router is uncommitted). Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
 (released as v0.11.0)** added JWT authentication, RBAC, write endpoints, and gated almost everything:
 
@@ -674,6 +674,26 @@ Authority: `docs/03_Solution/modules/attendance/` (frozen 2026-10-27). Automated
 
 ---
 
+# 12g. Live-refresh change feed
+
+**Router prefix:** `/api/v1/live` (`api/routers/live.py`) — 1 endpoint, owner decision 2026-11-03 ("make data refresh automatically"). Read pool, no DDL.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/changes?since=<ISO-8601>` | login only (`get_current_user`; no module permission) | Which watched tables had audit events after `since` |
+
+**Response** (`LiveChangesResponse`): `{"changed": [{"table_name": "...", "change_seq": 123}]}` - every table on the whitelist with the change number of its latest COMMITTED write (read from `nss.live_change_marker`). There is no `since`/cursor (an old client's `since` is ignored): the client keeps the last `change_seq` it saw per table and treats a different value as a change; its first reply is only the baseline. 401 without a valid token.
+
+**What it discloses:** only THAT a table on the `LIVE_FEED_TABLES` whitelist (module constant in `live.py`, authoritative) changed — never record data or ids, and never a table outside the list (credential, session, counter, internal and ballot tables are excluded). The client then re-runs its own scoped loaders, so permissions and admin scope are untouched. The whitelist covers registration/claim and change-request approvals, Correspondence, Governance (bodies, assignments, acting cover, elections, nominations, results), the org-dashboard stats tables, Assets & Property and Sakha re-parent approvals (batch 1), plus (batch 2, 55 tables in all) users and roles (`user_account`, `user_role`, `admin_scope`, `role_master`), person/membership/family tables, reference and geography data, system settings and the festival calendar. `user_account` is on the list but its trigger ignores routine login bookkeeping columns, so a login never bumps its marker.
+
+**Change numbers:** `change_seq` comes from the single global sequence `nss.live_change_seq`, assigned by a statement-level trigger (`fn_live_change_marker()`, `ddl/12_live_refresh/`) in the writing transaction, so it appears at commit and disappears on rollback; one multi-row statement is one bump; numbers can have gaps. Two commits to the SAME table are ordered by number (they queue on that table's marker row); numbers of different tables are not commit-ordered, which is why there is no global cursor.
+
+**Rate limit:** per signed-in user (`LIVE_CHANGES_RATE_LIMIT`, default `60/minute`, key = JWT `sub`, client IP without a valid token — `api/rate_limit.py::user_or_ip_key`); replaces the global per-IP `RATE_LIMIT` for this route. The page polls every 5 s while active (12/min), 15 s when idle, paused while hidden (`LIVE_FEED` in `frontend/assets/js/live-refresh.js`).
+
+Tests: `tests/api/test_live_changes.py`, `tests/security/test_live_security.py`, `tests/ui/test_ui_live_refresh.py` plus `tests/db/test_live_change_marker.py` (integration items not yet run against the project DB).
+
+---
+
 # 12f. Tier 6 — Sakha Re-parent Approvals
 
 **Router prefix:** `/api/v1/org-reparent` (`api/routers/org_reparent.py`) — 4 endpoints, all login-only (`get_current_user`); visibility is the requester, assigned approvers, Kendra Governing Body members, and admins whose scope contains the Sakha (404 otherwise). Owner rule 2026-10-30: re-parenting a Sakha under a different Anchalika/Zilla (SAKHA_SANGHA or SAKHA_ASANA) is direct only for Kendra Governing Body members and the `NSS_ERP_ADMIN` super administrator (by role); everyone else files a request via `PATCH /admin/organizations/{pk}` (see below). Approval authority (deciding a step) is the LIVE office seat (substantive holder or active acting delegate) — no permission and no `NSS_ERP_ADMIN` override.
@@ -769,12 +789,16 @@ Automated tests: `tests/api/test_org_reparent.py` (60 collected; chain matrix ex
 
 # 13. Tier 5 — Audit
 
-**Router prefix:** `/api/v1/audit` — 1 endpoint, `require_permission("AUDIT_VIEW")` (seeded to
+**Router prefix:** `/api/v1/audit` — 5 endpoints, `require_permission("AUDIT_VIEW")` (seeded to
 `NSS_ERP_ADMIN`, `NSS_ERP_KENDRA_ADMIN`, `NSS_ERP_AUDITOR`), read-only pool.
 
 | # | Method | Path | Filters | Description |
 |---|---|---|---|---|
 | 108 | GET | `/change-log` | `table_name`, `record_pk`, `field_name`, `changed_by_sangha_sevi_pk`, `changed_from`, `changed_to`, `limit`, `offset` | Paginated read of `nss.field_change_log` |
+| 108a | GET | `/events` | `table_name`, `action`, `module`, `record_pk`, `actor_sangha_sevi_id`, `is_success`, `event_from`, `event_to`, `q`, `sort` (`asc`/`desc`), `limit`, `offset` | System event log explorer. Returns `{items, total, total_capped, event_from, limit, offset}`; without `event_from` and `record_pk` only the last 24 h are searched; `total` is exact up to 10,000 |
+| 108b | GET | `/events/facets` | -- | Distinct `tables`, `actions`, `modules` of the last 30 days (filter dropdowns) |
+| 108c | GET | `/events/{system_event_log_pk}` | -- | One event incl. its JSONB `detail`; 404 if unknown. Field-level rows of the same transaction: `/change-log` with `changed_from = changed_to = event_at` |
+| 108d | GET | `/live-change-markers` | -- | Every `nss.live_change_marker` row (most recent `change_seq` first) with `on_live_whitelist`, plus `latest_change_seq`, `latest_table_name`, `whitelist_size`, `whitelist_without_marker`, `server_time` |
 
 ---
 
@@ -786,7 +810,7 @@ Automated tests: `tests/api/test_org_reparent.py` (60 collected; chain matrix ex
 | `/login` | Login page | `login.html` |
 | `/register` | Self-registration page | `register.html` |
 | `/dashboard` | Member Dashboard (Personal, Membership, Family, Attendance, Governance, Documents tabs + an Org Dashboard for holders of an admin scope — tabs are built from the caller's role scopes) | `dashboard.html` |
-| `/admin` | Administration console (Users, User Detail, Create User, Create Sangha-Sevi, Password, Create Organization, Organizations, Assign Sakhas, Registration Approvals, Geo Approvals, Person Directory, Member Directory, Organization Hierarchy, Org Dashboard, Reference Data, Geography, System Settings tabs) | `admin.html` |
+| `/admin` | Administration console (Users, User Detail, Create User, Create Sangha-Sevi, Password, Create Organization, Organizations, Assign Sakhas, Registration Approvals, Geo Approvals, Person Directory, Member Directory, Organization Hierarchy, Org Dashboard, Reference Data, Geography, System Settings tabs; for `AUDIT_VIEW` holders the Audit & Diagnostics group: System Event Log `#auditEvents`, Live Change Markers `#liveMarkers`) | `admin.html` |
 | `/forgot-password` | **No standalone page by design** — the forgot/reset flow is inline on `/login` (`login.html`) | -- |
 | `/docs` | Swagger UI (OpenAPI) | auto-generated |
 | `/redoc` | ReDoc | auto-generated |
@@ -823,16 +847,17 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 5 | Claim Approval | 5 |
 | 5 | Administration | 28 (+4 Tier 6 credential endpoints = 32) |
 | 5 | Geo-Entry Approval | 4 |
-| 5 | Audit | 1 |
+| 5 | Audit | 5 |
 | 6 | Governance | 56 |
 | 6 | Membership Change Requests | 5 |
 | 6 | Correspondence Register | 19 |
 | 6 | Attendance | 20 |
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
-| **Total** | | **278** |
+| 6 | Live-refresh change feed | 1 |
+| **Total** | | **283** |
 
-(per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 1, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 8, registration 13.)
+(per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 8, registration 13.)
 
 The endpoint numbers in the tables above are stable identifiers, not path order: #1-#46 are the
 original Tier 0-4 set; #47-#137 were appended as Tier 5 endpoints landed. Tier 6 endpoints (sections 8b, 12c and the `T6` admin rows) are not numbered.

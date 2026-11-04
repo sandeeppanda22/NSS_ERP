@@ -224,6 +224,13 @@ both declared in `15_audit_trigger.sql`:
 Excluded *tables* still receive row-level rows in `system_event_log`, so trigger coverage of
 the schema remains complete — only their field-level diffs are suppressed.
 
+In addition, the audit trigger is not attached at all to three infrastructure tables (the
+`excluded_tables` array in `15_audit_trigger.sql`): `system_event_log` and `field_change_log`
+(the audit trail itself) and `live_change_marker` (owner decision 2026-11-03: the live-refresh
+change marker, one counter row per watched table bumped by a statement-level trigger on every
+write to that table; auditing it would add a second audit row to every business write and
+record no business event).
+
 Any further exclusion is an architectural decision and shall be recorded here. Exclusions
 must never be introduced silently in application code.
 

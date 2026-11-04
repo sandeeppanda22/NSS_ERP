@@ -61,7 +61,7 @@ psql -U postgres -d nss_erp -f database/scripts/01_extensions.sql
 ./database/scripts/03_validate.sh
 ```
 
-What the build does that is new since Tier 6: it creates **78 tables** and, on *every* run, applies a
+What the build does that is new since Tier 6: it creates **79 tables** and, on *every* run, applies a
 set of **idempotent patch files** (`run_sql`, not existence-gated — Advisory Board organization and
 role-permission rows, the organization singleton trigger, the Sakha-like org-type function, the Local
 Sakha ID allocator, the home-affiliation guard, the `registration_claim` legacy-member columns, the
@@ -206,10 +206,10 @@ python3 -m pytest tests/api/test_organization.py   # one file
 py -m pytest tests/ -v
 ```
 
-**4819 collected items** (`pytest --collect-only -qq`, 2026-11-03): `tests/api/` 2585 (37 files — router and
-integration coverage), `tests/db/` 372 (8 files — cross-module data integrity, credential/festival schema,
-organization singleton triggers, home-affiliation guard), `tests/security/` 1152 (17 files — auth-gating,
-401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 710 (33 files — Playwright browser tests plus
+**4905 collected items** (`pytest --collect-only -qq`, 2026-11-03): `tests/api/` 2631 (38 files — router and
+integration coverage), `tests/db/` 385 (9 files — cross-module data integrity, credential/festival schema,
+organization singleton triggers, home-affiliation guard, live-refresh change marker), `tests/security/` 1167 (18 files — auth-gating,
+401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 722 (34 files — Playwright browser tests plus
 source-parsing tests). Re-run `--collect-only -qq` for current numbers; this count drifts every session.
 See `tests/README.md` for the per-file inventory.
 
@@ -489,7 +489,7 @@ actually runs DDL/seed.
 
 ## Build Phases (execution order)
 
-The build script executes in this order (**78 tables**). All phases run within a
+The build script executes in this order (**79 tables**). All phases run within a
 single `02_build.sh` / `02_build.ps1` invocation; `render_build.sh` mirrors them for Render/Neon:
 
 | Phase | Module | What |
@@ -513,6 +513,7 @@ single `02_build.sh` / `02_build.ps1` invocation; `render_build.sh` mirrors them
 | 11e | Attendance DDL | 4 tables (`weekly_sangha_puja`, `weekly_sangha_puja_attendance`, `attendance_exception`, `attendance_review`) + live-register index patch |
 | 11f | Organization re-parent approval DDL | 2 tables (`organization_reparent_request`, `organization_reparent_step`) + step-role/step-order CHECK patch (Sakha President → leaving Anchalika/Zilla → destination Anchalika/Zilla → Kendra President) |
 | 11g | Assets & Property DDL | 7 tables (`property`, `asset`, `custodianship`, `property_statutory_record`, `maintenance_record`, `property_document`, `asset_document`) + idempotent guard triggers (`08_assets_property_guards.sql`) + idempotent custodian-must-be-physical function/trigger (`09_asset_custodian_org_type_function.sql`) + idempotent `10_assets_property_belongs_to_patch.sql` (nullable `belongs_to_organization_pk` + FK + index on `property`/`asset`, GDR-010 §2D) + idempotent `11_assets_property_acquisition_method_patch.sql` (nullable `acquisition_method_master_data_pk` + FK + index, GDR-010 §2E) + idempotent reference-data patch (`PROPERTY`/`ASSET` sequences, 7 master categories incl. `ACQUISITION_METHOD`, `DISPOSED`/`RETIRED` end reasons) + idempotent `12_assets_property_terminal_custody_patch.sql` (ENDs the ACTIVE custodianship of already DISPOSED/RETIRED records, GDR-010 §2F; after the reference data) and `trg_custodianship_terminal_guard` in `08_assets_property_guards.sql`; Phase 0 also runs the `ASSET_VIEW`/`ASSET_MANAGE` permissions patch (12 grants; Anchalika/Zilla view-only, Mahila none) and `06_assets_property_permissions_revoke_patch.sql` (soft-deletes the 4 grants the original 16-row patch created) (GDR-010) |
+| 11h | Live refresh DDL | 1 table (`live_change_marker` + sequence `live_change_seq`) + idempotent statement-level change-marker triggers on the watched tables (`12_live_refresh/02_live_change_triggers.sql`, every build) |
 | 12 | Grant Writer | `SELECT`/`INSERT`/`UPDATE` for `nss_db_writer` on every `nss` table |
 | 13 | Admin Bootstrap | Seed NSSAdmin user account (runtime bootstrap via `bootstrap_admin.py`) |
 | 13b | Geo Attribution Backfill | `UPDATE`s `city_village`/`postal_code`/`post_office.submitted_by_person_pk` to NSS Admin's person_pk (`P1`) for every row where it's still `NULL` and `submitted_by_sangha_sevi_pk` is also `NULL` (i.e. the bulk-reference-seeded rows from Phase 2, which had no app-level submitter) — attribution consistency, 2026-10-21. Must run after Phase 13 since `P1`'s `person_pk` doesn't exist before it (Phase 2's bulk geo seed runs 11 phases earlier). Idempotent (only touches `NULL` rows); tolerates a missing `submitted_by_person_pk` column (un-rebuilt environment) as `[SKIP]`, not `[FAIL]` |
@@ -572,7 +573,7 @@ test does.
 The register polls `/attendance/pujas/{pk}/live` (2 s while active). That route has its own per-user limit
 (`LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`, counted per signed-in user), so markers on one WiFi no longer
 share the per-IP budget. A 429 on it now means one account is polling more than ~120 times a minute (many tabs?).
-Other endpoints still use the global per-IP `RATE_LIMIT` (`300/minute`); raise it in `api/.env` for local
+The live-refresh feed `/live/changes` likewise has its own per-user limit (`LIVE_CHANGES_RATE_LIMIT`, `60/minute`). Other endpoints still use the global per-IP `RATE_LIMIT` (`300/minute`); raise it in `api/.env` for local
 multi-user testing. Polling is adaptive (2 s active, 10 s after a quiet minute, paused in hidden tabs, back-off on errors).
 
 **`[WARN]` in `03_validate`**
@@ -591,6 +592,7 @@ claims whose legacy flag disagrees with the stored number. Diagnostic SELECTs ar
   President chain (007), Sakha Asana is a Sakha for all organizational purposes (008), legacy members supply
   their Local Sakha Number while all others are auto-numbered (009). The repo holds no separate NSS Governing Body
   minutes; add their reference to each record if they exist. The code already implements them.
+- **Live refresh (2026-11-03):** pages refresh themselves from one `GET /api/v1/live/changes` poll per open page (per-user `LIVE_CHANGES_RATE_LIMIT`, default `60/minute`; table-level, no data, driven by the `live_change_marker` table that the build creates and triggers keep current; 5 s active / 15 s idle; a busy form/modal gets a "new updates - Refresh" banner instead of a reload). Nothing needed from the developer; if a page shows HTTP 429 from `/live/changes`, raise that variable in `api/.env`. Existing databases get triggers for newly watched tables (batch 2: Users, Organizations, directories, reference data, geography, settings, member dashboard) by re-running `12_live_refresh/02_live_change_triggers.sql` (build Phase 11h runs it every build). Not yet exercised against a DB or browser.
 - **Live attendance register rate limiting is done:** the per-user limit (fix 1: `/live` is limited per signed-in
   user, `LIVE_ATTENDANCE_RATE_LIMIT`, default `120/minute`) and the adaptive poll cadence (fix 2) are both in place.
 - **Advisory Board meetings and decisions** inside Programmes & Events are not specified yet.
