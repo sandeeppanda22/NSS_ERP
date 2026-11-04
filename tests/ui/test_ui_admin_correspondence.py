@@ -908,7 +908,7 @@ def test_load_corr_history_hits_the_history_endpoint(admin_js: str):
     fn = re.search(r"async loadCorrHistory\(\)\s*\{.*?\n        \},", admin_js, re.DOTALL)
     assert fn, "loadCorrHistory() not found."
     assert "/history`" in fn.group(0)
-    assert "this.corrHistory = await res.json();" in fn.group(0)
+    assert "this.corrHistory = hist;" in fn.group(0)  # stale-guarded: parsed first, assigned only if still the open record
 
 
 # ── No dangling Alpine bindings ─────────────────────────────────────────

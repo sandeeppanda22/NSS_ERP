@@ -73,7 +73,7 @@ class TestWiring:
 
     def test_mixin_is_installed_into_the_admin_component(self):
         assert "NSSAssetsProperty.install(NSSAttendanceRegister.install({" in ADMIN_JS
-        assert ADMIN_JS.rstrip().endswith("}));\n}")
+        assert ADMIN_JS.rstrip().endswith("}))), LIVE_REFRESH_CONFIG);\n}")
         assert "window.NSSAssetsProperty" in AP_JS
 
     def test_install_uses_descriptors_not_spread(self):
@@ -199,12 +199,12 @@ class TestEndpoints:
     def test_statutory_records_are_property_only(self):
         # there is no asset route; the markup section and loader are property-gated
         assert 'x-show="apIsProperty"' in _panel()
-        assert 'if (kind === "properties") this.apLoadStatutory();' in AP_JS
+        assert 'if (this.apKind === "properties") this.apLoadStatutory();' in AP_JS
         assert "/assets/${pk}/statutory" not in AP_JS
 
     def test_list_filters_use_the_router_query_names(self):
         for name in ('"q"', '"type_code"', '"status"', '"custodian_organization_pk"', "page_size"):
-            assert name in AP_JS.split("async apLoadList()")[1].split("apApplyFilters()")[0]
+            assert name in AP_JS.split("async apLoadList(opts = {})")[1].split("apApplyFilters()")[0]
         for param in ("q: str | None", "type_code: str | None", 'alias="status"', "custodian_organization_pk: UUID | None"):
             assert param in ROUTER
 
@@ -485,7 +485,7 @@ class TestCustodianPickersArePhysicalOnly:
         assert 'x-show="apCustodianFilter.selected"' in panel[panel.index('x-model="apIncludeSub"') - 300:panel.index('x-model="apIncludeSub"')]
         assert 'if (this.apIncludeSub) params.set("include_sub_organizations", "true");' in AP_JS
         # only inside the custodian-filter branch
-        load = _js_block(AP_JS, "async apLoadList() {", "apApplyFilters() {")
+        load = _js_block(AP_JS, "async apLoadList(opts = {}) {", "apApplyFilters() {")
         assert load.index("if (this.apCustodianFilter.selected)") < load.index("include_sub_organizations")
         assert "apIncludeSub = false" in AP_JS
 
@@ -525,7 +525,7 @@ class TestBelongsToUi:
         assert "belongsTo: r.belongs_to_organization_pk" in AP_JS
 
     def test_list_filter_uses_the_router_query_name_and_resets(self):
-        load = _js_block(AP_JS, "async apLoadList() {", "apApplyFilters() {")
+        load = _js_block(AP_JS, "async apLoadList(opts = {}) {", "apApplyFilters() {")
         assert 'params.set("belongs_to_organization_pk", this.apBelongsFilter.selected.organization_pk)' in load
         assert "belongs_to_organization_pk: UUID | None" in ROUTER
         assert AP_JS.count("this.apBelongsFilter = emptyPicker();") >= 3     # reset-all, clear-filters, clear-picker
@@ -593,7 +593,7 @@ class TestAcquisitionMethodUi:
         assert "acquisition_method_code: r.acquisition_method_code || \"\"" in AP_JS         # edit form prefill
 
     def test_list_filter_uses_the_router_query_name_and_resets(self):
-        load = _js_block(AP_JS, "async apLoadList() {", "apApplyFilters() {")
+        load = _js_block(AP_JS, "async apLoadList(opts = {}) {", "apApplyFilters() {")
         assert 'params.set("acquisition_method_code", this.apAcquisitionFilter)' in load
         assert 'x-model="apAcquisitionFilter"' in _panel()
         assert "acquisition_method_code: str | None" in ROUTER
