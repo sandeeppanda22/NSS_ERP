@@ -1611,7 +1611,7 @@
                              Transfer / MBR-049 Apply for Darshak) — opens
                              the shared Change Request modal below. -->
                         <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                            <button x-show="member?.membership_type_code !== 'PROBATIONARY'" @click="applyDarshak()" class="nss-hover-fade" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                            <button x-show="member?.membership_type_code !== 'PROBATIONARY'" @click="applyDarshak()" class="nss-hover-fade inline-flex" style="align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/></svg>
                                 Apply for Darshak (at another Sangha)
                             </button>
@@ -1834,7 +1834,7 @@
                                     </template>
 
                                     <!-- Graph loading -->
-                                    <div x-show="graphLoading" style="display:flex;justify-content:center;padding:5rem 0;">
+                                    <div class="flex" x-show="graphLoading" style="justify-content:center;padding:5rem 0;">
                                         <div class="skeleton skeleton-line w-60" style="margin:0 auto;"></div>
                                     </div>
 
@@ -3252,7 +3252,7 @@
                                     </div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="findOrgLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 1.5rem;" x-show="findOrgLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="findOrgError" x-text="findOrgError"></div>
@@ -3338,7 +3338,7 @@
                                     </div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="memberDirLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 1.5rem;" x-show="memberDirLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="memberDirError" x-text="memberDirError"></div>
@@ -3431,7 +3431,7 @@
 
                                 <div class="data-card" style="margin-bottom:1rem;">
                                     <div class="data-card-body">
-                                        <div style="display:flex; align-items:center; justify-content:center; padding:1rem;" x-show="myAttStatsLoading">
+                                        <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="myAttStatsLoading">
                                             <div class="spinner"></div>
                                         </div>
                                         <div class="alert-msg alert-error" x-show="myAttStatsError" x-text="myAttStatsError"></div>
@@ -3455,7 +3455,7 @@
                                         <h2 class="data-card-title">Puja History</h2>
                                     </div>
                                     <div class="data-card-body">
-                                        <div style="display:flex; align-items:center; justify-content:center; padding:1rem;" x-show="myAttRecordsLoading">
+                                        <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="myAttRecordsLoading">
                                             <div class="spinner"></div>
                                         </div>
                                         <div class="alert-msg alert-error" x-show="myAttRecordsError" x-text="myAttRecordsError"></div>
@@ -3551,7 +3551,7 @@
                                     </div>
                                 </div>
                                 <div class="data-card-body">
-                                    <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attRegPujasLoading">
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attRegPujasLoading">
                                         <div class="spinner"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="attRegPujasError" x-text="attRegPujasError"></div>
@@ -3592,7 +3592,7 @@
                                         <button type="button" class="btn-action" @click="closeMarkAttendance()">Done</button>
                                     </div>
                                     <div class="data-card-body">
-                                        <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
+                                        <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
                                             <div class="spinner"></div>
                                         </div>
                                         <div class="alert-msg alert-error" x-show="attMarkError" x-text="attMarkError"></div>
@@ -3782,7 +3782,7 @@
                         <h1 class="text-2xl font-bold mb-1">Advisory Board</h1>
                         <p class="text-sm text-base-content/60 mb-6">Sakha representatives, vacancies, office bearers and acting cover.</p>
 
-                        <div style="display: flex; align-items: center; justify-content: center; padding: 3rem 0;" x-show="adbDash.loading && !adbDash.loaded">
+                        <div class="flex" style="align-items: center; justify-content: center; padding: 3rem 0;" x-show="adbDash.loading && !adbDash.loaded">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="adbDash.error" x-text="adbDash.error"></div>
@@ -4312,7 +4312,7 @@
                             </div>
                         </div>
 
-                        <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="govLoading">
+                        <div class="flex" style="align-items: center; justify-content: center; padding: 1.5rem;" x-show="govLoading">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="govError" x-text="govError"></div>
@@ -4560,7 +4560,7 @@
 
                             <!-- Org-Level Stats Grid (hidden for roles with no stats source,
                                  e.g. NSS_ERP_ADVISORY_BOARD_ADMIN — no adminStats entry) -->
-                            <div x-show="adminStats[at.roleCode]" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-top:1rem;">
+                            <div class="grid" x-show="adminStats[at.roleCode]" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-top:1rem;">
                                 <div style="background:#eef2ff;border-radius:0.75rem;padding:1rem;text-align:center;">
                                     <div style="font-size:1.75rem;font-weight:700;color:#4338ca;" x-text="adminStats[at.roleCode]?.members ?? '—'"></div>
                                     <div style="font-size:0.7rem;color:#6b7280;margin-top:0.25rem;">Active Members</div>
@@ -4634,7 +4634,7 @@
                                     </template>
                                     <!-- Browse Families button (only for org-level roles) -->
                                     <template x-if="adminTabHasFamilyBrowser()">
-                                        <button @click="openOrgFamilyBrowser()" style="display:inline-flex;flex-direction:row;align-items:center;gap:0.35rem;padding:0.5rem 1rem;background:#fff7ed;border-radius:6px;font-size:0.8rem;font-weight:500;color:#c2410c;text-decoration:none;border:1px solid #fed7aa;cursor:pointer;white-space:nowrap;" x-show="!orgFamilyBrowser">
+                                        <button class="inline-flex" @click="openOrgFamilyBrowser()" style="flex-direction:row;align-items:center;gap:0.35rem;padding:0.5rem 1rem;background:#fff7ed;border-radius:6px;font-size:0.8rem;font-weight:500;color:#c2410c;text-decoration:none;border:1px solid #fed7aa;cursor:pointer;white-space:nowrap;" x-show="!orgFamilyBrowser">
                                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
                                             <span>Browse Families</span>
                                         </button>
@@ -4765,7 +4765,7 @@
                                                 :disabled="memberSearchLoading"
                                                 style="padding:0.5rem 1rem;background:#0D7377;color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:500;cursor:pointer;white-space:nowrap;">
                                             <span x-show="!memberSearchLoading">Search</span>
-                                            <span x-show="memberSearchLoading" style="display:inline-flex;align-items:center;gap:0.25rem;">
+                                            <span class="inline-flex" x-show="memberSearchLoading" style="align-items:center;gap:0.25rem;">
                                                 <svg style="width:14px;height:14px;animation:spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M6.34 6.34L3.51 3.51"/></svg>
                                                 Searching…
                                             </span>
@@ -5008,7 +5008,7 @@
                                                             </div>
 
                                                             <!-- Graph loading -->
-                                                            <div x-show="orgGraphLoading" style="display:flex;justify-content:center;padding:5rem 0;">
+                                                            <div class="flex" x-show="orgGraphLoading" style="justify-content:center;padding:5rem 0;">
                                                                 <div class="skeleton skeleton-line w-60" style="margin:0 auto;"></div>
                                                             </div>
 
@@ -5177,7 +5177,7 @@
                     <template x-if="tab === 'orgDashboard' && viewingOrgPk">
                     <div x-data="orgDashboardTab()" x-init="init(viewingOrgPk)" x-cloak>
 
-                        <div style="display: flex; align-items: center; justify-content: center; padding: 3rem 0;" x-show="loading">
+                        <div class="flex" style="align-items: center; justify-content: center; padding: 3rem 0;" x-show="loading">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="!loading && error" x-text="error"></div>

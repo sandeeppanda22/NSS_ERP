@@ -1257,7 +1257,7 @@
                                         </template>
 
                                         <!-- Action buttons -->
-                                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;" x-show="canManageUsers && selectedUser.account_status !== 'INACTIVE'">
+                                        <div class="flex" style="gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;" x-show="canManageUsers && selectedUser.account_status !== 'INACTIVE'">
                                             <template x-if="selectedUser.user_account_pk !== currentUser?.user_account_pk">
                                                 <template x-if="selectedUser.account_status === 'LOCKED' || selectedUser.account_status === 'PENDING_APPROVAL'">
                                                     <button class="btn-action primary"
@@ -2524,7 +2524,7 @@
                                 </div>
 
                                 <!-- Loading -->
-                                <div x-show="orgsLoading" style="display: flex; justify-content: center; padding: 2rem 0;">
+                                <div class="flex" x-show="orgsLoading" style="justify-content: center; padding: 2rem 0;">
                                     <div class="spinner"></div>
                                 </div>
 
@@ -2807,7 +2807,7 @@
                                 <div class="data-card-body">
 
                                     <!-- Loading -->
-                                    <div x-show="claimsLoading" style="display: flex; justify-content: center; padding: 2rem 0;">
+                                    <div class="flex" x-show="claimsLoading" style="justify-content: center; padding: 2rem 0;">
                                         <div class="spinner"></div>
                                     </div>
 
@@ -3172,7 +3172,7 @@
                                 </div>
                                 <div class="data-card-body">
 
-                                    <div x-show="changeRequestsLoading" style="display: flex; justify-content: center; padding: 2rem 0;">
+                                    <div class="flex" x-show="changeRequestsLoading" style="justify-content: center; padding: 2rem 0;">
                                         <div class="spinner"></div>
                                     </div>
 
@@ -3557,7 +3557,7 @@
                                     <span class="sortable" @click="sortPersonDir('email')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'email')">Email<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'email')"></span></span>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="pdLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="pdLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="pdError" x-text="pdError"></div>
@@ -3717,7 +3717,7 @@
                                     <span class="sortable" @click="sortMemberDir('joining_date')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'joining_date')">Joined<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'joining_date')"></span></span>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="mdLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="mdLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="mdError" x-text="mdError"></div>
@@ -3907,7 +3907,7 @@
                                 <span style="font-size: 0.75rem; color: #6b7280;" x-text="orgLevelNodes().length + (orgDrillPath.length ? ' under ' + orgDrillPath[orgDrillPath.length-1].organization_name : ' at top level')"></span>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="orgTreeLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="orgTreeLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="orgTreeError" x-text="orgTreeError"></div>
@@ -3985,7 +3985,7 @@
                                     then the Kendra President) and applies only once the
                                     final approval is given.
                                 </p>
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="assignSakhaLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="assignSakhaLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="assignSakhaError" x-text="assignSakhaError"></div>
@@ -4071,7 +4071,7 @@
                                 </div>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="rdLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="rdLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="rdError" x-text="rdError"></div>
@@ -4087,7 +4087,7 @@
                                             </template>
                                         </select>
                                     </div>
-                                    <div style="display: flex; justify-content: center; padding: 1rem;" x-show="rdValuesLoading"><div class="spinner-sm"></div></div>
+                                    <div class="flex" style="justify-content: center; padding: 1rem;" x-show="rdValuesLoading"><div class="spinner-sm"></div></div>
                                     <template x-if="rdSelectedCategory && !rdValuesLoading">
                                         <div>
                                             <!-- Client-side: the category's values arrive in one response. -->
@@ -4121,7 +4121,7 @@
 
                                 <!-- Documents -->
                                 <div x-show="rdView === 'documents'">
-                                    <div style="display: flex; justify-content: center; padding: 1rem;" x-show="rdDocsLoading"><div class="spinner-sm"></div></div>
+                                    <div class="flex" style="justify-content: center; padding: 1rem;" x-show="rdDocsLoading"><div class="spinner-sm"></div></div>
                                     <div x-show="!rdDocsLoading && rdDocuments.length === 0" style="padding: 1rem; color: #6b7280;">No documents found.</div>
                                     <div class="nss-dir-sortbar" x-show="!rdDocsLoading && rdDocuments.length > 0">
                                         <span class="sortbar-label">Sort by</span>
@@ -4158,7 +4158,7 @@
                                 <h2 class="data-card-title">Geography</h2>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="geoLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="geoLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="geoError" x-text="geoError"></div>
@@ -4207,7 +4207,7 @@
                                         <!-- Active scope, so the three panels below are never
                                              ambiguous about what they are currently showing. Each
                                              chip drops you back to that level. -->
-                                        <div x-show="geoCountryPk" style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.85rem; font-size: 0.75rem; color: #475569;">
+                                        <div class="flex" x-show="geoCountryPk" style="align-items: center; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.85rem; font-size: 0.75rem; color: #475569;">
                                             <span style="color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; font-size: 0.68rem;">Showing</span>
                                             <span x-text="geoScopeLabel('country')" style="background: #f1f5f9; padding: 0.1rem 0.45rem; border-radius: 0.5rem;"></span>
                                             <template x-if="geoStatePk">
@@ -4311,7 +4311,7 @@
                                                 </div>
                                                 <div style="padding: 0.4rem 0.1rem; font-size: 0.72rem; color: #0369a1;">
                                                     <span x-show="!geoPostalCodePk">Click a PIN to narrow the other panels.</span>
-                                                    <span x-show="geoPostalCodePk" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                                                    <span class="inline-flex" x-show="geoPostalCodePk" style="align-items: center; gap: 0.4rem;">
                                                         <span>Narrowing Cities/Villages &amp; Sakha Branches to this PIN.</span>
                                                         <a href="#" @click.prevent="geoSelectPostalCode('')" style="color: #0ea5e9; text-decoration: underline;">Clear</a>
                                                     </span>
@@ -4416,7 +4416,7 @@
                                     </div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="geoEntriesLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="geoEntriesLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="geoEntriesError" x-text="geoEntriesError"></div>
@@ -4502,7 +4502,7 @@
                                 <button class="btn-action primary" x-show="canManageSettings" @click="openAddSetting()">+ Add Setting</button>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="ssSettingsLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="ssSettingsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="ssError" x-text="ssError"></div>
@@ -4567,7 +4567,7 @@
                                     validity windows and renewal deadlines (e.g. Dola Purnima — MBR-011A, MBR-029).
                                     A credential cannot be issued for a year with no confirmed date on file.
                                 </p>
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="fcLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="fcLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="fcError" x-text="fcError"></div>
@@ -4647,7 +4647,7 @@
                                     </div>
                                 </template>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="govCatalogLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="govCatalogLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="govCatalogError" x-text="govCatalogError"></div>
@@ -4772,7 +4772,7 @@
                                 </div>
                             </div>
                             <div class="data-card-body">
-                                <div x-show="govBodyForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                <div class="flex" x-show="govBodyForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                     <div>
                                         <label class="form-label">Body Type</label>
                                         <select class="form-input" style="max-width:14rem;" x-model="govBodyForm.body_type_master_pk" @change="onGovBodyTypeChange()">
@@ -4839,7 +4839,7 @@
                                     <div class="alert-msg alert-error" style="margin:0;" x-show="govBodyForm.error" x-text="govBodyForm.error"></div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="govBodiesLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="govBodiesLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="govBodiesError" x-text="govBodiesError"></div>
@@ -4918,7 +4918,7 @@
                                     <div x-show="!govMissingNominationsLoading && !govMissingNominationsError && govMissingNominations.length === 0" style="color:#166534; font-size:0.8rem;">
                                         Every active Sakha Sangha has nominated a representative.
                                     </div>
-                                    <div x-show="!govMissingNominationsLoading && govMissingNominations.length > 0" style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+                                    <div class="flex" x-show="!govMissingNominationsLoading && govMissingNominations.length > 0" style="flex-wrap:wrap; gap:0.4rem;">
                                         <template x-for="s in govMissingNominations" :key="s.organization_pk">
                                             <span class="badge badge-xs" style="background:#fed7aa; color:#9a3412;"
                                                   :title="s.organization_code"
@@ -4932,8 +4932,8 @@
                                 <!-- Seat-fill summary strip — hidden for a Sakha-scoped admin's
                                      nominate flow (isNominationBody): per-Sakha nomination
                                      occupancy is a single yes/no, not a seat count worth showing. -->
-                                <div x-show="govSelectedBodyPk && !govAssignmentsLoading && !govAssignmentsError && !((govAssignableBodies.find(b => b.body_master_pk === govSelectedBodyPk) || {}).isNominationBody)" x-cloak
-                                     style="display:flex; align-items:center; gap:0.9rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#faf7f3; border:1px solid #efe6da; border-radius:0.55rem;">
+                                <div class="flex" x-show="govSelectedBodyPk && !govAssignmentsLoading && !govAssignmentsError && !((govAssignableBodies.find(b => b.body_master_pk === govSelectedBodyPk) || {}).isNominationBody)" x-cloak
+                                     style="align-items:center; gap:0.9rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#faf7f3; border:1px solid #efe6da; border-radius:0.55rem;">
                                     <div style="flex:1; min-width:0;">
                                         <div style="font-size:0.72rem; letter-spacing:0.02em; text-transform:uppercase; color:#9a7b55; font-weight:600;">Seats filled</div>
                                         <div style="font-size:0.9rem; color:#1f2937; font-weight:600;">
@@ -4954,8 +4954,8 @@
                                      POST /results/{pk}/apply the Elections tab uses; also handles
                                      replacing an already-filled seat (e.g. updating the Advisory
                                      Board's President/Secretary) by ending the prior holder first. -->
-                                <div x-show="canManageGovernance && govSelectedBodyPk && govAssignFromResults.length > 0" x-cloak
-                                     style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:0.55rem;">
+                                <div class="flex" x-show="canManageGovernance && govSelectedBodyPk && govAssignFromResults.length > 0" x-cloak
+                                     style="flex-direction:column; gap:0.4rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:0.55rem;">
                                     <div style="font-size:0.72rem; letter-spacing:0.02em; text-transform:uppercase; color:#075985; font-weight:600;">
                                         Assign from a declared election result
                                     </div>
@@ -4971,7 +4971,7 @@
                                     </template>
                                 </div>
 
-                                <div x-show="govAssignForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem; position:relative;">
+                                <div class="flex" x-show="govAssignForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem; position:relative;">
                                     <div>
                                         <label class="form-label">Position</label>
                                         <select class="form-input" style="max-width:14rem;" x-model="govAssignForm.position_master_pk" @change="onGovPositionChange('govAssignForm')">
@@ -5003,7 +5003,7 @@
                                     <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govAssignForm.error" x-text="govAssignForm.error"></div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="govAssignmentsLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="govAssignmentsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="govAssignmentsError" x-text="govAssignmentsError"></div>
@@ -5028,7 +5028,7 @@
                                                      Sakha(s) and locked for a single-Sakha-scoped admin
                                                      (govSakhaFilterLocked). Client-side filter over the
                                                      already-loaded rows. -->
-                                                <div x-show="govShowSakhaFilter" x-cloak style="display:flex; align-items:center; gap:0.4rem;">
+                                                <div class="flex" x-show="govShowSakhaFilter" x-cloak style="align-items:center; gap:0.4rem;">
                                                     <label class="form-label" style="margin:0;">Sakha</label>
                                                     <select class="form-input" style="max-width:14rem;" x-model="govSakhaFilter"
                                                             :disabled="govSakhaFilterLocked" @change="onGovSakhaFilterChange()">
@@ -5124,7 +5124,7 @@
                                             </button>
                                         </div>
 
-                                        <div x-show="govActingForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-top:0.85rem; margin-bottom:0.25rem; padding:0.85rem; background:#fff; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                        <div class="flex" x-show="govActingForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-top:0.85rem; margin-bottom:0.25rem; padding:0.85rem; background:#fff; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                             <div>
                                                 <label class="form-label">Position</label>
                                                 <select class="form-input" style="max-width:14rem;" x-model="govActingForm.position_master_pk" @change="onGovPositionChange('govActingForm')">
@@ -5163,7 +5163,7 @@
                                             <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govActingForm.error" x-text="govActingForm.error"></div>
                                         </div>
 
-                                        <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="govActingLoading">
+                                        <div class="flex" style="align-items: center; justify-content: center; padding: 1.5rem;" x-show="govActingLoading">
                                             <div class="spinner"></div>
                                         </div>
                                         <div class="alert-msg alert-error" x-show="govActingError" x-text="govActingError"></div>
@@ -5227,7 +5227,7 @@
                             <div class="data-card-body">
 
                                 <!-- New-election inline form -->
-                                <div x-show="govElectionForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                <div class="flex" x-show="govElectionForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                     <div style="min-width:16rem;">
                                         <label class="form-label">Governance Body</label>
                                         <select class="form-input" x-model="govElectionForm.body_master_pk">
@@ -5278,7 +5278,7 @@
                                 </div>
 
                                 <!-- Elections list -->
-                                <div style="display:flex; align-items:center; justify-content:center; padding:2rem;" x-show="govElectionsLoading"><div class="spinner"></div></div>
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="govElectionsLoading"><div class="spinner"></div></div>
                                 <div class="alert-msg alert-error" x-show="govElectionsError" x-text="govElectionsError"></div>
 
                                 <template x-if="!govElectionsLoading && !govElectionsError && !govSelectedElectionPk">
@@ -5319,7 +5319,7 @@
                                             the post Uncontested. Voting is skipped entirely (GOV-BR-042).
                                         </div>
 
-                                        <div x-show="canManageGovernance" style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:1.2rem;">
+                                        <div class="flex" x-show="canManageGovernance" style="align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:1.2rem;">
                                             <span style="font-size:0.78rem; color:#6b7280;">Advance status:</span>
                                             <template x-for="s in govNextStatuses(govSelectedElection.election_status, govSelectedElection.election_type)" :key="s">
                                                 <button class="btn-action" :disabled="govElectionBusy" @click="changeGovElectionStatus(s)" x-text="s"></button>
@@ -5337,7 +5337,7 @@
                                                         x-text="govNominationForm.show ? 'Cancel' : '+ Add Nomination'"></button>
                                             </div>
                                             <div class="data-card-body">
-                                                <div x-show="govNominationForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                                <div class="flex" x-show="govNominationForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                                     <div><label class="form-label">Position</label>
                                                         <select class="form-input" style="max-width:14rem;" x-model="govNominationForm.position_master_pk">
                                                             <option value="">Select…</option>
@@ -5377,7 +5377,7 @@
                                                     <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govNominationForm.error" x-text="govNominationForm.error"></div>
                                                 </div>
 
-                                                <div style="display:flex; justify-content:center; padding:1rem;" x-show="govNominationsLoading"><div class="spinner"></div></div>
+                                                <div class="flex" style="justify-content:center; padding:1rem;" x-show="govNominationsLoading"><div class="spinner"></div></div>
                                                 <div class="data-rows" x-show="!govNominationsLoading">
                                                     <div x-show="govNominations.length === 0" style="padding:0.8rem; color:#6b7280;">No nominations yet.</div>
                                                     <template x-for="n in govNominations" :key="n.election_nomination_pk">
@@ -5473,7 +5473,7 @@
                                                 <button class="btn-action" @click="loadGovTally()">Refresh</button>
                                             </div>
                                             <div class="data-card-body">
-                                                <div style="display:flex; justify-content:center; padding:1rem;" x-show="govTallyLoading"><div class="spinner"></div></div>
+                                                <div class="flex" style="justify-content:center; padding:1rem;" x-show="govTallyLoading"><div class="spinner"></div></div>
                                                 <div class="alert-msg alert-error" x-show="govTallyError" x-text="govTallyError"></div>
                                                 <div class="data-rows" x-show="!govTallyLoading && !govTallyError">
                                                     <div x-show="govTally.length === 0" style="padding:0.8rem; color:#6b7280;">No votes tallied yet.</div>
@@ -5499,7 +5499,7 @@
                                                         x-text="govResultForm.show ? 'Cancel' : '+ Declare Result'"></button>
                                             </div>
                                             <div class="data-card-body">
-                                                <div x-show="govResultForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                                <div class="flex" x-show="govResultForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                                     <div><label class="form-label">Position</label>
                                                         <select class="form-input" style="max-width:14rem;" x-model="govResultForm.position_master_pk" @change="govResultForm.winning_nomination_pk = ''">
                                                             <option value="">Select…</option>
@@ -5530,7 +5530,7 @@
                                                     <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govResultForm.error" x-text="govResultForm.error"></div>
                                                 </div>
 
-                                                <div style="display:flex; justify-content:center; padding:1rem;" x-show="govResultsLoading"><div class="spinner"></div></div>
+                                                <div class="flex" style="justify-content:center; padding:1rem;" x-show="govResultsLoading"><div class="spinner"></div></div>
                                                 <div class="data-rows" x-show="!govResultsLoading">
                                                     <div x-show="govResults.length === 0" style="padding:0.8rem; color:#6b7280;">No results declared yet.</div>
                                                     <template x-for="r in govResults" :key="r.election_result_pk">
@@ -5663,7 +5663,7 @@
                                     </button>
                                 </div>
 
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attPujasLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attPujasLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attPujasError" x-text="attPujasError"></div>
@@ -5715,7 +5715,7 @@
                                     <button class="btn-action" @click="closeMarkAttendance()">Done</button>
                                 </div>
                                 <div class="data-card-body">
-                                    <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
                                         <div class="spinner"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="attMarkError" x-text="attMarkError"></div>
@@ -5982,7 +5982,7 @@
                                 </select>
                             </div>
                             <div class="data-card-body">
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attReviewsLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attReviewsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attReviewsError" x-text="attReviewsError"></div>
@@ -6061,7 +6061,7 @@
                                 <h2 class="data-card-title">Consecutive-Absence Watch List</h2>
                             </div>
                             <div class="data-card-body">
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attWatchListLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attWatchListLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attWatchListError" x-text="attWatchListError"></div>
@@ -6098,7 +6098,7 @@
                                 </select>
                             </div>
                             <div class="data-card-body">
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1rem;" x-show="attOrgStatsLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="attOrgStatsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attOrgStatsError" x-text="attOrgStatsError"></div>
@@ -6130,7 +6130,7 @@
                                         </template>
                                     </div>
                                 </div>
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1rem;" x-show="attMemberStatsLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="attMemberStatsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attMemberStatsError" x-text="attMemberStatsError"></div>
@@ -6813,7 +6813,7 @@
                                     </div>
 
 
-                                    <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="corrLoading">
+                                    <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="corrLoading">
                                         <div class="spinner"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="corrError" x-text="corrError"></div>
@@ -6862,7 +6862,7 @@
                         </div>
 
                         <!-- ── Detail ───────────────────────────── -->
-                        <div x-show="corrDetailLoading" style="display:flex; justify-content:center; padding:2rem 0;">
+                        <div class="flex" x-show="corrDetailLoading" style="justify-content:center; padding:2rem 0;">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="corrDetailError" x-text="corrDetailError"></div>
@@ -7084,7 +7084,7 @@
                                             <div class="alert-msg alert-error span-all" style="margin:0;" x-show="corrDocumentForm.error" x-text="corrDocumentForm.error"></div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="corrDocumentsLoading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="corrDocumentsLoading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="corrDocumentsError" x-text="corrDocumentsError"></div>
                                         <p class="form-hint" x-show="!corrDocumentsLoading && corrDocuments.length === 0">No documents attached.</p>
                                         <div class="data-rows" x-show="corrDocuments.length > 0">
@@ -7131,7 +7131,7 @@
                                             <div class="alert-msg alert-error span-all" style="margin:0;" x-show="corrFinanceForm.error" x-text="corrFinanceForm.error"></div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="corrFinanceRefsLoading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="corrFinanceRefsLoading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="corrFinanceRefsError" x-text="corrFinanceRefsError"></div>
                                         <p class="form-hint" x-show="!corrFinanceRefsLoading && corrFinanceRefs.length === 0">No finance references.</p>
                                         <div class="data-rows" x-show="corrFinanceRefs.length > 0">
@@ -7161,7 +7161,7 @@
                                     <div class="form-section">
                                         <h4 class="form-section-title">History</h4>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="corrHistoryLoading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="corrHistoryLoading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="corrHistoryError" x-text="corrHistoryError"></div>
 
                                         <template x-if="!corrHistoryLoading && (corrHistory.ancestors.length > 0 || corrHistory.descendants.length > 0)">
@@ -7402,7 +7402,7 @@
                                             Showing records held by this organization.
                                             <button type="button" class="link-action" @click="apClearCustodianFilter()">Clear</button>
                                         </p>
-                                        <label class="form-hint" style="display:flex; align-items:center; gap:0.4rem;" x-show="apCustodianFilter.selected">
+                                        <label class="form-hint flex" style="align-items:center; gap:0.4rem;" x-show="apCustodianFilter.selected">
                                             <input type="checkbox" x-model="apIncludeSub" @change="apApplyFilters()">
                                             Include sub-organizations (everything held beneath the selected organization)
                                         </label>
@@ -7430,7 +7430,7 @@
                                     </div>
                                 </div>
 
-                                <div style="display:flex; align-items:center; justify-content:center; padding:2rem;" x-show="apLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="apLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="apError" x-text="apError"></div>
@@ -7485,7 +7485,7 @@
                         </div>
 
                         <!-- ── Detail ──────────────────────────────── -->
-                        <div x-show="!apForm.show && apDetailLoading" style="display:flex; justify-content:center; padding:2rem 0;">
+                        <div class="flex" x-show="!apForm.show && apDetailLoading" style="justify-content:center; padding:2rem 0;">
                             <div class="spinner"></div>
                         </div>
                         <div x-show="!apForm.show && apDetailError">
@@ -7624,7 +7624,7 @@
                                             </div>
                                         </template>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.custody.loading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.custody.loading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="apSub.custody.error" x-text="apSub.custody.error"></div>
                                         <p class="form-hint" x-show="!apSub.custody.loading && !apSub.custody.error && apSub.custody.items.length === 0">No custodian has been assigned yet.</p>
                                         <div class="data-rows" x-show="apSub.custody.items.length > 0">
@@ -7679,7 +7679,7 @@
                                             </div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.maintenance.loading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.maintenance.loading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="apSub.maintenance.error" x-text="apSub.maintenance.error"></div>
                                         <p class="form-hint" x-show="!apSub.maintenance.loading && !apSub.maintenance.error && apSub.maintenance.items.length === 0">No maintenance recorded.</p>
                                         <div class="data-rows" x-show="apSub.maintenance.items.length > 0">
@@ -7738,7 +7738,7 @@
                                             </div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.statutory.loading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.statutory.loading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="apSub.statutory.error" x-text="apSub.statutory.error"></div>
                                         <p class="form-hint" x-show="!apSub.statutory.loading && !apSub.statutory.error && apSub.statutory.items.length === 0">No statutory records.</p>
                                         <div class="data-rows" x-show="apSub.statutory.items.length > 0">
@@ -7800,7 +7800,7 @@
                                             </div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="apSub.documents.loading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.documents.loading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="apSub.documents.error" x-text="apSub.documents.error"></div>
                                         <p class="form-hint" x-show="!apSub.documents.loading && !apSub.documents.error && apSub.documents.items.length === 0">No documents attached.</p>
                                         <div class="data-rows" x-show="apSub.documents.items.length > 0">
@@ -7997,7 +7997,7 @@
                                    x-text="'No start time given: showing events since ' + NSS.formatDateTime(aeAppliedFrom) + ' (last 24 hours).'"></p>
                                 <p class="form-hint" x-show="aeCapped">More than 10,000 events match: narrow the date range or add a filter.</p>
 
-                                <div style="display:flex; align-items:center; justify-content:center; padding:2rem;" x-show="aeLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="aeLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="aeError" x-text="aeError"></div>
@@ -8071,13 +8071,13 @@
                                     </div>
 
                                     <h5 class="form-section-title" style="margin-top:1rem;">Event payload (before / after values, request context)</h5>
-                                    <div style="display:flex; justify-content:center; padding:1rem;" x-show="aeSelectedLoading"><div class="spinner"></div></div>
+                                    <div class="flex" style="justify-content:center; padding:1rem;" x-show="aeSelectedLoading"><div class="spinner"></div></div>
                                     <p class="form-hint" x-show="!aeSelectedLoading && !aeDetailJson">This event carries no JSON payload.</p>
                                     <pre class="audit-json" x-show="aeDetailJson" x-text="aeDetailJson"></pre>
 
                                     <h5 class="form-section-title" style="margin-top:1rem;">Field-level changes in the same transaction</h5>
                                     <div class="alert-msg alert-error" x-show="aeFieldsError" x-text="aeFieldsError"></div>
-                                    <div style="display:flex; justify-content:center; padding:1rem;" x-show="aeFieldsLoading"><div class="spinner"></div></div>
+                                    <div class="flex" style="justify-content:center; padding:1rem;" x-show="aeFieldsLoading"><div class="spinner"></div></div>
                                     <p class="form-hint" x-show="!aeFieldsLoading && !aeFieldsError && aeFields.length === 0">
                                         No field-level rows were recorded with this event (explicit application events, excluded columns and excluded tables have none).
                                     </p>
@@ -8141,7 +8141,7 @@
                                     <input type="text" class="form-input" x-model="lmFilter" placeholder="Table or screen name…" autocomplete="off">
                                 </div>
 
-                                <div style="display:flex; justify-content:center; padding:2rem;" x-show="lmLoading"><div class="spinner"></div></div>
+                                <div class="flex" style="justify-content:center; padding:2rem;" x-show="lmLoading"><div class="spinner"></div></div>
                                 <div x-show="!lmLoading && lmFiltered.length === 0" style="padding:1rem; color:#6b7280;">No markers to show.</div>
                                 <div style="overflow-x:auto;" x-show="!lmLoading && lmFiltered.length > 0">
                                     <table class="admin-table">
@@ -8180,7 +8180,7 @@
                     <template x-if="activeTab === 'orgDashboard' && viewingOrgPk">
                     <div x-data="orgDashboardTab()" x-init="init(viewingOrgPk)" x-cloak>
 
-                        <div style="display: flex; align-items: center; justify-content: center; padding: 3rem 0;" x-show="loading">
+                        <div class="flex" style="align-items: center; justify-content: center; padding: 3rem 0;" x-show="loading">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="!loading && error" x-text="error"></div>
@@ -9111,7 +9111,7 @@
                     <template x-if="credTimelineError">
                         <div class="alert-msg alert-error" x-text="credTimelineError"></div>
                     </template>
-                    <div style="display: flex; justify-content: center; padding: 1.5rem;" x-show="credTimelineLoading">
+                    <div class="flex" style="justify-content: center; padding: 1.5rem;" x-show="credTimelineLoading">
                         <div class="spinner"></div>
                     </div>
                     <template x-if="!credTimelineLoading && !credTimelineError">
