@@ -3,8 +3,11 @@
 Structured test suite for the NSS ERP application. Tests are organised into
 four categories under separate subdirectories.
 
-**Run status (2026-11-03):** this tree was re-counted by `pytest --collect-only` only. Nothing below
-was executed in the session that refreshed these docs, and every file marked **NOT yet run** (the three
+**Run status (2026-11-05):** the owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since,
+unconfirmed), ~4336 passed, 47 skipped, so the backend suites (api/db/security) have now run against a real DB; the
+playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not.
+The "NOT yet run" markers below predate that run and are historical for the backend suites. Always invoke `python3 -m pytest`
+(not bare `pytest`, which can resolve to an old interpreter launcher). Originally, every file marked **NOT yet run** (the three
 Assets & Property suites (`test_assets_property*.py` + `test_asset_custodian_parity.py`, 757 items, written 2026-11-02/03), all
 Attendance suites and everything written 2026-10-30/31: person-address, Sakha re-parent, org
 singleton, null-org scope, Sakha Asana parity, SAVEPOINT isolation, CORS-configured, Mahila/Advisory
@@ -132,6 +135,7 @@ tests/
     ├── test_ui_assets_property.py   # source-level: Assets & Property admin UI (sidebar/panel/init-guard gating, write buttons only for ASSET_MANAGE, endpoint URLs, lifecycle tables mirror the router, labels/badges, stale-response guards, markup/JS parity) (60; 72; incl. custodian pickers restricted to physical organizations, hint, include-sub-organizations checkbox, "belongs to" picker/filter/body fields). NOT yet run under pytest
     ├── test_ui_audit_diagnostics.py # source-level Audit & Diagnostics tabs (nav, canViewAudit gating, endpoints, poll policy, no inline handlers) + node-run changedMarkers/relativeTime (18; 18; no browser)
     ├── test_ui_live_refresh.py      # source-level live-refresh wiring/policy + node-run pure logic (pollDelay, changedTabs) plus batch-2 wiring (every batch-2 tab mapped + reload hook + busy hook, silent loaders with stale-response guards, every whitelisted table mapped by a page) (45; 45; no browser)
+    ├── test_ui_xshow_display.py     # source-level: no inline `display:` on any `x-show` element (Alpine removes it on show; use a flex/grid class) (1; 1)
     ├── test_ui_attendance.py        # Attendance register UI (admin.html / org dashboard; attendance-register.js) (68; 142). NOT yet run
     ├── test_ui_auth_refresh.py      # auth.js NSSAuth.apiFetch refresh/401-retry logic, fetch stubbed (18; 24)
     ├── test_ui_badges.py            # Shared badge system (badges.css) source-level checks (7; 13)
@@ -150,11 +154,9 @@ tests/
     └── test_ui_topbar.py            # nss-layout.js role-badge collapsing + topbar layout rules (11; 12)
 ```
 
-**Current totals** (re-counted 2026-11-03, after the 2026-11-03 owner-decision tests — disposal/retirement closes custody, acquisition method — and after adding the Assets & Property backend tests and the Assets & Property UI source-parsing tests, then the 2026-11-02 owner-decision tests: Anchalika/Zilla view-only, Mahila none, "belongs to"): **4905 collected items** (`pytest --collect-only -qq`) —
-`tests/api/` 2631 (38 files), `tests/db/` 385 (9 files), `tests/security/` 1167 (18 files),
-`tests/ui/` 787 (35 test files, incl. `test_ui_aadhaar.py` 14: Aadhaar capture/reveal UI source parsing + node-run parity of `NSS.aadhaar` with `api/services/aadhaar_service.py`, DB-free with `--noconftest`); total 5170 (2026-11-04 `pytest --collect-only`); earlier total 5033 incl. live-refresh batch 2 (2026-11-03: api 49, db 20, ui 45 live-refresh items); earlier note: total 4905 (live-refresh feed 2026-11-03, marker-table version: +46 api, +15 security, +12 ui, +13 db). Integration (api + db + security) = 4183; UI = 722. AST count of
-`def test_*` functions: 2980 (api 1978, db 149, security 336, ui 517). The Assets & Property backend files (`test_assets_property*.py` + `test_asset_custodian_parity.py`) add 757 collected items (api 213 + 69, db 173, security 302); `tests/ui/test_ui_assets_property.py` adds 83 (source parsing only; its logic was exercised outside pytest because the UI conftest needs a server). Not executed in the refresh
-session; the 2026-10-30/31 additions and all Attendance suites have never been run against a DB.
+**Current totals** (re-counted 2026-11-05 with `python3 -m pytest --collect-only -qq`): **5173 collected items** —
+`tests/api/` 2757 (43 files), `tests/db/` 401 (10 files), `tests/security/` 1227 (20 files),
+`tests/ui/` 788 (37 files; incl. `test_ui_aadhaar.py` 14: Aadhaar capture/reveal UI source parsing + node-run parity of `NSS.aadhaar` with `api/services/aadhaar_service.py`, DB-free with `--noconftest`; and `test_ui_xshow_display.py` 1: no `x-show` element in `login/register/admin/dashboard.html` may carry `display:` in its inline style). Integration (api + db + security) = 4385; UI = 788. The Assets & Property backend files (`test_assets_property*.py` + `test_asset_custodian_parity.py`) account for 757 of the backend items; `tests/ui/test_ui_assets_property.py` adds 83 (source parsing only). Earlier totals for reference: 5170 (2026-11-04), 5033, 4905 (2026-11-03). The backend suites ran against a real DB in the owner's last full run (see Run status above); the UI files parse source and the newest UI has not been opened in a browser.
 There is no Playwright test file for the Governance admin tabs.
 
 **AST count vs. what pytest actually collects:** the per-file "N test functions" figures are counts of

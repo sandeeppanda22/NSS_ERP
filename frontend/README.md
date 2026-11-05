@@ -185,6 +185,8 @@ reactive data store, then calls `init()` which fetches health, roles, and
 permissions in parallel. The HTML uses Alpine directives (`x-if`, `x-for`,
 `x-text`, `x-show`, `@click`, `:class`) to render data reactively.
 
+**Gotcha - `x-show` and inline `display`:** Alpine hides an `x-show` element with inline `display:none` and REMOVES the inline `display` property when showing it again, so never put `display:flex` / `display:grid` in the inline `style` of an `x-show` element; use the Tailwind class `flex` / `grid` instead (the admin dashboard stat tiles collapsed into stacked boxes; ~75 elements in `admin.html` / `dashboard.html` were fixed). Guarded by `tests/ui/test_ui_xshow_display.py`.
+
 ---
 
 ### assets/js/app.js

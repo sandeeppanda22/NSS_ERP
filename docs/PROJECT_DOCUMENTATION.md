@@ -23,11 +23,11 @@ What exists today:
 | API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 19 routers, 284 endpoints (registered routes in the working tree — 272 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 79 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5033 items collected). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5173 items collected on 2026-11-05). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
-Mahila, Publications/UPBS, Finance, Reports/Backup) and the Assets & Property frontend (its backend is built). Render.com + Neon.dev
+Mahila, Publications/UPBS, Finance, Reports/Backup) (Assets & Property backend and admin UI are built; the UI has not been opened in a browser). Render.com + Neon.dev
 deployment is declared (`render.yaml`, `render_build.sh`) but unverified in production.
 
 ### Tier status
@@ -46,8 +46,7 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 
 `main` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
 locally; confirm it is pushed before relying on it); local `develop` = `bc6e42f` = `main` + Tier 6 (not pushed). Release notes: `docs/05_Releases/`. The
-Attendance tests, every test written 2026-10-30/31 and the Assets & Property tests have never been run against a DB (see
-`tests/README.md`).
+owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since, unconfirmed), ~4336 passed, 47 skipped, so the backend suites have now run against a real DB; Playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not (see `tests/README.md`). `feature/tier6-governance` is 21 commits ahead of `develop` (Assets & Property, Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes); the x-show UI fix is uncommitted.
 
 ## Architecture
 
@@ -263,11 +262,11 @@ Build-script rules:
 ### Tests
 
 ```bash
-pytest                                   # all (api + db + security + ui)
-pytest -m integration                    # tests/api + tests/db + tests/security
-pytest -m ui                             # Playwright; needs browsers; starts its own server
-pytest tests/api/test_organization.py    # one file
-pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok   # one test
+python3 -m pytest                        # all (api + db + security + ui)
+python3 -m pytest -m integration         # tests/api + tests/db + tests/security
+python3 -m pytest -m ui                  # Playwright; needs browsers; starts its own server
+python3 -m pytest tests/api/test_organization.py    # one file
+python3 -m pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok   # one test
 ```
 
 Markers (`pytest.ini`): `integration`, `ui`, `db`. Every `tests/api|db|security` test is a real
@@ -275,9 +274,8 @@ integration test (nothing mocked) and needs a bootstrapped DB plus `api/.env`. `
 overrides both pool dependencies to yield one session-scoped writer connection and wraps each test
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
-`NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `pytest --collect-only`
-reports 5033 items (api 2661, db 392, security 1207, ui 773); per-file counts and the not-yet-run list are in
-`tests/README.md` (Attendance suites, everything written 2026-10-30/31 and the Assets & Property suites have never been run against a DB). No
+`NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `python3 -m pytest --collect-only -qq`
+reports 5173 items (api 2757, db 401, security 1227, ui 788); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)
@@ -570,7 +568,7 @@ scoped endpoints. The attendance register keeps its own finer poller. Parity tes
 ### Role hierarchy by access (lowest → highest)
 
 Derived from `database/seed/00_bootstrap/02_role_master.sql`, `03_role_permission.sql` and the idempotent
-`04_role_permission_mahila_advisory_board_patch.sql` (166 `role_permission` rows) plus the idempotent `05_assets_property_permissions_patch.sql` (`ASSET_VIEW`/`ASSET_MANAGE` and their 12 grants: 178 rows, 30 permissions), whose `06_assets_property_permissions_revoke_patch.sql` soft-deletes (`is_active = FALSE`) the 4 grants an earlier version created (a database that ran it holds 182 rows, 4 inactive; owner decisions 2026-11-02: Anchalika/Zilla admins view-only, Mahila admin none). "Reach" is a
+`04_role_permission_mahila_advisory_board_patch.sql` (166 `role_permission` rows) plus the idempotent `05_assets_property_permissions_patch.sql` (`ASSET_VIEW`/`ASSET_MANAGE` and their 12 grants: 178 rows, 30 permissions), whose `06_assets_property_permissions_revoke_patch.sql` soft-deletes (`is_active = FALSE`) the 4 grants an earlier version created and `07_person_view_sensitive_auditor_revoke_patch.sql` soft-deletes the Auditor's `PERSON_VIEW_SENSITIVE` grant (so 178 rows, 177 active; a database that ran the original asset patch holds 182 rows, 4 more inactive; owner decisions 2026-11-02: Anchalika/Zilla admins view-only, Mahila admin none). "Reach" is a
 separate axis from permissions: an ORGANIZATIONAL role only acts inside its `admin_scope`
 subtree; `NSS_ERP_ADMIN` and Kendra/NSS-WIDE scope are global (`UserContext.is_nss_wide()`). Two NULL-organization scope levels
 are resolved in `rbac_service.actor_scope_root_org_pks()`: `KENDRA_MAHILA_SANGHA` -> every `MAHILA_SANGHA` organization + subtree;
@@ -660,6 +658,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 
 ### Gotchas
 
+- **Alpine `x-show` and inline `display`:** `x-show` hides with inline `display:none` and REMOVES the inline `display` property when showing, so never put `display:flex|grid` in the inline `style` of an `x-show` element; use the Tailwind class `flex`/`grid` (the admin dashboard stat tiles collapsed into stacked boxes; ~75 elements in `admin.html`/`dashboard.html` were fixed, uncommitted as of 2026-11-05). Guard: `tests/ui/test_ui_xshow_display.py`.
+- **Effective custodian tie-break (Assets & Property):** `assets_property.py::_effective_custodian_join()` orders the candidate custodianships ACTIVE first, then latest `effective_to`, latest `effective_from`, the one ended by the reserved terminal end reason (so a transfer and the disposal on the same day resolve to the LAST custodian), then `created_at`; never re-derive it.
 - **Live refresh is table-level and commit-visible.** `/live/changes` returns every watched table's `change_seq` (marker table, bumped by a statement-level trigger); there is no cursor and no look-back. Concurrent writers to one table queue on its marker row until commit; a transaction that touches several watched tables in opposite orders can deadlock on marker rows (PostgreSQL aborts one with 40P01) - keep write transactions short. Adding a table to a page's `LIVE_TABLE_TABS` requires adding it to `LIVE_FEED_TABLES` AND to the `watched` list in `02_live_change_triggers.sql` (parity tests), then re-running the build. Election ballot tables stay off the feed (ballot timing is private); attendance tables stay off it (own poller).
 
 - **Tier 5 gating is per router** (see the router table). `bootstrap.py` and the public
@@ -737,8 +737,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   owner to specify the fields).
 - Existing DBs: run the diagnostic SELECT in `database/scripts/README.md` for duplicate singleton
   organizations before the next build (the singleton trigger never scans existing rows).
-- Run `pytest` against a freshly built DB: Attendance API/security tests and several newer test
-  classes were written but never run (`tests/README.md`).
+- Re-run the full suite (`python3 -m pytest`) on the post-fix tree to confirm the 2 failures from the owner's last DB run are gone, and open the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics) in a browser/Playwright.
 - Confirm the `v0.11.0` tag and GitHub Release are pushed.
 - Existing members without a home Sakha affiliation (owner reports `SS1752`/`SS1753` on the dev DB; not verifiable without the DB): `03_validate` only WARNs and no backfill is written, deliberately. AUTH-BR-086-related questions (GDR-009 amends it) remain open for the owner.
 - Local Mahila Sangha and Paribarik Asana now have a Sakha-like parent (GDR-008) but no creation path: ORG-BR-096 keeps Asana/Sakha creation out of the standard `create_organization` flow. Owner to decide how they are created.
@@ -747,13 +746,10 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 **Code**
 - Share one helper for the three `INSERT INTO nss.sangha_sevi` paths, or decide they stay separate.
 - Either apply `padding_length` in `next_id()` or drop the column.
-- Cap recursion depth in `/children-stats` and `/stats`.
-- Constrain the `*_by_sangha_sevi_pk` audit-actor FKs.
 - Assigning a role above the caller's own is unguarded (a Kendra Administrator can assign
   `NSS_ERP_ADMIN`).
 - Deliver forgot-password OTPs (email/SMS).
-- Run the newly written tests (SAVEPOINT isolation `tests/api/test_savepoint_isolation.py`, CORS `tests/security/test_cors_configured.py`, public-surface class in `tests/security/test_registration_security.py`) — written 2026-10-30, collected but never executed against a DB.
-- GDR-011 (Aadhaar capture + gated reveal): owner approval, legal/compliance confirmation, key management, retention and the frontend (forms, person card, Reveal action) are open; generate keys with `scripts/generate_aadhaar_keys.py` and set them locally/on Render.
+- GDR-011 (Aadhaar capture + gated reveal): owner approval, legal/compliance confirmation, key management, retention and a browser check of the built forms / Reveal dialog are open; generate keys with `scripts/generate_aadhaar_keys.py` and set them locally/on Render.
 - Correspondence: the `correspondence_finance_reference.financial_transaction_pk` FK is deferred
   until Finance; `CORR-BR-018` relationship types are PENDING; there is no reverse "replies to
   this" listing.

@@ -256,8 +256,8 @@ There is no `database/migrations/` or `database/fixes/` folder.
 | Administration | 2 (`user_role`/`admin_scope`; the 3 RBAC definition tables live in Bootstrap) | ✅ Tier 5, released in v0.11.0 | — |
 | Governance | 10 | 🚧 Tier 6, committed on `feature/tier6-governance` (not merged) | Merge to `develop` |
 | Correspondence | 5 | 🚧 Tier 6, committed on `feature/tier6-governance` | Merge to `develop` |
-| Attendance | 4 | 🚧 Tier 6, committed on `feature/tier6-governance` | Tests written but never run against a DB; merge |
-| Assets & Property | 7 | 🚧 Module #22 (Tier 6), written 2026-11-02, uncommitted; DDL/triggers/patches parsed and exercised only in a throwaway PostgreSQL 18 instance, never in the project DB | Run `02_build` + `03_validate` + the three `*assets_property*` test files; review GDR-010 |
+| Attendance | 4 | 🚧 Tier 6, committed on `feature/tier6-governance` | Backend tests ran in the owner's DB run (2026-11-04/05); merge to `develop` pending |
+| Assets & Property | 7 | 🚧 Module #22 (Tier 6), written 2026-11-02, committed on `feature/tier6-governance`; exercised by the owner's full DB run after a rebuild | Merge to `develop`; review GDR-010 (`Proposed`); open the admin UI in a browser |
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their

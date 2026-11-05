@@ -83,7 +83,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Backend
 
 * FastAPI — the only web/API layer in the codebase (`api/`, raw `psycopg2`, no ORM):
-  18 routers (278 endpoints; `assets_property.py` (Module #22, 26 endpoints, uncommitted) plus `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02), one per tier/module (per-router endpoint counts: `api/README.md` and
+  19 routers (284 endpoints; `assets_property.py` (Module #22, 26 endpoints, committed on `feature/tier6-governance`, not yet merged), `live.py` (1 endpoint) plus `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02), one per tier/module (per-router endpoint counts: `api/README.md` and
   `docs/03_Solution/api/API_CONTRACT.md`); `bootstrap.py` is the only unauthenticated router
   besides public registration.
   Tiers 1-4 GET endpoints are gated by `require_permission(...)` (Foundation/Organization/
@@ -883,7 +883,7 @@ Completed:
   endpoints. **48 tables at release** (incl. `post_office`/festival tables added later on the branch). New routers at that point: `auth.py` (8 endpoints then; 10 now), `registration.py` (6 then; 13 now,
   public), `claim_approval.py` (5), `admin.py` (25 then; 32 now), `audit.py` (1), plus 9 endpoints added to
   `family.py` and 6 write endpoints added to `foundation.py` (`FOUNDATION_MANAGE`; 8 writes plus 4 member `propose` POSTs now) — **108
-  endpoints at that point (137 at the v0.11.0 release, 252 on `develop` incl. Tier 6, 278 in the working tree with `assets_property.py`)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
+  endpoints at that point (137 at the v0.11.0 release, 252 on `develop` incl. Tier 6, 284 on `feature/tier6-governance` with `assets_property.py`, `live.py` and the audit diagnostics endpoints)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
   auth/admin tables). `permission_master`/`role_permission` are seeded. Every Tier 4
   "verification"/demo seed file has been deleted — a fresh build produces **zero demo
   Person/Family/Membership data**; real data comes from the registration/approval flow or the
@@ -903,7 +903,7 @@ Completed:
   Two new routers: `governance.py` (56 endpoints, `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) and
   `membership_change_request.py` (5 endpoints, Sakha Transfer / Apply for Darshak workflow) and
   `correspondence.py` (19 endpoints, Correspondence Register, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`) —
-  **252 endpoints, 17 routers, 71 tables on `develop` (278 / 18 / 79 with the uncommitted Assets & Property module: `assets_property.py` + 7 tables, and the live-refresh marker table `live_change_marker`) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
+  **252 endpoints, 17 routers, 71 tables on `develop` (284 / 19 / 79 on `feature/tier6-governance` with the Assets & Property module: `assets_property.py` + 7 tables, the live-refresh feed `live.py` + marker table `live_change_marker`, and the extra `audit.py` endpoints) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
   (auto-granted by `rbac_service.load_composite_grants`); 28 permissions (adds `CORRESPONDENCE_*`, `GEO_ENTRY_APPROVE`, `ATTENDANCE_*`), 11 roles (adds `NSS_ERP_ATTENDANCE_MARKER`).
 
 Current Focus:
@@ -914,7 +914,7 @@ Current Focus:
   documented modules — every module has a complete (or largely complete) design, and
   several groups have real SQL: Bootstrap RBAC (3 tables), Foundation (15), Organization (1, plus the 2 re-parent approval tables counted below), Person
   (2), Family (6), Membership (16), Authentication (5), Administration (2) and Governance (10), Correspondence (5), Attendance (4) and Organization re-parent approval (2, within the Organization module)
-  and Assets & Property (7, backend only, uncommitted) and Live refresh (1, `live_change_marker`, uncommitted) — 79 tables.
+  and Assets & Property (7) and Live refresh (1, `live_change_marker`), the last two committed on `feature/tier6-governance` — 79 tables.
   Released API/UI slices: Tier 0 (v0.6.0), Foundation (v0.7.0), Organization (v0.8.0), Person
   (v0.9.0), Family + Membership (v0.10.0, hotfixes through v0.10.4). The pytest suite has grown
   well beyond its v0.10.4 size (410 tests) — see `tests/README.md` for current counts and the

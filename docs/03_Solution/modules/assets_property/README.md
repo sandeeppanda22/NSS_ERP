@@ -48,7 +48,7 @@ added at the Table Design stage to implement the Foundation `document_master` li
 
 ## Backend/DDL reality
 
-**Backend implemented 2026-11-02 (uncommitted; never run against the project database); admin UI added 2026-11-02 (uncommitted; never opened in a browser).** Implementation
+**Backend implemented 2026-11-02 and admin UI added 2026-11-02; committed on `feature/tier6-governance` (not yet merged to `develop`). The backend suites ran in the owner's full DB run (2026-11-04/05); the admin UI has never been opened in a browser.** Implementation
 decisions for the PENDING items and every interpretation made are recorded in
 `docs/00_Project_Governance/GDR/GDR-010_Assets_and_Property_Implementation_Decisions.md` (status `Proposed` — owner
 approval pending). The design documents above are unchanged.

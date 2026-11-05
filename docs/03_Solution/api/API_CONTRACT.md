@@ -20,7 +20,7 @@
 # 1. Overview
 
 The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **284 endpoints** across 19
-routers (252 / 17 on `develop`; the 26-endpoint Assets & Property router is uncommitted). Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
+routers (252 / 17 on `develop`; the 26-endpoint Assets & Property router is committed on `feature/tier6-governance`, not yet merged; counts re-verified 2026-11-05 from the registered routes: 272 decorators + 12 `add_api_route`). Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
 (released as v0.11.0)** added JWT authentication, RBAC, write endpoints, and gated almost everything:
 
 - **Only the 4 Tier 0 `bootstrap.py` endpoints and the 13 `/api/v1/register` endpoints (public
@@ -681,7 +681,7 @@ Authority: `docs/03_Solution/modules/attendance/` (frozen 2026-10-27). Automated
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/changes?since=<ISO-8601>` | login only (`get_current_user`; no module permission) | Which watched tables had audit events after `since` |
+| GET | `/changes` | login only (`get_current_user`; no module permission) | Current `change_seq` of every watched table (marker table; no `since`) |
 
 **Response** (`LiveChangesResponse`): `{"changed": [{"table_name": "...", "change_seq": 123}]}` - every table on the whitelist with the change number of its latest COMMITTED write (read from `nss.live_change_marker`). There is no `since`/cursor (an old client's `since` is ignored): the client keeps the last `change_seq` it saw per table and treats a different value as a change; its first reply is only the baseline. 401 without a valid token.
 
