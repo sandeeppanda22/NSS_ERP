@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet). Assets & Property (Module #22: DDL, patches, `assets_property.py`, admin UI, tests, docs, GDR-010) is committed on `feature/tier6-governance` on top of it (2026-11-03); on 2026-11-05 `feature/tier6-governance` is 21 commits ahead of `develop` (also Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes), not yet merged; `frontend/admin.html`/`dashboard.html` x-show fix + `tests/ui/test_ui_xshow_display.py` are uncommitted.
+> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet). Assets & Property (Module #22: DDL, patches, `assets_property.py`, admin UI, tests, docs, GDR-010) is committed on `feature/tier6-governance` on top of it (2026-11-03); `feature/tier6-governance` is 24 commits ahead of `develop` (also Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes, x-show fix), not yet merged; working tree clean as of 2026-11-06.
 
 ## Commands
 
@@ -159,6 +159,7 @@ for six org-type layouts). `api/main.py::_serve_page()` rewrites `/assets/*.js|c
 `?v=<content hash>` per request — never hand-maintain `?v=`. `tailwind.min.css` is a **committed,
 generated** file: rebuild it after changing any Tailwind/DaisyUI class in HTML or JS.
 **x-show gotcha:** Alpine's `x-show` hides with inline `display:none` and REMOVES the inline `display` when showing, so never put `display:flex|grid` in the inline `style` of an `x-show` element — use the Tailwind class `flex`/`grid` (the admin dashboard stat tiles collapsed into stacked boxes; ~75 elements in `admin.html`/`dashboard.html` fixed; guarded by `tests/ui/test_ui_xshow_display.py`).
+**x-if gotcha:** Alpine `<template x-if>` renders only its FIRST root element — wrap multi-sibling content in one root `<div>` (fixed in `frontend/register.html`, commit `8dc993e`). UI-test facts: attendance rows need `dirty: true` to be saved; the login password toggle is the shared `x-pw-reveal` directive (`nss-password.js`), button `.pw-reveal-btn` inside `.pw-reveal-wrap`.
 
 **Governance is frozen** (`docs/00_Project_Governance/{AUTH,GOV,GDR,STD}/`) — don't redesign without
 an explicit decision. `docs/01_Authoritative_References/` holds source-faithful Bye-Law
@@ -185,7 +186,7 @@ threshold 0.45 with `re.split(r'[.@]', q)[0]` for email-shaped input.
 only via a documented release (tag + `docs/05_Releases/vX.Y.Z.md` + GitHub Release). Verify the
 branch with `git status` before changes. Remotes: `personal` (daily dev) → PR → `org` (deploy
 source); pushes are often blocked in-sandbox, so push from a terminal. Never add a `Co-Authored-By`
-trailer to commits. Current state: `main` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); local `develop` = `bc6e42f` = `main` + Tier 6 (merge of `feature/tier6-governance`, 2026-11-02; not pushed, not released). `feature/*` branches are merged leftovers — branch the next feature from `develop`.
+trailer to commits. Current state: `main` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); local `develop` = `b23ab90` (Tier 6 merge commit `bc6e42f`, 2026-11-02, plus a docs commit; not pushed, not released). `feature/*` branches are merged leftovers — branch the next feature from `develop`.
 
 ## Open items
 

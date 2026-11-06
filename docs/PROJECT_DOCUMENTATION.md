@@ -46,7 +46,7 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 
 `main` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
 locally; confirm it is pushed before relying on it); local `develop` = `bc6e42f` = `main` + Tier 6 (not pushed). Release notes: `docs/05_Releases/`. The
-owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since, unconfirmed), ~4336 passed, 47 skipped, so the backend suites have now run against a real DB; Playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not (see `tests/README.md`). `feature/tier6-governance` is 21 commits ahead of `develop` (Assets & Property, Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes); the x-show UI fix is uncommitted.
+owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since, unconfirmed), ~4336 passed, 47 skipped, so the backend suites have now run against a real DB; Playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not (see `tests/README.md`). `feature/tier6-governance` is 24 commits ahead of `develop` (Assets & Property, Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes); the x-show UI fix is committed (`f2610e4`); working tree clean.
 
 ## Architecture
 
@@ -534,8 +534,9 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   public `/register/address-types`; APPROVED-or-own-PENDING geography only; one primary address; soft
   delete) through `nss-combobox.js` + `nss-location.js` (`NSSLocation`: cascading country/state/district/
   PIN/city with stale-response guards). PIN is narrowed by `district_pk`. `admin.js` resets every child
-  dropdown when its parent changes. `nss-password.js` (`x-pw-reveal`) adds the show/hide toggle to
-  password inputs.
+  dropdown when its parent changes. `nss-password.js` (`x-pw-reveal`, shared; used on `login.html`, `register.html`, `admin.html`) wraps a
+  password input in `.pw-reveal-wrap` and adds a `.pw-reveal-btn` show/hide toggle (styles in `nss-layout.css`); use the
+  directive rather than hand-rolling a toggle.
 
 
 ### 6. Live refresh (owner decision 2026-11-03)
@@ -658,7 +659,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 
 ### Gotchas
 
-- **Alpine `x-show` and inline `display`:** `x-show` hides with inline `display:none` and REMOVES the inline `display` property when showing, so never put `display:flex|grid` in the inline `style` of an `x-show` element; use the Tailwind class `flex`/`grid` (the admin dashboard stat tiles collapsed into stacked boxes; ~75 elements in `admin.html`/`dashboard.html` were fixed, uncommitted as of 2026-11-05). Guard: `tests/ui/test_ui_xshow_display.py`.
+- **Alpine `x-show` and inline `display`:** `x-show` hides with inline `display:none` and REMOVES the inline `display` property when showing, so never put `display:flex|grid` in the inline `style` of an `x-show` element; use the Tailwind class `flex`/`grid` (the admin dashboard stat tiles collapsed into stacked boxes; ~75 elements in `admin.html`/`dashboard.html` were fixed in `f2610e4`). Guard: `tests/ui/test_ui_xshow_display.py`.
+- **Alpine `<template x-if>` renders only its FIRST root element:** multi-sibling content inside it silently drops everything after the first node, so wrap it in ONE root `<div>`. Fixed in `frontend/register.html` (legacy-member fields, commit `8dc993e`).
 - **Effective custodian tie-break (Assets & Property):** `assets_property.py::_effective_custodian_join()` orders the candidate custodianships ACTIVE first, then latest `effective_to`, latest `effective_from`, the one ended by the reserved terminal end reason (so a transfer and the disposal on the same day resolve to the LAST custodian), then `created_at`; never re-derive it.
 - **Live refresh is table-level and commit-visible.** `/live/changes` returns every watched table's `change_seq` (marker table, bumped by a statement-level trigger); there is no cursor and no look-back. Concurrent writers to one table queue on its marker row until commit; a transaction that touches several watched tables in opposite orders can deadlock on marker rows (PostgreSQL aborts one with 40P01) - keep write transactions short. Adding a table to a page's `LIVE_TABLE_TABS` requires adding it to `LIVE_FEED_TABLES` AND to the `watched` list in `02_live_change_triggers.sql` (parity tests), then re-running the build. Election ballot tables stay off the feed (ballot timing is private); attendance tables stay off it (own poller).
 

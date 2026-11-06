@@ -1177,6 +1177,18 @@ and the inline UI is covered by `tests/ui/test_ui_forgot_password.py`.
 not referenced by any `<img>`/CSS in `login.html`, `register.html`, `dashboard.html`, or
 `admin.html` — currently unused.
 
+**Alpine gotchas:**
+
+- `<template x-if>` renders only its FIRST root element. Wrap sibling elements in one
+  `<div>` inside the template, or the rest silently never render (fixed on the legacy-member
+  fields of `register.html` in commit `8dc993e`).
+- `x-show` removes the inline `display` when showing, so never put `display:flex|grid` in
+  the inline `style` of an `x-show` element — use the Tailwind class `flex`/`grid`
+  (guarded by `tests/ui/test_ui_xshow_display.py`).
+- Password inputs: use the shared `x-pw-reveal` directive (`assets/js/nss-password.js`),
+  which wraps the input in `.pw-reveal-wrap` and adds a `.pw-reveal-btn` eye toggle
+  (styles in `nss-layout.css`); don't hand-roll a second toggle.
+
 ## Future Growth
 
 This shell is designed to evolve:

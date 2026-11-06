@@ -168,6 +168,12 @@ heavy in `test_governance_security.py`, `test_core_modules_security.py`, `test_a
 `pytest.ini` declares `integration`/`ui`/`db` markers only — `tests/security/` files use
 `pytest.mark.integration`, same as `tests/api/`, so there's no separate `security` marker.
 
+## Attendance UI tests — dirty rows
+
+The attendance register UI (`attendance-register.js`) saves only the rows the marker changed.
+A UI test that sets a row's status directly (rather than through `attMarkTap`/`attMarkSetAll`)
+must also set `dirty: true` on that row, or Save sends nothing.
+
 ## `conftest.py` — fixture architecture
 
 The root `conftest.py` holds a **single session-scoped write-pool connection** (`_db_conn`,
