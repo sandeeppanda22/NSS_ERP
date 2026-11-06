@@ -1,7 +1,7 @@
 # api/routers/
 
 One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers, 284 endpoints**
-(decorator-counted; `governance.py`, `membership_change_request.py`, `correspondence.py` and `attendance.py` are Tier 6, committed on `feature/tier6-governance`; `org_reparent.py` (Sakha re-parent approvals) is also Tier 6, committed on the same branch). Raw parameterized psycopg2 SQL, no ORM; response models live in
+(272 `@router.*` decorators + the 12 property/asset CRUD routes `assets_property.py::_register_entity_routes` adds with `add_api_route`; `governance.py`, `membership_change_request.py`, `correspondence.py` and `attendance.py` are Tier 6, committed on `feature/tier6-governance`; `org_reparent.py` (Sakha re-parent approvals) is also Tier 6, committed on the same branch). Raw parameterized psycopg2 SQL, no ORM; response models live in
 `api/schemas/`. See `api/README.md` for the per-endpoint tables.
 
 | File | Prefix | Endpoints | Auth |
@@ -20,7 +20,7 @@ One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers,
 | `geo_approval.py` | `/api/v1/admin/geo-entries` | 4 | `FOUNDATION_MANAGE`, scope-filtered |
 | `governance.py` | `/api/v1/governance` | 56 (bodies, body types, positions, assignments, acting assignments, elections, nominations, votes, results) | reads `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`; writes `GOVERNANCE_MANAGE` + org scope; `/public/*`, `/elections/open-for-voting`, `/votes/self` need login only |
 | `correspondence.py` | `/api/v1/correspondence` | 19 (adds dispatch, broadcast, member-facing my-applications / addressed-to-me / my-involvements, approval-steps) | `CORRESPONDENCE_VIEW` (reads) / `CORRESPONDENCE_MANAGE` (writes) + admin scope on `register_organization_pk` (`actor_scope_org_pks`/`require_org_in_scope`); status transitions per §6.2, reopen needs remarks; reference number from `next_correspondence_reference_number()` (needs the register org's `short_code`, else 422) |
-| `attendance.py` | `/api/v1/attendance` | 20 (pujas, records, exceptions, reviews, watch-list, stats) | `ATTENDANCE_VIEW` (reads, review actions) / `ATTENDANCE_MANAGE` (puja create, marking) + admin scope; review/exception authority is the live Secretary/President seat on the member's home Sakha governing body (`_require_review_authority`), `NSS_ERP_ADMIN` overrides |
+| `attendance.py` | `/api/v1/attendance` | 21 (pujas, records, exceptions, reviews, watch-list, stats) | `ATTENDANCE_VIEW` (reads, review actions) / `ATTENDANCE_MANAGE` (puja create, marking) + admin scope; review/exception authority is the live Secretary/President seat on the member's home Sakha governing body (`_require_review_authority`), `NSS_ERP_ADMIN` overrides |
 | `org_reparent.py` | `/api/v1/org-reparent` | 4 (list, detail, decide, cancel) | `get_current_user` only; deciding a step needs the LIVE office seat (`api/services/seat_service.py`, incl. acting cover) — no permission or `NSS_ERP_ADMIN` override. Requests are created by `PATCH /admin/organizations/{pk}` (HTTP 202) via `api/services/org_reparent_service.py` |
 | `live.py` | `/api/v1/live` | 1 (`GET /changes`) | login only (`get_current_user`); per-user `LIVE_CHANGES_RATE_LIMIT`; whitelisted table names + change numbers only (`LIVE_FEED_TABLES`), no data/ids |
 | `assets_property.py` | `/api/v1/assets-property` | 26 (properties 6, assets 6, custodianship 3, maintenance 4, documents 3, property-only statutory records 4) | `ASSET_VIEW` (reads) / `ASSET_MANAGE` (writes) + admin scope on the record's EFFECTIVE custodian organization (active, or — for a DISPOSED/RETIRED record, whose custody the terminal transition ENDs in the same transaction — the last one; `_effective_custodian_join()`; GDR-010 §2F) (`actor_scope_org_pks`/`require_org_in_scope`); record with no effective custodian = global authority only; transfer needs scope over BOTH organizations; custodian must be a PHYSICAL organization (Sakha incl. Asana, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira; owner rule 2026-11-02, GDR-010 §2C) — 422 otherwise; `ASSET_MANAGE` is held by ADMIN/KENDRA/SAKHA/PATHA_CHAKRA admins only (Anchalika/Zilla admins, Auditor, Report Viewer are view-only; the Mahila admin has none); optional informational `belongs_to_organization_pk` (any active organization, GDR-010 §2D; list filter of the same name, never widens scope); optional informational `acquisition_method_code` (master data `ACQUISITION_METHOD`, GDR-010 §2E; list filter of the same name); lists take `include_sub_organizations`; no member/public access |
@@ -40,9 +40,8 @@ One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers,
   `fetch_districts`/`fetch_postal_codes`/`fetch_master_data` from `foundation.py` and
   `fetch_organizations` from `organization.py`, so the public and permission-gated endpoints
   share one query.
-- **Shared SQL** lives in `api/helpers.py` (`FAMILY_MAJORITY_CTE_SQL`,
-  `ORGANIZATION_ADDRESS_JOINS_SQL`, `PERSON_MASTER_DATA_JOINS_SQL`, `MEMBER_JOINS_SQL`,
-  `USER_ACCOUNT_MEMBERSHIP_JOINS_SQL`) — splice these, do not copy them.
+- **Shared SQL** lives in `api/helpers.py` (`ORGANIZATION_ADDRESS_JOINS_SQL`, `PERSON_MASTER_DATA_JOINS_SQL`, `MEMBER_JOINS_SQL`,
+  `USER_ACCOUNT_MEMBERSHIP_JOINS_SQL`) and the FAM-036 CTE in `api/services/family_majority.py` — splice these, do not copy them.
 - **Scope vs permission (`admin.py`).** Holding `ORGANIZATION_MANAGE`/`ADMIN_USER_MANAGE` does not
   grant global reach; only `UserContext.is_super_admin()` (`NSS_ERP_ADMIN`) does. Everyone else is
   checked against their `admin_scope` subtree (`rbac_service.require_org_in_scope()` etc.).

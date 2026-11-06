@@ -151,9 +151,9 @@ api/
 │                        `validate_and_hash_password()`; audit — `log_audit()` (writes a row to
 │                        `nss.system_event_log` — see Audit trail below). **Also 5 shared SQL
 │                        fragment constants**, each spliced (via an f-string) into 2+ routers'
-│                        queries rather than copy-pasted: `ASSET_CUSTODIAN_ORG_TYPES`/`ASSET_CUSTODIAN_ORG_TYPES_SQL`/`is_asset_custodian_org_type()` (the physical organization types that may hold property/assets, built from the Sakha-like tuple; GDR-010 §2C), `SAKHA_LIKE_ORG_TYPES`/`SAKHA_LIKE_ORG_TYPES_SQL`/`is_sakha_like()` (Sakha + Sakha Asana, the single Python definition of "is this a Sakha?"; also the wing-parent set in `ALLOWED_PARENT_TYPES`, GDR-008), `FAMILY_MAJORITY_CTE_SQL` (the FAM-036
-│                        majority-rule CTE, shared by `organization.py`'s `/children-stats` +
-│                        `/stats` and `family.py`'s `_FAMILY_SELECT`),
+│                        queries rather than copy-pasted: `ASSET_CUSTODIAN_ORG_TYPES`/`ASSET_CUSTODIAN_ORG_TYPES_SQL`/`is_asset_custodian_org_type()` (the physical organization types that may hold property/assets, built from the Sakha-like tuple; GDR-010 §2C), `SAKHA_LIKE_ORG_TYPES`/`SAKHA_LIKE_ORG_TYPES_SQL`/`is_sakha_like()` (Sakha + Sakha Asana, the single Python definition of "is this a Sakha?"; also the wing-parent set in `ALLOWED_PARENT_TYPES`, GDR-008), (the FAM-036 majority-rule CTE now lives in
+│                        `api/services/family_majority.py`, shared by `organization.py`'s
+│                        `/children-stats` + `/stats` and `family.py`'s `_FAMILY_SELECT`),
 │                        `ORGANIZATION_ADDRESS_JOINS_SQL` (shared by `organization.py`'s
 │                        `_ORG_SELECT` and `admin.py`'s org-list query),
 │                        `PERSON_MASTER_DATA_JOINS_SQL` (gender/marital-status/blood-group
