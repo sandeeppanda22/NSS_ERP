@@ -36,7 +36,8 @@ frozen in `docs/03_Solution/modules/administration/06_bootstrap_rbac_table_desig
   `ZILLA`/`SAKHA`/`PATHA_CHAKRA`/`KENDRA_MAHILA_SANGHA`/`ADVISORY_BOARD` (or NULL) — 8 values
   (`ADVISORY_BOARD` added in Tier 6), matching the 10-role catalogue in SOL-ADMIN-004 §8.7
   (7 organizational roles, one per non-`NSS-WIDE` scope level, plus 3 system roles, all three
-  explicitly scoped `NSS-WIDE` rather than left NULL).
+  explicitly scoped `NSS-WIDE` rather than left NULL); the seed now holds 11 roles (adds
+  `NSS_ERP_ADVISORY_BOARD_ADMIN` and `NSS_ERP_ATTENDANCE_MARKER`, a second SAKHA-scoped role).
   `admin_scope.scope_level` (Administration) uses the same 8-value list.
 - **`role_permission`** has a reduced audit-column set (no `updated_at`/
   `updated_by_sangha_sevi_pk`) since mappings are never updated in place, only
@@ -45,5 +46,5 @@ frozen in `docs/03_Solution/modules/administration/06_bootstrap_rbac_table_desig
 ## Status
 
 DDL is complete for all 3 tables, and all three are seeded (11 roles, 28 permissions, 166
-role-permission mappings; the idempotent `05_assets_property_permissions_patch.sql` adds `ASSET_VIEW`/`ASSET_MANAGE` and 12 grants → 30 / 178; `06_assets_property_permissions_revoke_patch.sql` soft-deletes 4 grants an earlier version of `05` created) — see `database/seed/00_bootstrap/README.md`. Build phase: Phase 0 of
+role-permission mappings; the idempotent `05_assets_property_permissions_patch.sql` adds `ASSET_VIEW`/`ASSET_MANAGE` and 12 grants → 30 / 178; `06_assets_property_permissions_revoke_patch.sql` soft-deletes 4 grants an earlier version of `05` created; `07_person_view_sensitive_auditor_revoke_patch.sql` soft-deletes the Auditor `PERSON_VIEW_SENSITIVE` grant → 178 rows, 177 active) — see `database/seed/00_bootstrap/README.md`. Build phase: Phase 0 of
 `database/scripts/02_build.sh`/`.ps1`.

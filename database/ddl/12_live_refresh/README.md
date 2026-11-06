@@ -12,7 +12,7 @@ Phase 11h of `02_build.sh`/`.ps1` and `render_build.sh`. The API side is `api/ro
 Non-obvious wiring:
 
 - A bump becomes visible at COMMIT and vanishes on rollback; there is no cursor, clock or look-back. The client compares `change_seq` per table.
-- A list entry may be `'table!col1,col2'`: the trigger is then `AFTER INSERT OR DELETE OR UPDATE OF <every other column>`. Only `user_account` uses it (login bookkeeping must not refresh every admin's Users page).
+- A list entry may be `'table!ignored1,ignored2'` (the listed columns are the ignored ones): the trigger is then `AFTER INSERT OR DELETE OR UPDATE OF <every other column>`. Only `user_account` uses it (login bookkeeping must not refresh every admin's Users page).
 - The list must equal `LIVE_FEED_TABLES` in `api/routers/live.py` (`tests/api/test_live_changes.py::TestSqlParity` parses this file). Ballot tables (`election_vote*`) are deliberately absent.
 - Add a table: edit the array here AND the Python whitelist, then re-run the build (or just this file on an existing DB).
 

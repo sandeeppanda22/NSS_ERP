@@ -20,8 +20,8 @@ trigger, so both cover these tables). Design authority: `docs/03_Solution/module
 | `11_assets_property_acquisition_method_patch.sql` | (2 columns + 2 FKs + 2 partial indexes) | Idempotent (`run_sql`/`Invoke-Sql` every build, after 10): `acquisition_method_master_data_pk UUID NULL` → `master_data` (category `ACQUISITION_METHOD`) on `property` and `asset` (`fk_*_acquisition_method`, `idx_*_acquisition_method`). Owner decision 2026-11-03, GDR-010 §2E: HOW the record was acquired (AP-023). Informational only. Also in `01`/`02` for fresh builds. |
 | `12_assets_property_terminal_custody_patch.sql` | (data patch, 2 UPDATEs) | Idempotent (`run_sql`/`Invoke-Sql` every build, AFTER `seed/11_assets_property/01_…reference_data_patch.sql`, which seeds the `DISPOSED`/`RETIRED` custodianship end reasons it needs). Owner decision 2026-11-03, GDR-010 §2F: ENDs the still-ACTIVE custodianship of every DISPOSED property / RETIRED asset (`effective_to` = the record's last-change date, never before `effective_from`). A no-op on fresh builds and on re-runs; `03_validate` FAILs if any such ACTIVE row remains. |
 
-Common to all tables: `*_pk` UUID PK (`gen_random_uuid()`), the project audit columns (nullable `*_by_sangha_sevi_pk`,
-Pass-1 convention), `is_active` + `deleted_at` soft delete with the standard consistency CHECK. History is never
+Common to all tables: `*_pk` UUID PK (`gen_random_uuid()`), the project audit columns (plain nullable `*_by_sangha_sevi_pk` UUIDs;
+the FK to `sangha_sevi` is added by the build Phase 13c patch, `../13_audit_actor_fk/`), `is_active` + `deleted_at` soft delete with the standard consistency CHECK. History is never
 hard-deleted (the writer role has no DELETE privilege).
 
 Reference data and RBAC are **not** in this folder: the seven master categories (incl. `ACQUISITION_METHOD`), the `PROPERTY`/`ASSET` id sequences

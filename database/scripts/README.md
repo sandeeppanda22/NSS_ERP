@@ -318,6 +318,10 @@ Both catalogues remain caller-extensible via the Governance API (`POST`/`PATCH /
 > authentication and administration **tables** are created by their DDL
 > (Phases 10–11); they need no seed data beyond the admin bootstrap.
 
+### Phase 13b — Geo attribution backfill (inline SQL, not a file)
+
+Inline `psql -c` block in `02_build.sh`/`.ps1` (and `render_build.sh`), after Phase 13 because P1's `person` row must exist: sets `submitted_by_person_pk` to P1 on the bulk-seeded `city_village`/`postal_code`/`post_office` rows that have neither a person nor a Sangha Sevi submitter. Runs unconditionally (not gated by `RUN_DB_BOOTSTRAP`); a no-op when P1 is absent, never overwrites a real submitter; reported `[SKIP]` if the `submitted_by_person_pk` column is missing (needs a full rebuild).
+
 ### Phase 13c — Audit-actor foreign keys (patch, owner decision 2026-11-04)
 
 `ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (`run_sql`/`Invoke-Sql` on every build; identical in `02_build.sh`, `02_build.ps1`, `render_build.sh`). A catalog-driven `DO` block gives **every** `*_by_sangha_sevi_pk` column of every `nss` base table (`created_/updated_/deleted_/approved_/reviewed_/submitted_/...`) a `FOREIGN KEY ... REFERENCES nss.sangha_sevi (sangha_sevi_pk)` named `fk_<table>_<column>` (over 63 characters: truncated + md5 suffix). Columns that already carry an FK to `sangha_sevi` (the four Foundation geography tables, inline `REFERENCES`) are left alone. New constraints are added `NOT VALID` (enforced for every new/updated row, existing rows not scanned, so a dangling historical value never breaks a rebuild), then each NOT VALID actor FK gets a `VALIDATE` attempt; a failure is a WARNING and the constraint stays NOT VALID until the dangling rows are fixed and the build is re-run. Never fails the build. No hard-coded table list: a table or column added later is picked up on the next run. `03_validate` WARNs on (a) actor columns without any FK and (b) actor FKs still NOT VALID. Diagnostic SELECT for dangling values (read-only; lists the columns that hold actor values with no matching `sangha_sevi` row):
@@ -388,7 +392,7 @@ Phase 13, the admin-bootstrap rows and all seed data are not audited.
 
 **Patch-effect checks (2026-10-31, extended 2026-11-01)** — a patch that silently SKIPs would otherwise go unnoticed, so validate asserts its outcome: per-role `role_permission` minimums (Advisory Board admin 8, Mahila admin 18, Sakha admin 18, Attendance Marker 2 — the Mahila/Advisory Board rows come from `04_role_permission_mahila_advisory_board_patch.sql`), exactly one active `ADVISORY_BOARD` organization (`07_advisory_board_organization_patch.sql`), `nss.fn_is_sakha_like_org_type()` present (`10_sakha_like_org_type_function.sql`), every active `SAKHA_ASANA` has a `SAKHA_GOVERNING_BODY` (`04_sakha_asana_governing_body_patch.sql`). Mismatches FAIL (not WARN). **None of the 2026-10-30..11-01 validate/build changes has been executed against a database** (and the `.ps1` files have never been run by the maintainers).
 
-The two wrappers run the same ~234 check calls in the same order (parsed and diffed check-by-check on 2026-11-01: labels, SQL, thresholds and WARN-vs-FAIL helpers are identical; only the Attendance idx/FK-orphan pair is swapped in order). Covered:
+The two wrappers run the same ~284 check calls in the same order (parsed and diffed check-by-check on 2026-11-01: labels, SQL, thresholds and WARN-vs-FAIL helpers are identical; only the Attendance idx/FK-orphan pair is swapped in order). Covered:
 
 - Bootstrap RBAC (3 tables, row minimums, FK orphans) and per-role permission minimums.
 - Foundation: 13 tables, row minimums, uniqueness, FK orphans, `city_village.district_pk` + its >= 98 % coverage, deferred/`submitted_by_person_pk` columns (`post_office` is covered by the latter column check only).
@@ -441,8 +445,8 @@ ORDER  BY ss.sangha_sevi_id;
 
 ### Render parity
 
-`render_build.sh` (repo root, run by `render.yaml`) repeats Phases 0–7b and 9–14 (including 11b/11c Governance, 11d Correspondence, 11e Attendance, 11f Organization re-parent approval, 11g Assets & Property and 11h Live refresh) with the same file
-order and the same `[OK]`/`[SKIP]`/abort rule; its phase/file order matches `02_build.sh` v2.8 (verified by extracting and diffing every `run_ddl`/`run_seed`/`run_sql` label, 2026-11-01), and it carries the same existence-gated `run_ddl`/`run_seed` model (header "Version 3.0"). `RUN_DB_BOOTSTRAP` gates only its Phase 13 admin seed, not DDL/seed.
+`render_build.sh` (repo root, run by `render.yaml`) repeats Phases 0–7b and 9–14 (including 13b geo backfill, 13c audit-actor FKs, and 11b/11c Governance, 11d Correspondence, 11e Attendance, 11f Organization re-parent approval, 11g Assets & Property and 11h Live refresh) with the same file
+order and the same `[OK]`/`[SKIP]`/abort rule; its phase/file order matched `02_build.sh` v2.8 when last diffed (verified by extracting and diffing every `run_ddl`/`run_seed`/`run_sql` label, 2026-11-01), and it carries the same existence-gated `run_ddl`/`run_seed` model (header "Version 3.0"). `RUN_DB_BOOTSTRAP` gates only its Phase 13 admin seed, not DDL/seed.
 Differences / known drift: it has no Phase 15 demo seed (`RUN_DEMO_SEED` is honoured only by `02_build.sh`/`.ps1`); it builds Tailwind and installs Python deps first (`npm install` in a `runtime: python` service is untested); it substitutes for
 `00_create_database.sql`/`01_extensions.sql` by running `CREATE SCHEMA IF NOT EXISTS nss`,
 `ALTER DATABASE ... SET search_path`, and best-effort `pgcrypto`/`pg_trgm`/`btree_gin` (no

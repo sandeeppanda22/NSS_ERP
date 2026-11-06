@@ -14,7 +14,7 @@ through MBR-049 (business-rule identifiers cited in table comments); SOL-MEM-006
 
 > **Design-doc status note:** `docs/03_Solution/modules/membership/README.md` still reads
 > "Status: DRAFT — full Solution design complete, **not yet implemented in SQL**" / "SQL
-> Implementation Not Started." That status predates this DDL — all 14 tables below are real,
+> Implementation Not Started." That status predates this DDL — all 16 tables below are real,
 > implemented, and executed by `database/scripts/02_build.sh`/`02_build.ps1` (Phase 7). The module design
 > docs themselves are out of scope for this pass (a separate governance/design update); treat the
 > tables in this folder, not that README, as the current source of truth for what exists in the
@@ -140,7 +140,7 @@ Execute AFTER Foundation, Organization, and Person DDL (`database/ddl/01_foundat
   `credential_type` CHECK limits it to the two values above.
 - **`14_sakha_only_membership_trigger.sql`** (no table) — enforces MBR-038A at the DB level: a
   member's `sangha_sevi.organization_pk` and `membership_sakha_affiliation.organization_pk` must
-  reference a `SAKHA_SANGHA` organization (`trg_enforce_sakha_only_sangha_sevi`,
+  reference a Sakha-like organization (`SAKHA_SANGHA` or `SAKHA_ASANA`, via `nss.fn_is_sakha_like_org_type()`) (`trg_enforce_sakha_only_sangha_sevi`,
   `trg_enforce_sakha_only_affiliation`). The single exception is the reserved system account
   (`sangha_sevi.is_system_account = TRUE`, the seeded admin `SS1`), which may point at Kendra.
 
@@ -222,13 +222,13 @@ replaced), not just what the *current* value happens to be.
   Parichaya Patra), `uq_ap_active_per_member` (one active Anumati Patra) — all implemented as
   `CREATE UNIQUE INDEX ... WHERE <condition>`, not table-level `CHECK` constraints, because the
   invariant spans multiple rows (a `CHECK` constraint can only see one row at a time).
-- **Audit-actor FKs deferred to Pass 2.** Every `*_by_sangha_sevi_pk` column
-  (`created_by_sangha_sevi_pk`, etc.) is a nullable `UUID` with no FK constraint in this pass —
-  the same "Two-Pass DDL Strategy" gap noted for `role_master`/`permission_master` and
-  Organization/Person, now finally resolvable in a later pass because `sangha_sevi` (the table
-  those FKs would reference) exists as of this module. `01_sangha_sevi.sql`'s own header comment
-  calls this out explicitly ("deferred to Pass 2 for initial bootstrap — first member
-  creation").
+- **Audit-actor FKs are not declared here.** Every `*_by_sangha_sevi_pk` column
+  (`created_by_sangha_sevi_pk`, etc.) is a nullable `UUID` with no FK constraint in the table DDL
+  (`01_sangha_sevi.sql`'s header calls this out for first-member bootstrap). The FKs to `sangha_sevi`
+  are added for every such column in schema `nss` by the single idempotent catalog-driven patch
+  `database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (build Phase 13c; `NOT VALID` first,
+  then a VALIDATE attempt that only WARNs; columns that already have a `sangha_sevi` FK are left
+  alone). Never hand-write them; a non-Sangha-Sevi actor must write NULL.
 - **`event_type` on `membership_journey_event` is a plain `VARCHAR`, not an FK** — deliberately
   not constrained to `master_data`, since the event catalogue is extensible at the application
   layer (unlike, say, membership type or status, which are frozen reference data).
@@ -244,8 +244,7 @@ full design rationale — noting the design-doc status caveat at the top of this
 for the `darshak_attendance_registration` design rationale,
 `docs/PROJECT_DOCUMENTATION.md` for the tier-by-tier plan, and
 `docs/03_Solution/api/API_CONTRACT.md` §8 for how these tables are exposed over HTTP (note: no
-router reads or writes `darshak_attendance_registration` — it exists in DDL only as of this
-pass. `darshak_local_number` in `api/routers/admin.py`'s user queries comes from
+router writes `darshak_attendance_registration`; its only reader is `api/routers/attendance.py` (an `EXISTS` check on an APPROVED/ACTIVE registration). `darshak_local_number` in `api/routers/admin.py`'s user queries comes from
 `membership_sakha_affiliation` (alias `dmsa`), not from this table, and the dashboard's
 attendance % is reported as "not tracked" because this is a registration/approval record, not
 an attendance log).

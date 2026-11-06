@@ -18,6 +18,7 @@ Execute AFTER Person DDL (`database/ddl/03_person/`) and Organization DDL
 | 03 | `03_registration_claim.sql` | `registration_claim` | 3 | `user_account`, `person`, `organization`, `master_data` |
 | 04 | `04_password_reset_token.sql` | `password_reset_token` | 4 | `user_account` |
 | 05 | `05_user_session.sql` | `user_session` | 4 | `user_account` |
+| 06 | `06_registration_claim_legacy_member_patch.sql` | *(idempotent patch)* | — | `registration_claim`; adds the GDR-009 `is_legacy_member`/`darshak_is_legacy_member` columns and CHECKs to existing databases |
 
 Run as Phase 10 in `database/scripts/02_build.sh`/`.ps1`, after Phase 9 (grant
 `nss_db_backend`) and before Phase 12 (grant `nss_db_writer`, which must follow so its
@@ -72,8 +73,9 @@ ever seeded is the admin account from `database/seed/04_admin/` (Phase 13).
 - `password_reset_token.user_account_pk` → `user_account`.
 - `user_session.user_account_pk` → `user_account`.
 
-Like every other module, audit-actor FKs (`created_by_sangha_sevi_pk`, etc.) are nullable
-columns in this pass — their FK constraints against `sangha_sevi` remain deferred to Pass 2.
+Like every other module, audit-actor columns (`created_by_sangha_sevi_pk`, etc.) are plain
+nullable UUIDs in the table DDL; their FKs against `sangha_sevi` are added by the single
+catalog-driven patch `database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (build Phase 13c).
 
 ## Non-Obvious Constraints
 

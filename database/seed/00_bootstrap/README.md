@@ -9,7 +9,7 @@ Authority: SOL-BOOT-001, SOL-ARCH-011 §4
 
 Execute AFTER `database/ddl/00_bootstrap/` (all 3 tables) — this is the first seed
 data loaded, before Foundation (Phase 0 of `database/scripts/02_build.sh`/`.ps1`, which runs them
-in file order `01` → `02` → `03`).
+in file order `01` → `02` → `03`, then the idempotent `run_sql` patches `04` → `05` → `06` → `07` — see the Status table; `render_build.sh` mirrors this).
 
 ## Status
 

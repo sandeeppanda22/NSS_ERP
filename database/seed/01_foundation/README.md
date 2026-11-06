@@ -49,9 +49,10 @@ not here.)
 
 ### 01_master_category.sql
 
-Seeds 13 lookup categories into `master_category`. These are the top-level
-classification buckets; each category's individual values are seeded in
-`02_master_data.sql`.
+Seeds 19 lookup categories into `master_category` (13 core + 6 Tier 6: rows 14-19 below). These are
+the top-level classification buckets; each category's individual values are seeded in
+`02_master_data.sql`. (The Assets & Property categories are not here — see
+`seed/11_assets_property/`.)
 
 | # | `category_code` | Purpose |
 |--:|-----------------|---------|
@@ -68,16 +69,26 @@ classification buckets; each category's individual values are seeded in
 | 11 | `ADDRESS_TYPE` | Types of addresses (permanent, current, official) |
 | 12 | `ORGANIZATION_TYPE` | Types of organizations in the NSS hierarchy (added for Organization module) |
 | 13 | `BLOOD_GROUP` | Blood group classification for persons (added for Person module) |
+| 14 | `CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE` | How a correspondence record relates to a referenced financial transaction (Tier 6) |
+| 15 | `CORRESPONDENCE_MEDIUM` | Channel through which a correspondence was transmitted (Tier 6) |
+| 16 | `CORRESPONDENCE_STATUS` | Lifecycle state of a correspondence register entry (Tier 6) |
+| 17 | `ATTENDANCE_STATUS` | Weekly Sangha Puja attendance status (Tier 6) |
+| 18 | `ATTENDANCE_REVIEW_STATUS` | Lifecycle state of an Attendance Review (Tier 6) |
+| 19 | `ATTENDANCE_EXCEPTION_TYPE` | Reason category for an approved attendance exception (Tier 6) |
 
 ---
 
 ### 02_master_data.sql
 
-Seeds individual values into `master_data` for each category created above (89 values total:
-3 + 5 + 3 + 7 + 4 + 16 + 30 + 13 + 8 — counted from the seed file; it has changed more than
-once, so re-verify after editing). Uses `CROSS JOIN ... VALUES` with a subquery to resolve `master_category_pk`
+Seeds individual values into `master_data` for each category created above (118 values total:
+3 + 5 + 3 + 7 + 4 + 16 + 30 + 14 + 8 + 6 + 6 + 4 + 3 + 5 + 4 — counted from the seed file; it has
+changed more than once, so re-verify after editing). Uses `CROSS JOIN ... VALUES` with a subquery to resolve `master_category_pk`
 by `category_code` — no hardcoded UUIDs. `LOGIN_ROLE`, `STATUS_REASON`, `WORKFLOW_STATUS`, and
 `APPLICATION_TYPE` are seeded as categories only (0 values) — reserved for later use.
+
+**Tier 6 categories:** CORRESPONDENCE_FINANCE_RELATIONSHIP_TYPE (6 values), CORRESPONDENCE_MEDIUM (6),
+CORRESPONDENCE_STATUS (4), ATTENDANCE_STATUS (3), ATTENDANCE_REVIEW_STATUS (5),
+ATTENDANCE_EXCEPTION_TYPE (4) — see the seed file for the codes.
 
 **GENDER** (3 values): MALE, FEMALE, OTHER
 

@@ -25,8 +25,9 @@ references `organization`, and `family_relationship`/`family_head_history`/
 | 05 | `05_family_link.sql` | `family_link` | 3 | — |
 | 06 | `06_family_admin.sql` | `family_admin` | 3 | — |
 | 07 | `07_family_move_transition_guard.sql` | *(no table — `fn_family_move_requires_transition()` + constraint trigger on `family_relationship`)* | 4 | — |
+| 08 | `08_family_head_history_audit_columns.sql` | *(idempotent patch, `run_sql`)* adds `updated_at`/`updated_by_sangha_sevi_pk` to `family_head_history` on databases whose existence-gated `03` predates them (`03` now declares them) | — | — |
 
-Run as Phase 6 of `database/scripts/02_build.sh`/`.ps1` (6 tables + the guard).
+Run as Phase 6 of `database/scripts/02_build.sh`/`.ps1` (6 tables + the guard + the `08` patch).
 
 ## The move-transition guard (`07_family_move_transition_guard.sql`)
 
@@ -129,9 +130,9 @@ to *derive* every other kinship label on demand). A family's `family_relationshi
   the same table — the person, must be the Family Head at the time, who made the appointment).
 
 Like `organization` and `person`, audit-actor FKs (`created_by_sangha_sevi_pk`,
-`updated_by_sangha_sevi_pk`, `deleted_by_sangha_sevi_pk`) are nullable columns in this pass —
-their FK constraints against `sangha_sevi` are deferred to Pass 2, after that table exists
-(Governance/Membership tier).
+`updated_by_sangha_sevi_pk`, `deleted_by_sangha_sevi_pk`) are nullable plain UUID columns in
+the table DDL; their FKs to `sangha_sevi` are added by the single catalog-driven patch
+`database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (build Phase 13c).
 
 ## Non-Obvious Constraints
 
