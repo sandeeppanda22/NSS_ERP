@@ -3074,36 +3074,6 @@ def validate_and_hash_password(password: str) -> tuple[str, datetime]:
     return pw_hash, expires_at
 
 
-# ── FAM-036: family majority-rule "effective Sakha" CTE ──────────────────
-# Shared between api/routers/family.py's _FAMILY_SELECT (single-family
-# reads, incl. /sakha-alignment) and api/routers/organization.py's
-# _CHILDREN_STATS_SQL (aggregate counts across a whole org subtree) — both
-# need "which Sakha does the majority of this family's active-affiliation
-# members belong to." Previously duplicated byte-for-byte in both files
-# (a real, previously-tracked gap — see CLAUDE.md's Deferred Items); this
-# is the one shared copy. No trailing comma — the CTE-list comma/closing
-# paren is the caller's responsibility, since the two callers splice it
-# into different positions inside their own WITH clauses.
-FAMILY_MAJORITY_CTE_SQL = """
-    family_majority AS (
-        SELECT fr.family_group_pk,
-               aff.organization_pk  AS sakha_pk,
-               COUNT(*)             AS cnt,
-               ROW_NUMBER() OVER (
-                   PARTITION BY fr.family_group_pk
-                   ORDER BY COUNT(*) DESC
-               ) AS rn
-        FROM   nss.family_relationship fr
-        JOIN   nss.sangha_sevi ss
-               ON ss.person_pk = fr.person_pk AND ss.is_active = TRUE
-        JOIN   nss.membership_sakha_affiliation aff
-               ON aff.sangha_sevi_pk = ss.sangha_sevi_pk
-              AND aff.effective_to IS NULL
-        WHERE  fr.is_current = TRUE
-        GROUP BY fr.family_group_pk, aff.organization_pk
-    )
-"""
-
 # ── Shared nss.organization address-JOIN chain ────────────────────────────
 # Used by organization.py's _ORG_SELECT and admin.py's
 # list_organizations_admin — previously duplicated with different table
