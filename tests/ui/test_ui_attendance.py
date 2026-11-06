@@ -1103,7 +1103,7 @@ def test_a_rejected_submit_keeps_the_register_open_and_shows_the_servers_reason(
         let refreshed = 0;
         host._afterAttendanceSaved = () => {{ refreshed++; }};
         host.attMarkPuja = {PUJA};
-        host.attMarkRows = [{{ sangha_sevi_pk: 'a', attendance_status_code: 'PRESENT' }}];
+        host.attMarkRows = [{{ sangha_sevi_pk: 'a', attendance_status_code: 'PRESENT', dirty: true }}];
         await host.submitMarkAttendance();
         return {{ refreshed, open: host.attMarkPuja !== null, rows: host.attMarkRows.length,
                   saving: host.attMarkSaving, error: host.attMarkError }};

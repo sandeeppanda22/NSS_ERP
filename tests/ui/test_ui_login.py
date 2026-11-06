@@ -159,8 +159,9 @@ def test_login_show_password_toggle(page, base_url):
     initial_type = password_input.get_attribute("type")
     assert initial_type == "password", "Password field should start with type='password'"
 
-    # Click the eye button adjacent to the login password field (first .password-wrapper)
-    eye_btn = password_input.locator("xpath=..").locator(".eye-btn")
+    # The shared x-pw-reveal directive (nss-password.js) wraps the input in .pw-reveal-wrap
+    # next to a .pw-reveal-btn eye button.
+    eye_btn = password_input.locator("xpath=..").locator(".pw-reveal-btn")
     eye_btn.click()
     page.wait_for_timeout(300)
     revealed_type = password_input.get_attribute("type")
