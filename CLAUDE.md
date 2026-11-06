@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet). Assets & Property (Module #22: DDL, patches, `assets_property.py`, admin UI, tests, docs, GDR-010) is committed on `feature/tier6-governance` on top of it (2026-11-03); `feature/tier6-governance` is 24 commits ahead of `develop` (also Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes, x-show fix), not yet merged; working tree clean as of 2026-11-06.
+> merged into the local `develop` on 2026-11-02 (merge commit `bc6e42f`; not pushed, `main` and the `v0.11.0` tag unchanged, no Tier 6 release yet). Assets & Property (Module #22: DDL, patches, `assets_property.py`, admin UI, tests, docs, GDR-010) is committed on `feature/tier6-governance` on top of it (2026-11-03); `feature/tier6-governance` is 25 commits ahead of `develop` as of 2026-11-06 (also Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes, x-show fix), not yet merged; working tree clean as of 2026-11-06.
 
 ## Commands
 
@@ -123,7 +123,7 @@ rolled back at teardown — that is what lets the suite pass on a seed-less DB.
 
 **Shared code — no duplicates (standing rule).** SQL/Python/UI logic needed twice goes into one
 helper — check `api/helpers.py` (catalogued in `api/README.md`) before writing new SQL/
-helpers. Non-obvious ones: `SAKHA_LIKE_ORG_TYPES` (SAKHA_SANGHA + SAKHA_ASANA — a Sakha Asana is a full Sakha, owner 2026-10-31; SQL `nss.fn_is_sakha_like_org_type()`, JS `NSS.SAKHA_LIKE_ORG_TYPES`; never hard-code `'SAKHA_SANGHA'` — `tests/api/test_sakha_asana_parity.py` enforces an allow-list; the wing parents Kumari/Sevak/local Mahila/Paribarik Asana accept the whole Sakha-like set — owner 2026-10-31, GDR-008 `Approved`, amends ORG-BR-091/092/094), `FAMILY_MAJORITY_CTE_SQL` (FAM-036 "effective Sakha" majority rule,
+helpers. Non-obvious ones: `SAKHA_LIKE_ORG_TYPES` (SAKHA_SANGHA + SAKHA_ASANA — a Sakha Asana is a full Sakha, owner 2026-10-31; SQL `nss.fn_is_sakha_like_org_type()`, JS `NSS.SAKHA_LIKE_ORG_TYPES`; never hard-code `'SAKHA_SANGHA'` — `tests/api/test_sakha_asana_parity.py` enforces an allow-list; the wing parents Kumari/Sevak/local Mahila/Paribarik Asana accept the whole Sakha-like set — owner 2026-10-31, GDR-008 `Approved`, amends ORG-BR-091/092/094), `api/services/family_majority.py` (`family_majority_cte()`/`FAMILY_MAJORITY_CTE_SQL`, `sakha_majority_sort_key()` — FAM-036 "effective Sakha" majority rule with a lowest-`organization_pk` tie-break,
 shared by organization stats and all family reads), `next_id()` (atomic `id_sequence_master`
 counter; ignores `padding_length`), `next_credential_document_number()` (Kendra/Anumati numbers
 via `credential_sequence_counter`), and the `fetch_*()` reference-data functions that the public

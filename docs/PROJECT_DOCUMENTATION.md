@@ -46,7 +46,7 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 
 `main` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
 locally; confirm it is pushed before relying on it); local `develop` = `bc6e42f` = `main` + Tier 6 (not pushed). Release notes: `docs/05_Releases/`. The
-owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since, unconfirmed), ~4336 passed, 47 skipped, so the backend suites have now run against a real DB; Playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not (see `tests/README.md`). `feature/tier6-governance` is 24 commits ahead of `develop` (Assets & Property, Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes); the x-show UI fix is committed (`f2610e4`); working tree clean.
+owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since, unconfirmed), ~4336 passed, 47 skipped, so the backend suites have now run against a real DB; Playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not (see `tests/README.md`). `feature/tier6-governance` is 25 commits ahead of `develop` as of 2026-11-06 (Assets & Property, Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes); the x-show UI fix is committed (`f2610e4`); working tree clean.
 
 ## Architecture
 
@@ -417,7 +417,7 @@ in-memory graph (`api/services/family_graph.py::build_family_graph()`) and
 `compute_relationships()` BFS-derives every other kinship term (grandfather, aunt, in-laws) from
 the viewer's perspective via the `PATH_LABELS` table — so changing the family head needs no data
 re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implemented once as
-`FAMILY_MAJORITY_CTE_SQL` in `api/helpers.py` and shared by organization stats and all family reads
+`family_majority_cte()` in `api/services/family_majority.py` (ties go to the lowest `organization_pk`) and shared by organization stats and all family reads
 (`/sakha-alignment` flags mismatches against members' own affiliations).
 
 ### 5. Member-assisted geography and Tier 6 workflows
