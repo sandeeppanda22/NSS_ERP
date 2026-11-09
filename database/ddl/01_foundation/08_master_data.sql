@@ -59,14 +59,6 @@ CREATE TABLE IF NOT EXISTS nss.master_data
         )
 );
 
--- Idempotent safety net: tables created before applicable_modules was
--- added to the CREATE TABLE above (e.g. a database bootstrapped before
--- this DDL change) never get it via CREATE TABLE IF NOT EXISTS alone,
--- since that clause makes the whole statement a no-op when the table
--- already exists. This ALTER guarantees the column exists either way.
-ALTER TABLE nss.master_data
-    ADD COLUMN IF NOT EXISTS applicable_modules TEXT[] NULL;
-
 CREATE INDEX IF NOT EXISTS idx_master_data_category
     ON nss.master_data (master_category_pk);
 

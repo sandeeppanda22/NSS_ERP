@@ -118,22 +118,6 @@ CREATE TABLE IF NOT EXISTS nss.family_link
         )
 );
 
--- Idempotent safety net: on a database bootstrapped before SIBLING_OF was
--- added, CREATE TABLE IF NOT EXISTS above is a no-op (the table already
--- exists), so chk_family_link_type would still only allow PARENT_OF/
--- SPOUSE_OF. This ALTER guarantees the widened CHECK either way. NOTE:
--- under this project's existence-gated build (run_ddl / Invoke-Ddl — see
--- database/scripts/02_build.sh), the ENTIRE file is skipped once
--- nss.family_link already exists, so this ALTER (like the CREATE TABLE
--- above it) will NOT run on an already-bootstrapped environment either —
--- a full hard rebuild is required there. This safety net only protects a
--- genuinely fresh install.
-ALTER TABLE nss.family_link
-    DROP CONSTRAINT IF EXISTS chk_family_link_type;
-ALTER TABLE nss.family_link
-    ADD CONSTRAINT chk_family_link_type
-        CHECK (link_type IN ('PARENT_OF', 'SPOUSE_OF', 'SIBLING_OF'));
-
 -- ── Indexes ─────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_family_link_family_group

@@ -124,14 +124,6 @@ CREATE TABLE IF NOT EXISTS nss.post_office
 
 -- ── Indexes ─────────────────────────────────────────────
 
--- Idempotent safety net: tables created before submitted_by_person_pk was
--- added to the CREATE TABLE above never get it via CREATE TABLE IF NOT
--- EXISTS alone (that clause is a no-op when the table already exists).
--- This ALTER guarantees the column exists either way (same pattern as
--- master_data.applicable_modules / organization.has_own_premises).
-ALTER TABLE nss.post_office
-    ADD COLUMN IF NOT EXISTS submitted_by_person_pk UUID NULL;
-
 CREATE INDEX IF NOT EXISTS idx_post_office_postal_code
     ON nss.post_office (postal_code_pk);
 

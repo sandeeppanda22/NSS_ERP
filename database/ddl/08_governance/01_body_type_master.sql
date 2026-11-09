@@ -111,26 +111,6 @@ CREATE TABLE IF NOT EXISTS nss.body_type_master
         CHECK (max_members IS NULL OR max_members > 0)
 );
 
--- Idempotent safety net: tables created before max_members was added
--- to the CREATE TABLE above (e.g. a database bootstrapped before this
--- DDL change) never get it via CREATE TABLE IF NOT EXISTS alone, since
--- that clause makes the whole statement a no-op when the table already
--- exists. This ALTER guarantees the column exists either way. NOTE:
--- under this project's existence-gated build (run_ddl / Invoke-Ddl —
--- see database/scripts/02_build.sh), the ENTIRE file is skipped once
--- nss.body_type_master already exists, so this ALTER (like the CREATE
--- TABLE above it) will NOT run on an already-bootstrapped environment
--- either — a full hard rebuild is required there. This safety net only
--- protects a genuinely fresh install.
-ALTER TABLE nss.body_type_master
-    ADD COLUMN IF NOT EXISTS max_members INTEGER NULL;
-
-ALTER TABLE nss.body_type_master
-    DROP CONSTRAINT IF EXISTS chk_body_type_master_max_members;
-ALTER TABLE nss.body_type_master
-    ADD CONSTRAINT chk_body_type_master_max_members
-        CHECK (max_members IS NULL OR max_members > 0);
-
 -- ── Indexes ─────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_body_type_master_active

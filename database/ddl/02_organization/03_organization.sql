@@ -210,15 +210,6 @@ CREATE TABLE IF NOT EXISTS nss.organization
         )
 );
 
--- Idempotent safety net: tables created before has_own_premises was
--- added to the CREATE TABLE above (e.g. a database bootstrapped before
--- this DDL change, ORG-BR-098) never get it via CREATE TABLE IF NOT
--- EXISTS alone, since that clause makes the whole statement a no-op
--- when the table already exists. This ALTER guarantees the column
--- exists either way.
-ALTER TABLE nss.organization
-    ADD COLUMN IF NOT EXISTS has_own_premises BOOLEAN NOT NULL DEFAULT FALSE;
-
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_organization_type
     ON nss.organization (organization_type_master_data_pk);

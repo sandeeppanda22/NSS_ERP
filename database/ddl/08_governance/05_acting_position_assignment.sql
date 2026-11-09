@@ -151,23 +151,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_acting_position_assignment_active_holder
     ON nss.acting_position_assignment (body_master_pk, position_master_pk, person_pk)
     WHERE is_active = TRUE AND effective_to IS NULL;
 
--- ── Widen chk_acting_position_assignment_status (2026-10-23) ────────────
--- Adds PENDING_APPROVAL / REJECTED for the owner-approved admin-initiated
--- acting-delegation approval workflow (mirrors body_member_assignment's
--- PENDING_REMOVAL pattern — see design decisions above and
--- 04_body_member_assignment.sql). Idempotent DROP/ADD so this ALTER is
--- safe to re-run.
---
--- NOTE: under this project's existence-gated build (run_ddl / Invoke-Ddl —
--- see database/scripts/02_build.sh), the ENTIRE file is skipped once
--- nss.acting_position_assignment already exists, so this ALTER (like the
--- CREATE TABLE above it) will NOT run on an already-bootstrapped
--- environment — A FULL HARD REBUILD IS REQUIRED before PENDING_APPROVAL /
--- REJECTED can actually be inserted. This safety net only protects a
--- genuinely fresh install.
-ALTER TABLE nss.acting_position_assignment
-    DROP CONSTRAINT IF EXISTS chk_acting_position_assignment_status;
-ALTER TABLE nss.acting_position_assignment
-    ADD CONSTRAINT chk_acting_position_assignment_status
-        CHECK (acting_status IN ('ASSIGNED', 'ACTIVE', 'ENDED', 'HISTORICAL',
-                                  'PENDING_APPROVAL', 'REJECTED'));
