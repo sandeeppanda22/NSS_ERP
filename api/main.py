@@ -53,6 +53,7 @@ import psycopg2
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -60,9 +61,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from api.config import settings
-from api.database import close_pool
+from api.database import PoolBusyError, close_pool
 from api.error_handlers import (
     integrity_error_handler,
+    pool_busy_handler,
     unhandled_exception_handler,
     validation_exception_handler,
 )
@@ -293,6 +295,13 @@ if settings.CORS_ORIGINS:
 # 3. Security headers on every response
 app.middleware("http")(add_security_headers)
 
+# 4. Response compression (added LAST so it is the outermost layer and
+#    compresses the final response, security headers included). The pages are
+#    large (admin.html ~860 KB, admin.js ~460 KB) and served `no-store`, so
+#    every visit re-downloads them; gzip shrinks text roughly 5-8x. Responses
+#    under 1 KB, and ones already carrying Content-Encoding, are left alone.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 
 # ── Error handlers ───────────────────────────────────────────────────────
 # Every failure must reach the browser as a readable `detail` string, not
@@ -305,6 +314,7 @@ app.middleware("http")(add_security_headers)
 # surfaces real tracebacks to pytest. Tests keep their signal.
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(psycopg2.IntegrityError, integrity_error_handler)
+app.add_exception_handler(PoolBusyError, pool_busy_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 

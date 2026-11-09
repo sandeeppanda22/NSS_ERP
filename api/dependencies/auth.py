@@ -21,7 +21,7 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from api.database import get_connection, get_write_pool
+from api.database import checkout_write, get_connection, release_write
 from api.services.auth_service import decode_token
 from api.services.rbac_service import UserContext, load_user_context
 
@@ -196,8 +196,7 @@ def get_write_connection(
     Usage as a FastAPI dependency:
         def endpoint(conn=Depends(get_write_connection)): ...
     """
-    pool = get_write_pool()
-    conn = pool.getconn()
+    conn = checkout_write()
     try:
         conn.autocommit = False
         if user is not None:
@@ -217,4 +216,4 @@ def get_write_connection(
         conn.rollback()
         raise
     finally:
-        pool.putconn(conn)
+        release_write(conn)

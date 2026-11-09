@@ -266,3 +266,14 @@ async def unhandled_exception_handler(
             "reference": reference,
         },
     )
+
+
+async def pool_busy_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Every database connection stayed in use past DB_POOL_WAIT_SECONDS: ask the
+    client to retry shortly instead of reporting a server fault."""
+    logging.getLogger(__name__).warning("database pool busy: %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "The server is busy right now. Please try again in a moment."},
+        headers={"Retry-After": "2"},
+    )

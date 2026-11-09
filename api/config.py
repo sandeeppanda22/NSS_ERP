@@ -115,6 +115,11 @@ class Settings:
     DB_READ_POOL_MAX: int = int(os.environ.get("DB_READ_POOL_MAX", "15"))
     DB_WRITE_POOL_MIN: int = int(os.environ.get("DB_WRITE_POOL_MIN", "1"))
     DB_WRITE_POOL_MAX: int = int(os.environ.get("DB_WRITE_POOL_MAX", "5"))
+    # A request that finds every pooled connection checked out waits up to this long
+    # (seconds) before getting a 503; a connection idle longer than the second value is
+    # tested with SELECT 1 before reuse (Neon drops idle connections). See api/database.py.
+    DB_POOL_WAIT_SECONDS: float = float(os.environ.get("DB_POOL_WAIT_SECONDS", "20"))
+    DB_POOL_PING_AFTER_SECONDS: float = float(os.environ.get("DB_POOL_PING_AFTER_SECONDS", "30"))
 
     # ── JWT (Tier 5 — Authentication) ────────────────────────────────────
     JWT_SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY", "")
