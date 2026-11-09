@@ -8,8 +8,8 @@ Page-level detail: [`../../README.md`](../../README.md); deep doc: `docs/PROJECT
 |---|---|
 | `tailwind-input.css` | Tailwind entry file (`@tailwind` directives); source for the generated bundle. |
 | `tailwind.min.css` | **Committed, generated** Tailwind + DaisyUI bundle. Rebuild with `npm run css:build` (repo root) after adding or changing any Tailwind/DaisyUI class in `frontend/**/*.html` or `frontend/assets/js/**/*.js` (scan paths: `tailwind.config.js`). Do not hand-edit. |
-| `badges.css` | Single source of truth for all badge geometry and colours (`badge-status-*`, `badge-type-*`, `badge-aff-*`, `badge-account-*`, `badge-claim-*`). Pages must not redefine badge classes inline. |
-| `nss-layout.css` | Authenticated-page layout: sidebar, topbar, user info, shared page components (largest file). |
+| `badges.css` | Single source of truth for all badge geometry and colours (`badge-status-*`, `badge-type-*`, `badge-aff-*`, `badge-account-*`, `badge-claim-*`, plus `badge-ap-*` Assets & Property, `badge-att-*`/`badge-attrev-*` attendance, `badge-audit-*`, `badge-changereq-*`, `badge-corr-*`, `badge-cred-*`, `badge-darshak-*`, `badge-gender-*`, `badge-position-*`, `badge-role-*`). Pages must not redefine badge classes inline. |
+| `nss-layout.css` | Authenticated-page layout: sidebar, topbar, user info, shared page components, the `.pw-reveal-*` password-toggle styles (`../js/nss-password.js`) (largest file). |
 | `nss-datepicker.css` | Styles for the shared DD/MM/YYYY picker (`../js/nss-datepicker.js`). |
 | `nss-combobox.css` | Styles for the select-or-propose combobox (`../js/nss-combobox.js`). |
 | `style.css` | Tier 0 leftovers: small project-specific overrides (e.g. `[x-cloak]`). |

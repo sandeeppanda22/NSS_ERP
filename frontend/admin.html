@@ -24,6 +24,9 @@
     <script src="/assets/js/nss-datepicker.js"></script>
     <script src="/assets/js/nss-combobox.js"></script>
     <script src="/assets/js/attendance-register.js"></script>
+    <script src="/assets/js/assets-property.js"></script>
+    <script src="/assets/js/live-refresh.js"></script>
+    <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
     <style>
         /* ── NSS Admin Layout — mirrors dashboard.html ────────
@@ -281,6 +284,14 @@
         }
 
         .pagination-bar .btn-action { font-size: 0.7rem; }
+
+        /* ── Audit & Diagnostics (audit-diagnostics.js) ──── */
+        .lm-just-changed td { background: #fef9c3; transition: background 1s ease; }
+        .audit-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+        .audit-tile { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.6rem 0.8rem; background: #fff; }
+        .audit-tile .label { font-size: 0.68rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+        .audit-tile .value { font-size: 1.05rem; font-weight: 600; color: #1B2A4A; overflow-wrap: anywhere; }
+        .audit-json { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.375rem; padding: 0.6rem; font-size: 0.72rem; max-height: 22rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 
         /* ── Modal overlay ───────────────────────────────── */
         .modal-overlay {
@@ -821,6 +832,80 @@
                 </div>
             </template>
 
+            <!-- ── Assets & Property group (collapsible, Module #22) ──
+                 ASSET_VIEW / ASSET_MANAGE (canViewAssets). Reads and writes are
+                 bounded server-side by admin scope on the record's CURRENT
+                 custodian organization; the write buttons inside the tabs show
+                 only for ASSET_MANAGE (canManageAssets), so Auditor / Report
+                 Viewer get a read-only view. One panel serves both tabs. -->
+            <template x-if="canViewAssets">
+                <div>
+                    <div class="nav-divider"></div>
+                    <button type="button" class="nav-section-label collapsible" @click="toggleNavGroup('assets')">
+                        <span>Assets &amp; Property</span>
+                        <svg class="nav-chevron" :class="{ collapsed: isNavGroupCollapsed('assets') }"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                    </button>
+                    <template x-if="!isNavGroupCollapsed('assets')">
+                        <div>
+                            <a class="nav-item" :class="{ active: activeTab === 'properties' }"
+                               @click="apEnterTab('properties')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5M3.75 3v18m16.5-18v18M5.25 4.5h.75m-.75 3h.75m-.75 3h.75m-.75 3h.75m6-12h.75m-.75 3h.75m-.75 3h.75m-.75 3h.75M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                                </svg>
+                                Properties
+                            </a>
+
+                            <a class="nav-item" :class="{ active: activeTab === 'assets' }"
+                               @click="apEnterTab('assets')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                                </svg>
+                                Assets
+                            </a>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- ── Audit & Diagnostics group (collapsible) ──
+                 AUDIT_VIEW (canViewAudit): read-only System Event Log explorer
+                 and Live Change Markers diagnostics (audit-diagnostics.js;
+                 api/routers/audit.py). -->
+            <template x-if="canViewAudit">
+                <div>
+                    <div class="nav-divider"></div>
+                    <button type="button" class="nav-section-label collapsible" @click="toggleNavGroup('audit')">
+                        <span>Audit &amp; Diagnostics</span>
+                        <svg class="nav-chevron" :class="{ collapsed: isNavGroupCollapsed('audit') }"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                    </button>
+                    <template x-if="!isNavGroupCollapsed('audit')">
+                        <div>
+                            <a class="nav-item" :class="{ active: activeTab === 'auditEvents' }"
+                               @click="auditEventsEnter()">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+                                </svg>
+                                System Event Log
+                            </a>
+
+                            <a class="nav-item" :class="{ active: activeTab === 'liveMarkers' }"
+                               @click="liveMarkersEnter()">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+                                </svg>
+                                Live Change Markers
+                            </a>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
             <div class="nav-divider"></div>
 
             <!-- ── Correspondence Register (Tier 6, SOL-ADMIN-009) ──
@@ -876,7 +961,7 @@
                     <img src="/assets/img/nss-logo.png" alt="NSS" class="topbar-logo">
                     <div class="topbar-heading">
                         <div class="topbar-title">Nilachala Saraswata Sangha</div>
-                        <div class="topbar-breadcrumb" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
+                        <div class="topbar-breadcrumb" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', properties: 'Properties', assets: 'Assets', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
                     </div>
                 </div>
                 <!-- Desktop: sidebar brand is always visible, so just show the
@@ -1172,7 +1257,7 @@
                                         </template>
 
                                         <!-- Action buttons -->
-                                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;" x-show="canManageUsers && selectedUser.account_status !== 'INACTIVE'">
+                                        <div class="flex" style="gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;" x-show="canManageUsers && selectedUser.account_status !== 'INACTIVE'">
                                             <template x-if="selectedUser.user_account_pk !== currentUser?.user_account_pk">
                                                 <template x-if="selectedUser.account_status === 'LOCKED' || selectedUser.account_status === 'PENDING_APPROVAL'">
                                                     <button class="btn-action primary"
@@ -1261,6 +1346,16 @@
                                                 <div class="data-row">
                                                     <span class="data-label">Remarks</span>
                                                     <span class="data-value" x-text="profileEdit.form.remarks || '—'"></span>
+                                                </div>
+                                                <div class="data-row" x-show="profileEdit.aadhaar.last4">
+                                                    <span class="data-label">Aadhaar</span>
+                                                    <span class="data-value">
+                                                        <span class="mono" x-text="NSS.aadhaar.mask(profileEdit.aadhaar.last4)"></span>
+                                                        <span style="font-size: 0.75rem; color: #6b7280;" x-show="profileEdit.aadhaar.fullOnFile"> (full number on file)</span>
+                                                        <button type="button" class="btn-action" style="margin-left: 0.5rem;"
+                                                                x-show="canViewSensitive && profileEdit.aadhaar.fullOnFile"
+                                                                @click="revealAadhaar(selectedUser.person_pk, selectedUser.person_name)">Reveal Aadhaar</button>
+                                                    </span>
                                                 </div>
                                             </div>
                                         </template>
@@ -1355,6 +1450,19 @@
                                                 <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
                                                     <label class="form-label">Remarks</label>
                                                     <textarea class="form-input" rows="2" x-model="profileEdit.form.remarks"></textarea>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Aadhaar number (optional)</label>
+                                                    <div class="form-hint" x-show="profileEdit.aadhaar.last4" x-text="'Currently on file: ' + NSS.aadhaar.mask(profileEdit.aadhaar.last4) + (profileEdit.aadhaar.fullOnFile ? ' (full number on file). Leave blank to keep it.' : '')"></div>
+                                                    <input type="text" class="form-input" x-model="profileEdit.aadhaar.input"
+                                                           @input="profileEdit.aadhaar.input = NSS.aadhaar.group(profileEdit.aadhaar.input)"
+                                                           inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="profileEdit.aadhaar.clear">
+                                                    <div class="form-hint" x-show="!NSS.aadhaar.validate(profileEdit.aadhaar.input)">Stored encrypted and used only by authorised administrators.</div>
+                                                    <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(profileEdit.aadhaar.input)" x-text="NSS.aadhaar.validate(profileEdit.aadhaar.input)"></div>
+                                                    <label class="remember-label" style="margin-top: 0.35rem;">
+                                                        <input type="checkbox" class="nss-checkbox" x-model="profileEdit.aadhaar.clear">
+                                                        Clear stored Aadhaar
+                                                    </label>
                                                 </div>
                                                 <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
                                                     <label class="form-label">Reason for Correction (optional, recorded in audit log)</label>
@@ -1646,6 +1754,14 @@
                                                         <span x-text="'(' + contactCheck.email.person_id + ')'"></span>.
                                                     </div>
                                                 </template>
+                                            </div>
+                                            <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                <label class="form-label">Aadhaar number (optional)</label>
+                                                <input type="text" class="form-input" x-model="newPersonForm.aadhaar_number"
+                                                       @input="newPersonForm.aadhaar_number = NSS.aadhaar.group(newPersonForm.aadhaar_number)"
+                                                       inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX">
+                                                <div class="form-hint" x-show="!NSS.aadhaar.validate(newPersonForm.aadhaar_number)">Stored encrypted and used only by authorised administrators.</div>
+                                                <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(newPersonForm.aadhaar_number)" x-text="NSS.aadhaar.validate(newPersonForm.aadhaar_number)"></div>
                                             </div>
                                         </div>
                                         <button class="btn-action primary" style="margin-top: 0.5rem; font-size: 0.8rem;"
@@ -2408,7 +2524,7 @@
                                 </div>
 
                                 <!-- Loading -->
-                                <div x-show="orgsLoading" style="display: flex; justify-content: center; padding: 2rem 0;">
+                                <div class="flex" x-show="orgsLoading" style="justify-content: center; padding: 2rem 0;">
                                     <div class="spinner"></div>
                                 </div>
 
@@ -2686,13 +2802,12 @@
                                     <h2 class="data-card-title" x-text="claimsStatusFilter + ' Registration Claims'"></h2>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                                         <span style="font-size: 0.75rem; color: #6b7280;" x-text="claimsTotal + ' total'"></span>
-                                        <button class="btn-action" @click="loadClaims()">Refresh</button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
 
                                     <!-- Loading -->
-                                    <div x-show="claimsLoading" style="display: flex; justify-content: center; padding: 2rem 0;">
+                                    <div class="flex" x-show="claimsLoading" style="justify-content: center; padding: 2rem 0;">
                                         <div class="spinner"></div>
                                     </div>
 
@@ -2987,6 +3102,19 @@
                                                 <label class="form-label">Email</label>
                                                 <input type="email" class="form-input" x-model="claimEditForm.email">
                                             </div>
+                                            <div class="form-group">
+                                                <label class="form-label">Aadhaar number (optional)</label>
+                                                <div class="form-hint">Leave blank to keep what is on file.</div>
+                                                <input type="text" class="form-input" x-model="claimEditForm.aadhaar_number"
+                                                       @input="claimEditForm.aadhaar_number = NSS.aadhaar.group(claimEditForm.aadhaar_number)"
+                                                       inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="claimEditForm.aadhaar_clear">
+                                                <div class="form-hint" x-show="!NSS.aadhaar.validate(claimEditForm.aadhaar_number)">Stored encrypted and used only by authorised administrators.</div>
+                                                <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(claimEditForm.aadhaar_number)" x-text="NSS.aadhaar.validate(claimEditForm.aadhaar_number)"></div>
+                                                <label class="remember-label" style="margin-top: 0.35rem;">
+                                                    <input type="checkbox" class="nss-checkbox" x-model="claimEditForm.aadhaar_clear">
+                                                    Clear stored Aadhaar
+                                                </label>
+                                            </div>
 
                                             <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
                                                 <button class="btn-action primary" style="flex: 1; justify-content: center; padding: 0.5rem;"
@@ -3040,12 +3168,11 @@
                                     <h2 class="data-card-title" x-text="changeRequestsStatusFilterLabel + ' Change Requests'"></h2>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                                         <span style="font-size: 0.75rem; color: #6b7280;" x-text="changeRequestsTotal + ' total'"></span>
-                                        <button class="btn-action" @click="loadChangeRequests()">Refresh</button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
 
-                                    <div x-show="changeRequestsLoading" style="display: flex; justify-content: center; padding: 2rem 0;">
+                                    <div class="flex" x-show="changeRequestsLoading" style="justify-content: center; padding: 2rem 0;">
                                         <div class="spinner"></div>
                                     </div>
 
@@ -3430,7 +3557,7 @@
                                     <span class="sortable" @click="sortPersonDir('email')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'email')">Email<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'email')"></span></span>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="pdLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="pdLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="pdError" x-text="pdError"></div>
@@ -3476,7 +3603,7 @@
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.mobile_number"><span class="data-label">Mobile</span><span class="data-value mono" x-text="pdSelected ? ((pdSelected.country_phone_code || '') + ' ' + (pdSelected.mobile_number || '')) : ''"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.email"><span class="data-label">Email</span><span class="data-value" x-text="pdSelected && pdSelected.email"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.emergency_contact_name"><span class="data-label">Emergency Contact</span><span class="data-value" style="text-align: right;"><span x-text="pdSelected && pdSelected.emergency_contact_name"></span><span style="color:#64748b;" x-show="pdSelected && pdSelected.emergency_relationship_name" x-text="pdSelected && pdSelected.emergency_relationship_name ? ' (' + pdSelected.emergency_relationship_name + ')' : ''"></span><span class="mono" style="display:block; color:#64748b; font-size:0.78rem;" x-show="pdSelected && pdSelected.emergency_contact_phone" x-text="pdSelected && pdSelected.emergency_contact_phone"></span></span></div>
-                                                                <div class="data-row" x-show="pdSelected && pdSelected.aadhaar_last4"><span class="data-label">Aadhaar</span><span class="data-value mono" x-text="pdSelected ? ('•••• ' + pdSelected.aadhaar_last4) : ''"></span></div>
+                                                                <div class="data-row" x-show="pdSelected && pdSelected.aadhaar_last4"><span class="data-label">Aadhaar</span><span class="data-value"><span class="mono" x-text="pdSelected ? NSS.aadhaar.mask(pdSelected.aadhaar_last4) : ''"></span><span style="font-size:0.75rem;color:#6b7280;" x-show="pdSelected && pdSelected.aadhaar_full_on_file"> (full number on file)</span><button type="button" class="btn-action" style="margin-left:0.5rem;" x-show="canViewSensitive && pdSelected && pdSelected.aadhaar_full_on_file" @click="revealAadhaar(pdSelected.person_pk, pdSelected.person_name)">Reveal Aadhaar</button></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.remarks"><span class="data-label">Remarks</span><span class="data-value" x-text="pdSelected && pdSelected.remarks"></span></div>
                                                             </div>
 
@@ -3590,7 +3717,7 @@
                                     <span class="sortable" @click="sortMemberDir('joining_date')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'joining_date')">Joined<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'joining_date')"></span></span>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="mdLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="mdLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="mdError" x-text="mdError"></div>
@@ -3780,7 +3907,7 @@
                                 <span style="font-size: 0.75rem; color: #6b7280;" x-text="orgLevelNodes().length + (orgDrillPath.length ? ' under ' + orgDrillPath[orgDrillPath.length-1].organization_name : ' at top level')"></span>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="orgTreeLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="orgTreeLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="orgTreeError" x-text="orgTreeError"></div>
@@ -3858,7 +3985,7 @@
                                     then the Kendra President) and applies only once the
                                     final approval is given.
                                 </p>
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="assignSakhaLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="assignSakhaLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="assignSakhaError" x-text="assignSakhaError"></div>
@@ -3944,7 +4071,7 @@
                                 </div>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="rdLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="rdLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="rdError" x-text="rdError"></div>
@@ -3960,7 +4087,7 @@
                                             </template>
                                         </select>
                                     </div>
-                                    <div style="display: flex; justify-content: center; padding: 1rem;" x-show="rdValuesLoading"><div class="spinner-sm"></div></div>
+                                    <div class="flex" style="justify-content: center; padding: 1rem;" x-show="rdValuesLoading"><div class="spinner-sm"></div></div>
                                     <template x-if="rdSelectedCategory && !rdValuesLoading">
                                         <div>
                                             <!-- Client-side: the category's values arrive in one response. -->
@@ -3994,7 +4121,7 @@
 
                                 <!-- Documents -->
                                 <div x-show="rdView === 'documents'">
-                                    <div style="display: flex; justify-content: center; padding: 1rem;" x-show="rdDocsLoading"><div class="spinner-sm"></div></div>
+                                    <div class="flex" style="justify-content: center; padding: 1rem;" x-show="rdDocsLoading"><div class="spinner-sm"></div></div>
                                     <div x-show="!rdDocsLoading && rdDocuments.length === 0" style="padding: 1rem; color: #6b7280;">No documents found.</div>
                                     <div class="nss-dir-sortbar" x-show="!rdDocsLoading && rdDocuments.length > 0">
                                         <span class="sortbar-label">Sort by</span>
@@ -4031,7 +4158,7 @@
                                 <h2 class="data-card-title">Geography</h2>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="geoLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="geoLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="geoError" x-text="geoError"></div>
@@ -4080,7 +4207,7 @@
                                         <!-- Active scope, so the three panels below are never
                                              ambiguous about what they are currently showing. Each
                                              chip drops you back to that level. -->
-                                        <div x-show="geoCountryPk" style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.85rem; font-size: 0.75rem; color: #475569;">
+                                        <div class="flex" x-show="geoCountryPk" style="align-items: center; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.85rem; font-size: 0.75rem; color: #475569;">
                                             <span style="color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; font-size: 0.68rem;">Showing</span>
                                             <span x-text="geoScopeLabel('country')" style="background: #f1f5f9; padding: 0.1rem 0.45rem; border-radius: 0.5rem;"></span>
                                             <template x-if="geoStatePk">
@@ -4184,7 +4311,7 @@
                                                 </div>
                                                 <div style="padding: 0.4rem 0.1rem; font-size: 0.72rem; color: #0369a1;">
                                                     <span x-show="!geoPostalCodePk">Click a PIN to narrow the other panels.</span>
-                                                    <span x-show="geoPostalCodePk" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                                                    <span class="inline-flex" x-show="geoPostalCodePk" style="align-items: center; gap: 0.4rem;">
                                                         <span>Narrowing Cities/Villages &amp; Sakha Branches to this PIN.</span>
                                                         <a href="#" @click.prevent="geoSelectPostalCode('')" style="color: #0ea5e9; text-decoration: underline;">Clear</a>
                                                     </span>
@@ -4289,7 +4416,7 @@
                                     </div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="geoEntriesLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="geoEntriesLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="geoEntriesError" x-text="geoEntriesError"></div>
@@ -4375,7 +4502,7 @@
                                 <button class="btn-action primary" x-show="canManageSettings" @click="openAddSetting()">+ Add Setting</button>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="ssSettingsLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="ssSettingsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="ssError" x-text="ssError"></div>
@@ -4440,7 +4567,7 @@
                                     validity windows and renewal deadlines (e.g. Dola Purnima — MBR-011A, MBR-029).
                                     A credential cannot be issued for a year with no confirmed date on file.
                                 </p>
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="fcLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="fcLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="fcError" x-text="fcError"></div>
@@ -4520,7 +4647,7 @@
                                     </div>
                                 </template>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="govCatalogLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="govCatalogLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="govCatalogError" x-text="govCatalogError"></div>
@@ -4645,7 +4772,7 @@
                                 </div>
                             </div>
                             <div class="data-card-body">
-                                <div x-show="govBodyForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                <div class="flex" x-show="govBodyForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                     <div>
                                         <label class="form-label">Body Type</label>
                                         <select class="form-input" style="max-width:14rem;" x-model="govBodyForm.body_type_master_pk" @change="onGovBodyTypeChange()">
@@ -4712,7 +4839,7 @@
                                     <div class="alert-msg alert-error" style="margin:0;" x-show="govBodyForm.error" x-text="govBodyForm.error"></div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="govBodiesLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="govBodiesLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="govBodiesError" x-text="govBodiesError"></div>
@@ -4791,7 +4918,7 @@
                                     <div x-show="!govMissingNominationsLoading && !govMissingNominationsError && govMissingNominations.length === 0" style="color:#166534; font-size:0.8rem;">
                                         Every active Sakha Sangha has nominated a representative.
                                     </div>
-                                    <div x-show="!govMissingNominationsLoading && govMissingNominations.length > 0" style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+                                    <div class="flex" x-show="!govMissingNominationsLoading && govMissingNominations.length > 0" style="flex-wrap:wrap; gap:0.4rem;">
                                         <template x-for="s in govMissingNominations" :key="s.organization_pk">
                                             <span class="badge badge-xs" style="background:#fed7aa; color:#9a3412;"
                                                   :title="s.organization_code"
@@ -4805,8 +4932,8 @@
                                 <!-- Seat-fill summary strip — hidden for a Sakha-scoped admin's
                                      nominate flow (isNominationBody): per-Sakha nomination
                                      occupancy is a single yes/no, not a seat count worth showing. -->
-                                <div x-show="govSelectedBodyPk && !govAssignmentsLoading && !govAssignmentsError && !((govAssignableBodies.find(b => b.body_master_pk === govSelectedBodyPk) || {}).isNominationBody)" x-cloak
-                                     style="display:flex; align-items:center; gap:0.9rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#faf7f3; border:1px solid #efe6da; border-radius:0.55rem;">
+                                <div class="flex" x-show="govSelectedBodyPk && !govAssignmentsLoading && !govAssignmentsError && !((govAssignableBodies.find(b => b.body_master_pk === govSelectedBodyPk) || {}).isNominationBody)" x-cloak
+                                     style="align-items:center; gap:0.9rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#faf7f3; border:1px solid #efe6da; border-radius:0.55rem;">
                                     <div style="flex:1; min-width:0;">
                                         <div style="font-size:0.72rem; letter-spacing:0.02em; text-transform:uppercase; color:#9a7b55; font-weight:600;">Seats filled</div>
                                         <div style="font-size:0.9rem; color:#1f2937; font-weight:600;">
@@ -4827,8 +4954,8 @@
                                      POST /results/{pk}/apply the Elections tab uses; also handles
                                      replacing an already-filled seat (e.g. updating the Advisory
                                      Board's President/Secretary) by ending the prior holder first. -->
-                                <div x-show="canManageGovernance && govSelectedBodyPk && govAssignFromResults.length > 0" x-cloak
-                                     style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:0.55rem;">
+                                <div class="flex" x-show="canManageGovernance && govSelectedBodyPk && govAssignFromResults.length > 0" x-cloak
+                                     style="flex-direction:column; gap:0.4rem; margin-bottom:1rem; padding:0.7rem 0.9rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:0.55rem;">
                                     <div style="font-size:0.72rem; letter-spacing:0.02em; text-transform:uppercase; color:#075985; font-weight:600;">
                                         Assign from a declared election result
                                     </div>
@@ -4844,7 +4971,7 @@
                                     </template>
                                 </div>
 
-                                <div x-show="govAssignForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem; position:relative;">
+                                <div class="flex" x-show="govAssignForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem; position:relative;">
                                     <div>
                                         <label class="form-label">Position</label>
                                         <select class="form-input" style="max-width:14rem;" x-model="govAssignForm.position_master_pk" @change="onGovPositionChange('govAssignForm')">
@@ -4876,7 +5003,7 @@
                                     <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govAssignForm.error" x-text="govAssignForm.error"></div>
                                 </div>
 
-                                <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="govAssignmentsLoading">
+                                <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="govAssignmentsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="govAssignmentsError" x-text="govAssignmentsError"></div>
@@ -4901,7 +5028,7 @@
                                                      Sakha(s) and locked for a single-Sakha-scoped admin
                                                      (govSakhaFilterLocked). Client-side filter over the
                                                      already-loaded rows. -->
-                                                <div x-show="govShowSakhaFilter" x-cloak style="display:flex; align-items:center; gap:0.4rem;">
+                                                <div class="flex" x-show="govShowSakhaFilter" x-cloak style="align-items:center; gap:0.4rem;">
                                                     <label class="form-label" style="margin:0;">Sakha</label>
                                                     <select class="form-input" style="max-width:14rem;" x-model="govSakhaFilter"
                                                             :disabled="govSakhaFilterLocked" @change="onGovSakhaFilterChange()">
@@ -4997,7 +5124,7 @@
                                             </button>
                                         </div>
 
-                                        <div x-show="govActingForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-top:0.85rem; margin-bottom:0.25rem; padding:0.85rem; background:#fff; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                        <div class="flex" x-show="govActingForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-top:0.85rem; margin-bottom:0.25rem; padding:0.85rem; background:#fff; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                             <div>
                                                 <label class="form-label">Position</label>
                                                 <select class="form-input" style="max-width:14rem;" x-model="govActingForm.position_master_pk" @change="onGovPositionChange('govActingForm')">
@@ -5036,7 +5163,7 @@
                                             <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govActingForm.error" x-text="govActingForm.error"></div>
                                         </div>
 
-                                        <div style="display: flex; align-items: center; justify-content: center; padding: 1.5rem;" x-show="govActingLoading">
+                                        <div class="flex" style="align-items: center; justify-content: center; padding: 1.5rem;" x-show="govActingLoading">
                                             <div class="spinner"></div>
                                         </div>
                                         <div class="alert-msg alert-error" x-show="govActingError" x-text="govActingError"></div>
@@ -5100,7 +5227,7 @@
                             <div class="data-card-body">
 
                                 <!-- New-election inline form -->
-                                <div x-show="govElectionForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                <div class="flex" x-show="govElectionForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.85rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                     <div style="min-width:16rem;">
                                         <label class="form-label">Governance Body</label>
                                         <select class="form-input" x-model="govElectionForm.body_master_pk">
@@ -5151,7 +5278,7 @@
                                 </div>
 
                                 <!-- Elections list -->
-                                <div style="display:flex; align-items:center; justify-content:center; padding:2rem;" x-show="govElectionsLoading"><div class="spinner"></div></div>
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="govElectionsLoading"><div class="spinner"></div></div>
                                 <div class="alert-msg alert-error" x-show="govElectionsError" x-text="govElectionsError"></div>
 
                                 <template x-if="!govElectionsLoading && !govElectionsError && !govSelectedElectionPk">
@@ -5192,7 +5319,7 @@
                                             the post Uncontested. Voting is skipped entirely (GOV-BR-042).
                                         </div>
 
-                                        <div x-show="canManageGovernance" style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:1.2rem;">
+                                        <div class="flex" x-show="canManageGovernance" style="align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:1.2rem;">
                                             <span style="font-size:0.78rem; color:#6b7280;">Advance status:</span>
                                             <template x-for="s in govNextStatuses(govSelectedElection.election_status, govSelectedElection.election_type)" :key="s">
                                                 <button class="btn-action" :disabled="govElectionBusy" @click="changeGovElectionStatus(s)" x-text="s"></button>
@@ -5210,7 +5337,7 @@
                                                         x-text="govNominationForm.show ? 'Cancel' : '+ Add Nomination'"></button>
                                             </div>
                                             <div class="data-card-body">
-                                                <div x-show="govNominationForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                                <div class="flex" x-show="govNominationForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                                     <div><label class="form-label">Position</label>
                                                         <select class="form-input" style="max-width:14rem;" x-model="govNominationForm.position_master_pk">
                                                             <option value="">Select…</option>
@@ -5250,7 +5377,7 @@
                                                     <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govNominationForm.error" x-text="govNominationForm.error"></div>
                                                 </div>
 
-                                                <div style="display:flex; justify-content:center; padding:1rem;" x-show="govNominationsLoading"><div class="spinner"></div></div>
+                                                <div class="flex" style="justify-content:center; padding:1rem;" x-show="govNominationsLoading"><div class="spinner"></div></div>
                                                 <div class="data-rows" x-show="!govNominationsLoading">
                                                     <div x-show="govNominations.length === 0" style="padding:0.8rem; color:#6b7280;">No nominations yet.</div>
                                                     <template x-for="n in govNominations" :key="n.election_nomination_pk">
@@ -5346,7 +5473,7 @@
                                                 <button class="btn-action" @click="loadGovTally()">Refresh</button>
                                             </div>
                                             <div class="data-card-body">
-                                                <div style="display:flex; justify-content:center; padding:1rem;" x-show="govTallyLoading"><div class="spinner"></div></div>
+                                                <div class="flex" style="justify-content:center; padding:1rem;" x-show="govTallyLoading"><div class="spinner"></div></div>
                                                 <div class="alert-msg alert-error" x-show="govTallyError" x-text="govTallyError"></div>
                                                 <div class="data-rows" x-show="!govTallyLoading && !govTallyError">
                                                     <div x-show="govTally.length === 0" style="padding:0.8rem; color:#6b7280;">No votes tallied yet.</div>
@@ -5372,7 +5499,7 @@
                                                         x-text="govResultForm.show ? 'Cancel' : '+ Declare Result'"></button>
                                             </div>
                                             <div class="data-card-body">
-                                                <div x-show="govResultForm.show" x-cloak style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+                                                <div class="flex" x-show="govResultForm.show" x-cloak style="gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
                                                     <div><label class="form-label">Position</label>
                                                         <select class="form-input" style="max-width:14rem;" x-model="govResultForm.position_master_pk" @change="govResultForm.winning_nomination_pk = ''">
                                                             <option value="">Select…</option>
@@ -5403,7 +5530,7 @@
                                                     <div class="alert-msg alert-error" style="margin:0; width:100%;" x-show="govResultForm.error" x-text="govResultForm.error"></div>
                                                 </div>
 
-                                                <div style="display:flex; justify-content:center; padding:1rem;" x-show="govResultsLoading"><div class="spinner"></div></div>
+                                                <div class="flex" style="justify-content:center; padding:1rem;" x-show="govResultsLoading"><div class="spinner"></div></div>
                                                 <div class="data-rows" x-show="!govResultsLoading">
                                                     <div x-show="govResults.length === 0" style="padding:0.8rem; color:#6b7280;">No results declared yet.</div>
                                                     <template x-for="r in govResults" :key="r.election_result_pk">
@@ -5536,7 +5663,7 @@
                                     </button>
                                 </div>
 
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attPujasLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attPujasLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attPujasError" x-text="attPujasError"></div>
@@ -5588,7 +5715,7 @@
                                     <button class="btn-action" @click="closeMarkAttendance()">Done</button>
                                 </div>
                                 <div class="data-card-body">
-                                    <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attMarkLoading">
                                         <div class="spinner"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="attMarkError" x-text="attMarkError"></div>
@@ -5855,7 +5982,7 @@
                                 </select>
                             </div>
                             <div class="data-card-body">
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attReviewsLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attReviewsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attReviewsError" x-text="attReviewsError"></div>
@@ -5934,7 +6061,7 @@
                                 <h2 class="data-card-title">Consecutive-Absence Watch List</h2>
                             </div>
                             <div class="data-card-body">
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1.5rem;" x-show="attWatchListLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1.5rem;" x-show="attWatchListLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attWatchListError" x-text="attWatchListError"></div>
@@ -5971,7 +6098,7 @@
                                 </select>
                             </div>
                             <div class="data-card-body">
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1rem;" x-show="attOrgStatsLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="attOrgStatsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attOrgStatsError" x-text="attOrgStatsError"></div>
@@ -6003,7 +6130,7 @@
                                         </template>
                                     </div>
                                 </div>
-                                <div style="display:flex; align-items:center; justify-content:center; padding:1rem;" x-show="attMemberStatsLoading">
+                                <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="attMemberStatsLoading">
                                     <div class="spinner"></div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="attMemberStatsError" x-text="attMemberStatsError"></div>
@@ -6686,7 +6813,7 @@
                                     </div>
 
 
-                                    <div style="display: flex; align-items: center; justify-content: center; padding: 2rem;" x-show="corrLoading">
+                                    <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="corrLoading">
                                         <div class="spinner"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="corrError" x-text="corrError"></div>
@@ -6735,7 +6862,7 @@
                         </div>
 
                         <!-- ── Detail ───────────────────────────── -->
-                        <div x-show="corrDetailLoading" style="display:flex; justify-content:center; padding:2rem 0;">
+                        <div class="flex" x-show="corrDetailLoading" style="justify-content:center; padding:2rem 0;">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="corrDetailError" x-text="corrDetailError"></div>
@@ -6957,7 +7084,7 @@
                                             <div class="alert-msg alert-error span-all" style="margin:0;" x-show="corrDocumentForm.error" x-text="corrDocumentForm.error"></div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="corrDocumentsLoading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="corrDocumentsLoading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="corrDocumentsError" x-text="corrDocumentsError"></div>
                                         <p class="form-hint" x-show="!corrDocumentsLoading && corrDocuments.length === 0">No documents attached.</p>
                                         <div class="data-rows" x-show="corrDocuments.length > 0">
@@ -7004,7 +7131,7 @@
                                             <div class="alert-msg alert-error span-all" style="margin:0;" x-show="corrFinanceForm.error" x-text="corrFinanceForm.error"></div>
                                         </div>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="corrFinanceRefsLoading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="corrFinanceRefsLoading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="corrFinanceRefsError" x-text="corrFinanceRefsError"></div>
                                         <p class="form-hint" x-show="!corrFinanceRefsLoading && corrFinanceRefs.length === 0">No finance references.</p>
                                         <div class="data-rows" x-show="corrFinanceRefs.length > 0">
@@ -7034,7 +7161,7 @@
                                     <div class="form-section">
                                         <h4 class="form-section-title">History</h4>
 
-                                        <div style="display:flex; justify-content:center; padding:0.75rem;" x-show="corrHistoryLoading"><div class="spinner-sm"></div></div>
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="corrHistoryLoading"><div class="spinner-sm"></div></div>
                                         <div class="alert-msg alert-error" x-show="corrHistoryError" x-text="corrHistoryError"></div>
 
                                         <template x-if="!corrHistoryLoading && (corrHistory.ancestors.length > 0 || corrHistory.descendants.length > 0)">
@@ -7091,6 +7218,960 @@
                     </div>
 
                     <!-- ═══════════════════════════════════════════
+                         VIEW: Assets & Property (Module #22, Tier 6)
+                         api/routers/assets_property.py — ONE panel for both
+                         the 'Properties' and 'Assets' tabs; the kind is the
+                         active tab (apKind) and every screen below is written
+                         once (logic: assets-property.js). ASSET_VIEW reads,
+                         ASSET_MANAGE writes (canManageAssets) — both bounded
+                         server-side by admin scope on the CURRENT custodian,
+                         so a scope-bounded admin only ever sees their own
+                         scope's records. Property-only: holding arrangement
+                         and statutory records (apIsProperty).
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="(activeTab === 'properties' || activeTab === 'assets') && canViewAssets" x-cloak>
+
+                        <div class="alert-msg alert-success" x-show="apNotice" x-text="apNotice"></div>
+
+                        <!-- ── Create / edit form ──────────────────── -->
+                        <div class="data-card" x-show="apForm.show" x-cloak>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title" x-text="(apForm.mode === 'create' ? 'New ' : 'Edit ') + apNoun"></h2>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="form-grid-2">
+                                    <div class="span-all">
+                                        <label class="form-label" x-text="apNounTitle + ' name'"></label>
+                                        <input type="text" class="form-input" maxlength="200" x-model="apForm.name" autocomplete="off">
+                                    </div>
+                                    <div>
+                                        <label class="form-label" x-text="apNounTitle + ' type'"></label>
+                                        <select class="nss-select" x-model="apForm.type_code">
+                                            <option value="">Select…</option>
+                                            <template x-for="o in apTypeOptions" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div x-data="nssDatePicker('apForm.acquired_at')" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apForm.saving">
+                                        <label class="form-label">Acquired on <span class="optional">(optional)</span></label>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Acquisition method <span class="optional">(optional)</span></label>
+                                        <select class="nss-select" x-model="apForm.acquisition_method_code">
+                                            <option value="">Not recorded</option>
+                                            <template x-for="o in apOptions('ACQUISITION_METHOD')" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                        <p class="form-hint">How it was acquired. Informational only.</p>
+                                    </div>
+                                    <div class="span-all">
+                                        <label class="form-label">Location <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="2" maxlength="2000" x-model="apForm.location_description"></textarea>
+                                    </div>
+                                    <div class="span-all">
+                                        <label class="form-label"><span x-text="apF.extraLabel"></span> <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="2" maxlength="2000" x-model="apForm.extra"></textarea>
+                                        <p class="form-hint" x-text="apF.extraHint"></p>
+                                    </div>
+                                    <div class="span-all">
+                                        <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="2" maxlength="2000" x-model="apForm.notes"></textarea>
+                                    </div>
+                                    <div class="span-all typeahead-wrap">
+                                        <label class="form-label">Belongs to (if different from the holder) <span class="optional">(optional)</span></label>
+                                        <input type="text" class="form-input" x-model="apForm.belongsTo.query"
+                                               @input="corrOnOrgQueryInput(apForm.belongsTo)" placeholder="Search by organization name…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="apForm.belongsTo.results.length > 0">
+                                            <template x-for="org in apForm.belongsTo.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="corrSelectOrg(apForm.belongsTo, org)">
+                                                    <span x-text="org.organization_name"></span>
+                                                    <span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint" x-show="apForm.belongsTo.selected">
+                                            This <span x-text="apNoun"></span> belongs to <span x-text="apForm.belongsTo.selected && apForm.belongsTo.selected.organization_name"></span>.
+                                            <button type="button" class="link-action" @click="corrClearPicker(apForm.belongsTo)">Clear</button>
+                                        </p>
+                                        <p class="form-hint" x-text="apBelongsToHint"></p>
+                                    </div>
+                                </div>
+
+                                <!-- Custodian is chosen at registration only; afterwards it changes
+                                     through Custody (assign / transfer), never by editing. -->
+                                <template x-if="apForm.mode === 'create'">
+                                    <div class="form-section">
+                                        <h4 class="form-section-title">Custodian</h4>
+                                        <div class="form-grid-2">
+                                            <div class="typeahead-wrap">
+                                                <label class="form-label">Custodian organization</label>
+                                                <input type="text" class="form-input" x-model="apForm.custodian.query"
+                                                       @input="corrOnOrgQueryInput(apForm.custodian)" placeholder="Search by organization name…" autocomplete="off">
+                                                <div class="typeahead-menu" x-show="apForm.custodian.results.length > 0">
+                                                    <template x-for="org in apForm.custodian.results" :key="org.organization_pk">
+                                                        <div class="typeahead-item" @click="corrSelectOrg(apForm.custodian, org)">
+                                                            <span x-text="org.organization_name"></span>
+                                                            <span class="meta" x-text="org.type_name"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                                <p class="form-hint" x-show="apForm.custodian.selected">
+                                                    <span x-text="apForm.custodian.selected && apForm.custodian.selected.organization_name"></span> will hold this <span x-text="apNoun"></span>.
+                                                    <button type="button" class="link-action" @click="corrClearPicker(apForm.custodian)">Clear</button>
+                                                </p>
+                                                <p class="form-hint" x-text="apCustodianHint"></p>
+                                                <p class="form-hint" x-show="isGovNssWideAdmin">Optional for NSS-wide administrators. Without a custodian the record stays Registered until one is assigned.</p>
+                                                <p class="form-hint" x-show="!isGovNssWideAdmin">Required: choose an organization within your admin scope.</p>
+                                            </div>
+                                            <div x-data="nssDatePicker('apForm.custodian_effective_from', { maxToday: true })" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apForm.saving">
+                                                <label class="form-label">Custodian since <span class="optional">(defaults to today)</span></label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="apForm.error" x-text="apForm.error"></div>
+                                <div class="form-section" style="display:flex; align-items:center; gap:0.6rem;">
+                                    <button class="btn-action primary" :disabled="apForm.saving" @click="apSubmitForm()"
+                                            x-text="apForm.saving ? 'Saving…' : (apForm.mode === 'create' ? 'Register ' + apNoun : 'Save changes')"></button>
+                                    <button class="btn-action" :disabled="apForm.saving" @click="apCancelForm()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── List ────────────────────────────────── -->
+                        <div class="data-card" x-show="!apForm.show && !apSelected && !apDetailLoading && !apDetailError">
+                            <div class="data-card-header">
+                                <h2 class="data-card-title" x-text="apPluralTitle"></h2>
+                                <div style="display:flex; gap:0.5rem; align-items:center;">
+                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="apTotal + ' total'"></span>
+                                    <button class="btn-action primary" x-show="canManageAssets" @click="apOpenCreate()"
+                                            x-text="'+ New ' + apNoun"></button>
+                                </div>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
+                                    <div>
+                                        <label class="form-label">Search</label>
+                                        <input type="text" class="form-input" x-model="apQ" @keydown.enter="apApplyFilters()"
+                                               placeholder="Name, ID or location…" autocomplete="off">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Type</label>
+                                        <select class="nss-select" x-model="apTypeFilter" @change="apApplyFilters()">
+                                            <option value="">All types</option>
+                                            <template x-for="o in apTypeOptions" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Status</label>
+                                        <select class="nss-select" x-model="apStatusFilter" @change="apApplyFilters()">
+                                            <option value="">All statuses</option>
+                                            <template x-for="st in apStatusOptions" :key="st">
+                                                <option :value="st" x-text="NSS.assetPropertyStatusLabel(st)"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Acquisition method</label>
+                                        <select class="nss-select" x-model="apAcquisitionFilter" @change="apApplyFilters()">
+                                            <option value="">All methods</option>
+                                            <template x-for="o in apOptions('ACQUISITION_METHOD')" :key="o.value_code">
+                                                <option :value="o.value_code" x-text="o.value_name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="typeahead-wrap span-all" style="grid-column:span 2;">
+                                        <label class="form-label">Custodian organization</label>
+                                        <input type="text" class="form-input" x-model="apCustodianFilter.query"
+                                               @input="corrOnOrgQueryInput(apCustodianFilter)" placeholder="Search by organization name…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="apCustodianFilter.results.length > 0">
+                                            <template x-for="org in apCustodianFilter.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="apPickCustodianFilter(org)">
+                                                    <span x-text="org.organization_name"></span>
+                                                    <span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint" x-text="apCustodianHint"></p>
+                                        <p class="form-hint" x-show="apCustodianFilter.selected">
+                                            Showing records held by this organization.
+                                            <button type="button" class="link-action" @click="apClearCustodianFilter()">Clear</button>
+                                        </p>
+                                        <label class="form-hint flex" style="align-items:center; gap:0.4rem;" x-show="apCustodianFilter.selected">
+                                            <input type="checkbox" x-model="apIncludeSub" @change="apApplyFilters()">
+                                            Include sub-organizations (everything held beneath the selected organization)
+                                        </label>
+                                    </div>
+                                    <div class="typeahead-wrap span-all" style="grid-column:span 2;">
+                                        <label class="form-label">Belongs to</label>
+                                        <input type="text" class="form-input" x-model="apBelongsFilter.query"
+                                               @input="corrOnOrgQueryInput(apBelongsFilter)" placeholder="Search by organization name…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="apBelongsFilter.results.length > 0">
+                                            <template x-for="org in apBelongsFilter.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="apPickBelongsFilter(org)">
+                                                    <span x-text="org.organization_name"></span>
+                                                    <span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint" x-show="apBelongsFilter.selected">
+                                            Showing records attributed to this organization.
+                                            <button type="button" class="link-action" @click="apClearBelongsFilter()">Clear</button>
+                                        </p>
+                                    </div>
+                                    <div style="display:flex; gap:0.4rem;">
+                                        <button class="btn-action primary" @click="apApplyFilters()">Search</button>
+                                        <button class="btn-action" @click="apClearFilters()">Reset</button>
+                                    </div>
+                                </div>
+
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="apLoading">
+                                    <div class="spinner"></div>
+                                </div>
+                                <div class="alert-msg alert-error" x-show="apError" x-text="apError"></div>
+
+                                <template x-if="!apLoading && !apError">
+                                    <div>
+                                        <div x-show="apItems.length === 0" style="padding:1rem; color:#6b7280;"
+                                             x-text="'No ' + apPluralTitle.toLowerCase() + ' found.'"></div>
+                                        <div style="overflow-x:auto;" x-show="apItems.length > 0">
+                                            <table class="admin-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>ID</th>
+                                                        <th>Name</th>
+                                                        <th>Type</th>
+                                                        <th>Custodian</th>
+                                                        <th>Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="r in apItems" :key="r[apF.pk]">
+                                                        <tr @click="apOpen(r[apF.pk])" style="cursor:pointer;">
+                                                            <td class="mono" style="font-size:0.78rem;" x-text="r[apF.id]"></td>
+                                                            <td style="font-size:0.82rem;">
+                                                                <span x-text="r[apF.name]"></span>
+                                                                <div style="font-size:0.7rem; color:#6b7280;" x-show="r.belongs_to_organization_name"
+                                                                     x-text="'Belongs to: ' + r.belongs_to_organization_name"></div>
+                                                            </td>
+                                                            <td style="font-size:0.78rem;" x-text="r[apF.typeName]"></td>
+                                                            <td style="font-size:0.78rem; color:#6b7280;">
+                                                                <span x-text="r.current_custodian_organization_name || 'No custodian'"></span>
+                                                                <span class="badge badge-xs" x-show="r.custodian_is_last"
+                                                                      :class="NSS.assetPropertyStatusBadgeClass(r.status)"
+                                                                      x-text="NSS.assetPropertyStatusLabel(r.status)"></span>
+                                                            </td>
+                                                            <td><span class="badge badge-xs" :class="NSS.assetPropertyStatusBadgeClass(r.status)" x-text="NSS.assetPropertyStatusLabel(r.status)"></span></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="pagination-bar" x-show="apTotal > apPageSize">
+                                            <span x-text="'Page ' + apPage + ' of ' + apTotalPages"></span>
+                                            <div style="display:flex; gap:0.35rem;">
+                                                <button class="btn-action" :disabled="apPage <= 1" @click="apChangePage(-1)">Prev</button>
+                                                <button class="btn-action" :disabled="apPage >= apTotalPages" @click="apChangePage(1)">Next</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- ── Detail ──────────────────────────────── -->
+                        <div class="flex" x-show="!apForm.show && apDetailLoading" style="justify-content:center; padding:2rem 0;">
+                            <div class="spinner"></div>
+                        </div>
+                        <div x-show="!apForm.show && apDetailError">
+                            <a class="back-link" @click="apBackToList()">&larr; Back to list</a>
+                            <div class="alert-msg alert-error" x-text="apDetailError"></div>
+                        </div>
+
+                        <div x-show="!apForm.show && apSelected && !apDetailLoading">
+                            <a class="back-link" @click="apBackToList()">&larr; Back to list</a>
+
+                            <div class="data-card">
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title" x-text="apSelected && apSelected[apF.name]"></h2>
+                                        <span class="mono" style="font-size:0.75rem; color:#6b7280;" x-text="apSelected && apSelected[apF.id]"></span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                                        <span class="badge badge-sm" :class="NSS.assetPropertyStatusBadgeClass(apSelected && apSelected.status)"
+                                              x-text="NSS.assetPropertyStatusLabel(apSelected && apSelected.status)"></span>
+                                        <button class="btn-action" x-show="canManageAssets" @click="apOpenEdit()">Edit</button>
+                                        <button class="btn-action danger" x-show="canManageAssets && apCanArchive" @click="apArchive()">Archive</button>
+                                    </div>
+                                </div>
+                                <div class="data-card-body">
+
+                                    <!-- Details -->
+                                    <div class="detail-grid cols-3">
+                                        <div class="detail-item">
+                                            <div class="label" x-text="apNounTitle + ' type'"></div>
+                                            <div class="value" x-text="apSelected && apSelected[apF.typeName]"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label" x-text="apSelected && apSelected.custodian_is_last ? 'Last custodian' : 'Custodian'"></div>
+                                            <div class="value">
+                                                <span x-text="(apSelected && apSelected.current_custodian_organization_name) || 'No custodian'"></span>
+                                                <span class="badge badge-xs" x-show="apSelected && apSelected.custodian_is_last"
+                                                      :class="NSS.assetPropertyStatusBadgeClass(apSelected && apSelected.status)"
+                                                      x-text="NSS.assetPropertyStatusLabel(apSelected && apSelected.status)"></span>
+                                            </div>
+                                        </div>
+                                        <div class="detail-item" x-show="apSelected && apSelected.belongs_to_organization_name">
+                                            <div class="label">Belongs to</div>
+                                            <div class="value" x-text="apSelected && apSelected.belongs_to_organization_name"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Custodian since</div>
+                                            <div class="value" x-text="apSelected && apSelected.current_custodian_since ? NSS.formatDate(apSelected.current_custodian_since) : '—'"></div>
+                                        </div>
+                                        <div class="detail-item" x-show="apSelected && apSelected.custodian_is_last">
+                                            <div class="label">Custody ended</div>
+                                            <div class="value" x-text="apSelected && apSelected.custodian_ended_at ? NSS.formatDate(apSelected.custodian_ended_at) : '—'"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Acquisition method</div>
+                                            <div class="value" x-text="(apSelected && apSelected.acquisition_method_name) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Acquired on</div>
+                                            <div class="value" x-text="apSelected && apSelected.acquired_at ? NSS.formatDate(apSelected.acquired_at) : '—'"></div>
+                                        </div>
+                                        <div class="detail-item" style="grid-column: span 2;">
+                                            <div class="label">Location</div>
+                                            <div class="value" x-text="(apSelected && apSelected.location_description) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item" style="grid-column: span 3;">
+                                            <div class="label" x-text="apF.extraLabel"></div>
+                                            <div class="value" x-text="(apSelected && apSelected[apF.extra]) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item" style="grid-column: span 3;">
+                                            <div class="label">Notes</div>
+                                            <div class="value" x-text="(apSelected && apSelected.notes) || '—'"></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="label">Registered</div>
+                                            <div class="value" x-text="apSelected ? NSS.formatDate(apSelected.created_at) : ''"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Lifecycle (SOL-AP-003): only the valid next states are offered.
+                                         Disposal / retirement is recorded here, approved by Governance. -->
+                                    <div class="form-section" x-show="canManageAssets">
+                                        <h4 class="form-section-title">Lifecycle</h4>
+                                        <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
+                                            <template x-for="to in apNextStatuses" :key="to">
+                                                <button class="btn-action" :class="{ danger: to === 'DISPOSED' || to === 'RETIRED' }"
+                                                        :disabled="apTransition.saving" @click="apStartTransition(to)"
+                                                        x-text="apTransitionLabel(to)"></button>
+                                            </template>
+                                            <span class="form-hint" style="margin:0;" x-show="apIsTerminal"
+                                                  x-text="'This ' + apNoun + ' is ' + NSS.assetPropertyStatusLabel(apSelected && apSelected.status).toLowerCase() + ' and its status can no longer change.'"></span>
+                                            <span class="form-hint" style="margin:0;"
+                                                  x-show="apSelected && apSelected.status === 'REGISTERED' && !apSelected.current_custodianship_pk"
+                                                  x-text="'Assign a custodian to bring this ' + apNoun + ' into use.'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Custody -->
+                                    <div class="form-section">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Custody</h4>
+                                            <div style="display:flex; gap:0.75rem;">
+                                                <button class="link-action" x-show="apCanAssignCustodian" @click="apOpenAssign()">Assign custodian</button>
+                                                <button class="link-action" x-show="apCanTransferCustody" @click="apOpenTransfer()">Transfer custody</button>
+                                            </div>
+                                        </div>
+
+                                        <template x-if="apAssign.show">
+                                            <div class="form-grid-2" style="margin-top:0.5rem;">
+                                                <div class="typeahead-wrap">
+                                                    <label class="form-label">Custodian organization</label>
+                                                    <input type="text" class="form-input" x-model="apAssign.custodian.query"
+                                                           @input="corrOnOrgQueryInput(apAssign.custodian)" placeholder="Search by organization name…" autocomplete="off">
+                                                    <div class="typeahead-menu" x-show="apAssign.custodian.results.length > 0">
+                                                        <template x-for="org in apAssign.custodian.results" :key="org.organization_pk">
+                                                            <div class="typeahead-item" @click="corrSelectOrg(apAssign.custodian, org)">
+                                                                <span x-text="org.organization_name"></span>
+                                                                <span class="meta" x-text="org.type_name"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                    <p class="form-hint" x-text="apCustodianHint"></p>
+                                                </div>
+                                                <div x-data="nssDatePicker('apAssign.effective_from', { maxToday: true })" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apAssign.saving">
+                                                    <label class="form-label">Effective from <span class="optional">(defaults to today)</span></label>
+                                                </div>
+                                                <div class="span-all">
+                                                    <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                    <textarea class="form-input" rows="2" maxlength="2000" x-model="apAssign.notes"></textarea>
+                                                </div>
+                                                <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apAssign.error" x-text="apAssign.error"></div>
+                                                <div class="span-all" style="display:flex; gap:0.5rem;">
+                                                    <button class="btn-action primary" :disabled="apAssign.saving" @click="apSubmitAssign()"
+                                                            x-text="apAssign.saving ? 'Saving…' : 'Assign custodian'"></button>
+                                                    <button class="btn-action" :disabled="apAssign.saving" @click="apCancelAssign()">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.custody.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.custody.error" x-text="apSub.custody.error"></div>
+                                        <p class="form-hint" x-show="!apSub.custody.loading && !apSub.custody.error && apSub.custody.items.length === 0">No custodian has been assigned yet.</p>
+                                        <div class="data-rows" x-show="apSub.custody.items.length > 0">
+                                            <template x-for="c in apSub.custody.items" :key="c.custodianship_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span class="badge badge-xs" :class="NSS.assetCustodianshipBadgeClass(c.status)" x-text="NSS.assetCustodianshipStatusLabel(c.status)"></span>
+                                                        <span style="font-size:0.82rem; margin-left:0.4rem;" x-text="c.custodian_organization_name"></span>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="c.end_reason_name" x-text="'Ended: ' + c.end_reason_name"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="c.notes" x-text="c.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; color:#6b7280;"
+                                                          x-text="NSS.formatDate(c.effective_from) + ' – ' + (c.effective_to ? NSS.formatDate(c.effective_to) : 'present')"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Maintenance records: what WAS done (no schedule, no cost) -->
+                                    <div class="form-section">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Maintenance records</h4>
+                                            <button class="link-action" x-show="canManageAssets" @click="apToggleMaintForm()"
+                                                    x-text="apMaintForm.show ? 'Cancel' : '+ Add record'"></button>
+                                        </div>
+
+                                        <div class="form-grid-2" x-show="apMaintForm.show" x-cloak style="margin-top:0.5rem;">
+                                            <div>
+                                                <label class="form-label">Maintenance type</label>
+                                                <select class="nss-select" x-model="apMaintForm.type_code">
+                                                    <option value="">Select…</option>
+                                                    <template x-for="o in apOptions('MAINTENANCE_TYPE')" :key="o.value_code">
+                                                        <option :value="o.value_code" x-text="o.value_name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div x-data="nssDatePicker('apMaintForm.performed_at', { maxToday: true })" style="position:relative;" data-dp-input-class="form-input" data-dp-disabled="apMaintForm.saving">
+                                                <label class="form-label">Performed on <span class="optional">(optional)</span></label>
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Description <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apMaintForm.description"></textarea>
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apMaintForm.notes"></textarea>
+                                            </div>
+                                            <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apMaintForm.error" x-text="apMaintForm.error"></div>
+                                            <div class="span-all" style="display:flex; gap:0.5rem;">
+                                                <button class="btn-action primary" :disabled="apMaintForm.saving" @click="apSubmitMaintenance()"
+                                                        x-text="apMaintForm.saving ? 'Saving…' : (apMaintForm.editPk ? 'Save changes' : 'Add record')"></button>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.maintenance.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.maintenance.error" x-text="apSub.maintenance.error"></div>
+                                        <p class="form-hint" x-show="!apSub.maintenance.loading && !apSub.maintenance.error && apSub.maintenance.items.length === 0">No maintenance recorded.</p>
+                                        <div class="data-rows" x-show="apSub.maintenance.items.length > 0">
+                                            <template x-for="m in apSub.maintenance.items" :key="m.maintenance_record_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span style="font-size:0.82rem; font-weight:600;" x-text="m.maintenance_type_name"></span>
+                                                        <div style="font-size:0.75rem; color:#6b7280;" x-show="m.description" x-text="m.description"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="m.notes" x-text="m.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; color:#6b7280; display:flex; gap:0.6rem; align-items:center;">
+                                                        <span x-text="m.performed_at ? NSS.formatDate(m.performed_at) : 'Date not recorded'"></span>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apEditMaintenance(m)">Edit</button>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apDeleteMaintenance(m)">Delete</button>
+                                                    </span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Statutory records: property only (AP-040). Identifies the
+                                         obligation; payment belongs to Finance. -->
+                                    <div class="form-section" x-show="apIsProperty">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Statutory records</h4>
+                                            <button class="link-action" x-show="canManageAssets" @click="apToggleStatForm()"
+                                                    x-text="apStatForm.show ? 'Cancel' : '+ Add record'"></button>
+                                        </div>
+
+                                        <div class="form-grid-2" x-show="apStatForm.show" x-cloak style="margin-top:0.5rem;">
+                                            <div>
+                                                <label class="form-label">Obligation type</label>
+                                                <select class="nss-select" x-model="apStatForm.type_code">
+                                                    <option value="">Select…</option>
+                                                    <template x-for="o in apOptions('STATUTORY_OBLIGATION_TYPE')" :key="o.value_code">
+                                                        <option :value="o.value_code" x-text="o.value_name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Reference number <span class="optional">(optional)</span></label>
+                                                <input type="text" class="form-input" maxlength="100" x-model="apStatForm.reference_number" autocomplete="off">
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Description <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apStatForm.description"></textarea>
+                                            </div>
+                                            <div class="span-all">
+                                                <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                <textarea class="form-input" rows="2" maxlength="2000" x-model="apStatForm.notes"></textarea>
+                                            </div>
+                                            <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apStatForm.error" x-text="apStatForm.error"></div>
+                                            <div class="span-all" style="display:flex; gap:0.5rem;">
+                                                <button class="btn-action primary" :disabled="apStatForm.saving" @click="apSubmitStatutory()"
+                                                        x-text="apStatForm.saving ? 'Saving…' : (apStatForm.editPk ? 'Save changes' : 'Add record')"></button>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.statutory.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.statutory.error" x-text="apSub.statutory.error"></div>
+                                        <p class="form-hint" x-show="!apSub.statutory.loading && !apSub.statutory.error && apSub.statutory.items.length === 0">No statutory records.</p>
+                                        <div class="data-rows" x-show="apSub.statutory.items.length > 0">
+                                            <template x-for="r in apSub.statutory.items" :key="r.property_statutory_record_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span style="font-size:0.82rem; font-weight:600;" x-text="r.obligation_type_name"></span>
+                                                        <span class="mono" style="font-size:0.75rem; margin-left:0.4rem;" x-show="r.reference_number" x-text="r.reference_number"></span>
+                                                        <div style="font-size:0.75rem; color:#6b7280;" x-show="r.description" x-text="r.description"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="r.notes" x-text="r.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; display:flex; gap:0.6rem; align-items:center;">
+                                                        <button class="link-action" x-show="canManageAssets" @click="apEditStatutory(r)">Edit</button>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apDeleteStatutory(r)">Delete</button>
+                                                    </span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Documents: links to existing Foundation document-registry
+                                         entries (no upload here). -->
+                                    <div class="form-section">
+                                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                                            <h4 class="form-section-title" style="margin:0;">Documents</h4>
+                                            <button class="link-action" x-show="canManageAssets" @click="apToggleDocForm()"
+                                                    x-text="apDocForm.show ? 'Cancel' : '+ Attach document'"></button>
+                                        </div>
+
+                                        <div class="form-grid-2" x-show="apDocForm.show" x-cloak style="margin-top:0.5rem;">
+                                            <div class="span-all">
+                                                <label class="form-label">Document</label>
+                                                <select class="nss-select" x-model="apDocForm.document_master_pk">
+                                                    <option value="" x-text="apDocChoices.length ? 'Select from the document registry…' : 'No documents available'"></option>
+                                                    <template x-for="d in apDocChoices" :key="d.document_master_pk">
+                                                        <option :value="d.document_master_pk" x-text="apDocOptionLabel(d)"></option>
+                                                    </template>
+                                                </select>
+                                                <p class="form-hint" x-show="apDocOptionsError" x-text="apDocOptionsError"></p>
+                                                <p class="form-hint">Only documents already in the registry can be attached; files are not uploaded here.</p>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Relationship <span class="optional">(optional)</span></label>
+                                                <select class="nss-select" x-model="apDocForm.relationship_type_code">
+                                                    <option value="">None</option>
+                                                    <template x-for="o in apOptions('ASSET_PROPERTY_DOCUMENT_RELATIONSHIP')" :key="o.value_code">
+                                                        <option :value="o.value_code" x-text="o.value_name"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                                <input type="text" class="form-input" maxlength="2000" x-model="apDocForm.notes" autocomplete="off">
+                                            </div>
+                                            <div class="alert-msg alert-error span-all" style="margin:0;" x-show="apDocForm.error" x-text="apDocForm.error"></div>
+                                            <div class="span-all">
+                                                <button class="btn-action primary" :disabled="apDocForm.saving" @click="apSubmitDocument()"
+                                                        x-text="apDocForm.saving ? 'Saving…' : 'Attach document'"></button>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex" style="justify-content:center; padding:0.75rem;" x-show="apSub.documents.loading"><div class="spinner-sm"></div></div>
+                                        <div class="alert-msg alert-error" x-show="apSub.documents.error" x-text="apSub.documents.error"></div>
+                                        <p class="form-hint" x-show="!apSub.documents.loading && !apSub.documents.error && apSub.documents.items.length === 0">No documents attached.</p>
+                                        <div class="data-rows" x-show="apSub.documents.items.length > 0">
+                                            <template x-for="d in apSub.documents.items" :key="d.link_pk">
+                                                <div class="data-row">
+                                                    <span class="data-label">
+                                                        <span style="font-size:0.82rem; font-weight:600;" x-text="d.document_name"></span>
+                                                        <span style="margin-left:0.4rem;" x-show="d.relationship_type_name"><span class="badge badge-xs badge-muted" x-text="d.relationship_type_name"></span></span>
+                                                        <div style="font-size:0.75rem; color:#6b7280;"
+                                                             x-text="NSS.codeLabel(d.document_type_code) + (d.document_number ? ' · ' + d.document_number : '')"></div>
+                                                        <div style="font-size:0.75rem; color:#9ca3af;" x-show="d.notes" x-text="d.notes"></div>
+                                                    </span>
+                                                    <span class="data-value" style="font-size:0.72rem; color:#6b7280; display:flex; gap:0.6rem; align-items:center;">
+                                                        <span x-text="NSS.formatDate(d.created_at)"></span>
+                                                        <button class="link-action" x-show="canManageAssets" @click="apDetachDocument(d)">Detach</button>
+                                                    </span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── Modal: record disposal / retirement (asks for the Governance
+                             decision reference, then a confirm dialog) ── -->
+                        <template x-if="apTransition.show">
+                            <div class="modal-overlay" @click.self="apCancelTransition()">
+                                <div class="modal-card">
+                                    <div class="modal-card-header">
+                                        <h3 x-text="apTransitionLabel(apTransition.target)"></h3>
+                                        <p x-text="'This is recorded here, not approved here: the decision belongs to the Governing Body. A ' + NSS.assetPropertyStatusLabel(apTransition.target).toLowerCase() + ' ' + apNoun + ' cannot change status again.'"></p>
+                                    </div>
+                                    <div class="modal-card-body">
+                                        <label class="form-label">Governance decision reference <span class="optional">(optional)</span></label>
+                                        <textarea class="form-input" rows="3" maxlength="2000" x-model="apTransition.remarks"
+                                                  placeholder="Governing Body meeting / resolution reference"></textarea>
+                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="apTransition.error" x-text="apTransition.error"></div>
+                                    </div>
+                                    <div class="modal-card-footer">
+                                        <button class="btn-action" :disabled="apTransition.saving" @click="apCancelTransition()">Cancel</button>
+                                        <button class="btn-action danger" :disabled="apTransition.saving" @click="apConfirmTerminalTransition()"
+                                                x-text="apTransition.saving ? 'Saving…' : apTransitionLabel(apTransition.target)"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- ── Modal: transfer custody ── -->
+                        <template x-if="apTransfer.show">
+                            <div class="modal-overlay" @click.self="apCancelTransfer()">
+                                <div class="modal-card" style="overflow:visible;">
+                                    <div class="modal-card-header">
+                                        <h3>Transfer custody</h3>
+                                        <p>The current custodianship is ended and kept in the history. The lifecycle status does not change.</p>
+                                    </div>
+                                    <div class="modal-card-body">
+                                        <div class="typeahead-wrap" style="margin-bottom:0.75rem;">
+                                            <label class="form-label">New custodian organization</label>
+                                            <input type="text" class="form-input" x-model="apTransfer.newCustodian.query"
+                                                   @input="corrOnOrgQueryInput(apTransfer.newCustodian)" placeholder="Search by organization name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="apTransfer.newCustodian.results.length > 0">
+                                                <template x-for="org in apTransfer.newCustodian.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(apTransfer.newCustodian, org)">
+                                                        <span x-text="org.organization_name"></span>
+                                                        <span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <p class="form-hint" x-text="apCustodianHint"></p>
+                                        </div>
+                                        <div style="margin-bottom:0.75rem;">
+                                            <label class="form-label">Reason</label>
+                                            <select class="nss-select" x-model="apTransfer.end_reason_code">
+                                                <template x-for="o in apOptions('CUSTODIANSHIP_END_REASON')" :key="o.value_code">
+                                                    <option :value="o.value_code" x-text="o.value_name"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div x-data="nssDatePicker('apTransfer.effective_from', { maxToday: true })" style="position:relative; margin-bottom:0.75rem;" data-dp-input-class="form-input" data-dp-disabled="apTransfer.saving">
+                                            <label class="form-label">Effective from <span class="optional">(defaults to today)</span></label>
+                                        </div>
+                                        <div style="margin-bottom:0.75rem;">
+                                            <label class="form-label">New location <span class="optional">(optional — leave blank to keep the current one)</span></label>
+                                            <textarea class="form-input" rows="2" maxlength="2000" x-model="apTransfer.location_description"></textarea>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Notes <span class="optional">(optional)</span></label>
+                                            <textarea class="form-input" rows="2" maxlength="2000" x-model="apTransfer.notes"></textarea>
+                                        </div>
+                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="apTransfer.error" x-text="apTransfer.error"></div>
+                                    </div>
+                                    <div class="modal-card-footer">
+                                        <button class="btn-action" :disabled="apTransfer.saving" @click="apCancelTransfer()">Cancel</button>
+                                        <button class="btn-action primary" :disabled="apTransfer.saving" @click="apSubmitTransfer()"
+                                                x-text="apTransfer.saving ? 'Transferring…' : 'Transfer custody'"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                    </div><!-- /Assets & Property -->
+
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: System Event Log explorer (AUDIT_VIEW, read only)
+                         GET /api/v1/audit/events - logic: audit-diagnostics.js.
+                         Default window is the last 24 h; the server caps the
+                         exact count at 10,000. system_event_log is not on the
+                         live feed, so refresh is manual or the opt-in timer.
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="activeTab === 'auditEvents' && canViewAudit" x-cloak>
+
+                        <div class="data-card" x-show="!aeSelected">
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">System Event Log</h2>
+                                <div style="display:flex; gap:0.5rem; align-items:center;">
+                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="aeTotalLabel"></span>
+                                    <label class="form-hint" style="display:flex; align-items:center; gap:0.3rem; margin:0;">
+                                        <input type="checkbox" :checked="aeAuto" @change="aeSetAuto($event.target.checked)">
+                                        Auto-refresh (15 s)
+                                    </label>
+                                    <button class="btn-action" @click="aeLoad()">Refresh</button>
+                                    <button class="btn-action" :disabled="aeItems.length === 0" @click="aeExportCsv()">Export page (CSV)</button>
+                                </div>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
+                                    <div>
+                                        <label class="form-label">Table</label>
+                                        <select class="nss-select" x-model="aeFilters.table" @change="aeApply()">
+                                            <option value="">All tables</option>
+                                            <template x-for="t in aeFacets.tables" :key="t">
+                                                <option :value="t" x-text="t"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Action</label>
+                                        <select class="nss-select" x-model="aeFilters.action" @change="aeApply()">
+                                            <option value="">All actions</option>
+                                            <template x-for="a in aeFacets.actions" :key="a">
+                                                <option :value="a" x-text="a"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Module</label>
+                                        <select class="nss-select" x-model="aeFilters.module" @change="aeApply()">
+                                            <option value="">All modules</option>
+                                            <template x-for="m in aeFacets.modules" :key="m">
+                                                <option :value="m" x-text="m"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Actor (Sangha Sevi ID)</label>
+                                        <input type="text" class="form-input" x-model="aeFilters.actor" @keydown.enter="aeApply()"
+                                               placeholder="e.g. SS12" autocomplete="off">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Record ID (UUID)</label>
+                                        <input type="text" class="form-input" x-model="aeFilters.record" @keydown.enter="aeApply()"
+                                               placeholder="Record PK (no date limit when set)" autocomplete="off">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Result</label>
+                                        <select class="nss-select" x-model="aeFilters.success" @change="aeApply()">
+                                            <option value="">Any</option>
+                                            <option value="true">Success</option>
+                                            <option value="false">Failed</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label">From</label>
+                                        <input type="datetime-local" class="form-input" x-model="aeFilters.from" @change="aeApply()">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">To</label>
+                                        <input type="datetime-local" class="form-input" x-model="aeFilters.to" @change="aeApply()">
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Search summary</label>
+                                        <input type="text" class="form-input" x-model="aeFilters.q" @keydown.enter="aeApply()"
+                                               placeholder="Summary, module, table or action…" autocomplete="off">
+                                    </div>
+                                    <div style="display:flex; gap:0.4rem;">
+                                        <button class="btn-action primary" @click="aeApply()">Search</button>
+                                        <button class="btn-action" @click="aeReset()">Reset (last 24 h)</button>
+                                    </div>
+                                </div>
+
+                                <p class="form-hint" x-show="aeAppliedFrom && !aeFilters.from"
+                                   x-text="'No start time given: showing events since ' + NSS.formatDateTime(aeAppliedFrom) + ' (last 24 hours).'"></p>
+                                <p class="form-hint" x-show="aeCapped">More than 10,000 events match: narrow the date range or add a filter.</p>
+
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="aeLoading">
+                                    <div class="spinner"></div>
+                                </div>
+                                <div class="alert-msg alert-error" x-show="aeError" x-text="aeError"></div>
+
+                                <template x-if="!aeLoading && !aeError">
+                                    <div>
+                                        <div x-show="aeItems.length === 0" style="padding:1rem; color:#6b7280;">No events match these filters.</div>
+                                        <div style="overflow-x:auto;" x-show="aeItems.length > 0">
+                                            <table class="admin-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="cursor:pointer;" @click="aeToggleSort()">When <span x-text="NSS.sortIcon('event_at', 'event_at', aeSort)"></span></th>
+                                                        <th>Action</th>
+                                                        <th>Table</th>
+                                                        <th>Summary</th>
+                                                        <th>Actor</th>
+                                                        <th>Result</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="r in aeItems" :key="r.system_event_log_pk">
+                                                        <tr @click="aeOpen(r)" style="cursor:pointer;">
+                                                            <td style="font-size:0.78rem; white-space:nowrap;" x-text="NSS.formatDateTime(r.event_at)"></td>
+                                                            <td><span class="badge badge-xs badge-muted" x-text="r.action"></span></td>
+                                                            <td class="mono" style="font-size:0.75rem;" x-text="r.table_name"></td>
+                                                            <td style="font-size:0.78rem;" x-text="r.summary || ''"></td>
+                                                            <td style="font-size:0.78rem;" x-text="aeActorLabel(r)"></td>
+                                                            <td>
+                                                                <span class="badge badge-xs badge-audit-success" x-show="r.is_success === true">OK</span>
+                                                                <span class="badge badge-xs badge-audit-failed" x-show="r.is_success === false">Failed</span>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div class="pagination-bar" x-show="aeTotal > aePageSize">
+                                            <span x-text="'Page ' + aePage + ' of ' + aePages + (aeCapped ? '+' : '')"></span>
+                                            <div style="display:flex; gap:0.35rem;">
+                                                <button class="btn-action" :disabled="aePage <= 1" @click="aePrev()">Prev</button>
+                                                <button class="btn-action" :disabled="aePage >= aePages" @click="aeNext()">Next</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Event detail -->
+                        <div x-show="aeSelected" x-cloak>
+                            <a class="back-link" @click="aeClose()">&larr; Back to list</a>
+                            <div class="data-card" x-show="aeSelected">
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title" x-text="aeSelected ? aeSelected.action + ' on ' + aeSelected.table_name : ''"></h2>
+                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="aeSelected ? NSS.formatDateTime(aeSelected.event_at) : ''"></span>
+                                    </div>
+                                    <button class="btn-action" @click="aeFilterToRecord()">All events for this record</button>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="alert-msg alert-error" x-show="aeSelectedError" x-text="aeSelectedError"></div>
+                                    <div class="form-grid-3" x-show="aeSelected">
+                                        <div><label class="form-label">Summary</label><div style="font-size:0.82rem;" x-text="aeSelected && aeSelected.summary || '-'"></div></div>
+                                        <div><label class="form-label">Module</label><div style="font-size:0.82rem;" x-text="aeSelected && aeSelected.module || '-'"></div></div>
+                                        <div><label class="form-label">Actor</label><div style="font-size:0.82rem;" x-text="aeSelected ? aeActorLabel(aeSelected) : ''"></div></div>
+                                        <div><label class="form-label">Record PK</label><div class="mono" style="font-size:0.75rem;" x-text="aeSelected && aeSelected.record_pk"></div></div>
+                                        <div><label class="form-label">Event ID</label><div class="mono" style="font-size:0.75rem;" x-text="aeSelected && aeSelected.system_event_log_pk"></div></div>
+                                        <div><label class="form-label">Result</label>
+                                            <div style="font-size:0.82rem;" x-text="aeSelected && aeSelected.is_success === true ? 'Success' : (aeSelected && aeSelected.is_success === false ? 'Failed' : 'Not applicable')"></div>
+                                        </div>
+                                    </div>
+
+                                    <h5 class="form-section-title" style="margin-top:1rem;">Event payload (before / after values, request context)</h5>
+                                    <div class="flex" style="justify-content:center; padding:1rem;" x-show="aeSelectedLoading"><div class="spinner"></div></div>
+                                    <p class="form-hint" x-show="!aeSelectedLoading && !aeDetailJson">This event carries no JSON payload.</p>
+                                    <pre class="audit-json" x-show="aeDetailJson" x-text="aeDetailJson"></pre>
+
+                                    <h5 class="form-section-title" style="margin-top:1rem;">Field-level changes in the same transaction</h5>
+                                    <div class="alert-msg alert-error" x-show="aeFieldsError" x-text="aeFieldsError"></div>
+                                    <div class="flex" style="justify-content:center; padding:1rem;" x-show="aeFieldsLoading"><div class="spinner"></div></div>
+                                    <p class="form-hint" x-show="!aeFieldsLoading && !aeFieldsError && aeFields.length === 0">
+                                        No field-level rows were recorded with this event (explicit application events, excluded columns and excluded tables have none).
+                                    </p>
+                                    <div style="overflow-x:auto;" x-show="aeFields.length > 0">
+                                        <table class="admin-table">
+                                            <thead><tr><th>Field</th><th>Old value</th><th>New value</th><th>Reason</th></tr></thead>
+                                            <tbody>
+                                                <template x-for="f in aeFields" :key="f.field_change_log_pk">
+                                                    <tr>
+                                                        <td class="mono" style="font-size:0.75rem;" x-text="f.field_name"></td>
+                                                        <td style="font-size:0.78rem; overflow-wrap:anywhere;" x-text="f.old_value == null ? '-' : f.old_value"></td>
+                                                        <td style="font-size:0.78rem; overflow-wrap:anywhere;" x-text="f.new_value == null ? '-' : f.new_value"></td>
+                                                        <td style="font-size:0.78rem;" x-text="f.change_reason || ''"></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- /System Event Log -->
+
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: Live Change Markers (AUDIT_VIEW, read only)
+                         GET /api/v1/audit/live-change-markers, polled every 5 s
+                         while this tab is on screen and the browser tab visible.
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="activeTab === 'liveMarkers' && canViewAudit" x-cloak>
+                        <div class="data-card">
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Live Change Markers</h2>
+                                <div style="display:flex; gap:0.5rem; align-items:center;">
+                                    <span style="font-size:0.75rem; color:#6b7280;"
+                                          x-text="lmLastPollAt ? 'Updated ' + lmLastPollAt.toLocaleTimeString('en-GB') + ' (every 5 s)' : ''"></span>
+                                    <button class="btn-action" @click="lmLoad()">Refresh</button>
+                                </div>
+                            </div>
+                            <div class="data-card-body">
+                                <p class="form-hint" style="margin-bottom:0.8rem;">
+                                    One row per watched table. A database trigger bumps the table's change number
+                                    (<span class="mono">change_seq</span>, taken from one global sequence) whenever a write to it commits.
+                                    Every open page polls <span class="mono">/live/changes</span>, compares the numbers with the ones it saw
+                                    before, and reloads only the screens fed by a table whose number grew. Rows highlighted in yellow
+                                    changed since the previous poll.
+                                </p>
+
+                                <div class="audit-tiles">
+                                    <div class="audit-tile"><div class="label">Watched tables</div><div class="value" x-text="lmRows.length"></div></div>
+                                    <div class="audit-tile"><div class="label">On the live whitelist</div><div class="value" x-text="lmWhitelistSize"></div></div>
+                                    <div class="audit-tile"><div class="label">Latest change number</div><div class="value" x-text="lmLatestSeq == null ? '-' : lmLatestSeq"></div></div>
+                                    <div class="audit-tile"><div class="label">Most recently changed</div><div class="value mono" style="font-size:0.85rem;" x-text="lmLatestTable || '-'"></div></div>
+                                </div>
+
+                                <div class="alert-msg alert-error" x-show="lmError" x-text="lmError"></div>
+                                <p class="form-hint" x-show="lmMissing.length > 0"
+                                   x-text="'Whitelisted but no marker row yet: ' + lmMissing.join(', ')"></p>
+
+                                <div style="margin-bottom:0.8rem; max-width:22rem;">
+                                    <label class="form-label">Filter</label>
+                                    <input type="text" class="form-input" x-model="lmFilter" placeholder="Table or screen name…" autocomplete="off">
+                                </div>
+
+                                <div class="flex" style="justify-content:center; padding:2rem;" x-show="lmLoading"><div class="spinner"></div></div>
+                                <div x-show="!lmLoading && lmFiltered.length === 0" style="padding:1rem; color:#6b7280;">No markers to show.</div>
+                                <div style="overflow-x:auto;" x-show="!lmLoading && lmFiltered.length > 0">
+                                    <table class="admin-table">
+                                        <thead>
+                                            <tr><th>Table</th><th>Change #</th><th>Changed</th><th>Drives (admin tabs)</th><th>Live whitelist</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="m in lmFiltered" :key="m.table_name">
+                                                <tr :class="{ 'lm-just-changed': lmFlash[m.table_name] }">
+                                                    <td class="mono" style="font-size:0.78rem;" x-text="m.table_name"></td>
+                                                    <td class="mono" style="font-size:0.78rem;" x-text="m.change_seq"></td>
+                                                    <td style="font-size:0.78rem;">
+                                                        <span x-text="lmRelative(m.changed_at)"></span>
+                                                        <div style="font-size:0.7rem; color:#6b7280;" x-text="NSS.formatDateTime(m.changed_at)"></div>
+                                                    </td>
+                                                    <td style="font-size:0.78rem; color:#6b7280;" x-text="lmScreens(m.table_name) || '-'"></td>
+                                                    <td>
+                                                        <span class="badge badge-xs badge-audit-success" x-show="m.on_live_whitelist">Yes</span>
+                                                        <span class="badge badge-xs badge-audit-failed" x-show="!m.on_live_whitelist">No</span>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- /Live Change Markers -->
+
+                    <!-- ═══════════════════════════════════════════
                          VIEW: Org Dashboard (Sakha/Anchalika/Zilla/Kendra/Patha Chakra)
                          — a real tab, not a separate page; markup mirrors
                          the mockups (docs/03_Solution/ui/mockups/03/05/06/02),
@@ -7099,7 +8180,7 @@
                     <template x-if="activeTab === 'orgDashboard' && viewingOrgPk">
                     <div x-data="orgDashboardTab()" x-init="init(viewingOrgPk)" x-cloak>
 
-                        <div style="display: flex; align-items: center; justify-content: center; padding: 3rem 0;" x-show="loading">
+                        <div class="flex" style="align-items: center; justify-content: center; padding: 3rem 0;" x-show="loading">
                             <div class="spinner"></div>
                         </div>
                         <div class="alert-msg alert-error" x-show="!loading && error" x-text="error"></div>
@@ -8030,7 +9111,7 @@
                     <template x-if="credTimelineError">
                         <div class="alert-msg alert-error" x-text="credTimelineError"></div>
                     </template>
-                    <div style="display: flex; justify-content: center; padding: 1.5rem;" x-show="credTimelineLoading">
+                    <div class="flex" style="justify-content: center; padding: 1.5rem;" x-show="credTimelineLoading">
                         <div class="spinner"></div>
                     </div>
                     <template x-if="!credTimelineLoading && !credTimelineError">
@@ -8157,6 +9238,34 @@
                         <div class="spinner-sm" x-show="promoteLoading"></div>
                         Promote
                     </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Aadhaar reveal (GDR-011): the value exists only while this template is rendered
+         (x-if) and aadhaarReveal.value is blanked on close. -->
+    <template x-if="aadhaarReveal.open">
+        <div class="modal-overlay" @click.self="closeAadhaarReveal()">
+            <div class="modal-card">
+                <div class="modal-card-header">
+                    <h3>Aadhaar number</h3>
+                    <p x-show="aadhaarReveal.personName"><strong x-text="aadhaarReveal.personName"></strong></p>
+                </div>
+                <div class="modal-card-body">
+                    <div class="spinner-sm" x-show="aadhaarReveal.loading"></div>
+                    <template x-if="aadhaarReveal.error">
+                        <div class="alert-msg alert-error" x-text="aadhaarReveal.error"></div>
+                    </template>
+                    <template x-if="aadhaarReveal.value">
+                        <div>
+                            <div class="mono" style="font-size: 1.4rem; letter-spacing: 0.08em; text-align: center; padding: 0.75rem 0;" x-text="aadhaarReveal.value"></div>
+                            <p class="form-hint" style="text-align: center;">This reveal has been recorded in the audit log. Close this window when done.</p>
+                        </div>
+                    </template>
+                </div>
+                <div class="modal-card-footer">
+                    <button type="button" class="btn-action primary" @click="closeAadhaarReveal()">Close</button>
                 </div>
             </div>
         </div>

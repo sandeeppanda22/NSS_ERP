@@ -7,7 +7,9 @@ per the project's API convention established in Tier 0.
 Sensitive fields excluded per PER-BR-081:
   - aadhaar_encrypted (BYTEA)  — never exposed
   - aadhaar_hash (VARCHAR)     — never exposed
-Only aadhaar_last4 is returned for masked display.
+Only aadhaar_last4 (gated, GDR-011) is returned for masked display; the
+decrypted full number comes only from the PERSON_VIEW_SENSITIVE reveal
+endpoint (PersonAadhaarResponse).
 
 Raw psycopg2 returns dictionaries — no ORM objects — so
 ConfigDict(from_attributes=True) is unnecessary.
@@ -59,8 +61,12 @@ class PersonResponse(BaseModel):
     mobile_number: str | None
     email: str | None
 
-    # Sensitive identity — masked display only
+    # Sensitive identity (GDR-011): both are None unless the caller is the
+    # person themself or holds PERSON_VIEW_SENSITIVE within admin scope
+    # (api/services/person_scope.py::gate_aadhaar_fields). Masked display only;
+    # the full number is available solely from GET /persons/{pk}/aadhaar.
     aadhaar_last4: str | None
+    aadhaar_full_on_file: bool | None = None
 
     # Photo
     photo_document_master_pk: UUID | None
@@ -205,3 +211,10 @@ class PersonAddressUpdateRequest(BaseModel):
     post_office_pk: UUID | None = None
     is_primary: bool | None = None
     remarks: str | None = None
+
+
+class PersonAadhaarResponse(BaseModel):
+    """GET /api/v1/person/persons/{person_pk}/aadhaar (GDR-011) — the only place the full number leaves the server."""
+
+    person_pk: UUID
+    aadhaar_number: str

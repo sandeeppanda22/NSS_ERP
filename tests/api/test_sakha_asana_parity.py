@@ -201,7 +201,7 @@ _BUILD_SCRIPTS = ["database/scripts/02_build.sh", "database/scripts/02_build.ps1
 class TestPatchWiring:
     @pytest.mark.parametrize("script", _BUILD_SCRIPTS)
     def test_sakha_like_function_is_wired_before_its_callers(self, script):
-        text = (REPO / script).read_text()
+        text = "\n".join(l for l in (REPO / script).read_text().splitlines() if not l.lstrip().startswith("#"))
         fn = text.index("10_sakha_like_org_type_function.sql")
         membership = re.search(r"14_sakha_only_membership_trigger\.sql", text).start()
         governance = re.search(r"12_governance_seat_limits\.sql\"", text).start()
@@ -209,7 +209,9 @@ class TestPatchWiring:
 
     @pytest.mark.parametrize("script", _BUILD_SCRIPTS)
     def test_step_role_patch_is_wired_after_the_step_table(self, script):
-        text = (REPO / script).read_text()
+        # Code lines only: the script headers also LIST the patch files (comments),
+        # which would otherwise match before the real run_sql/Invoke-Sql lines.
+        text = "\n".join(l for l in (REPO / script).read_text().splitlines() if not l.lstrip().startswith("#"))
         ddl = text.index("07_organization_reparent_step.sql")
         patch = text.index("09_organization_reparent_step_source_role_patch.sql")
         assert patch > ddl

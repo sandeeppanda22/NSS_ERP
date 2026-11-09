@@ -74,6 +74,164 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
     ADVISORY_BOARD: "ADVISORY_BOARD",
 };
 
+// ── Live refresh (live-refresh.js) ─────────────────────────────────────────
+// Which tab(s) each watched table feeds. Every table named here MUST be in the
+// server whitelist LIVE_FEED_TABLES (api/routers/live.py - the authoritative
+// list); tests/api/test_live_changes.py::TestJsMapParity parses this block, so
+// keep one `table: [tabs]` entry per line. Attendance tables are deliberately
+// absent (the attendance register has its own poller), as are the ballot tables.
+// LIVE_TABLE_TABS:begin
+const LIVE_TABLE_TABS = {
+    registration_claim: ["claims", "claimsBadge", "users", "detail"],
+    membership_change_request: ["changeRequests", "changeRequestsBadge"],
+    correspondence: ["correspondence", "orgDashboard"],
+    correspondence_document: ["correspondence"],
+    correspondence_finance_reference: ["correspondence"],
+    correspondence_approval_step: ["correspondence"],
+    body_master: ["govBodies", "govAssignments", "govElections", "orgDashboard"],
+    body_member_assignment: ["govBodies", "govAssignments", "orgDashboard"],
+    acting_position_assignment: ["govAssignments", "orgDashboard"],
+    election: ["govElections", "orgDashboard"],
+    election_nomination: ["govElections"],
+    election_result: ["govElections"],
+    organization: ["orgDashboard", "organizations", "orgHierarchy", "users", "detail", "memberDir"],
+    membership_sakha_affiliation: ["orgDashboard", "users", "detail", "memberDir", "credentials"],
+    parichaya_patra: ["orgDashboard", "memberDir", "credentials", "credentialsBadge"],
+    family_group: ["orgDashboard"],
+    darshak_attendance_registration: ["orgDashboard"],
+    property: ["properties"],
+    asset: ["assets"],
+    custodianship: ["properties", "assets"],
+    maintenance_record: ["properties", "assets"],
+    property_statutory_record: ["properties"],
+    property_document: ["properties"],
+    asset_document: ["assets"],
+    // ── Batch 2 ──
+    // Users tab + user detail. user_account's login churn (last_login_at, failed-login
+    // counters, locked_until) never bumps its marker (ignored-column trigger), so a login
+    // does not reload anybody's page; last_login_at therefore refreshes with the next
+    // real change or reopening the tab.
+    user_account: ["users", "detail"],
+    user_role: ["detail"],
+    admin_scope: ["detail"],
+    role_master: ["detail"],
+    person: ["users", "detail", "personDir", "memberDir", "credentials"],
+    person_address: ["personDir"],
+    sangha_sevi: ["orgDashboard", "users", "detail", "personDir", "memberDir", "credentials", "credentialsBadge"],
+    anumati_patra: ["memberDir", "credentials", "credentialsBadge"],
+    membership_journey_event: ["memberDir"],
+    // Reference data / geography / location approvals / settings
+    master_category: ["refData", "organizations"],
+    master_data: ["users", "detail", "organizations", "personDir", "memberDir", "credentials", "refData"],
+    document_master: ["refData"],
+    country: ["geography", "organizations"],
+    state: ["geography", "organizations"],
+    district: ["geography", "organizations", "geoApprovals", "geoApprovalsBadge"],
+    city_village: ["geography", "organizations", "geoApprovals", "geoApprovalsBadge"],
+    postal_code: ["geography", "organizations", "geoApprovals", "geoApprovalsBadge"],
+    post_office: ["geography", "geoApprovals", "geoApprovalsBadge"],
+    system_setting: ["sysSettings"],
+    festival_master: ["sysSettings"],
+    festival_calendar_date: ["sysSettings"],
+};
+// LIVE_TABLE_TABS:end
+
+// Per-tab reload / liveBusy hooks. reload re-runs the tab's existing loader
+// (current filters, paging and selection kept; {silent:true} = no spinner, no
+// reset). busy = a form / dialog / typed input is open, so the reload waits
+// behind the "new updates" banner. `*Badge` entries are sidebar counters that
+// refresh even when their tab is not on screen (background).
+const LIVE_REFRESH_CONFIG = {
+    tableTabs: LIVE_TABLE_TABS,
+    activeTab: (h) => h.activeTab,
+    tabs: {
+        claims: {
+            reload: (h) => h.loadClaims({ silent: true }),
+            busy: (h) => !!h.claimEditing || (h.adminRemarks || "").trim() !== "" || !!h.aadhaarReveal.open,
+        },
+        claimsBadge: { background: true, reload: (h) => h.loadClaimsPendingCount() },
+        changeRequests: {
+            reload: (h) => h.loadChangeRequests({ silent: true }),
+            busy: (h) => (h.changeRequestActionRemarks || "").trim() !== "" || (h.changeRequestNewLocalNumber || "").trim() !== "",
+        },
+        changeRequestsBadge: { background: true, reload: (h) => h.loadChangeRequestsPendingCount() },
+        correspondence: {
+            reload: (h) => (h.corrSelected ? h._reloadCorrDetail() : h.loadCorrespondence({ silent: true })),
+            busy: (h) => !!(h.corrCreateForm.show || h.corrResponsibleForm.show || h.corrDocumentForm.show
+                || h.corrFinanceForm.show || h.corrDispatchForm.saving),
+        },
+        govBodies: {
+            reload: (h) => h.loadGovBodies({ silent: true }),
+            busy: (h) => !!(h.govBodyForm.show || h.govBodyEdit.pk),
+        },
+        govAssignments: {
+            reload: (h) => h.loadGovAssignments({ silent: true }),
+            busy: (h) => !!(h.govAssignForm.show || h.govActingForm.show),
+        },
+        govElections: {
+            reload: async (h) => {
+                await h.loadGovElections({ silent: true });
+                if (h.govSelectedElectionPk) await h._reloadGovElectionDetail();
+            },
+            busy: (h) => !!(h.govElectionForm.show || h.govNominationForm.show || h.govVoteForm.show
+                || h.govResultForm.show || h.govResetForm.show || h.govElectionBusy),
+        },
+        orgDashboard: {
+            reload: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return t ? t.liveReload() : null; },
+            busy: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return !!(t && t.liveBusy()); },
+        },
+        properties: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
+        assets: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
+
+        // ── Batch 2 ──
+        // Busy = a modal, inline editor or Profile Details editor of that tab is open.
+        users: {
+            reload: (h) => h.fetchUsers({ silent: true }),
+            busy: (h) => h._usersLiveBusy(),
+        },
+        detail: {
+            reload: (h) => h._reloadUserDetail(),
+            busy: (h) => h._usersLiveBusy(),
+        },
+        organizations: {
+            reload: (h) => h.loadOrganizations({ silent: true }),
+            busy: (h) => !!(h.editingOrgPk || h.editOrgDetailPk || h.savingOrgDetail || h.savingShortCode),
+        },
+        orgHierarchy: { reload: (h) => h.loadOrgHierarchy({ silent: true }) },
+        personDir: {
+            reload: (h) => h.fetchPersonDirectory({ silent: true }),
+            busy: (h) => !!h.aadhaarReveal.open,
+        },
+        memberDir: {
+            reload: (h) => h.fetchMemberDirectory({ silent: true }),
+            busy: (h) => !!h.patraCorrect.pk,
+        },
+        credentials: {
+            reload: (h) => h.loadCredentials(h.credsPage, { silent: true }),
+            busy: (h) => !!(h.showIssueCredentialModal || h.showPromoteModal),
+        },
+        credentialsBadge: { background: true, reload: (h) => (h.hasGeneralAdminAccess ? h.refreshCredsLapsedCount() : null) },
+        refData: {
+            reload: (h) => h.loadReferenceData({ silent: true }),
+            busy: (h) => !!h.mdModalOpen,
+        },
+        // A typed PIN search replaces the PIN list; a reload would overwrite its result.
+        geography: {
+            reload: (h) => h.geoLiveReload(),
+            busy: (h) => (h.geoPostalCodeQuery || "").trim().length >= 2,
+        },
+        geoApprovals: {
+            reload: (h) => h.loadGeoEntries({ silent: true }),
+            busy: (h) => !!(h.geoCorrect.pk || h.geoApproveBusyPk),
+        },
+        geoApprovalsBadge: { background: true, reload: (h) => (h.hasGeneralAdminAccess ? h.loadGeoEntriesPendingCount() : null) },
+        sysSettings: {
+            reload: (h) => Promise.all([h.reloadSettings({ silent: true }), h.loadFestivalCalendar({ silent: true })]),
+            busy: (h) => !!(h.ssModalOpen || h.seqModalOpen || h.fcModalOpen),
+        },
+    },
+};
+
 function adminApp() {
     // Resolve the initial tab synchronously from the URL hash (e.g.
     // /admin#orgHierarchy) so the page renders the right tab immediately
@@ -92,7 +250,15 @@ function adminApp() {
     // run — see assets/js/attendance-register.js. install() never
     // overwrites a property defined below, which is how the
     // `_afterAttendanceSaved` hook further down wins.
-    return NSSAttendanceRegister.install({
+    // NSSAssetsProperty.install() likewise adds the Assets & Property screens
+    // (assets-property.js): permission getters, list/detail/forms/custody/
+    // maintenance/statutory/documents for both the Properties and Assets tabs.
+    // NSSAuditDiagnostics.install() adds the AUDIT_VIEW-gated System Event Log explorer and
+    // Live Change Markers diagnostics tabs (audit-diagnostics.js); they poll their own audit
+    // endpoints, not the live feed.
+    // NSSLiveRefresh.install() adds the shared live-refresh poller (one
+    // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
+    return NSSLiveRefresh.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -171,6 +337,7 @@ function adminApp() {
             date_of_birth: "", gender_master_data_pk: "",
             country_phone_code: NSS.DEFAULT_COUNTRY_CODE,
             mobile_number: "", email: "",
+            aadhaar_number: "",   // optional (GDR-011); sent only when non-empty
         },
         newPersonLoading: false,
         // Live duplicate-contact lookup for the new-person form. Each holds
@@ -197,7 +364,17 @@ function adminApp() {
                 emergency_relationship_master_data_pk: "", remarks: "",
             },
             reason: "",
+            // Aadhaar (GDR-011). last4/fullOnFile come from GET /admin/persons/{pk}
+            // (null when the caller may not see them or none is stored). `input` is
+            // the NEW number being typed: blank = no change; `clear` sends "".
+            aadhaar: { last4: null, fullOnFile: null, input: "", clear: false },
         },
+
+        // ── Aadhaar reveal dialog (GDR-011) ───────────────────
+        // The full number lives ONLY in aadhaarReveal.value while the dialog is
+        // open; closeAadhaarReveal() blanks it. Never stored, logged or part of
+        // any live-refresh reload state.
+        aadhaarReveal: { open: false, loading: false, value: "", personName: "", error: "" },
 
         // ── Create Sangha Sevi ────────────────────────────────
         ssForm: {
@@ -526,6 +703,7 @@ function adminApp() {
         // selected }. Debounce timers live on the picker object itself
         // (picker._timer) rather than a shared keyed dict.
         corrLoading: false,
+        _corrListSeq: 0,
         corrError: "",
         corrItems: [],
         corrTotal: 0,
@@ -751,6 +929,11 @@ function adminApp() {
         },
 
         // ── Governance (Tier 6) permissions ──────────────────────
+        // PERSON_VIEW_SENSITIVE (GDR-011): may reveal a stored full Aadhaar number.
+        get canViewSensitive() {
+            return !!(this.currentUser && (this.currentUser.permissions || []).includes("PERSON_VIEW_SENSITIVE"));
+        },
+
         get canViewGovernance() {
             return this.currentUser &&
                 (this.currentUser.permissions.includes("GOVERNANCE_VIEW") ||
@@ -1424,10 +1607,18 @@ function adminApp() {
             // GOVERNANCE_VIEW/MANAGE also qualifies (NSS_ERP_ADVISORY_BOARD_ADMIN holds
             // neither ADMIN_* nor MEMBERSHIP_APPROVE) — that role gets the
             // governance-only panel below.
-            if (!this.hasGeneralAdminAccess && !this.canViewGovernance) {
+            // ASSET_VIEW/ASSET_MANAGE (Assets & Property) also qualifies: Report
+            // Viewer holds neither ADMIN_* nor GOVERNANCE_*, and gets an
+            // Assets-&-Property-only panel.
+            if (!this.hasGeneralAdminAccess && !this.canViewGovernance && !this.canViewAssets && !this.canViewAudit) {
                 window.location.href = "/dashboard";
                 return;
             }
+
+            // Live refresh: one /live/changes poll for this page (live-refresh.js);
+            // the watcher lets it clear its banner / stale marks as tabs change.
+            this.liveStart();
+            this.$watch("activeTab", (tab) => { this.liveTabOpened(tab); this.auditTabChanged(tab); });
 
             // Governance-only admin: none of the general reference loaders below
             // (users, organizations, membership types, claims, ...) are permitted
@@ -1435,16 +1626,31 @@ function adminApp() {
             // Assignments tab (or the Bodies tab if the URL names it).
             if (!this.hasGeneralAdminAccess) {
                 const govHash = window.location.hash.replace("#", "");
+                // Assets & Property: #assets / #properties, or the landing tab for a
+                // holder of ASSET_VIEW/MANAGE with no governance access (Report
+                // Viewer). Its organization pickers call the scoped endpoint on
+                // demand, so none of the general loaders are needed for it.
+                const assetsHash = (govHash === "assets" || govHash === "properties") && this.canViewAssets;
+                const auditHash = (govHash === "auditEvents" || govHash === "liveMarkers") && this.canViewAudit;
+                const assetsLanding = !auditHash && (assetsHash || (!this.canViewGovernance && this.canViewAssets));
+                // Audit & Diagnostics (AUDIT_VIEW): #auditEvents / #liveMarkers, or the landing
+                // tab of a holder of AUDIT_VIEW alone. An Auditor also holds ASSET_VIEW, so lands on Assets
+                // and reaches these from the sidebar.
+                const auditLanding = auditHash || (!this.canViewGovernance && !this.canViewAssets && this.canViewAudit);
                 // The Advisory Board admin's own Correspondence register (2026-10-30)
                 // is built from the organization tree + the ORGANIZATION_TYPE
                 // catalogue (ORGANIZATION_VIEW / FOUNDATION_VIEW, both granted to it).
                 const corrOnly = govHash === "correspondence" && this.canViewCorrespondence;
-                if (this.canViewCorrespondence) {
+                if (this.canViewCorrespondence && !assetsLanding && !auditLanding) {
                     await Promise.all([this.fetchOrganizations(), this.loadOrgTypes()]);
                 }
-                this.activeTab = corrOnly ? "correspondence"
+                this.activeTab = auditLanding ? (auditHash ? govHash : "auditEvents")
+                    : assetsLanding ? (assetsHash ? govHash : "properties")
+                    : corrOnly ? "correspondence"
                     : govHash === "govBodies" ? "govBodies" : "govAssignments";
-                if (this.activeTab === "correspondence") await this.loadCorrespondence();
+                if (auditLanding) await (this.activeTab === "liveMarkers" ? this.liveMarkersEnter() : this.auditEventsEnter());
+                else if (assetsLanding) await this.apEnterTab();
+                else if (this.activeTab === "correspondence") await this.loadCorrespondence();
                 else if (this.activeTab === "govBodies") await this.loadGovBodies();
                 else await this.loadGovAssignments();
                 return;
@@ -1514,6 +1720,10 @@ function adminApp() {
                     attWatchList: () => { if (this.canViewAttendance) { this.loadAttWatchList(); this.loadAttOrgStats(); } },
                     credentials: () => this.loadCredentials(),
                     correspondence: () => this.loadCorrespondence(),
+                    properties: () => { if (this.canViewAssets) this.apEnterTab(); },
+                    assets: () => { if (this.canViewAssets) this.apEnterTab(); },
+                    auditEvents: () => { if (this.canViewAudit) this.auditEventsEnter(); },
+                    liveMarkers: () => { if (this.canViewAudit) this.liveMarkersEnter(); },
                 };
                 if (tabLoaders[hash]) tabLoaders[hash]();
             }
@@ -1646,9 +1856,12 @@ function adminApp() {
             this.fetchUsers();
         },
 
-        async fetchUsers() {
-            this.usersLoading = true;
-            this.usersError = "";
+        // opts.silent (live refresh): no spinner/error flash, keeps filter/page/sort;
+        // the sequence guard drops a response the user has since superseded.
+        _usersSeq: 0,
+        async fetchUsers(opts = {}) {
+            const seq = ++this._usersSeq;
+            if (!opts.silent) { this.usersLoading = true; this.usersError = ""; }
 
             try {
                 const params = new URLSearchParams({
@@ -1663,6 +1876,7 @@ function adminApp() {
                 }
 
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/users?${params}`);
+                if (seq !== this._usersSeq) return;
                 if (!res.ok) {
                     if (res.status === 403) {
                         this.usersError = "You do not have permission to view users.";
@@ -1671,12 +1885,13 @@ function adminApp() {
                     throw new Error(await NSS.extractError(res));
                 }
                 const data = await res.json();
+                if (seq !== this._usersSeq) return;
                 this.users = data.users;
                 this.usersTotal = data.total;
             } catch (err) {
-                this.usersError = err.message || "Failed to load users.";
+                if (!opts.silent && seq === this._usersSeq) this.usersError = err.message || "Failed to load users.";
             } finally {
-                this.usersLoading = false;
+                if (seq === this._usersSeq) this.usersLoading = false;
             }
         },
 
@@ -1710,6 +1925,32 @@ function adminApp() {
             } finally {
                 this.detailLoading = false;
             }
+        },
+
+        // Live refresh of the open user detail: re-reads the account only (no
+        // loadProfileEdit - that would reset the Profile Details form) and drops
+        // the response if the admin has opened another user meanwhile. A user
+        // that has just been soft-deleted answers 404/403 and is left as shown.
+        _userDetailSeq: 0,
+        async _reloadUserDetail() {
+            const cur = this.selectedUser;
+            if (!cur) return;
+            const pk = cur.user_account_pk;
+            const seq = ++this._userDetailSeq;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/users/${pk}`);
+                if (!res.ok || seq !== this._userDetailSeq) return;
+                const fresh = await res.json();
+                if (seq !== this._userDetailSeq || !this.selectedUser || this.selectedUser.user_account_pk !== pk) return;
+                this.selectedUser = fresh;
+            } catch { /* keep what is on screen */ }
+        },
+
+        // True while a Users-area modal or the Profile Details editor is open.
+        _usersLiveBusy() {
+            return !!(this.showResetModal || this.showRoleModal || this.showCreateAccountModal
+                || (this.profileEdit && this.profileEdit.editing)
+                || this.aadhaarReveal.open);
         },
 
         backToList() {
@@ -1793,6 +2034,8 @@ function adminApp() {
                 if (npMobileErr) { this.createError = npMobileErr; return; }
                 const npEmailErr = NSS.validateEmail(f.email.trim());
                 if (npEmailErr) { this.createError = npEmailErr; return; }
+                const npAadhaarErr = NSS.aadhaar.validate(f.aadhaar_number);
+                if (npAadhaarErr) { this.createError = npAadhaarErr; return; }
 
                 const payload = {
                     first_name: f.first_name.trim(),
@@ -1805,6 +2048,8 @@ function adminApp() {
                 if (f.country_phone_code.trim()) payload.country_phone_code = f.country_phone_code.trim();
                 if (f.mobile_number.trim()) payload.mobile_number = f.mobile_number.trim();
                 if (f.email.trim()) payload.email = f.email.trim();
+                const npAadhaar = NSS.aadhaar.payloadValue(f.aadhaar_number, false);
+                if (npAadhaar !== undefined) payload.aadhaar_number = npAadhaar;
 
                 // Use the registration endpoint to create person (admin bypass)
                 const res = await NSSAuth.apiFetch("/api/v1/admin/persons", {
@@ -1833,6 +2078,7 @@ function adminApp() {
                     date_of_birth: "", gender_master_data_pk: "",
                     country_phone_code: NSS.DEFAULT_COUNTRY_CODE,
                     mobile_number: "", email: "",
+                    aadhaar_number: "",
                 };
                 this.contactCheck = { mobile: null, email: null };
             } catch (err) {
@@ -2623,6 +2869,11 @@ function adminApp() {
                     remarks: p.remarks || "",
                 };
                 this.profileEdit.reason = "";
+                this.profileEdit.aadhaar = {
+                    last4: p.aadhaar_last4 || null,
+                    fullOnFile: p.aadhaar_full_on_file === true ? true : (p.aadhaar_full_on_file === false ? false : null),
+                    input: "", clear: false,
+                };
             } catch (err) {
                 this.profileEdit.error = err.message || "Failed to load profile details.";
             } finally {
@@ -2633,11 +2884,15 @@ function adminApp() {
         startEditProfile() {
             this.profileEdit.editing = true;
             this.profileEdit.saveError = null;
+            this.profileEdit.aadhaar.input = "";
+            this.profileEdit.aadhaar.clear = false;
         },
 
         cancelEditProfile() {
             this.profileEdit.editing = false;
             this.profileEdit.saveError = null;
+            this.profileEdit.aadhaar.input = "";
+            this.profileEdit.aadhaar.clear = false;
             if (this.selectedUser) this.loadProfileEdit(this.selectedUser.person_pk);
         },
 
@@ -2646,6 +2901,11 @@ function adminApp() {
             const f = this.profileEdit.form;
             if (!f.first_name || !f.first_name.trim()) {
                 this.profileEdit.saveError = "First name is required.";
+                return;
+            }
+            const aadhaarErr = this.profileEdit.aadhaar.clear ? "" : NSS.aadhaar.validate(this.profileEdit.aadhaar.input);
+            if (aadhaarErr) {
+                this.profileEdit.saveError = aadhaarErr;
                 return;
             }
             this.profileEdit.saving = true;
@@ -2668,6 +2928,9 @@ function adminApp() {
                     remarks: f.remarks,
                     reason: this.profileEdit.reason || null,
                 };
+                // Blank = no change (key omitted); "Clear stored Aadhaar" sends "".
+                const aadhaarValue = NSS.aadhaar.payloadValue(this.profileEdit.aadhaar.input, this.profileEdit.aadhaar.clear);
+                if (aadhaarValue !== undefined) payload.aadhaar_number = aadhaarValue;
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/persons/${this.selectedUser.person_pk}`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
@@ -2675,6 +2938,8 @@ function adminApp() {
                 });
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 this.profileEdit.editing = false;
+                this.profileEdit.aadhaar.input = "";
+                this.profileEdit.aadhaar.clear = false;
                 // Name/contact also surface on the Account Details card and
                 // the Users list — viewUser() refreshes both, and triggers
                 // loadProfileEdit() itself for this card too.
@@ -2686,6 +2951,46 @@ function adminApp() {
             } finally {
                 this.profileEdit.saving = false;
             }
+        },
+
+        // ── Aadhaar reveal (GDR-011) ──────────────────────────
+        // Confirm (the reveal is audited) -> GET /person/persons/{pk}/aadhaar ->
+        // show in a dialog. The value is held only in aadhaarReveal.value and is
+        // blanked by closeAadhaarReveal(); no storage, no logging.
+        async revealAadhaar(personPk, personName) {
+            if (!this.canViewSensitive || !personPk || this.aadhaarReveal.loading) return;
+            const ok = await NSSDialog.confirm(
+                "This reveal is recorded in the audit log. Show the full Aadhaar number?",
+                { title: "Reveal Aadhaar", confirmText: "Reveal" }
+            );
+            if (!ok) return;
+            this.aadhaarReveal = { open: true, loading: true, value: "", personName: personName || "", error: "" };
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/person/persons/${personPk}/aadhaar`);
+                if (!this.aadhaarReveal.open) return;   // closed while loading
+                if (res.ok) {
+                    const data = await res.json();
+                    this.aadhaarReveal.value = NSS.aadhaar.group(data.aadhaar_number || "");
+                } else if (res.status === 403) {
+                    this.aadhaarReveal.error = "You are not permitted to view this person's Aadhaar number.";
+                } else if (res.status === 404) {
+                    this.aadhaarReveal.error = "No full Aadhaar number is on record for this person.";
+                } else if (res.status === 429) {
+                    this.aadhaarReveal.error = "Too many reveal requests. Please wait a minute and try again.";
+                } else if (res.status >= 500) {
+                    this.aadhaarReveal.error = "The stored Aadhaar number could not be read. Contact the system administrator.";
+                } else {
+                    this.aadhaarReveal.error = await NSS.extractError(res);
+                }
+            } catch {
+                if (this.aadhaarReveal.open) this.aadhaarReveal.error = "Unable to connect to server.";
+            } finally {
+                this.aadhaarReveal.loading = false;
+            }
+        },
+
+        closeAadhaarReveal() {
+            this.aadhaarReveal = { open: false, loading: false, value: "", personName: "", error: "" };
         },
 
         async fetchOrganizations() {
@@ -2712,8 +3017,11 @@ function adminApp() {
             this.loadOrganizations();
         },
 
-        async loadOrganizations() {
-            this.orgsLoading = true;
+        // opts.silent (live refresh): no spinner, keeps filter/page/sort/inline edits.
+        _orgsSeq: 0,
+        async loadOrganizations(opts = {}) {
+            const seq = ++this._orgsSeq;
+            if (!opts.silent) this.orgsLoading = true;
             try {
                 const params = new URLSearchParams({
                     page: this.orgPage,
@@ -2727,15 +3035,17 @@ function adminApp() {
                 }
 
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/organizations?${params}`);
+                if (seq !== this._orgsSeq) return;
                 if (res.ok) {
                     const data = await res.json();
+                    if (seq !== this._orgsSeq) return;
                     this.orgsList = data.organizations;
                     this.orgsTotal = data.total;
                 }
             } catch (err) {
                 console.error("Failed to load organizations:", err);
             } finally {
-                this.orgsLoading = false;
+                if (seq === this._orgsSeq) this.orgsLoading = false;
             }
         },
 
@@ -3674,6 +3984,7 @@ function adminApp() {
         claimsPage: 1,
         claimsPageSize: 20,
         claimsLoading: false,
+        _claimsSeq: 0,
         claimsStatusFilter: "PENDING",
         claimsPendingCount: 0,
 
@@ -3712,8 +4023,12 @@ function adminApp() {
             this.loadClaims();
         },
 
-        async loadClaims() {
-            this.claimsLoading = true;
+        // opts.silent (live refresh): no spinner, keeps the current filter/page/sort.
+        // The sequence guard drops a response the user has since superseded
+        // (e.g. changed the filter while a live reload was in flight).
+        async loadClaims(opts = {}) {
+            const seq = ++this._claimsSeq;
+            if (!opts.silent) this.claimsLoading = true;
             try {
                 const params = new URLSearchParams({
                     claim_status: this.claimsStatusFilter,
@@ -3725,8 +4040,10 @@ function adminApp() {
                     params.set("sort_dir", this.claimsSortDir);
                 }
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/claims?${params}`);
+                if (seq !== this._claimsSeq) return;
                 if (res.ok) {
                     const data = await res.json();
+                    if (seq !== this._claimsSeq) return;
                     this.claims = data.claims;
                     this.claimsTotal = data.total;
                 } else if (res.status === 403) {
@@ -3736,7 +4053,7 @@ function adminApp() {
             } catch (err) {
                 console.error("Failed to load claims:", err);
             } finally {
-                this.claimsLoading = false;
+                if (seq === this._claimsSeq) this.claimsLoading = false;
             }
         },
 
@@ -3865,6 +4182,8 @@ function adminApp() {
                 country_phone_code: c.country_phone_code || NSS.DEFAULT_COUNTRY_CODE,
                 mobile_number: c.mobile_number || "",
                 email: c.email || "",
+                aadhaar_number: "",      // never prefilled (never echoed by the API)
+                aadhaar_clear: false,
             };
 
             this.claimEditForm = formData;
@@ -3881,6 +4200,7 @@ function adminApp() {
         },
 
         cancelClaimEdit() {
+            this.claimEditForm.aadhaar_number = "";
             this.claimEditing = false;
             this.claimEditError = "";
         },
@@ -3893,6 +4213,8 @@ function adminApp() {
             if (ceMobileErr) { this.claimEditError = ceMobileErr; return; }
             const ceEmailErr = NSS.validateEmail((this.claimEditForm.email || "").trim());
             if (ceEmailErr) { this.claimEditError = ceEmailErr; return; }
+            const ceAadhaarErr = this.claimEditForm.aadhaar_clear ? "" : NSS.aadhaar.validate(this.claimEditForm.aadhaar_number);
+            if (ceAadhaarErr) { this.claimEditError = ceAadhaarErr; return; }
             this.claimEditLoading = true;
             try {
                 const payload = {};
@@ -3934,6 +4256,9 @@ function adminApp() {
                     payload.mobile_number = f.mobile_number;
                 if (f.email.toLowerCase() !== (c.email || "").toLowerCase())
                     payload.email = f.email;
+                // Aadhaar (GDR-011): blank = no change; the clear checkbox sends "".
+                const ceAadhaar = NSS.aadhaar.payloadValue(f.aadhaar_number, f.aadhaar_clear);
+                if (ceAadhaar !== undefined) payload.aadhaar_number = ceAadhaar;
 
                 if (Object.keys(payload).length === 0) {
                     this.claimEditing = false;
@@ -3952,6 +4277,7 @@ function adminApp() {
                 }
 
                 this.claimEditing = false;
+                this.claimEditForm = {};
                 await this.viewClaim(c.registration_claim_pk);
             } catch {
                 this.claimEditError = "Unable to connect to server.";
@@ -3971,6 +4297,7 @@ function adminApp() {
         changeRequestsPage: 1,
         changeRequestsPageSize: 20,
         changeRequestsLoading: false,
+        _changeRequestsSeq: 0,
         changeRequestsStatusFilter: "PENDING_SOURCE_RELEASE",
         changeRequestsPendingCount: 0,
 
@@ -3991,8 +4318,9 @@ function adminApp() {
             return labels[this.changeRequestsStatusFilter] || this.changeRequestsStatusFilter;
         },
 
-        async loadChangeRequests() {
-            this.changeRequestsLoading = true;
+        async loadChangeRequests(opts = {}) {
+            const seq = ++this._changeRequestsSeq;
+            if (!opts.silent) this.changeRequestsLoading = true;
             try {
                 if (this.changeRequestsStatusFilter === "REJECTED") {
                     // No single backend status covers both rejection
@@ -4003,6 +4331,7 @@ function adminApp() {
                     ]);
                     const dataSrc = resSrc.ok ? await resSrc.json() : { requests: [], total: 0 };
                     const dataDest = resDest.ok ? await resDest.json() : { requests: [], total: 0 };
+                    if (seq !== this._changeRequestsSeq) return;
                     this.changeRequests = [...dataSrc.requests, ...dataDest.requests]
                         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
                     this.changeRequestsTotal = dataSrc.total + dataDest.total;
@@ -4014,8 +4343,10 @@ function adminApp() {
                     page_size: this.changeRequestsPageSize,
                 });
                 const res = await NSSAuth.apiFetch(`/api/v1/membership/change-requests?${params}`);
+                if (seq !== this._changeRequestsSeq) return;
                 if (res.ok) {
                     const data = await res.json();
+                    if (seq !== this._changeRequestsSeq) return;
                     this.changeRequests = data.requests;
                     this.changeRequestsTotal = data.total;
                 } else if (res.status === 403) {
@@ -4025,7 +4356,7 @@ function adminApp() {
             } catch (err) {
                 console.error("Failed to load change requests:", err);
             } finally {
-                this.changeRequestsLoading = false;
+                if (seq === this._changeRequestsSeq) this.changeRequestsLoading = false;
             }
         },
 
@@ -4222,10 +4553,16 @@ function adminApp() {
             await this.fetchPersonDirectory();
         },
 
-        async fetchPersonDirectory() {
-            this.pdLoading = true;
-            this.pdError = "";
-            this.pdSelected = null;
+        // opts.silent (live refresh): no spinner/error flash, keeps filters/sort and
+        // the open detail row (which is re-read below); a stale response is dropped.
+        _pdSeq: 0,
+        async fetchPersonDirectory(opts = {}) {
+            const seq = ++this._pdSeq;
+            if (!opts.silent) {
+                this.pdLoading = true;
+                this.pdError = "";
+                this.pdSelected = null;
+            }
             try {
                 const params = new URLSearchParams({ limit: NSS.MAX_PAGE_SIZE });
                 if (this.pdGenderFilter) params.set("gender_code", this.pdGenderFilter);
@@ -4236,16 +4573,35 @@ function adminApp() {
                     params.set("sort_dir", this.pdSortDir);
                 }
                 const res = await NSSAuth.apiFetch(`/api/v1/person/persons?${params}`);
+                if (seq !== this._pdSeq) return;
                 if (res.status === 403) { this.pdError = "You do not have permission to view persons."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 const data = await res.json();
+                if (seq !== this._pdSeq) return;
                 this.pdPersons = data.persons;
                 this.pdTotal = data.total;
+                if (opts.silent && this.pdSelected) await this._pdReloadSelected();
             } catch (err) {
-                this.pdError = err.message || "Failed to load persons.";
+                if (!opts.silent && seq === this._pdSeq) this.pdError = err.message || "Failed to load persons.";
             } finally {
-                this.pdLoading = false;
+                if (seq === this._pdSeq && !opts.silent) this.pdLoading = false;
             }
+        },
+
+        // Live refresh of the open Person Directory detail row (keeps it open).
+        async _pdReloadSelected() {
+            const cur = this.pdSelected;
+            if (!cur) return;
+            const pk = cur.person_pk;
+            try {
+                const [detailRes, addrRes] = await Promise.all([
+                    NSSAuth.apiFetch(`/api/v1/person/persons/${pk}`),
+                    NSSAuth.apiFetch(`/api/v1/person/persons/${pk}/addresses`),
+                ]);
+                if (!this.pdSelected || this.pdSelected.person_pk !== pk) return;
+                if (detailRes.ok) this.pdSelected = await detailRes.json();
+                if (addrRes.ok) this.pdAddresses = await addrRes.json();
+            } catch { /* keep what is on screen */ }
         },
 
         async viewPerson(person) {
@@ -4445,10 +4801,16 @@ function adminApp() {
             await this.fetchMemberDirectory();
         },
 
-        async fetchMemberDirectory() {
-            this.mdLoading = true;
-            this.mdError = "";
-            this.mdSelected = null;
+        // opts.silent (live refresh): no spinner/error flash, keeps filters/sort, the open
+        // detail row and an open Patra-number correction form; stale responses are dropped.
+        _mdSeq: 0,
+        async fetchMemberDirectory(opts = {}) {
+            const seq = ++this._mdSeq;
+            if (!opts.silent) {
+                this.mdLoading = true;
+                this.mdError = "";
+                this.mdSelected = null;
+            }
             try {
                 const params = new URLSearchParams({ limit: NSS.MAX_PAGE_SIZE });
                 if (this.mdTypeFilter) params.set("type_code", this.mdTypeFilter);
@@ -4460,16 +4822,34 @@ function adminApp() {
                     params.set("sort_dir", this.mdSortDir);
                 }
                 const res = await NSSAuth.apiFetch(`/api/v1/membership/members?${params}`);
+                if (seq !== this._mdSeq) return;
                 if (res.status === 403) { this.mdError = "You do not have permission to view members."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 const data = await res.json();
+                if (seq !== this._mdSeq) return;
                 this.mdMembers = data.members;
                 this.mdTotal = data.total;
+                if (opts.silent && this.mdSelected) await this._mdReloadSelected();
             } catch (err) {
-                this.mdError = err.message || "Failed to load members.";
+                if (!opts.silent && seq === this._mdSeq) this.mdError = err.message || "Failed to load members.";
             } finally {
-                this.mdLoading = false;
+                if (seq === this._mdSeq && !opts.silent) this.mdLoading = false;
             }
+        },
+
+        // Live refresh of the open Member Directory detail row (keeps it open).
+        async _mdReloadSelected() {
+            const cur = this.mdSelected;
+            if (!cur) return;
+            const pk = cur.sangha_sevi_pk;
+            const get = (suffix) => NSSAuth.apiFetch(`/api/v1/membership/members/${pk}/${suffix}`)
+                .then(r => r.ok ? r.json() : null).catch(() => null);
+            const [aff, pp, ap, jr] = await Promise.all([get("affiliations"), get("parichaya-patra"), get("anumati-patra"), get("journey")]);
+            if (!this.mdSelected || this.mdSelected.sangha_sevi_pk !== pk) return;
+            if (aff) this.mdAffiliations = aff;
+            if (pp) this.mdParichaya = pp;
+            if (ap) this.mdAnumati = ap;
+            if (jr) this.mdJourney = jr;
         },
 
         async viewMember(member) {
@@ -4568,25 +4948,30 @@ function adminApp() {
         credsTypeFilter: "",
         credsLapsedCount: 0,
 
-        async loadCredentials(page = 1) {
+        // opts.silent (live refresh): no spinner/error flash, keeps filters and page;
+        // a stale response is dropped.
+        _credsSeq: 0,
+        async loadCredentials(page = 1, opts = {}) {
+            const seq = ++this._credsSeq;
             this.credsPage = page;
-            this.credsLoading = true;
-            this.credsError = "";
+            if (!opts.silent) { this.credsLoading = true; this.credsError = ""; }
             try {
                 const params = new URLSearchParams({ page: this.credsPage, page_size: this.credsPageSize });
                 if (this.credsSearch.trim()) params.set("search", this.credsSearch.trim());
                 if (this.credsStateFilter) params.set("state", this.credsStateFilter);
                 if (this.credsTypeFilter) params.set("membership_type", this.credsTypeFilter);
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/credentials/members?${params}`);
+                if (seq !== this._credsSeq) return;
                 if (res.status === 403) { this.credsError = "You do not have permission to view member credentials."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 const data = await res.json();
+                if (seq !== this._credsSeq) return;
                 this.credsMembers = data.members;
                 this.credsTotal = data.total;
             } catch (err) {
-                this.credsError = err.message || "Failed to load member credentials.";
+                if (!opts.silent && seq === this._credsSeq) this.credsError = err.message || "Failed to load member credentials.";
             } finally {
-                this.credsLoading = false;
+                if (seq === this._credsSeq) this.credsLoading = false;
             }
             this.refreshCredsLapsedCount();
         },
@@ -4722,55 +5107,59 @@ function adminApp() {
         rdDocsLoading: false,
         rdView: "master",   // master | documents
 
-        async loadReferenceData() {
+        // opts.silent (live refresh): no spinner/error flash; keeps the selected
+        // category and sub-view (re-pulls whichever is on screen).
+        async loadReferenceData(opts = {}) {
             // Refetches on EVERY tab open. This used to latch on a one-shot
             // `rdLoaded` flag, so the tab kept showing whatever was fetched
             // the first time it was opened until the user pressed F5. The
             // only guard now is against a concurrent in-flight request.
             if (this.rdLoading) return;
-            this.rdLoading = true;
-            this.rdError = "";
+            if (!opts.silent) { this.rdLoading = true; this.rdError = ""; }
             try {
                 const res = await NSSAuth.apiFetch("/api/v1/foundation/categories");
-                if (res.status === 403) { this.rdError = "You do not have permission to view reference data."; return; }
+                if (res.status === 403) { if (!opts.silent) this.rdError = "You do not have permission to view reference data."; return; }
                 if (res.ok) this.rdCategories = await res.json();
             } catch (err) {
-                this.rdError = "Failed to load categories.";
+                if (!opts.silent) this.rdError = "Failed to load categories.";
             } finally {
-                this.rdLoading = false;
+                if (!opts.silent) this.rdLoading = false;
             }
             // Keep the visible pane in step: re-pull whichever sub-view is
             // on screen, otherwise the categories refresh but the rows below
             // them stay stale.
             if (this.rdView === "documents") {
-                await this.loadDocuments();
+                await this.loadDocuments(opts);
             } else if (this.rdSelectedCategory) {
-                await this.loadMasterValues();
+                await this.loadMasterValues(opts);
             }
         },
 
-        async loadMasterValues() {
-            this.rdValues = [];
-            if (!this.rdSelectedCategory) return;
-            this.rdValuesLoading = true;
+        // opts.silent: no spinner and the rows are replaced only when the response
+        // arrives (the list is not blanked first); a changed category drops the response.
+        async loadMasterValues(opts = {}) {
+            const cat = this.rdSelectedCategory;
+            if (!opts.silent) this.rdValues = [];
+            if (!cat) return;
+            if (!opts.silent) this.rdValuesLoading = true;
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/foundation/master-data?category_code=${encodeURIComponent(this.rdSelectedCategory)}`);
-                if (res.ok) this.rdValues = await res.json();
+                const res = await NSSAuth.apiFetch(`/api/v1/foundation/master-data?category_code=${encodeURIComponent(cat)}`);
+                if (res.ok && (!opts.silent || cat === this.rdSelectedCategory)) this.rdValues = await res.json();
             } catch { /* non-fatal */ } finally {
-                this.rdValuesLoading = false;
+                if (!opts.silent) this.rdValuesLoading = false;
             }
         },
 
-        async loadDocuments() {
+        async loadDocuments(opts = {}) {
             // In-flight guard only — was `if (this.rdDocuments.length) return;`,
             // which permanently froze the document list after its first load.
             if (this.rdDocsLoading) return;
-            this.rdDocsLoading = true;
+            if (!opts.silent) this.rdDocsLoading = true;
             try {
                 const res = await NSSAuth.apiFetch("/api/v1/foundation/documents");
                 if (res.ok) this.rdDocuments = await res.json();
             } catch { /* non-fatal */ } finally {
-                this.rdDocsLoading = false;
+                if (!opts.silent) this.rdDocsLoading = false;
             }
         },
 
@@ -4913,23 +5302,26 @@ function adminApp() {
             await this.reloadSettings();
         },
 
-        async reloadSettings() {
-            this.ssSettingsLoading = true;
+        // opts.silent (live refresh): no spinner/error flash. The Sequences panel is
+        // re-read together with the settings but id_sequence_master is NOT on the
+        // live feed (counter churn), so counter values refresh only with a settings change.
+        async reloadSettings(opts = {}) {
+            if (!opts.silent) this.ssSettingsLoading = true;
             try {
                 const [setRes, seqRes] = await Promise.all([
                     NSSAuth.apiFetch("/api/v1/foundation/settings"),
                     NSSAuth.apiFetch("/api/v1/foundation/sequences"),
                 ]);
                 if (setRes.status === 403 || seqRes.status === 403) {
-                    this.ssError = "You do not have permission to view system settings.";
+                    if (!opts.silent) this.ssError = "You do not have permission to view system settings.";
                     return;
                 }
                 if (setRes.ok) this.ssSettings = await setRes.json();
                 if (seqRes.ok) this.ssSequences = await seqRes.json();
             } catch (err) {
-                this.ssError = "Failed to load system settings.";
+                if (!opts.silent) this.ssError = "Failed to load system settings.";
             } finally {
-                this.ssSettingsLoading = false;
+                if (!opts.silent) this.ssSettingsLoading = false;
             }
         },
 
@@ -5111,25 +5503,25 @@ function adminApp() {
         fcError: "",
         fcFilterYear: "",
 
-        async loadFestivalCalendar() {
+        // opts.silent (live refresh): no spinner/error flash; the year filter stays.
+        async loadFestivalCalendar(opts = {}) {
             if (this.fcLoading) return;
-            this.fcLoading = true;
-            this.fcError = "";
+            if (!opts.silent) { this.fcLoading = true; this.fcError = ""; }
             try {
                 const [fRes, dRes] = await Promise.all([
                     NSSAuth.apiFetch("/api/v1/foundation/festivals"),
                     NSSAuth.apiFetch("/api/v1/foundation/festival-calendar-dates"),
                 ]);
                 if (fRes.status === 403 || dRes.status === 403) {
-                    this.fcError = "You do not have permission to view the festival calendar.";
+                    if (!opts.silent) this.fcError = "You do not have permission to view the festival calendar.";
                     return;
                 }
                 if (fRes.ok) this.fcFestivals = await fRes.json();
                 if (dRes.ok) this.fcDates = await dRes.json();
             } catch (err) {
-                this.fcError = "Failed to load the festival calendar.";
+                if (!opts.silent) this.fcError = "Failed to load the festival calendar.";
             } finally {
-                this.fcLoading = false;
+                if (!opts.silent) this.fcLoading = false;
             }
         },
 
@@ -5354,25 +5746,34 @@ function adminApp() {
         geoApproveBusyPk: null,
         geoCorrect: { pk: null, value: "", remarks: "", loading: false, error: "" },
 
-        async loadGeoEntries() {
-            this.geoEntriesLoading = true;
-            this.geoEntriesError = "";
-            this.cancelGeoCorrect();
+        // opts.silent (live refresh): no spinner/error flash and an open Correct form is
+        // left alone (the busy hook holds the reload back while one is open); a response for
+        // a different entity/status than the one now selected is dropped.
+        _geoEntriesSeq: 0,
+        async loadGeoEntries(opts = {}) {
+            const seq = ++this._geoEntriesSeq;
+            if (!opts.silent) {
+                this.geoEntriesLoading = true;
+                this.geoEntriesError = "";
+                this.cancelGeoCorrect();
+            }
             try {
                 const res = await NSSAuth.apiFetch(
                     `/api/v1/admin/geo-entries/${this.geoEntryEntity}?status=${this.geoEntryStatus}&page_size=100`);
+                if (seq !== this._geoEntriesSeq) return;
                 if (res.status === 403) {
                     this.geoEntriesError = "You do not have permission to review location entries.";
                     this.geoEntries = []; this.geoEntriesTotal = 0; return;
                 }
                 const data = res.ok ? await res.json() : { entries: [], total: 0 };
+                if (seq !== this._geoEntriesSeq) return;
                 this.geoEntries = data.entries || [];
                 this.geoEntriesTotal = data.total || 0;
                 if (this.geoEntryStatus === "PENDING") this.geoEntriesPendingCount = this.geoEntriesTotal;
             } catch (e) {
-                this.geoEntriesError = "Failed to load location entries.";
+                if (!opts.silent && seq === this._geoEntriesSeq) this.geoEntriesError = "Failed to load location entries.";
             } finally {
-                this.geoEntriesLoading = false;
+                if (seq === this._geoEntriesSeq && !opts.silent) this.geoEntriesLoading = false;
             }
         },
 
@@ -5576,6 +5977,36 @@ function adminApp() {
             }
         },
 
+        // Live refresh of the Geography tab: re-read every level the admin has
+        // drilled into WITHOUT touching the selections (geoSelect* would reset
+        // the levels below). Any user selection bumps _geoSeq and drops this.
+        async geoLiveReload() {
+            const seq = this._geoSeq;
+            const get = (url) => NSSAuth.apiFetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+            const [countries, states, districts, cities, postalCodes, sakhas, offices] = await Promise.all([
+                get("/api/v1/foundation/countries"),
+                this.geoCountryPk ? get(`/api/v1/foundation/states?country_pk=${this.geoCountryPk}`) : null,
+                this.geoStatePk ? get(`/api/v1/foundation/districts?state_pk=${this.geoStatePk}`) : null,
+                this.geoPostalCodePk ? get(`/api/v1/foundation/cities?postal_code_pk=${this.geoPostalCodePk}`)
+                    : this.geoDistrictPk ? get(`/api/v1/foundation/cities?district_pk=${this.geoDistrictPk}`) : null,
+                this.geoDistrictPk ? get(`/api/v1/foundation/postal-codes?district_pk=${this.geoDistrictPk}`)
+                    : this.geoStatePk ? get(`/api/v1/foundation/postal-codes?state_pk=${this.geoStatePk}`) : null,
+                this.geoPostalCodePk ? get(`/api/v1/foundation/sakha-postal-codes?postal_code_pk=${this.geoPostalCodePk}`)
+                    : this.geoDistrictPk ? get(`/api/v1/foundation/sakha-postal-codes?district_pk=${this.geoDistrictPk}`)
+                    : this.geoStatePk ? get(`/api/v1/foundation/sakha-postal-codes?state_pk=${this.geoStatePk}`) : null,
+                this.geoPostalCodePk ? get(`/api/v1/foundation/post-offices?postal_code_pk=${this.geoPostalCodePk}`) : null,
+            ]);
+            if (seq !== this._geoSeq) return;
+            if (countries) this.geoCountries = countries;
+            if (states) this.geoStates = states;
+            if (districts) this.geoDistricts = districts;
+            // A PIN with no city anchored to it shows the district-wide list (fallback notice): keep it.
+            if (cities && !(this.geoPostalCodePk && cities.length === 0 && this.geoCitiesFallbackNotice)) this.geoCities = cities;
+            if (postalCodes) this.geoPostalCodes = postalCodes;
+            if (sakhas) this.geoSakhas = sakhas;
+            if (offices) this.geoPostOffices = offices;
+        },
+
         async geoSelectCountry(countryPk) {
             const seq = ++this._geoSeq;
             this.geoCountryPk = countryPk;
@@ -5765,7 +6196,9 @@ function adminApp() {
         orgDrillPath: [],
         orgDrillSelect: "",
 
-        async loadOrgHierarchy() {
+        // opts.silent (live refresh): no spinner/error flash; the drill path and
+        // selection stay (the tree is replaced in place).
+        async loadOrgHierarchy(opts = {}) {
             // Always refetch on tab open. This was latched behind
             // `orgTreeLoaded`, which two callers then had to manually
             // invalidate (`orgTreeLoaded = false`) after creating/reassigning
@@ -5773,16 +6206,15 @@ function adminApp() {
             // remembered. Refetching unconditionally removes the need for
             // any invalidation bookkeeping.
             if (this.orgTreeLoading) return;
-            this.orgTreeLoading = true;
-            this.orgTreeError = "";
+            if (!opts.silent) { this.orgTreeLoading = true; this.orgTreeError = ""; }
             try {
                 const res = await NSSAuth.apiFetch(`/api/v1/organization/hierarchy?limit=${NSS.MAX_PAGE_SIZE}`);
-                if (res.status === 403) { this.orgTreeError = "You do not have permission to view the hierarchy."; return; }
+                if (res.status === 403) { if (!opts.silent) this.orgTreeError = "You do not have permission to view the hierarchy."; return; }
                 if (res.ok) this.orgTree = await res.json();
             } catch (err) {
-                this.orgTreeError = "Failed to load hierarchy.";
+                if (!opts.silent) this.orgTreeError = "Failed to load hierarchy.";
             } finally {
-                this.orgTreeLoading = false;
+                if (!opts.silent) this.orgTreeLoading = false;
             }
         },
 
@@ -6212,10 +6644,13 @@ function adminApp() {
 
         // ── Governance: Bodies ────────────────────────────────────
 
-        async loadGovBodies() {
+        // opts.silent (live refresh): no spinner, and never starts while another
+        // load is in flight. The selected body / filter are untouched unless the
+        // body vanished (the existing "no longer assignable" rule below).
+        async loadGovBodies(opts = {}) {
             if (this.govBodiesLoading) return;
-            this.govBodiesLoading = true;
-            this.govBodiesError = "";
+            if (!opts.silent) this.govBodiesLoading = true;
+            if (!opts.silent) this.govBodiesError = "";
             try {
                 if (this.govBodyTypes.length === 0) {
                     const bt = await NSSAuth.apiFetch("/api/v1/governance/body-types");
@@ -6226,7 +6661,7 @@ function adminApp() {
                 // applied client-side below instead.
                 const params = new URLSearchParams({ page: 1, page_size: 100 });
                 const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies?${params}`);
-                if (res.status === 403) { this.govBodiesError = "You do not have permission to view Governance Bodies."; return; }
+                if (res.status === 403) { if (!opts.silent) this.govBodiesError = "You do not have permission to view Governance Bodies."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 const data = await res.json();
                 this.govBodiesAll = data.items;
@@ -6245,9 +6680,9 @@ function adminApp() {
                     this.govSelectedBodyPk = assignable[0].body_master_pk;
                 }
             } catch (err) {
-                this.govBodiesError = err.message || "Failed to load Governance Bodies.";
+                if (!opts.silent) this.govBodiesError = err.message || "Failed to load Governance Bodies.";
             } finally {
-                this.govBodiesLoading = false;
+                if (!opts.silent) this.govBodiesLoading = false;
             }
         },
 
@@ -6474,7 +6909,9 @@ function adminApp() {
 
         // ── Governance: Assignments ───────────────────────────────
 
-        async loadGovAssignments() {
+        // opts.silent (live refresh): no spinner, and the user's Sakha filter /
+        // "show all" toggle are kept (the default-filter step only runs on a real open).
+        async loadGovAssignments(opts = {}) {
             // The assign-form's Position dropdown needs govPositions, which
             // only the Body Types & Positions tab normally loads — fetch it
             // here too so Assignments works as a standalone entry point.
@@ -6486,15 +6923,17 @@ function adminApp() {
             // body-independent (NSS-wide-only) — load it once per tab visit.
             if (this.isGovNssWideAdmin) this.loadGovMissingNominations();
             if (!this.govSelectedBodyPk) {
-                if (this.govBodies.length === 0) await this.loadGovBodies();
+                if (this.govBodies.length === 0) await this.loadGovBodies(opts);
                 if (!this.govSelectedBodyPk) return;
             }
             this._loadGovAllowedPositions();
             this._loadGovActingPositions();
             this.loadGovActing();
             const bodyPk = this.govSelectedBodyPk;
-            this.govAssignmentsLoading = true;
-            this.govAssignmentsError = "";
+            if (!opts.silent) {
+                this.govAssignmentsLoading = true;
+                this.govAssignmentsError = "";
+            }
             try {
                 const res = await NSSAuth.apiFetch(`/api/v1/governance/bodies/${bodyPk}/assignments`);
                 if (bodyPk !== this.govSelectedBodyPk) return;   // body changed mid-flight
@@ -6503,9 +6942,9 @@ function adminApp() {
                 const data = await res.json();
                 if (bodyPk !== this.govSelectedBodyPk) return;
                 this.govAssignments = data.items;
-                this._applyGovSakhaFilterDefault();
+                if (!opts.silent) this._applyGovSakhaFilterDefault();
             } catch (err) {
-                if (bodyPk === this.govSelectedBodyPk) this.govAssignmentsError = err.message || "Failed to load assignments.";
+                if (bodyPk === this.govSelectedBodyPk && !opts.silent) this.govAssignmentsError = err.message || "Failed to load assignments.";
             } finally {
                 if (bodyPk === this.govSelectedBodyPk) this.govAssignmentsLoading = false;
             }
@@ -7095,24 +7534,32 @@ function adminApp() {
         },
 
         // ── Elections list / create ──
-        async loadGovElections() {
+        // opts.silent (live refresh): no spinner, errors stay quiet; an open
+        // election's detail is re-read by _reloadGovElectionDetail().
+        async loadGovElections(opts = {}) {
             if (!this.canViewGovernance) return;
-            this.govElectionsLoading = true;
-            this.govElectionsError = "";
+            if (!opts.silent) {
+                this.govElectionsLoading = true;
+                this.govElectionsError = "";
+            }
             try {
                 const res = await NSSAuth.apiFetch(
                     `/api/v1/governance/elections?page=1&page_size=${NSS.MAX_PAGE_SIZE}&sort_by=election_date&sort_dir=desc`);
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
-                    this.govElectionsError = NSS.errorMessage(data, res.status);
+                    if (!opts.silent) this.govElectionsError = NSS.errorMessage(data, res.status);
                     return;
                 }
                 const data = await res.json();
                 this.govElections = data.items || [];
+                if (opts.silent && this.govSelectedElectionPk) {
+                    const fresh = this.govElections.find(x => x.election_pk === this.govSelectedElectionPk);
+                    if (fresh) this.govSelectedElection = fresh;
+                }
                 // Governance bodies feed the create form + reset scope.
                 if (!this.govBodiesAll.length) await this.loadGovBodies();
             } catch (err) {
-                this.govElectionsError = err.message || "Failed to load elections.";
+                if (!opts.silent) this.govElectionsError = err.message || "Failed to load elections.";
             } finally {
                 this.govElectionsLoading = false;
             }
@@ -7210,6 +7657,15 @@ function adminApp() {
                 e.election_type === "NOMINATION" ? "UNCONTESTED" : "DECLARED";
             this.govResetForm.show = false;
             this.govSelfVote = { saving: false, error: "", notice: "", election_nomination_pk: "" };
+            await this._reloadGovElectionDetail();
+        },
+        // The four sub-resources of the OPEN election, without touching any
+        // form (openGovElection resets those first; live refresh does not).
+        // The tally is not on the live feed (ballot tables are withheld), so
+        // the Tally "Refresh" button stays.
+        async _reloadGovElectionDetail() {
+            const e = this.govSelectedElection;
+            if (!e) return;
             await Promise.all([
                 this.loadGovElectionPositions(),
                 this.loadGovNominations(),
@@ -7801,10 +8257,16 @@ function adminApp() {
             } catch { /* non-fatal */ }
         },
 
-        async loadCorrespondence() {
-            if (this.corrLoading) return;
-            this.corrLoading = true;
-            this.corrError = "";
+        // opts.silent (live refresh): no spinner, errors stay quiet, filters/page kept.
+        // A sequence guard (not an in-flight early-return) so a filter change made
+        // while a live reload is running still takes effect and the older response
+        // is dropped.
+        async loadCorrespondence(opts = {}) {
+            const seq = ++this._corrListSeq;
+            if (!opts.silent) {
+                this.corrLoading = true;
+                this.corrError = "";
+            }
             this.corrLoadCatalog();
             try {
                 const params = new URLSearchParams({ page: this.corrPage, page_size: this.corrPageSize });
@@ -7812,15 +8274,17 @@ function adminApp() {
                 if (this.corrDirectionFilter) params.set("direction", this.corrDirectionFilter);
                 if (this.corrStatusFilter) params.set("status", this.corrStatusFilter);
                 const res = await NSSAuth.apiFetch(`/api/v1/correspondence?${params}`);
-                if (res.status === 403) { this.corrError = "You do not have permission to view the Correspondence Register."; return; }
+                if (seq !== this._corrListSeq) return;
+                if (res.status === 403) { if (!opts.silent) this.corrError = "You do not have permission to view the Correspondence Register."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 const data = await res.json();
+                if (seq !== this._corrListSeq) return;
                 this.corrItems = data.items;
                 this.corrTotal = data.total;
             } catch (err) {
-                this.corrError = err.message || "Failed to load the Correspondence Register.";
+                if (seq === this._corrListSeq && !opts.silent) this.corrError = err.message || "Failed to load the Correspondence Register.";
             } finally {
-                this.corrLoading = false;
+                if (seq === this._corrListSeq) this.corrLoading = false;
             }
         },
 
@@ -7879,6 +8343,10 @@ function adminApp() {
                 // Advisory Board admin. Results are normalised to the type_name /
                 // type_code shape the typeahead markup reads.
                 const params = new URLSearchParams({ search: picker.query.trim(), limit: 20 });
+                // Optional per-picker type restriction (repeated type_code, OR-matched
+                // by the endpoint) — e.g. the Assets & Property custodian pickers.
+                // Pickers without `typeCodes` (all Correspondence ones) search every type.
+                for (const t of picker.typeCodes || []) params.append("type_code", t);
                 const res = await NSSAuth.apiFetch(`/api/v1/organization/organizations/in-scope?${params}`);
                 picker.results = res.ok
                     ? (await res.json()).map(o => ({
@@ -8416,6 +8884,25 @@ function adminApp() {
         //    record carries too many fields + two sub-resources to
         //    read comfortably inside a table row) ──────────────────
 
+        // Live refresh of the OPEN record: re-reads it and its documents / finance
+        // references / history in place. Does not reset the detail panels or any
+        // open form (liveBusy() already holds the reload back while one is open),
+        // drops its answer if another record was opened meanwhile, and leaves the
+        // current view alone on a failed read.
+        async _reloadCorrDetail() {
+            const sel = this.corrSelected;
+            if (!sel) return;
+            const pk = sel.correspondence_pk;
+            const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${pk}`);
+            if (!res.ok || !this.corrSelected || this.corrSelected.correspondence_pk !== pk) return;
+            const rec = await res.json();
+            if (!this.corrSelected || this.corrSelected.correspondence_pk !== pk) return;
+            this.corrSelected = rec;
+            this.loadCorrDocuments();
+            this.loadCorrFinanceRefs();
+            this.loadCorrHistory();
+        },
+
         async viewCorrespondence(pk) {
             this.corrDetailError = "";
             this.corrDetailLoading = true;
@@ -8533,15 +9020,20 @@ function adminApp() {
 
         async loadCorrDocuments() {
             if (!this.corrSelected) return;
+            const pk = this.corrSelected.correspondence_pk;
+            const stale = () => !this.corrSelected || this.corrSelected.correspondence_pk !== pk;
             this.corrDocumentsLoading = true;
             this.corrDocumentsError = "";
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/documents`);
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${pk}/documents`);
+                if (stale()) return;
                 if (res.status === 403) { this.corrDocumentsError = "You do not have permission to view attached documents."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
-                this.corrDocuments = (await res.json()).items;
+                const items = (await res.json()).items;
+                if (stale()) return;
+                this.corrDocuments = items;
             } catch (err) {
-                this.corrDocumentsError = err.message || "Failed to load documents.";
+                if (!stale()) this.corrDocumentsError = err.message || "Failed to load documents.";
             } finally {
                 this.corrDocumentsLoading = false;
             }
@@ -8590,15 +9082,20 @@ function adminApp() {
 
         async loadCorrFinanceRefs() {
             if (!this.corrSelected) return;
+            const pk = this.corrSelected.correspondence_pk;
+            const stale = () => !this.corrSelected || this.corrSelected.correspondence_pk !== pk;
             this.corrFinanceRefsLoading = true;
             this.corrFinanceRefsError = "";
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/finance-references`);
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${pk}/finance-references`);
+                if (stale()) return;
                 if (res.status === 403) { this.corrFinanceRefsError = "You do not have permission to view finance references."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
-                this.corrFinanceRefs = (await res.json()).items;
+                const items = (await res.json()).items;
+                if (stale()) return;
+                this.corrFinanceRefs = items;
             } catch (err) {
-                this.corrFinanceRefsError = err.message || "Failed to load finance references.";
+                if (!stale()) this.corrFinanceRefsError = err.message || "Failed to load finance references.";
             } finally {
                 this.corrFinanceRefsLoading = false;
             }
@@ -8614,15 +9111,20 @@ function adminApp() {
         // correspondance?") — one GET, both parts of the response.
         async loadCorrHistory() {
             if (!this.corrSelected) return;
+            const pk = this.corrSelected.correspondence_pk;
+            const stale = () => !this.corrSelected || this.corrSelected.correspondence_pk !== pk;
             this.corrHistoryLoading = true;
             this.corrHistoryError = "";
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${this.corrSelected.correspondence_pk}/history`);
+                const res = await NSSAuth.apiFetch(`/api/v1/correspondence/${pk}/history`);
+                if (stale()) return;
                 if (res.status === 403) { this.corrHistoryError = "You do not have permission to view this record's history."; return; }
                 if (!res.ok) throw new Error(await NSS.extractError(res));
-                this.corrHistory = await res.json();
+                const hist = await res.json();
+                if (stale()) return;
+                this.corrHistory = hist;
             } catch (err) {
-                this.corrHistoryError = err.message || "Failed to load history.";
+                if (!stale()) this.corrHistoryError = err.message || "Failed to load history.";
             } finally {
                 this.corrHistoryLoading = false;
             }
@@ -8657,5 +9159,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    });
+    }))), LIVE_REFRESH_CONFIG);
 }

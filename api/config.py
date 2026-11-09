@@ -60,6 +60,25 @@ class Settings:
     # members sharing a Sakha's WiFi no longer split one 300/min IP budget
     # (2 s polling = 30/min per open register). 120/min allows ~4 open tabs.
     LIVE_ATTENDANCE_RATE_LIMIT: str = os.environ.get("LIVE_ATTENDANCE_RATE_LIMIT", "120/minute")
+    # Per-USER limit for the live-refresh change feed (GET /live/changes,
+    # api/routers/live.py). One poll per open page every 5 s while active =
+    # 12/min; 60/min leaves room for a few open pages and back-off retries.
+    LIVE_CHANGES_RATE_LIMIT: str = os.environ.get("LIVE_CHANGES_RATE_LIMIT", "60/minute")
+
+    # ── Aadhaar capture (GDR-011, Proposed) ──────────────────────────────
+    # AADHAAR_ENCRYPTION_KEYS — comma-separated "key_id:base64(32 bytes)"
+    #   pairs; the FIRST is the active (encrypting) key, the rest stay
+    #   decrypt-only so a key can be rotated without re-encrypting at once.
+    # AADHAAR_HASH_PEPPER     — secret for the HMAC-SHA256 lookup hash;
+    #   deliberately SEPARATE from the encryption keys and never rotated
+    #   casually (changing it orphans every stored aadhaar_hash).
+    # AADHAAR_REVEAL_RATE_LIMIT — per-USER limit on the full-number reveal.
+    # None of these is needed to start the app: capturing a full number
+    # without them is a 503 (api/services/aadhaar_service.py), never a
+    # silent fall-back to last-4 only.
+    AADHAAR_ENCRYPTION_KEYS: str = os.environ.get("AADHAAR_ENCRYPTION_KEYS", "")
+    AADHAAR_HASH_PEPPER: str = os.environ.get("AADHAAR_HASH_PEPPER", "")
+    AADHAAR_REVEAL_RATE_LIMIT: str = os.environ.get("AADHAAR_REVEAL_RATE_LIMIT", "10/minute")
 
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).

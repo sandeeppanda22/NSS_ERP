@@ -37,7 +37,7 @@ SOL-ARCH-011 (Bootstrap Architecture), module table-design documents
 > `request_source`), `02_admin_scope.sql` v1.1 / `role_master` (`ADVISORY_BOARD` scope level), a
 > 10th role (`NSS_ERP_ADVISORY_BOARD_ADMIN`, auto-granted at runtime; 8 `role_permission` rows since 2026-10-30), the 11th role `NSS_ERP_ATTENDANCE_MARKER`, and permissions
 > `GOVERNANCE_*`, `CORRESPONDENCE_*`, `ATTENDANCE_*`, `GEO_ENTRY_APPROVE` (28 in total) — plus `ddl/09_correspondence/` (5 tables), `ddl/10_attendance/` (4 tables) and
-> the Sakha re-parent approval tables `organization_reparent_request`/`_step` (`ddl/02_organization/06`-`07`, patch `09`) — **23 new tables, 71 in total**; also the
+> the Sakha re-parent approval tables `organization_reparent_request`/`_step` (`ddl/02_organization/06`-`07`, patch `09`) — **23 new tables, 71 in total at that merge (79 now, after Assets & Property and live refresh)**; also the
 > organization singleton trigger (`08_`), `nss.fn_is_sakha_like_org_type()` (`10_`), the `ADVISORY_BOARD` org type + organization patch, and an
 > optional local-only demo seed (Phase 15, `RUN_DEMO_SEED`, `seed/demo/`, not in `render_build.sh`).
 
@@ -76,27 +76,30 @@ Build phases (authoritative detail in `scripts/README.md`):
 
 | Phase | Content |
 |------:|---------|
-| 0 | Bootstrap RBAC — 3 tables + seed (11 roles, 28 permissions, 166 mappings incl. the idempotent `04_role_permission_mahila_advisory_board_patch.sql`) |
+| 0 | Bootstrap RBAC — 3 tables + seed (11 roles, 28 permissions, 166 mappings incl. the idempotent `04_role_permission_mahila_advisory_board_patch.sql`), then the idempotent `05_assets_property_permissions_patch.sql` (`ASSET_VIEW`/`ASSET_MANAGE` + 12 grants → 30 permissions, 178 mappings), then `06_assets_property_permissions_revoke_patch.sql` (soft-deletes the 4 grants the original 16-row `05` created: Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE), then `07_person_view_sensitive_auditor_revoke_patch.sql` (soft-deletes the Auditor's `PERSON_VIEW_SENSITIVE` grant, GDR-011: 178 rows, 177 active) |
 | 1 | Foundation DDL — 14 tables (incl. `post_office`, `festival_master`/`festival_calendar_date`) |
 | 2 | Foundation seed (incl. all-India PINs, post offices, ~673k `city_village` rows, festival calendar) |
 | 3 | Organization DDL — 1 table + address-restriction, Kumari/Sevak, singleton triggers + `fn_is_sakha_like_org_type()` |
 | 4 | Organization seed — 3 unique orgs, 56 Sakha PINs, 175 Sakha branches, counter sync, then the idempotent Advisory Board organization patch (`07_`) |
 | 5 | Person DDL — 2 tables |
-| 6 | Family DDL — 6 tables + move-transition guard trigger |
-| 7 | Membership DDL — 16 tables + Sakha-only trigger |
+| 6 | Family DDL — 6 tables + move-transition guard trigger + idempotent `08_family_head_history_audit_columns.sql` |
+| 7 | Membership DDL — 16 tables + Sakha-only trigger + idempotent `19_sakha_local_number_allocator.sql` and `20_home_affiliation_guard.sql` |
 | 7b | Foundation audit FKs (`05_membership/16_foundation_audit_fk.sql`) |
 | 8 | (reserved — demo seeds removed) |
 | 9 | Grant `nss_db_backend` read-only |
-| 10 | Authentication DDL — 5 tables |
+| 10 | Authentication DDL — 5 tables + idempotent `06_registration_claim_legacy_member_patch.sql` (GDR-009) |
 | 11 | Administration DDL — 2 tables |
-| 11b | Governance DDL — 10 tables + ballot-immutability triggers (`08_governance/`) |
+| 11b | Governance DDL — 10 tables + ballot-immutability triggers, seat-count limits and nomination re-file index (`08_governance/11`-`13`) |
 | 11c | Governance seed — body types, positions, 3 NSS-wide bodies, then the idempotent Sakha Asana governing-body patch (`04_`) |
 | 11d | Correspondence DDL — 5 tables (`09_correspondence/`) |
 | 11e | Attendance DDL — 4 tables (`10_attendance/`) + idempotent live-register index patch `05_attendance_live_version_index_patch.sql` |
 | 11f | Organization re-parent approval DDL — 2 tables (`02_organization/06`-`07`) + source-role patch (`09_`) |
+| 11g | Assets & Property DDL — 7 tables (`11_assets_property/`) + idempotent guard triggers `08_assets_property_guards.sql` + idempotent `09_asset_custodian_org_type_function.sql` (custodian-eligible org types function + `trg_custodianship_custodian_guard`) + idempotent patches `10_…belongs_to_patch.sql`, `11_…acquisition_method_patch.sql` (GDR-010 §2E) and `12_…terminal_custody_patch.sql` (GDR-010 §2F, after the reference data) + idempotent reference-data patch (`seed/11_assets_property/01_…_patch.sql`: `PROPERTY`/`ASSET` id sequences, 7 master categories incl. `ACQUISITION_METHOD`, 38 values incl. the `DISPOSED`/`RETIRED` custodianship end reasons) |
+| 11h | Live refresh DDL — 1 table `live_change_marker` + sequence `live_change_seq` (`12_live_refresh/01_`, existence-gated) and the idempotent statement-level change-marker triggers on the watched tables (`02_live_change_triggers.sql`, `run_sql` every build; owner decision 2026-11-03). `live_change_marker` is excluded from `fn_audit_trigger()` (Phase 14) |
 | 12 | Grant `nss_db_writer` |
 | 13 | Admin bootstrap (`scripts/bootstrap_admin.py`) |
 | 13b | Geo attribution backfill of bulk-seeded geography rows |
+| 13c | Audit-actor foreign keys — idempotent catalog-driven patch `13_audit_actor_fk/01_audit_actor_fk_patch.sql` (FK on every `*_by_sangha_sevi_pk`, NOT VALID then VALIDATE; see Two-Pass DDL Strategy) |
 | 14 | Audit DDL — `system_event_log` + `fn_audit_trigger()` attached to every table |
 | 15 | (optional, local dev) demo seed via `RUN_DEMO_SEED` — `seed/demo/nss_demo_seed.sql`, gitignored, not in `render_build.sh` |
 
@@ -139,18 +142,20 @@ Depth/Seq# breakdown lives in their own module READMEs rather than being duplica
 - `ddl/08_governance/README.md` (10 tables + immutability triggers) — Tier 6
 - `ddl/09_correspondence/README.md` (5 tables, Correspondence Register) — Tier 6
 - `ddl/10_attendance/README.md` (4 tables, Weekly Sangha Puja attendance) — Tier 6
+- `ddl/11_assets_property/README.md` (7 tables + guard triggers, Assets & Property, Module #22) — Tier 6
+- `ddl/12_live_refresh/README.md` (1 table + change-marker triggers) and `ddl/13_audit_actor_fk/README.md` (audit-actor FK patch)
 - `ddl/01_foundation/README.md` also documents
   `festival_master`/`festival_calendar_date`, and Phase 14's
   `system_event_log` (15th Foundation table) and `fn_audit_trigger()`
 
-**Total implemented: 71 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
-3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance
+**Total implemented: 79 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
+3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance + 7 Assets & Property + 1 Live refresh (`live_change_marker`)
 (verified by counting `CREATE TABLE` across `database/ddl/**`). Of those, 11 are Tier 5 additions
-(see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) and 4 are Tier 6 (Attendance); the v0.10.4
+(see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) 4 are Tier 6 (Attendance) 7 are Assets & Property (Module #22, Tier 6) and 1 is the live-refresh marker; the v0.10.4
 baseline was 34.
 **Organization type/status moved to Foundation `master_data` — standalone tables retired.**
-**Phase 0 seed complete:** `role_master` (11 roles), `permission_master` (28), `role_permission`
-(166) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
+**Phase 0 seed complete:** `role_master` (11 roles), `permission_master` (28, +2 from the Assets & Property patch = 30), `role_permission`
+(166, +12 = 178) are all populated, so `require_permission(...)` checks succeed for roles with mappings.
 
 See module READMEs for per-file details:
 - `ddl/00_bootstrap/README.md` / `seed/00_bootstrap/README.md`
@@ -167,15 +172,19 @@ See module READMEs for per-file details:
 ## Two-Pass DDL Strategy (SOL-ARCH-010 §5, SOL-ARCH-011 §6)
 
 - **Pass 1:** CREATE TABLE statements (files in `ddl/`) — no audit-actor FKs
-- **Pass 2:** ALTER TABLE ADD CONSTRAINT for `*_by_sangha_sevi_pk` columns —
-  executed after `sangha_sevi` table exists and contains at least one record
-
-Pass 2 is not yet implemented. `sangha_sevi` (Membership DDL, Phase 7) exists, and
-`scripts/bootstrap_admin.py` (Phase 13, Tier 5) seeds the bootstrap administrator
-`SS1` — but no `ALTER TABLE ADD CONSTRAINT` step for the `*_by_sangha_sevi_pk` columns has been
-added to the build scripts, including for the Tier 5 tables themselves (`user_account`,
-`user_role`, `admin_scope`, etc. all carry the same nullable, unconstrained audit-actor columns)
-— Pass 2 remains deferred.
+- **Pass 2:** foreign keys on the `*_by_sangha_sevi_pk` audit-actor columns — implemented
+  (owner decision 2026-11-04) as ONE idempotent, catalog-driven patch,
+  `ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql`, build **Phase 13c** (after the admin bootstrap
+  and the geo backfill, before the audit trigger; `run_sql`/`Invoke-Sql` on every build; identical in
+  `02_build.sh`, `02_build.ps1`, `render_build.sh`). It adds `fk_<table>_<column>` (`FOREIGN KEY ...
+  REFERENCES nss.sangha_sevi (sangha_sevi_pk)`) to every such column of every `nss` base table that has
+  none yet (columns that already reference `sangha_sevi` keep their own constraint), as `NOT VALID`
+  first (new/updated rows are checked at once; existing dangling values cannot break a rebuild) and then
+  tries `VALIDATE`, only WARNing and leaving it NOT VALID on dangling data. Not 70 DDL edits: the loop
+  picks up any future table/column. `03_validate` WARNs on actor columns without an FK and on FKs still
+  NOT VALID; the diagnostic SELECT for dangling values is in `database/scripts/README.md` (Phase 13c).
+  `system_event_log.actor_sangha_sevi_pk` is deliberately not covered. Rule for new tables: declare an
+  audit-actor column as a plain nullable UUID named `*_by_sangha_sevi_pk`; the patch constrains it.
 
 ---
 
@@ -210,9 +219,12 @@ database/
 │   ├── 07_administration/ 2 tables: user_role, admin_scope (Tier 5)
 │   ├── 08_governance/    10 tables (bodies, assignments, elections, ballots) + `11_governance_immutability.sql`, `12_governance_seat_limits.sql`, `13_governance_nomination_refile_index.sql` (Tier 6)
 │   ├── 09_correspondence/ 5 tables (Tier 6)
-│   └── 10_attendance/    4 tables: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review (Tier 6)
+│   ├── 10_attendance/    4 tables: weekly_sangha_puja, weekly_sangha_puja_attendance, attendance_exception, attendance_review (Tier 6)
+│   └── 11_assets_property/ 7 tables (property, asset, custodianship, property_statutory_record, maintenance_record, property_document, asset_document) + `08_assets_property_guards.sql` (idempotent lifecycle/history triggers) + `09_asset_custodian_org_type_function.sql` (physical-organization custodian guard) + patches `10`/`11` (columns) and `12` (terminal custody) (Module #22, Tier 6)
+│   ├── 12_live_refresh/  1 table (`live_change_marker` + sequence `live_change_seq`) + `02_live_change_triggers.sql` (idempotent, every build; Phase 11h)
+│   └── 13_audit_actor_fk/ `01_audit_actor_fk_patch.sql` — idempotent catalog-driven audit-actor FK patch, no table (Phase 13c)
 ├── seed/
-│   ├── 00_bootstrap/     11 roles, 28 permissions, 166 role-permission mappings (+ patch 04)
+│   ├── 00_bootstrap/     11 roles, 28 permissions, 166 role-permission mappings (+ patches 04, 05 = ASSET_VIEW/ASSET_MANAGE, 30/178, and 06 = revoke of 4 withdrawn asset grants)
 │   ├── 01_foundation/    reference + bulk geography data (files 01-11b; `09_sakha_postal_codes.sql` runs in Phase 4)
 │   ├── 02_organization/  3 unique orgs + 175 real Sakha branches + org-code counter sync + Advisory Board patch (07)
 │   ├── 03_person/        no seed data (README only)
@@ -220,6 +232,7 @@ database/
 │   ├── 04_family/        no seed data (README only)
 │   ├── 05_membership/    no seed data (README only)
 │   ├── 08_governance/    8 body types, 10 positions, 3 NSS-wide bodies + Sakha Asana governing-body patch (Tier 6)
+│   ├── 11_assets_property/ idempotent reference-data patch only: `PROPERTY`/`ASSET` id sequences, 7 master categories, 38 master-data values (Module #22)
 │   └── demo/             optional local-only demo seed (gitignored; RUN_DEMO_SEED)
 │                         (no seed folders for 06_authentication/07_administration)
 └── README.md             this file
@@ -236,7 +249,7 @@ There is no `database/migrations/` or `database/fixes/` folder.
 
 | Module | Tables | DDL Status | Next Action |
 |--------|-------:|-----------|-------------|
-| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (11 roles / 28 permissions / 166 mappings) | — |
+| Bootstrap RBAC | 3 | ✅ IMPLEMENTED, seeded (11 roles / 30 permissions / 178 mappings incl. the Assets & Property patch) | — |
 | Foundation | 15 | ✅ IMPLEMENTED (12 original/geography incl. `post_office`, 2 festival tables, + `system_event_log`) | — |
 | Organization | 3 | ✅ IMPLEMENTED (`organization`; Tier 6: `organization_reparent_request`/`_step`; + 3 triggers, 1 function) | — |
 | Person | 2 | ✅ IMPLEMENTED | — |
@@ -246,11 +259,12 @@ There is no `database/migrations/` or `database/fixes/` folder.
 | Administration | 2 (`user_role`/`admin_scope`; the 3 RBAC definition tables live in Bootstrap) | ✅ Tier 5, released in v0.11.0 | — |
 | Governance | 10 | 🚧 Tier 6, committed on `feature/tier6-governance` (not merged) | Merge to `develop` |
 | Correspondence | 5 | 🚧 Tier 6, committed on `feature/tier6-governance` | Merge to `develop` |
-| Attendance | 4 | 🚧 Tier 6, committed on `feature/tier6-governance` | Tests written but never run against a DB; merge |
+| Attendance | 4 | 🚧 Tier 6, committed on `feature/tier6-governance` | Backend tests ran in the owner's DB run (2026-11-04/05); merge to `develop` pending |
+| Assets & Property | 7 | 🚧 Module #22 (Tier 6), written 2026-11-02, committed on `feature/tier6-governance`; exercised by the owner's full DB run after a rebuild | Merge to `develop`; review GDR-010 (`Proposed`); open the admin UI in a browser |
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their
-DDL files (total 71). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
+DDL files (total 79). Family (6) and Membership (16) exceed the frozen SOL-ARCH-010 inventory
 figures used in earlier planning (3 and 9 respectively) — the implemented slice grew during
 design; this is a known SOL-ARCH-010 inventory drift to reconcile in a future governance pass,
 not a build error. Modules not listed above have frozen table counts but are further down the
@@ -329,8 +343,6 @@ implemented modules in SOL-ARCH-011 phase order, as `nss_db_owner` (see the phas
 ./database/scripts/02_build.sh [DB_NAME] [DB_USER] [DB_HOST] [DB_PORT]
 ```
 
-**Not executed:** Pass 2 audit-actor FK constraints (deferred — see
-Two-Pass DDL Strategy above).
 
 Table DDL and seeds are **existence-gated** (`run_ddl`/`run_seed`, deterministic
 `to_regclass('nss.<table>')` check; `[EXISTS]`/`[SKIP]` for a table already present — its DDL **and**
@@ -363,12 +375,14 @@ Validates the build. **Does NOT execute any DDL or seed scripts** — run `02_bu
 | Administration (2 tables) | Existence, key columns, FK integrity |
 
 | Attendance (4 tables), Organization re-parent approval (2 tables) | Existence, key columns and FK-orphan checks (no seed, no row minimums) |
+| Assets & Property (7 tables) | Existence, 13 key columns, FK-orphan checks, XOR / one-ACTIVE-custodian invariants, guard triggers, `PROPERTY`/`ASSET` sequences, the 7 master categories (incl. `ACQUISITION_METHOD`; `DISPOSED`/`RETIRED` end reasons present), ≥ 4 active `ASSET_MANAGE` and ≥ 8 active `ASSET_VIEW` grants, a FAIL check that the 4 withdrawn grants are not active, the `belongs_to_organization_pk` and `acquisition_method_master_data_pk` columns + FK orphans, the terminal-record insert guard, and a FAIL check that no ACTIVE custodianship remains on a DISPOSED property / RETIRED asset (no row minimums for runtime data) |
+| Live refresh (1 table) and audit-actor FKs | `live_change_marker` existence/key columns, `trg_live_change_marker` present, WARN on watched tables without a marker row, FAIL if the marker table is audited; WARN on `*_by_sangha_sevi_pk` columns without an FK to `sangha_sevi` and on FKs still NOT VALID |
 | Family (6), Membership (16, incl. `credential_sequence_counter`, `sakha_local_number_counter`, `membership_change_request`), `system_event_log` | Existence only (no seed data, no key-column or FK checks) |
 | Governance (10 tables, Module 8) | Existence for all 10, plus 3 key columns and 3 FK-orphan checks in the `.sh` only (the `.ps1` has the table checks but not the key-column/FK checks); no seed minimums |
 | Correspondence (5 tables: `correspondence`, `correspondence_document`, `correspondence_finance_reference`, `correspondence_sequence_counter`, `correspondence_approval_step`) | Existence, key columns, FK-orphan checks, unique `correspondence.reference_number` (no seed). The `correspondence_finance_reference` -> `financial_transaction` FK is deliberately not checked (Finance not built) |
 
 Row-count checks assert `count >= expected` and only WARN when lower; the minimums track the
-current seed (`role_master` 11, `permission_master` 28, `role_permission` 166, 90 master_data, 14 sequences, 5 settings, 179 organizations; `person` 0).
+current seed (`role_master` 11, `permission_master` 30, `role_permission` 178 (182 on a DB that ran the original 16-row asset patch: 4 rows inactive), 156 master_data, 26 master_category, 16 sequences, 5 settings, 179 organizations; `person` 0).
 Geography minimums: `state` 112, `district` 780, `postal_code` 17800, `city_village` 673000. The
 `.sh` and `.ps1` versions run ~156 check calls in `.sh` vs ~144 in `.ps1` (the gap is the 3 Governance key-column and 3 FK checks missing from the `.ps1`, plus minor differences), including `city_village.district_pk` existence and minimum coverage (Simplified Geography Model).
 

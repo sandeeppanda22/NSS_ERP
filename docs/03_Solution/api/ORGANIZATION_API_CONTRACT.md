@@ -715,7 +715,7 @@ api/
   helpers.py                        <- Shared cursor→Pydantic helpers + pagination constants
   routers/
     organization.py             <- 8 endpoint handlers + _ORG_SELECT + _CHILDREN_STATS_SQL + _ORG_STATS_SQL
-    family.py                   <- splices the same shared FAMILY_MAJORITY_CTE_SQL (api/helpers.py)
+    family.py                   <- splices the same shared family_majority_cte() (api/services/family_majority.py)
   schemas/
     organization.py             <- 5 Pydantic response models (incl. OrgChildStatsResponse)
 database/

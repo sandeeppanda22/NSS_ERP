@@ -271,10 +271,15 @@ class TestSeededPermissions:
         "FOUNDATION_MANAGE", "PERSON_VIEW_SENSITIVE",
     }
 
+    # Owner decision 2026-11-02: the Mahila admin has no Assets & Property permissions
+    # (no Mahila Sangha organization can be a custodian), although the Kendra admin does.
+    NO_ASSET_ACCESS = {"ASSET_VIEW", "ASSET_MANAGE"}
+
     def test_mahila_is_kendra_operational_set(self, write_conn):
         mahila = self._perms(write_conn, MAHILA_ROLE)
         kendra = self._perms(write_conn, "NSS_ERP_KENDRA_ADMIN")
-        assert mahila == kendra - self.SYSTEM_ONLY
+        assert mahila == kendra - self.SYSTEM_ONLY - self.NO_ASSET_ACCESS
+        assert not mahila & self.NO_ASSET_ACCESS
         assert len(mahila) == 18
 
     def test_ab_admin_footprint(self, write_conn):

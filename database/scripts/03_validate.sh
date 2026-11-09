@@ -21,7 +21,7 @@
 #   DB_HOST  = localhost
 #   DB_PORT  = 5432
 #
-# Modules validated (71 tables in all):
+# Modules validated (79 tables in all):
 #   - Bootstrap RBAC (3 tables)
 #   - Foundation (12 tables)
 #   - Organization (1 table — type/status in Foundation master_data)
@@ -30,12 +30,14 @@
 #   - Administration (2 tables)
 #   - Family (6), Membership (14, incl. credential_sequence_counter), system_event_log — existence only
 #   - Governance (10 tables — existence only, no seed)
-#   - Correspondence (5), Attendance (4), Organization re-parent approval (2)
+#   - Correspondence (5), Attendance (4), Organization re-parent approval (2),
+#     Assets & Property (7 — existence, key columns, FK integrity, XOR / one-active-custodian invariants)
 #   - Patch-delivered objects (a patch that did not run FAILs here): Advisory
 #     Board org + singleton trigger, fn_is_sakha_like_org_type, Sakha Asana
 #     governing bodies, per-role permission minimums, Local Sakha ID allocator
 #     + home-affiliation guard, registration_claim legacy flags, attendance
-#     live-register index, re-parent step CHECK, nomination re-file index
+#     live-register index, re-parent step CHECK, nomination re-file index,
+#     Assets & Property guard triggers / id sequences / master data / ASSET_* grants
 #   - WARN-only diagnostics (never FAIL): members lacking a home affiliation /
 #     Local Sakha ID, lacking an ACTIVE Parichaya/Anumati credential, claims whose
 #     legacy flag disagrees with the stored number
@@ -194,8 +196,11 @@ check_table_exists "role_permission"
 
 echo "  Row counts:"
 check_row_count "role_master" 11
-check_row_count "permission_master" 28
-check_row_count "role_permission" 166
+check_row_count "permission_master" 30
+# 178 = 166 + 12 asset grants. A DB that ran the original 16-row patch holds 182 rows, 4 of them
+# soft-deleted (is_active = FALSE, history is never hard-deleted): still >= 178, so the minimum holds.
+# Since 2026-11-04 (GDR-011) one more row (Auditor PERSON_VIEW_SENSITIVE) is soft-deleted by patch 07: 178 rows, 177 active; the minimum counts all rows.
+check_row_count "role_permission" 178
 
 echo "  Unique constraints:"
 check_no_duplicates "role_master" "role_code"
@@ -233,9 +238,9 @@ for t in "${FOUNDATION_TABLES[@]}"; do
 done
 
 echo "  Row counts:"
-check_row_count "master_category" 19
-check_row_count "master_data" 118
-check_row_count "id_sequence_master" 14
+check_row_count "master_category" 26
+check_row_count "master_data" 156
+check_row_count "id_sequence_master" 16
 check_row_count "country" 5
 check_row_count "state" 112
 check_row_count "district" 780
@@ -626,6 +631,128 @@ check_fk_integrity "organization_reparent_step: step_role CHECK allows SOURCE_PA
     "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'nss.organization_reparent_step'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%SOURCE_PARENT_PRESIDENT%') THEN 0 ELSE 1 END;"
 check_fk_integrity "organization_reparent_step -> body_master" \
     "SELECT COUNT(*) FROM nss.organization_reparent_step s LEFT JOIN nss.body_master b ON s.assigned_body_master_pk = b.body_master_pk WHERE b.body_master_pk IS NULL;"
+echo ""
+
+# =====================================================
+# Module 10: Assets & Property (7 tables, Module #22, Tier 6 — existence only,
+# reference data delivered by the idempotent patches)
+# =====================================================
+echo -e "${CYAN}Module 10: Assets & Property${NC}"
+echo "  Tables (existence only — runtime data, no seed rows):"
+check_table_exists "property"
+check_table_exists "asset"
+check_table_exists "custodianship"
+check_table_exists "property_statutory_record"
+check_table_exists "maintenance_record"
+check_table_exists "property_document"
+check_table_exists "asset_document"
+
+echo "  Key columns:"
+check_column_exists "property" "property_id"
+check_column_exists "property" "property_type_master_data_pk"
+check_column_exists "property" "status"
+check_column_exists "asset" "asset_id"
+check_column_exists "asset" "asset_type_master_data_pk"
+check_column_exists "asset" "status"
+check_column_exists "property" "belongs_to_organization_pk"
+check_column_exists "asset" "belongs_to_organization_pk"
+check_column_exists "property" "acquisition_method_master_data_pk"
+check_column_exists "asset" "acquisition_method_master_data_pk"
+check_column_exists "custodianship" "custodian_organization_pk"
+check_column_exists "custodianship" "effective_from"
+check_column_exists "custodianship" "end_reason_master_data_pk"
+check_column_exists "property_statutory_record" "obligation_type_master_data_pk"
+check_column_exists "maintenance_record" "maintenance_type_master_data_pk"
+check_column_exists "property_document" "document_master_pk"
+check_column_exists "asset_document" "document_master_pk"
+
+echo "  Patch-delivered objects, FK integrity and invariants (no orphans / violations — vacuously true until used):"
+check_fk_integrity "property -> master_data (property type)" \
+    "SELECT COUNT(*) FROM nss.property p LEFT JOIN nss.master_data md ON p.property_type_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
+check_fk_integrity "asset -> master_data (asset type)" \
+    "SELECT COUNT(*) FROM nss.asset a LEFT JOIN nss.master_data md ON a.asset_type_master_data_pk = md.master_data_pk WHERE md.master_data_pk IS NULL;"
+check_fk_integrity "custodianship -> property" \
+    "SELECT COUNT(*) FROM nss.custodianship c LEFT JOIN nss.property p ON c.property_pk = p.property_pk WHERE c.property_pk IS NOT NULL AND p.property_pk IS NULL;"
+check_fk_integrity "custodianship -> asset" \
+    "SELECT COUNT(*) FROM nss.custodianship c LEFT JOIN nss.asset a ON c.asset_pk = a.asset_pk WHERE c.asset_pk IS NOT NULL AND a.asset_pk IS NULL;"
+check_fk_integrity "custodianship -> organization (custodian)" \
+    "SELECT COUNT(*) FROM nss.custodianship c LEFT JOIN nss.organization o ON c.custodian_organization_pk = o.organization_pk WHERE o.organization_pk IS NULL;"
+check_fk_integrity "custodianship: property XOR asset (AP-019)" \
+    "SELECT COUNT(*) FROM nss.custodianship WHERE (property_pk IS NULL) = (asset_pk IS NULL);"
+check_fk_integrity "custodianship: at most one ACTIVE per property/asset (AP-017)" \
+    "SELECT COUNT(*) FROM (SELECT COALESCE(property_pk, asset_pk) FROM nss.custodianship WHERE status = 'ACTIVE' AND is_active = TRUE GROUP BY 1 HAVING COUNT(*) > 1) d;"
+check_fk_integrity "property_statutory_record -> property" \
+    "SELECT COUNT(*) FROM nss.property_statutory_record r LEFT JOIN nss.property p ON r.property_pk = p.property_pk WHERE p.property_pk IS NULL;"
+check_fk_integrity "maintenance_record: property XOR asset" \
+    "SELECT COUNT(*) FROM nss.maintenance_record WHERE (property_pk IS NULL) = (asset_pk IS NULL);"
+check_fk_integrity "property_document -> document_master" \
+    "SELECT COUNT(*) FROM nss.property_document d LEFT JOIN nss.document_master dm ON d.document_master_pk = dm.document_master_pk WHERE dm.document_master_pk IS NULL;"
+check_fk_integrity "asset_document -> document_master" \
+    "SELECT COUNT(*) FROM nss.asset_document d LEFT JOIN nss.document_master dm ON d.document_master_pk = dm.document_master_pk WHERE dm.document_master_pk IS NULL;"
+check_fk_integrity "Assets & Property guard triggers present (08_assets_property_guards.sql ran)" \
+    "SELECT 3 - COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_property_guard', 'trg_asset_guard', 'trg_custodianship_guard');"
+check_fk_integrity "Assets & Property id sequences PROPERTY + ASSET present (reference-data patch ran)" \
+    "SELECT 2 - COUNT(*) FROM nss.id_sequence_master WHERE sequence_code IN ('PROPERTY', 'ASSET');"
+check_fk_integrity "Assets & Property master categories seeded with values (reference-data patch ran)" \
+    "SELECT 7 - COUNT(DISTINCT mc.category_code) FROM nss.master_category mc JOIN nss.master_data md ON md.master_category_pk = mc.master_category_pk WHERE mc.category_code IN ('PROPERTY_TYPE', 'ASSET_TYPE', 'CUSTODIANSHIP_END_REASON', 'STATUTORY_OBLIGATION_TYPE', 'MAINTENANCE_TYPE', 'ASSET_PROPERTY_DOCUMENT_RELATIONSHIP', 'ACQUISITION_METHOD');"
+check_fk_integrity "ASSET_MANAGE actively granted to >= 4 roles (permissions patch ran; owner decision 2026-11-02: ADMIN/KENDRA/SAKHA/PATHA_CHAKRA only)" \
+    "SELECT GREATEST(4 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE pm.permission_code = 'ASSET_MANAGE' AND rp.is_active = TRUE;"
+check_fk_integrity "ASSET_VIEW actively granted to >= 8 roles (permissions patch ran)" \
+    "SELECT GREATEST(8 - COUNT(*), 0) FROM nss.role_permission rp JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE pm.permission_code = 'ASSET_VIEW' AND rp.is_active = TRUE;"
+check_fk_integrity "Assets & Property: the 4 withdrawn grants are NOT active (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE - 06_assets_property_permissions_revoke_patch.sql ran)" \
+    "SELECT COUNT(*) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE rp.is_active = TRUE AND ((rm.role_code = 'NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN' AND pm.permission_code IN ('ASSET_VIEW', 'ASSET_MANAGE')) OR (rm.role_code IN ('NSS_ERP_ANCHALIKA_ADMIN', 'NSS_ERP_ZILLA_ADMIN') AND pm.permission_code = 'ASSET_MANAGE'));"
+check_fk_integrity "PERSON_VIEW_SENSITIVE is NOT active for NSS_ERP_AUDITOR (07_person_view_sensitive_auditor_revoke_patch.sql ran, GDR-011)" \
+    "SELECT COUNT(*) FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE rp.is_active = TRUE AND rm.role_code = 'NSS_ERP_AUDITOR' AND pm.permission_code = 'PERSON_VIEW_SENSITIVE';"
+check_fk_integrity "PERSON_VIEW_SENSITIVE active for NSS_ERP_ADMIN" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.role_permission rp JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk WHERE rp.is_active = TRUE AND rm.role_code = 'NSS_ERP_ADMIN' AND pm.permission_code = 'PERSON_VIEW_SENSITIVE') THEN 0 ELSE 1 END;"
+check_fk_integrity "property -> organization (belongs-to)" \
+    "SELECT COUNT(*) FROM nss.property p LEFT JOIN nss.organization o ON p.belongs_to_organization_pk = o.organization_pk WHERE p.belongs_to_organization_pk IS NOT NULL AND o.organization_pk IS NULL;"
+check_fk_integrity "asset -> organization (belongs-to)" \
+    "SELECT COUNT(*) FROM nss.asset a LEFT JOIN nss.organization o ON a.belongs_to_organization_pk = o.organization_pk WHERE a.belongs_to_organization_pk IS NOT NULL AND o.organization_pk IS NULL;"
+check_fk_integrity "Assets & Property: fn_is_asset_custodian_org_type() + custodian-eligibility trigger present (09_asset_custodian_org_type_function.sql ran)" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'nss' AND p.proname = 'fn_is_asset_custodian_org_type') AND EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'trg_custodianship_custodian_guard' AND tgrelid = 'nss.custodianship'::regclass) THEN 0 ELSE 1 END;"
+check_fk_integrity "property -> master_data (acquisition method)" \
+    "SELECT COUNT(*) FROM nss.property p LEFT JOIN nss.master_data md ON p.acquisition_method_master_data_pk = md.master_data_pk WHERE p.acquisition_method_master_data_pk IS NOT NULL AND md.master_data_pk IS NULL;"
+check_fk_integrity "asset -> master_data (acquisition method)" \
+    "SELECT COUNT(*) FROM nss.asset a LEFT JOIN nss.master_data md ON a.acquisition_method_master_data_pk = md.master_data_pk WHERE a.acquisition_method_master_data_pk IS NOT NULL AND md.master_data_pk IS NULL;"
+check_fk_integrity "ACQUISITION_METHOD master category seeded with values (reference-data patch ran)" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.master_category mc JOIN nss.master_data md ON md.master_category_pk = mc.master_category_pk WHERE mc.category_code = 'ACQUISITION_METHOD') THEN 0 ELSE 1 END;"
+check_fk_integrity "CUSTODIANSHIP_END_REASON has DISPOSED + RETIRED (reference-data patch ran)" \
+    "SELECT 2 - COUNT(*) FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'CUSTODIANSHIP_END_REASON' AND md.value_code IN ('DISPOSED', 'RETIRED');"
+check_fk_integrity "no ACTIVE custodianship on a DISPOSED property / RETIRED asset (12_assets_property_terminal_custody_patch.sql ran; GDR-010 §2F)" \
+    "SELECT (SELECT COUNT(*) FROM nss.custodianship c JOIN nss.property p ON p.property_pk = c.property_pk WHERE p.status = 'DISPOSED' AND c.status = 'ACTIVE' AND c.is_active = TRUE) + (SELECT COUNT(*) FROM nss.custodianship c JOIN nss.asset a ON a.asset_pk = c.asset_pk WHERE a.status = 'RETIRED' AND c.status = 'ACTIVE' AND c.is_active = TRUE);"
+check_fk_integrity "Assets & Property: terminal-record custodianship insert guard present (08_assets_property_guards.sql ran)" \
+    "SELECT 1 - COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'trg_custodianship_terminal_guard' AND tgrelid = 'nss.custodianship'::regclass;"
+check_warn_count "Assets & Property: existing custodianships held by a NON-eligible (conceptual/wing/Advisory Board) organization (GDR-010 §2C, not auto-repaired)" \
+    "SELECT COUNT(*) FROM nss.custodianship c JOIN nss.organization o ON o.organization_pk = c.custodian_organization_pk JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk WHERE c.is_active = TRUE AND NOT nss.fn_is_asset_custodian_org_type(md.value_code);"
+
+check_no_duplicates "property" "property_id"
+check_no_duplicates "asset" "asset_id"
+echo ""
+
+# =====================================================
+# Module 11: Live refresh (1 table, cross-cutting, owner decision 2026-11-03)
+# =====================================================
+echo -e "${CYAN}Module 11: Live refresh${NC}"
+check_table_exists "live_change_marker"
+check_column_exists "live_change_marker" "table_name"
+check_column_exists "live_change_marker" "change_seq"
+check_fk_integrity "live_change_marker: change-marker triggers present (02_live_change_triggers.sql ran)" \
+    "SELECT 1 - LEAST(1, COUNT(*)) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'trg_live_change_marker';"
+check_warn_count "live_change_marker: watched tables whose trigger has no marker row (re-run the build)" \
+    "SELECT COUNT(*) FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND g.tgname = 'trg_live_change_marker' AND NOT g.tgisinternal AND NOT EXISTS (SELECT 1 FROM nss.live_change_marker m WHERE m.table_name = c.relname);"
+check_fk_integrity "live_change_marker is NOT audited (excluded in 15_audit_trigger.sql)" \
+    "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'nss.live_change_marker'::regclass AND tgname LIKE 'trg_audit_%';"
+echo ""
+
+# =====================================================
+# Audit-actor foreign keys (Phase 13c, owner decision 2026-11-04)
+# =====================================================
+echo -e "${CYAN}--- Audit-actor FKs ---${NC}"
+check_warn_count "audit actor columns (*_by_sangha_sevi_pk) WITHOUT a foreign key to sangha_sevi (re-run the build: Phase 13c, ddl/13_audit_actor_fk)" \
+    "SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND c.relkind IN ('r','p') AND a.attnum > 0 AND NOT a.attisdropped AND a.attname LIKE '%\_by\_sangha\_sevi\_pk' AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND k.conkey = ARRAY[a.attnum]::smallint[]);"
+check_warn_count "audit actor FKs still NOT VALID (dangling actor values exist; find them with the diagnostic SELECT in database/scripts/README.md, fix, re-run the build)" \
+    "SELECT COUNT(*) FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.conkey[1] WHERE n.nspname = 'nss' AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND NOT k.convalidated AND a.attname LIKE '%\_by\_sangha\_sevi\_pk';"
 echo ""
 
 # =====================================================

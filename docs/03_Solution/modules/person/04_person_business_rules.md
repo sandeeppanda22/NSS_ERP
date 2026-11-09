@@ -3,6 +3,11 @@
 **Document ID:** SOL-PER-003  
 **Version:** 2.0.0  
 **Status:** FROZEN  
+**Amendment:** PER-BR-081 (2026-11-04, GDR-011 — Proposed, owner approval pending; legal confirmation for
+Aadhaar storage outstanding) — the full Aadhaar number is now captured (encrypted) and may be revealed,
+decrypted, only through an audited `PERSON_VIEW_SENSITIVE` + admin-scope reveal endpoint; `aadhaar_last4`
+is shown only to the person and to such scoped holders; `aadhaar_encrypted` and `aadhaar_hash` are still
+never returned. The frozen rule text below is unchanged.  
 **Module:** Person  
 **Parent System:** Nilachala Saraswata Sangha ERP
 

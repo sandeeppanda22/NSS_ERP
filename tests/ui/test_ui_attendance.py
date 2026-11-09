@@ -117,7 +117,9 @@ ADMIN_ATT_TABS = {
 
 
 def test_attendance_nav_group_is_gated_on_view_permission(admin_html: str):
-    start = admin_html.index("""<template x-if="canViewAttendance">""")
+    # Gated on the view permission AND on a reach that can include a Sakha
+    # (hasSakhaReach: KENDRA_MAHILA_SANGHA / ADVISORY_BOARD scopes reach no Sakha).
+    start = admin_html.index("""<template x-if="canViewAttendance && hasSakhaReach">""")
     group = admin_html[start: admin_html.index("""<div class="nav-divider"></div>""", start)]
     assert "toggleNavGroup('attendance')" in group
     assert "isNavGroupCollapsed('attendance')" in group
@@ -1101,7 +1103,7 @@ def test_a_rejected_submit_keeps_the_register_open_and_shows_the_servers_reason(
         let refreshed = 0;
         host._afterAttendanceSaved = () => {{ refreshed++; }};
         host.attMarkPuja = {PUJA};
-        host.attMarkRows = [{{ sangha_sevi_pk: 'a', attendance_status_code: 'PRESENT' }}];
+        host.attMarkRows = [{{ sangha_sevi_pk: 'a', attendance_status_code: 'PRESENT', dirty: true }}];
         await host.submitMarkAttendance();
         return {{ refreshed, open: host.attMarkPuja !== null, rows: host.attMarkRows.length,
                   saving: host.attMarkSaving, error: host.attMarkError }};

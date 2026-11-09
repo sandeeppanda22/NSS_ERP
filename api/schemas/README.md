@@ -2,7 +2,7 @@
 
 Pydantic models, one module per router (`bootstrap`, `foundation`, `organization`, `person`,
 `family`, `membership`, `auth`, `admin`, `audit`, `geo_approval`, and Tier 6 `governance`,
-`membership_change_request`, `correspondence`, `attendance` and `org_reparent` (request/step/decision models, Sakha re-parent approvals)). `registration.py` and `claim_approval.py` have no
+`membership_change_request`, `correspondence`, `attendance`, `assets_property`, `live` (live-refresh feed) and `org_reparent` (request/step/decision models, Sakha re-parent approvals)). `registration.py` and `claim_approval.py` have no
 schema module — their request/response models are defined inline in the routers, as are
 `admin.py`'s organization create/update and admin-person request bodies.
 
@@ -12,7 +12,7 @@ Conventions:
 
 - Response models never include audit columns, with one deliberate exception:
   `audit.py::FieldChangeLogResponse` exists to expose the change-log actor columns.
-- `person.py` models never include `aadhaar_encrypted`/`aadhaar_hash`, only `aadhaar_last4`
+- `person.py` models never include `aadhaar_encrypted`/`aadhaar_hash`; `aadhaar_last4` + `aadhaar_full_on_file` are gated (GDR-011) and only `PersonAadhaarResponse` carries the full number
   (PER-BR-081).
 - `foundation.py::SequenceResponse` omits `current_value`.
 - `*ListResponse` models (`PersonListResponse`, `MemberListResponse`, `UserListResponse`, ...)

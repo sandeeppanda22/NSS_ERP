@@ -53,12 +53,13 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.config import settings
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.helpers import SAKHA_LIKE_ORG_TYPES, log_audit, next_id, resolve_or_create_city_village, resolve_or_create_postal_code, resolve_or_create_post_office, check_duplicate_contact, record_password_history, require_sakha_organization, validate_claim_local_numbers, resolve_legacy_patra_number, patra_card_type_for_membership_type, require_non_darshaka_for_attendance, validate_mobile, validate_email, get_master_data_pk
+from api.services.aadhaar_service import aadhaar_field_validator, set_person_aadhaar
 from api.services.auth_service import hash_password, validate_password_policy
 from api.routers.foundation import fetch_countries, fetch_states, fetch_districts, fetch_cities, fetch_postal_codes, fetch_post_offices, fetch_master_data
 from api.routers.organization import fetch_organizations
@@ -92,6 +93,17 @@ class RegisterRequest(BaseModel):
     country_phone_code: str | None = Field(None, max_length=10)
     mobile_number: str | None = Field(None, max_length=20)
     email: str | None = Field(None, max_length=255)
+
+    # Sensitive identity (GDR-011) — optional; blank/omitted = none on record.
+    aadhaar_number: str | None = Field(
+        None, max_length=20,
+        description="Full 12-digit Aadhaar (spaces/hyphens allowed; Verhoeff-checked, GDR-011). Stored encrypted; never echoed.",
+    )
+
+    @field_validator("aadhaar_number")
+    @classmethod
+    def _aadhaar_number_valid(cls, v: str | None) -> str | None:
+        return aadhaar_field_validator(v)
 
     # Address — MANDATORY (user decision, 2026-10-03). Previously optional
     # and, worse, never actually persisted to nss.person_address (only the
@@ -1003,6 +1015,9 @@ def register(
                 """,
                 (city_village_pk, resolved_postal_code_pk, person_pk),
             )
+
+        if body.aadhaar_number:
+            set_person_aadhaar(cur, person_pk, body.aadhaar_number)
 
         log_audit(
             cur,

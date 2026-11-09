@@ -109,6 +109,8 @@ PERMISSION_GATED = [
      {"address_type_master_data_pk": U, "address_line_1": "1 Gate Street"}),
     ("PATCH", f"{P}/persons/{U}/addresses/{U}", {"landmark": "x"}),
     ("DELETE", f"{P}/persons/{U}/addresses/{U}", None),
+    # Aadhaar reveal (GDR-011) — PERSON_VIEW_SENSITIVE, a dependency: runs before the person lookup
+    ("GET", f"{P}/persons/{U}/aadhaar", None),
     # membership — MEMBERSHIP_VIEW or self (detail/sub-resources)
     ("GET", f"{M}/members", None),
     ("GET", f"{M}/search?q=abc", None),
@@ -168,7 +170,7 @@ def _ids(cases):
 
 def test_matrix_covers_every_endpoint():
     """Guard: the three tables together must list every route of the five
-    routers (33 + 12 + 8 + 9 + 16 = 78), so a new endpoint cannot ship
+    routers (33 + 12 + 9 + 9 + 16 = 79), so a new endpoint cannot ship
     without a gate assertion."""
     from api.main import app
 
@@ -182,7 +184,7 @@ def test_matrix_covers_every_endpoint():
         for m in r.methods
         if m != "HEAD"
     }
-    assert len(registered) == 78, f"router endpoint count changed: {len(registered)}"
+    assert len(registered) == 79, f"router endpoint count changed: {len(registered)}"
 
     def templ(path):
         return path.split("?")[0]

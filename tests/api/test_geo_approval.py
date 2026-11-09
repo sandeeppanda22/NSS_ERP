@@ -48,7 +48,9 @@ ENTITIES = ["district", "postal-code", "post-office", "city-village"]
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 def _rand_pin() -> str:
-    return str(random.randint(100000, 999999))
+    # Real Indian PIN codes never start with 0, so a leading-zero pin cannot collide with
+    # APPROVED postal codes already present in the dev DB (uq_postal_code_code_approved).
+    return "0" + str(random.randint(0, 99999)).zfill(5)
 
 
 def _create_sevi(cur, organization_pk):

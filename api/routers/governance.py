@@ -102,6 +102,10 @@ from api.helpers import (
     SAKHA_LIKE_ORG_TYPES,
     build_order_by,
     log_audit,
+    org_subtree_cte_sql,
+    recursive_anchor_cols,
+    recursive_guard,
+    recursive_step_cols,
     natural_sort_key,
     parse_optional_date,
     require_entity,
@@ -976,7 +980,8 @@ def _assemble_bodies_with_members(cur, body_rows) -> list[dict]:
             ancestors AS (
                 SELECT o.organization_pk AS start_pk, o.organization_pk,
                        o.parent_organization_pk, o.organization_name,
-                       md.value_code AS organization_type_code
+                       md.value_code AS organization_type_code,
+                       {recursive_anchor_cols('o.organization_pk')}
                 FROM nss.organization o
                 JOIN nss.master_data md
                   ON md.master_data_pk = o.organization_type_master_data_pk
@@ -987,11 +992,13 @@ def _assemble_bodies_with_members(cur, body_rows) -> list[dict]:
                 UNION ALL
                 SELECT anc.start_pk, o.organization_pk,
                        o.parent_organization_pk, o.organization_name,
-                       md.value_code
+                       md.value_code,
+                       {recursive_step_cols('anc', 'o.organization_pk')}
                 FROM nss.organization o
                 JOIN nss.master_data md
                   ON md.master_data_pk = o.organization_type_master_data_pk
                 JOIN ancestors anc ON anc.parent_organization_pk = o.organization_pk
+                WHERE {recursive_guard('anc', 'o.organization_pk')}
             )
             SELECT ar.body_master_pk, ar.position_name, ar.display_order,
                    ar.person_name, ar.sangha_sevi_id,
@@ -2117,14 +2124,8 @@ def _member_org_in_election_subtree(cur, person_pk: UUID, election_org_pk) -> tu
     If the person has no active Sangha Sevi row, returns (False, ...).
     """
     cur.execute(
-        """
-        WITH RECURSIVE subtree(organization_pk) AS (
-            SELECT %s::uuid
-            UNION ALL
-            SELECT o.organization_pk
-            FROM nss.organization o
-            JOIN subtree s ON o.parent_organization_pk = s.organization_pk
-        )
+        f"""
+        {org_subtree_cte_sql("SELECT %s::uuid")}
         SELECT o.organization_name,
                EXISTS (
                    SELECT 1 FROM subtree st

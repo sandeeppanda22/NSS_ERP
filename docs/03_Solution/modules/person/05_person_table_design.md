@@ -3,6 +3,11 @@
 **Document ID:** SOL-PER-004  
 **Version:** 2.0.0  
 **Status:** FROZEN  
+**Amendment:** §49 (2026-11-04, GDR-011 — Proposed, owner approval pending) — the Aadhaar columns are now
+written: `aadhaar_encrypted` holds an application-side AES-256-GCM blob (`v1:<key_id>:<nonce>:<ciphertext>`,
+associated data = `person_pk`) instead of "pgcrypto-encrypted", and `aadhaar_hash` is an HMAC-SHA256 with a
+separate secret pepper instead of a bare SHA-256. Columns, CHECKs and the unique index are unchanged (no
+DDL change). The frozen text below is unchanged.  
 **Module:** Person  
 **Parent System:** Nilachala Saraswata Sangha ERP
 

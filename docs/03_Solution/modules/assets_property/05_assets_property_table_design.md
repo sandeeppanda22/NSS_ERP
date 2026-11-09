@@ -149,6 +149,8 @@ property_pk    UUID
 | `holding_arrangement` | No | Recorded/legal holding description | AP-009–013 (PENDING normalization) |
 | `notes` | No | Additional context | ERP |
 | `acquired_at` | No | Date of acquisition/registration | AP-023 |
+| `belongs_to_organization_pk` | No | Optional organization the property belongs to when different from its custodian (FK `organization`; informational, no authorization effect) | GDR-010 §2D (owner-directed amendment 2026-11-02) |
+| `acquisition_method_master_data_pk` | No | How the property was acquired (FK `master_data`, category `ACQUISITION_METHOD`; informational, no authorization effect) | AP-023 "how"; GDR-010 §2E (owner-directed amendment 2026-11-03) |
 
 Plus standard audit metadata (§6).
 
@@ -205,6 +207,10 @@ UNIQUE (property_id)
 CHECK (status IN ('REGISTERED', 'ACTIVE', 'UNDER_MAINTENANCE', 'DISPOSED'))
 ```
 
+> **Amendment (2026-11-02, owner-directed, GDR-010 §2D, SOL-AP-005)** — *"Belongs to".* `property` gains one nullable column, `belongs_to_organization_pk UUID` (FK `fk_property_belongs_to_org` → `organization`, partial index `idx_property_belongs_to_org`): the organization the property belongs to when that is not its physical custodian (e.g. custodian = Kendra Sangha, belongs to = Mahila Sangha). Informational attribution only: any ACTIVE organization type is accepted; it never affects admin scope, the custodian rule (§9) or the lifecycle, and a custody transfer leaves it unchanged. It is distinct from the recorded/legal holder (`holding_arrangement`, AP-009/013, AP-054) and from the custodian (AP-014..AP-020). Added to `01_property.sql` for fresh builds and to existing databases by `10_assets_property_belongs_to_patch.sql`. No CONSTITUTIONAL rule is amended.
+
+> **Amendment (2026-11-03, owner-directed, GDR-010 §2E, SOL-AP-005)** — *Acquisition method.* `property` gains one nullable column, `acquisition_method_master_data_pk UUID` (FK `fk_property_acquisition_method` → `master_data`, category `ACQUISITION_METHOD`, partial index `idx_property_acquisition_method`), recording HOW the property was acquired (AP-023 "when **and how**"; `acquired_at` records when). Values are admin-extendable master data: `PURCHASE` and `DONATION` are grounded in the source documents; `GIFT`, `BEQUEST`, `TRANSFER_IN`, `CONSTRUCTION`, `OTHER` are candidates. Informational only — no effect on authorization, admin scope, the custodian rule or the lifecycle; approval stays with Governance (AP-025) and payment with Finance (AP-026). Added to `01_property.sql` for fresh builds and to existing databases by `11_assets_property_acquisition_method_patch.sql`. No CONSTITUTIONAL rule is amended.
+
 ---
 
 # 8. Table — `asset`
@@ -235,6 +241,8 @@ asset_pk    UUID
 | `condition` | No | Current condition (text) | ERD §5.4 |
 | `notes` | No | Additional context | ERP |
 | `acquired_at` | No | Date of acquisition/registration | AP-023 |
+| `belongs_to_organization_pk` | No | Optional organization the asset belongs to when different from its custodian (FK `organization`; informational, no authorization effect) | GDR-010 §2D (owner-directed amendment 2026-11-02) |
+| `acquisition_method_master_data_pk` | No | How the asset was acquired (FK `master_data`, category `ACQUISITION_METHOD`; informational, no authorization effect) | AP-023 "how"; GDR-010 §2E (owner-directed amendment 2026-11-03) |
 
 Plus standard audit metadata (§6).
 
@@ -277,6 +285,10 @@ UNIQUE (asset_id)
 CHECK (status IN ('REGISTERED', 'IN_CUSTODY', 'UNDER_MAINTENANCE', 'RETIRED'))
 ```
 
+> **Amendment (2026-11-02, owner-directed, GDR-010 §2D, SOL-AP-005)** — *"Belongs to".* `asset` gains one nullable column, `belongs_to_organization_pk UUID` (FK `fk_asset_belongs_to_org` → `organization`, partial index `idx_asset_belongs_to_org`): the organization the asset belongs to when that is not its physical custodian (e.g. custodian = Kendra Sangha, belongs to = Mahila Sangha). Informational attribution only: any ACTIVE organization type is accepted; it never affects admin scope, the custodian rule (§9) or the lifecycle, and a custody transfer leaves it unchanged. It is distinct from the recorded/legal holder (`holding_arrangement`, AP-009/013, AP-054) and from the custodian (AP-014..AP-020). Added to `02_asset.sql` for fresh builds and to existing databases by `10_assets_property_belongs_to_patch.sql`. No CONSTITUTIONAL rule is amended.
+
+> **Amendment (2026-11-03, owner-directed, GDR-010 §2E, SOL-AP-005)** — *Acquisition method.* `asset` gains one nullable column, `acquisition_method_master_data_pk UUID` (FK `fk_asset_acquisition_method` → `master_data`, category `ACQUISITION_METHOD`, partial index `idx_asset_acquisition_method`), recording HOW the asset was acquired (AP-023 "when **and how**"; `acquired_at` records when). Values are admin-extendable master data: `PURCHASE` and `DONATION` are grounded in the source documents; `GIFT`, `BEQUEST`, `TRANSFER_IN`, `CONSTRUCTION`, `OTHER` are candidates. Informational only — no effect on authorization, admin scope, the custodian rule or the lifecycle; approval stays with Governance (AP-025) and payment with Finance (AP-026). Added to `02_asset.sql` for fresh builds and to existing databases by `11_assets_property_acquisition_method_patch.sql`. No CONSTITUTIONAL rule is amended.
+
 ---
 
 # 9. Table — `custodianship`
@@ -289,6 +301,8 @@ a property or asset.
 Custodian ≠ recorded/legal holder (AP-009).
 
 Per AP-014–020, ERD §6.
+
+> **Amendment (2026-11-02, owner-directed, GDR-010)** — *Custodians are physical organizations.* NSS has two kinds of organization: CONCEPTUAL (Zilla Sangha, Anchalika Sangha — administrative groupings with no premises) and PHYSICAL (Sakha, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira). "All the assets will come to Sakhas": property and assets are HELD (custodian) only by physical organizations. `custodian_organization_pk` (§9.8) is therefore constrained by organization type, not only by the FK. A Sakha Asana is a Sakha for all purposes (GDR-008) and so is physical; wing organizations (Kumari, Sevak, local Mahila Sangha, Paribarik Asana/Sangha), the central Mahila Sangha and the Advisory Board organization are not custodians (their things belong to their Sakha / the Kendra). Custodian-eligible organization types: `SAKHA_SANGHA`, `SAKHA_ASANA`, `PATHA_CHAKRA`, `KENDRA`, `NILACHALA_KUTIRA`, `SMRUTI_MANDIRA`. Enforced by the API (422), by the DB trigger `trg_custodianship_custodian_guard` (function `nss.fn_is_asset_custodian_org_type()`), and in the UI pickers. Admins of a conceptual organization still see and manage the records of the physical organizations beneath them through the ordinary admin-scope subtree rule. This narrows the set of organizations that may be named; it does not conflict with AP-014 (the Kendra and the Sakhas are physical and remain custodians) or AP-020 (Sakha custodianship). Status: part of GDR-010 (`Proposed`).
 
 ## 9.2 Primary Key
 
@@ -334,9 +348,13 @@ ORGANIZATIONAL_CHANGE
 OTHER
 ```
 
+ORGANIZATIONAL_CHANGE
+OTHER
+```
+
 These require explicit approval before being committed to DDL.
 
-## 9.6 Mutual Exclusivity
+> **Amendment (2026-11-03, owner-directed, GDR-010 §2F, SOL-AP-005)** — *Disposal / retirement closes custody.* Two further end-reason values are seeded as master data: `DISPOSED` and `RETIRED` (existing values unchanged; the value lists are accepted as seeded by the owner, 2026-11-03). When a property goes `DISPOSED` or an asset `RETIRED`, the API ENDs the ACTIVE custodianship in the same transaction (`effective_to` = the transition date, end reason `DISPOSED` / `RETIRED`) so nothing stays active for something that is gone; the ENDED row remains the record's *last custodian*, which the API reports (`custodian_is_last`, `custodian_ended_at`) and which stays the anchor for admin-scope checks and list filters (effective custodian = the ACTIVE custodianship, else, for a terminal record only, the most recently ENDED one). These two values are reserved for the terminal event; a custody transfer cannot use them. The custody-required rule (AP-LIF-001) applies only when leaving REGISTERED, `trg_custodianship_guard` already permits ACTIVE → ENDED and keeps ENDED rows immutable, and the new `trg_custodianship_terminal_guard` refuses a new custodianship on a terminal record. `12_assets_property_terminal_custody_patch.sql` brings already-terminal records in line. No CONSTITUTIONAL rule is amended (AP-046/047 and AP-LIF-003 make the terminal states irreversible; they do not require custody to stay open). Mutual Exclusivity
 
 Per AP-019: a custodianship record must reference EITHER a property OR
 an asset (not both, not neither).
@@ -846,6 +864,19 @@ Whether type masters vs CHECK constraints
 Cross-module FK from Finance (if any)
 Heritage cross-reference mechanism
 ```
+
+---
+
+> **Amendment (2026-11-02, GDR-010 — implementation, Proposed).** The DDL (`database/ddl/11_assets_property/`)
+> implements this design with these concrete choices where §23 left the physical representation open: the
+> `property_type` / `asset_type` / `end_reason` / `obligation_type` / `maintenance_type` / document
+> `relationship_type` columns are `*_master_data_pk` FKs to seeded, admin-extendable `master_data` categories
+> (not CHECKs, not dedicated master tables); `holding_arrangement`, `location_description` and `condition` are text;
+> `property_id` / `asset_id` are `PROP<n>` / `AST<n>` from `id_sequence_master`; the one-ACTIVE-custodian rule (§9.7) is
+> two partial UNIQUE indexes; the document-junction uniqueness (§12.6 / §13.5) is a partial UNIQUE index
+> `WHERE is_active`; the audit actor columns are nullable (project Pass-1 convention) where §6 shows NOT NULL; and
+> lifecycle / history guards are DB triggers in `08_assets_property_guards.sql`. No table, column or rule was added
+> beyond this document. See the README of this folder and GDR-010.
 
 ---
 

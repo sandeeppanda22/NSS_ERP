@@ -30,7 +30,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.database import get_connection
 from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_permission
-from api.helpers import SAKHA_LIKE_ORG_TYPES, SAKHA_LIKE_ORG_TYPES_SQL, DEFAULT_LIMIT, MAX_LIMIT, row_to_model, rows_to_models, ORGANIZATION_ADDRESS_JOINS_SQL
+from api.helpers import (
+    SAKHA_LIKE_ORG_TYPES, SAKHA_LIKE_ORG_TYPES_SQL, DEFAULT_LIMIT, MAX_LIMIT, HIERARCHY_MAX_DEPTH,
+    row_to_model, rows_to_models, ORGANIZATION_ADDRESS_JOINS_SQL,
+    recursive_anchor_cols, recursive_step_cols, recursive_guard,
+)
 from api.services.family_majority import FAMILY_MAJORITY_CTE_SQL
 from api.services.rbac_service import (
     UserContext,
@@ -420,7 +424,8 @@ _CHILDREN_STATS_SQL = f"""
                o.organization_pk   AS root_child_pk,
                o.organization_name,
                o.organization_code,
-               ot.value_code       AS organization_type_code
+               ot.value_code       AS organization_type_code,
+               {recursive_anchor_cols('o.organization_pk')}
         FROM   nss.organization o
         JOIN   nss.master_data ot
                ON ot.master_data_pk = o.organization_type_master_data_pk
@@ -429,18 +434,20 @@ _CHILDREN_STATS_SQL = f"""
 
         UNION ALL
 
-        -- Recursive: descendants (capped at depth 10)
+        -- Recursive: descendants (depth cap + cycle guard, api/helpers.py)
         SELECT o.organization_pk,
                t.root_child_pk,
                o.organization_name,
                o.organization_code,
-               ot.value_code
+               ot.value_code,
+               {recursive_step_cols('t', 'o.organization_pk')}
         FROM   nss.organization o
         JOIN   nss.master_data ot
                ON ot.master_data_pk = o.organization_type_master_data_pk
         JOIN   org_tree t
                ON t.organization_pk = o.parent_organization_pk
         WHERE  o.is_active = TRUE
+          AND  {recursive_guard('t', 'o.organization_pk')}
     ),
     -- Sakha PKs grouped by which direct child they belong to
     sakha_pks AS (
@@ -583,7 +590,8 @@ _ORG_STATS_SQL = f"""
     WITH RECURSIVE org_tree AS (
         -- Anchor: the requested org itself
         SELECT o.organization_pk,
-               ot.value_code AS organization_type_code
+               ot.value_code AS organization_type_code,
+               {recursive_anchor_cols('o.organization_pk')}
         FROM   nss.organization o
         JOIN   nss.master_data ot
                ON ot.master_data_pk = o.organization_type_master_data_pk
@@ -592,16 +600,17 @@ _ORG_STATS_SQL = f"""
 
         UNION ALL
 
-        -- Recursive: descendants (capped at depth 10, matches
-        -- children-stats/hierarchy's own guard against circular parents)
+        -- Recursive: descendants (depth cap + cycle guard, api/helpers.py)
         SELECT o.organization_pk,
-               ot.value_code
+               ot.value_code,
+               {recursive_step_cols('t', 'o.organization_pk')}
         FROM   nss.organization o
         JOIN   nss.master_data ot
                ON ot.master_data_pk = o.organization_type_master_data_pk
         JOIN   org_tree t
                ON t.organization_pk = o.parent_organization_pk
         WHERE  o.is_active = TRUE
+          AND  {recursive_guard('t', 'o.organization_pk')}
     ),
     sakha_pks AS (
         SELECT organization_pk AS sakha_pk
@@ -846,7 +855,8 @@ _ORG_SUBTREE_CTE = f"""
     WITH RECURSIVE org_tree AS (
         SELECT o.organization_pk,
                o.parent_organization_pk,
-               ot.value_code AS organization_type_code
+               ot.value_code AS organization_type_code,
+               {recursive_anchor_cols('o.organization_pk')}
         FROM   nss.organization o
         JOIN   nss.master_data ot
                ON ot.master_data_pk = o.organization_type_master_data_pk
@@ -857,13 +867,15 @@ _ORG_SUBTREE_CTE = f"""
 
         SELECT o.organization_pk,
                o.parent_organization_pk,
-               ot.value_code
+               ot.value_code,
+               {recursive_step_cols('t', 'o.organization_pk')}
         FROM   nss.organization o
         JOIN   nss.master_data ot
                ON ot.master_data_pk = o.organization_type_master_data_pk
         JOIN   org_tree t
                ON t.organization_pk = o.parent_organization_pk
         WHERE  o.is_active = TRUE
+          AND  {recursive_guard('t', 'o.organization_pk')}
     ),
     sakha_pks AS (
         SELECT organization_pk AS sakha_pk
@@ -1225,7 +1237,7 @@ def get_organization_hierarchy(
 
                 UNION ALL
 
-                -- Recursive: children (depth capped at 10)
+                -- Recursive: children (display depth cap HIERARCHY_MAX_DEPTH, api/helpers.py)
                 SELECT o.organization_pk,
                        o.organization_name,
                        o.organization_code,
@@ -1244,7 +1256,7 @@ def get_organization_hierarchy(
                 JOIN   org_tree t
                        ON t.organization_pk = o.parent_organization_pk
                 WHERE  o.is_active = TRUE
-                  AND  t.depth < 10
+                  AND  t.depth < {HIERARCHY_MAX_DEPTH}
             )
             SELECT * FROM org_tree
             ORDER BY depth, organization_name

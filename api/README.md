@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-17 routers (252 endpoints; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
+19 routers (284 registered endpoints — a `@router.*` decorator grep gives 272 because 12 of `assets_property.py`'s 26 are added by `_register_entity_routes`; Assets & Property adds `assets_property.py` 26; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -45,7 +45,7 @@ api/
 │                        outermost, so security headers wrap everything — CSP is emitted by that
 │                        same security-headers middleware, not a separate layer), registers the
 │                        `error_handlers.py` handlers (validation / `psycopg2.IntegrityError` /
-│                        catch-all), includes all 17 routers (the six Tier 0-4 ones plus, Tier 5,
+│                        catch-all), includes all 19 routers (the six Tier 0-4 ones plus, Tier 5,
 │                        `auth`/`admin`/`registration`/`claim_approval`/`audit`/`geo_approval`, then Tier 6
 │                        `governance`/`membership_change_request`/`correspondence`),
 │                        mounts `frontend/assets/` at `/assets`. A `lifespan` hook logs a
@@ -151,9 +151,9 @@ api/
 │                        `validate_and_hash_password()`; audit — `log_audit()` (writes a row to
 │                        `nss.system_event_log` — see Audit trail below). **Also 5 shared SQL
 │                        fragment constants**, each spliced (via an f-string) into 2+ routers'
-│                        queries rather than copy-pasted: `SAKHA_LIKE_ORG_TYPES`/`SAKHA_LIKE_ORG_TYPES_SQL`/`is_sakha_like()` (Sakha + Sakha Asana, the single Python definition of "is this a Sakha?"; also the wing-parent set in `ALLOWED_PARENT_TYPES`, GDR-008), `FAMILY_MAJORITY_CTE_SQL` (the FAM-036
-│                        majority-rule CTE, shared by `organization.py`'s `/children-stats` +
-│                        `/stats` and `family.py`'s `_FAMILY_SELECT`),
+│                        queries rather than copy-pasted: `ASSET_CUSTODIAN_ORG_TYPES`/`ASSET_CUSTODIAN_ORG_TYPES_SQL`/`is_asset_custodian_org_type()` (the physical organization types that may hold property/assets, built from the Sakha-like tuple; GDR-010 §2C), `SAKHA_LIKE_ORG_TYPES`/`SAKHA_LIKE_ORG_TYPES_SQL`/`is_sakha_like()` (Sakha + Sakha Asana, the single Python definition of "is this a Sakha?"; also the wing-parent set in `ALLOWED_PARENT_TYPES`, GDR-008), (the FAM-036 majority-rule CTE now lives in
+│                        `api/services/family_majority.py`, shared by `organization.py`'s
+│                        `/children-stats` + `/stats` and `family.py`'s `_FAMILY_SELECT`),
 │                        `ORGANIZATION_ADDRESS_JOINS_SQL` (shared by `organization.py`'s
 │                        `_ORG_SELECT` and `admin.py`'s org-list query),
 │                        `PERSON_MASTER_DATA_JOINS_SQL` (gender/marital-status/blood-group
@@ -165,7 +165,7 @@ api/
 │                        `PROBATIONARY_MEMBERSHIP_TYPE_CODE`
 ├── rate_limit.py        the shared SlowAPI `Limiter` (global per-IP `RATE_LIMIT`) + `user_or_ip_key` (JWT `sub`,
 │                        else client IP) for per-user route limits, e.g. `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance
-│                        `/live` poll; `api/main.py` only wires it into the app
+│                        `/live` poll and `LIVE_CHANGES_RATE_LIMIT` on `GET /live/changes`; `api/main.py` only wires it into the app
 ├── middleware.py        `add_security_headers(request, call_next)` — sets
 │                        `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/
 │                        `Permissions-Policy` on every response, plus `Cache-Control: no-store`
@@ -174,7 +174,7 @@ api/
 │                        the `-Report-Only` variant when CSP_REPORT_ONLY is set; nothing when
 │                        CSP_ENABLED is false), skipping `CSP_EXEMPT_PATHS` — `/docs`, `/redoc`,
 │                        `/openapi.json` — because Swagger UI embeds an inline script
-├── routers/             17 routers; module docstrings of `foundation.py`,
+├── routers/             19 routers; module docstrings of `foundation.py`,
 │   │                    `membership.py`, `person.py`, `admin.py`, `auth.py`, `registration.py`
 │   │                    and `family.py` still describe their original/partial endpoint set — see
 │   │                    "Known gaps" at the bottom of this file
@@ -195,11 +195,11 @@ api/
 │   │                    data (types, statuses), core organizations (list/detail/children — the
 │   │                    list query is a shared `fetch_organizations()` function, also called by
 │   │                    `registration.py`'s public reference-data endpoints), children-stats
-│   │                    (recursive, no depth-cap guard — see Known gaps), `/organizations/{pk}/stats`
+│   │                    (recursive, depth cap + cycle guard from `helpers.py`), `/organizations/{pk}/stats`
 │   │                    (same recursive counts collapsed to one row of whole-subtree totals for
 │   │                    the requested org, 403s outside the caller's own admin scope via
 │   │                    `require_org_in_scope`, backs the Org Dashboard tab), and a
-│   │                    self-referencing hierarchy tree via `WITH RECURSIVE` (depth guard at 10).
+│   │                    self-referencing hierarchy tree via `WITH RECURSIVE` (display cap `HIERARCHY_MAX_DEPTH` = 10).
 │   │                    `/organizations/{pk}/wings` + `/wings/{wing_type_code}/members`
 │   │                    (wing-body summary/roster). All gated by `require_permission("ORGANIZATION_VIEW")`
 │   │                    except `/organizations/selectable` (member-facing dropdown lookup;
@@ -290,17 +290,46 @@ api/
 │   │                     login-only, authority to decide = live President seat (no admin override; NSS_ERP_ADMIN and Kendra GB members re-parent directly instead); requests
 │   │                     are filed by `PATCH /admin/organizations/{pk}` (HTTP 202) — logic in
 │   │                     `services/org_reparent_service.py`, seat lookups in `services/seat_service.py`
+│   ├── live.py           1 endpoint, `GET /api/v1/live/changes` — live-refresh change feed: login only,
+│   │                     read pool, per-user `LIVE_CHANGES_RATE_LIMIT`; reads `nss.live_change_marker` and returns
+│   │                     `{changed:[{table_name, change_seq}]}` for tables in `LIVE_FEED_TABLES` (authoritative
+│   │                     whitelist, equal to the trigger list in `ddl/12_live_refresh/02_live_change_triggers.sql`);
+│   │                     no cursor, no data, no ids
 │   ├── attendance.py     Tier 6 — 21 endpoints under /api/v1/attendance: Weekly Sangha Puja
 │   │                     (`/pujas`, `/pujas/{pk}/attendance` (optimistic `expected_version` -> 409 conflicts), `/pujas/{pk}/live` (adaptive poll, 2 s active, ETag/304), `/records`), `/exceptions`, Attendance
 │   │                     Review workflow (`/reviews*`: close/defer/revisit/escalate-to-president/
 │   │                     escalate-to-parichalak/reopen/override), `/watch-list`, `/stats/*`.
 │   │                     `ATTENDANCE_VIEW`/`ATTENDANCE_MANAGE` + admin scope; review/exception
 │   │                     authority = live Secretary/President seat (`_require_review_authority`)
+│   ├── assets_property.py Module #22 (Tier 6) — 26 endpoints under /api/v1/assets-property:
+│   │                     properties (`/properties`) and assets (`/assets`) CRUD + paged search + lifecycle
+│   │                     `/transition` + soft-delete archive (registered once per kind by
+│   │                     `_register_entity_routes`), then `{kind}`-parametrised custodianship
+│   │                     (`/custodianships`, `/custodianships/transfer` = close current + open new),
+│   │                     maintenance records and document links, plus property-only statutory records.
+│   │                     `ASSET_VIEW`/`ASSET_MANAGE` + admin scope on the record's EFFECTIVE custodian
+│   │                     (active, else the LAST ENDED one for a DISPOSED/RETIRED record, `_effective_custodian_join()`;
+│   │                     none = global authority only; transfer needs scope over both orgs;
+│   │                     DISPOSED/RETIRED END the active custodianship in the same transaction, GDR-010 §2F).
+│   │                     The custodian must be a PHYSICAL organization (`ASSET_CUSTODIAN_ORG_TYPES`,
+│   │                     `is_asset_custodian_org_type()` in helpers.py; 422 for Anchalika/Zilla/wings/Advisory
+│   │                     Board, DB trigger backstop); list endpoints take `include_sub_organizations=true`
+│   │                     with `custodian_organization_pk` (that org + its subtree, still scope-intersected).
+│   │                     `ASSET_MANAGE`: ADMIN/KENDRA/SAKHA/PATHA_CHAKRA admins; Anchalika/Zilla admins,
+│   │                     Auditor, Report Viewer are view-only; the Mahila admin has no ASSET_* (2026-11-02).
+│   │                     Optional `belongs_to_organization_pk` (any active org; informational, no auth
+│   │                     effect; list filter never widens scope; `_require_belongs_to_org`). Optional
+│   │                     `acquisition_method_code` (ACQUISITION_METHOD master data; informational; list filter;
+│   │                     null clears; GDR-010 §2E). Responses add `custodian_is_last`/`custodian_ended_at`.
+│   │                     Lifecycle table mirrors DB trigger `fn_ap_entity_guard()`. GDR-010.
 │   ├── membership_change_request.py Tier 6 — 5 endpoints under
 │   │                     /api/v1/membership/change-requests: Sakha Transfer / Apply for Darshak
 │   │                     two-step release/accept workflow (MBR-048/049); write-pool counterpart to
 │   │                     the read-only `membership.py`
-│   └── audit.py          Tier 5 — 1 endpoint under /api/v1/audit: `GET /change-log`,
+│   └── audit.py          Tier 5 — 5 endpoints under /api/v1/audit: `GET /change-log`,
+│                          `GET /events` (+ `/events/facets`, `/events/{pk}`: system_event_log explorer, default
+│                          last-24 h window, count capped at 10,000) and `GET /live-change-markers`
+│                          (live_change_marker diagnostics, reuses `LIVE_FEED_TABLES`);
 │                          a filterable/paginated view over `nss.field_change_log` (one row per
 │                          field per CREATE/UPDATE/DELETE, with actor and timestamp), gated by
 │                          `AUDIT_VIEW`; the authenticated counterpart to Tier 1's
@@ -359,7 +388,7 @@ api/
     │                     org_youtube_channel_url)
     ├── person.py         PersonResponse, PersonSummaryResponse, PersonAddressResponse,
     │                     PersonListResponse — PersonResponse/PersonSummaryResponse never
-    │                     include `aadhaar_encrypted`/`aadhaar_hash`, only `aadhaar_last4` for
+    │                     include `aadhaar_encrypted`/`aadhaar_hash`; `aadhaar_last4` (gated, GDR-011) for
     │                     masked display (PER-BR-081); audit columns excluded
     ├── family.py         8 original Pydantic models (FamilyGroupResponse, FamilyMemberResponse,
     │                     FamilyGraphMemberResponse, PersonMembershipSummaryResponse,
@@ -391,11 +420,15 @@ api/
     │                     DocumentAssociation*, FinanceReference*
     ├── org_reparent.py   Tier 6 — ReparentRequestResponse/ReparentStepResponse, ReparentDecisionRequest
                           (remarks required on REJECT), ReparentCancelRequest
+    ├── live.py           LiveChangesResponse / LiveTableChange (live-refresh feed)
     ├── attendance.py     Tier 6 — Puja/AttendanceRecord/Exception/Review request + response
     │                     models, WatchList*, Org/Member attendance stats
+    ├── assets_property.py Module #22 — Property/Asset Create/Update/Response/ListResponse,
+    │                     TransitionRequest, Custodianship Assign/Transfer/Response, StatutoryRecord*,
+    │                     Maintenance*, DocumentLink*
     ├── membership_change_request.py Tier 6 — ChangeRequestCreate, SourceDecisionRequest,
     │                     DestinationDecisionRequest, ChangeRequestResponse/ListResponse
-    └── audit.py          Tier 5 — FieldChangeLogResponse (the one schema in this
+    └── audit.py          Tier 5 — FieldChangeLogResponse, SystemEvent*(Response/Detail/Page/Facets), LiveChangeMarker* (the schemas in this
                           codebase that deliberately includes audit-actor columns, since the
                           whole point of this endpoint is exposing them)
 ```
@@ -463,6 +496,10 @@ exact `require_permission`/`require_any_permission` arguments in each router.
 | POST | `/api/v1/admin/claims/{pk}/approve` | same | Creates `sangha_sevi` + affiliation (+ mandatory credential for a new Sangha Sevi), activates the account |
 | POST | `/api/v1/admin/claims/{pk}/reject` | same | Leaves the account `PENDING_APPROVAL`, remarks required |
 | GET | `/api/v1/audit/change-log` | `AUDIT_VIEW` | Filterable, paginated `nss.field_change_log` history — the authenticated counterpart to Tier 1's deliberately-unexposed `/api/v1/foundation/change-log` (which doesn't exist) |
+| GET | `/api/v1/audit/events` | `AUDIT_VIEW` | `system_event_log` explorer: filters (table, action, module, actor Sangha Sevi id, record pk, success, date range, free text), `sort`, `limit`/`offset`; default last 24 h unless `event_from` or `record_pk`; `total` capped at 10,000 (`total_capped`) |
+| GET | `/api/v1/audit/events/facets` | `AUDIT_VIEW` | Distinct tables / actions / modules of the last 30 days |
+| GET | `/api/v1/audit/events/{pk}` | `AUDIT_VIEW` | One event incl. the JSONB `detail` |
+| GET | `/api/v1/audit/live-change-markers` | `AUDIT_VIEW` | All `live_change_marker` rows, newest `change_seq` first, flagged `on_live_whitelist` (diagnostics for `/live/changes`) |
 
 **`nss.permission_master`/`nss.role_permission` are now seeded** (`database/seed/00_bootstrap/
 01_permission_master.sql`/`03_role_permission.sql`) — `FOUNDATION_VIEW`/`ORGANIZATION_VIEW`/
@@ -558,7 +595,7 @@ row into the new `nss.system_event_log` table (`action`, `table_name`, `record_p
 `actor_user_account_pk`, `module`, `summary`, `detail` JSONB, `is_success`) —
 `database/ddl/01_foundation/14_system_event_log.sql`. Independently, `database/ddl/01_foundation/
 15_audit_trigger.sql` attaches a `fn_audit_trigger()` `AFTER INSERT OR UPDATE OR DELETE` trigger
-to every `nss.*` table except `system_event_log`/`field_change_log` (a `DO $$` loop over
+to every `nss.*` table except `system_event_log`/`field_change_log`/`live_change_marker` (a `DO $$` loop over
 `pg_tables`; attached after Phase 13, so admin-bootstrap and seed rows are unaudited), so raw SQL
 writes are captured even if application code forgets to call `log_audit()`. The trigger writes
 **both** logs: one row-level event to `system_event_log` plus one field-level row per changed
@@ -576,8 +613,9 @@ the effective request order is security headers → CORS → rate limiting → r
 
 1. **Rate limiting** (`slowapi`) — `Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])`
    (defined in `api/rate_limit.py`, wired by `main.py` via `SlowAPIMiddleware`); default `300/minute`
-   per client IP, global. The one per-route override is `@limiter.limit(settings.LIVE_ATTENDANCE_RATE_LIMIT,
-   key_func=user_or_ip_key)` on `attendance.py::live_attendance` (per user, replaces the global limit).
+   per client IP, global. The per-route overrides are `@limiter.limit(settings.LIVE_ATTENDANCE_RATE_LIMIT,
+   key_func=user_or_ip_key)` on `attendance.py::live_attendance` and `@limiter.limit(settings.LIVE_CHANGES_RATE_LIMIT,
+   key_func=user_or_ip_key)` on `live.py::live_changes` (per user, each replaces the global limit).
    Returns 429 once a limit trips.
    `POST /auth/forgot-password`'s 3-per-hour cap is a separate, DB-backed check on
    `password_reset_token`, not this limiter.
@@ -710,15 +748,20 @@ against Foundation's `master_data`. Trigram search relies on `pg_trgm` (installe
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/api/v1/person/persons` | Active persons (compact summary — no Aadhaar/emergency/photo fields); optional `gender_code`/`marital_status_code`/`blood_group_code` filters, `limit`/`offset` pagination (default 100, max 500) |
-| GET | `/api/v1/person/persons/{person_pk}` | Single person detail with full resolved context, incl. masked `aadhaar_last4`; 404 if missing/inactive |
+| GET | `/api/v1/person/persons/{person_pk}` | Single person detail with full resolved context; `aadhaar_last4` + `aadhaar_full_on_file` are non-null only for the person themself or a `PERSON_VIEW_SENSITIVE` holder in admin scope (GDR-011); 404 if missing/inactive |
+| GET | `/api/v1/person/persons/{person_pk}/aadhaar` | **Aadhaar reveal (GDR-011, Proposed):** `{person_pk, aadhaar_number}` — the DECRYPTED 12 digits. `PERSON_VIEW_SENSITIVE` + admin scope over the person (the person themself gets 403); 404 `Full Aadhaar not on record` without ciphertext; per-user `AADHAAR_REVEAL_RATE_LIMIT` (429); each success writes a `VIEW_SENSITIVE` `system_event_log` row without the value; 500 without a value if decryption fails. Uses the write pool only for that audit INSERT |
 | GET | `/api/v1/person/persons/{person_pk}/addresses` | Active addresses for a person, with resolved address type + city/village/postal-code/district/state/country chain; 404 if the person doesn't exist |
 | POST | `/api/v1/person/persons/{person_pk}/addresses` | Add an address (201 `PersonAddressResponse`); the person themself or `PERSON_MANAGE` in admin scope. `address_type_master_data_pk` must be an `ADDRESS_TYPE` value; city/village, postal code and post office must be APPROVED, or PENDING and proposed by this person; first address is auto-primary, `is_primary=true` demotes the previous primary |
 | PATCH | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Partial update (only fields sent change; explicit null clears optional ones); same auth/geo rules; un-primarying the primary address is 409 |
 | DELETE | `/api/v1/person/persons/{person_pk}/addresses/{person_address_pk}` | Soft delete (`is_active=false`, `deleted_at`); 409 on the primary address while other active addresses exist; 404 if the row is not this person's |
 | GET | `/api/v1/person/search` | Trigram similarity search (`pg_trgm`) on first/last name, plus prefix match on `person_id`/`mobile_number`; capped at 50 results |
 
-`aadhaar_encrypted` and `aadhaar_hash` are never returned by any endpoint — only
-`aadhaar_last4` for masked display (PER-BR-081). Full contract:
+`aadhaar_encrypted` and `aadhaar_hash` are never returned by any endpoint. The full number
+is captured (optional `aadhaar_number` on `POST /register`, `POST /admin/persons`,
+`PATCH /admin/persons/{pk}` and `PATCH /admin/claims/{pk}`; not on the self-service
+`PATCH /auth/profile`), stored encrypted by the one writer `aadhaar_service.set_person_aadhaar()`,
+and obtainable only through the reveal endpoint above; `aadhaar_last4` is shown only to the person
+and to scoped `PERSON_VIEW_SENSITIVE` holders (GDR-011, amends PER-BR-081). Full contract:
 `docs/03_Solution/api/PERSON_API_CONTRACT.md`. Verified by 55 pytest integration tests
 (`tests/api/test_person.py`; some of the original 61 were extracted into
 `tests/security/test_*_security.py` — see `CLAUDE.md` → Tests & lint).
@@ -794,9 +837,10 @@ Full contract and endpoint counts: `docs/03_Solution/api/API_CONTRACT.md`. Tests
   omits create-family and create-link), and `main.py` ("Verification UIs", "Read-only endpoints")
   no longer match their code. `middleware.py`'s docstring still says JS uses `?v=N` cache busting
   (now an automatic content hash, see `main.py`).
-- **`/children-stats` and `/stats` recursion has no depth cap** — the SQL comments say "capped at
-  depth 10" but neither CTE carries a depth column or `depth < 10` predicate; only `/hierarchy`
-  does.
+- **Recursive CTE guard (2026-11-04):** every `WITH RECURSIVE` uses `helpers.MAX_RECURSION_DEPTH`
+  (20) via `recursive_anchor_cols`/`recursive_step_cols`/`recursive_guard` (plus a path-array cycle
+  guard); the subtree walk is the single `helpers.org_subtree_cte_sql()`. `/hierarchy` keeps its
+  documented cap of 10 (`HIERARCHY_MAX_DEPTH`). `tests/api/test_recursive_cte_guard.py` enforces it.
 - **`API_PORT` is read by `config.py` but never used.**
 - **`next_id()` ignores `id_sequence_master.padding_length`** (returns `prefix + current_value`).
 - **`auth.py::forgot_password` does not deliver the OTP** (`# TODO: Send OTP via email/SMS`).

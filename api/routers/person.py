@@ -16,15 +16,21 @@ Endpoint groups:
 
 Security:
   - aadhaar_encrypted and aadhaar_hash are NEVER returned (PER-BR-081)
-  - Only aadhaar_last4 is exposed for masked display
+  - aadhaar_last4 is exposed for masked display ONLY to the person
+    themself or a PERSON_VIEW_SENSITIVE holder in admin scope (GDR-011)
+  - GET /persons/{pk}/aadhaar returns the DECRYPTED number (never the
+    ciphertext/hash) to PERSON_VIEW_SENSITIVE + admin scope, audited
   - Audit actor FKs excluded per API convention
 """
 
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+
+from api.config import settings
 from api.database import get_connection
 from api.dependencies.auth import get_current_user, get_write_connection
 from api.dependencies.rbac import require_permission
@@ -40,18 +46,23 @@ from api.helpers import (
     log_audit,
     require_entity,
 )
-from api.services.person_scope import person_in_admin_scope
-from api.services.rbac_service import UserContext, actor_scope_org_pks
+from api.rate_limit import limiter, user_or_ip_key
+from api.services.aadhaar_service import AadhaarConfigError, AadhaarDecryptionError, decrypt_aadhaar
+from api.services.person_scope import gate_aadhaar_fields, person_in_admin_scope
+from api.services.rbac_service import UserContext, actor_scope_org_pks, require_person_in_scope
 from api.routers.family import _shares_current_family
 from api.schemas.auth import MessageResponse
 from api.schemas.person import (
     PersonAddressCreateRequest,
     PersonAddressUpdateRequest,
+    PersonAadhaarResponse,
     PersonAddressResponse,
     PersonListResponse,
     PersonResponse,
     PersonSummaryResponse,
 )
+
+logger = logging.getLogger("nss.person")
 
 router = APIRouter(prefix="/api/v1/person", tags=["person"])
 
@@ -104,6 +115,7 @@ _PERSON_DETAIL_SELECT = f"""
            p.mobile_number,
            p.email,
            p.aadhaar_last4,
+           (p.aadhaar_encrypted IS NOT NULL) AS aadhaar_full_on_file,
            p.photo_document_master_pk,
            p.emergency_contact_name,
            p.emergency_contact_phone,
@@ -327,8 +339,10 @@ def get_person(
     """
     Get a single person by PK with full resolved context.
 
-    Includes Aadhaar last-4 (masked), emergency contact, and photo
-    FK. Never returns aadhaar_encrypted or aadhaar_hash.
+    Includes emergency contact and photo FK, plus Aadhaar last-4 and the
+    ``aadhaar_full_on_file`` flag ONLY for the person themself or a
+    PERSON_VIEW_SENSITIVE holder in admin scope (GDR-011; null for everyone
+    else). Never returns aadhaar_encrypted or aadhaar_hash.
 
     Access: an administrator holding PERSON_VIEW whose admin scope covers
     the person (ADMIN-BR-076), the person themself (e.g. their own Member
@@ -342,7 +356,63 @@ def get_person(
         result = row_to_model(cur, PersonResponse)
         if result is None:
             raise HTTPException(status_code=404, detail="Person not found")
-        return result
+    gate_aadhaar_fields(conn, person_pk, user, result)
+    return result
+
+
+@router.get(
+    "/persons/{person_pk}/aadhaar",
+    response_model=PersonAadhaarResponse,
+)
+@limiter.limit(settings.AADHAAR_REVEAL_RATE_LIMIT, key_func=user_or_ip_key)
+def reveal_person_aadhaar(
+    request: Request,
+    person_pk: UUID,
+    user: UserContext = Depends(require_permission("PERSON_VIEW_SENSITIVE")),
+    conn=Depends(get_write_connection),
+) -> PersonAadhaarResponse:
+    """
+    Reveal the full, decrypted Aadhaar number (GDR-011).
+
+    Requires PERSON_VIEW_SENSITIVE AND admin scope over the person; the person
+    themself does not get the full number (masked last-4 only). 404 when the
+    person is unknown or no ciphertext is on record (legacy last-4-only rows).
+    Rate limited per user (AADHAAR_REVEAL_RATE_LIMIT). Every successful reveal
+    writes a VIEW_SENSITIVE audit row that carries NO value. The ciphertext and
+    hash are never returned. Uses the write pool only because the audit row is
+    an INSERT.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT aadhaar_encrypted FROM nss.person "
+            "WHERE person_pk = %s AND is_active = TRUE",
+            (str(person_pk),),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        require_person_in_scope(cur, user, str(person_pk), "view sensitive identity data")
+        if row[0] is None:
+            raise HTTPException(status_code=404, detail="Full Aadhaar not on record")
+        try:
+            digits = decrypt_aadhaar(row[0], person_pk)
+        except (AadhaarDecryptionError, AadhaarConfigError) as exc:
+            # ERROR log only: the write dependency rolls back on this 500, so an
+            # audit row written here would not survive; no value is ever logged.
+            logger.error(
+                "Aadhaar reveal failed for person %s (%s) by user_account %s",
+                person_pk, type(exc).__name__, user.user_account_pk,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="The stored Aadhaar number could not be read. Contact the system administrator.",
+            )
+        log_audit(
+            cur, action="VIEW_SENSITIVE", table_name="person", record_pk=str(person_pk),
+            actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
+            module="person", summary="Revealed full Aadhaar number",
+        )
+    return PersonAadhaarResponse(person_pk=person_pk, aadhaar_number=digits)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

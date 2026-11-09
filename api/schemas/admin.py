@@ -7,9 +7,10 @@ Request/response models for admin endpoints (Tier 5).
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.auth import UpdateProfileRequest
+from api.services.aadhaar_service import aadhaar_field_validator
 
 
 # ── Request schemas ──────────────────────────────────────────────────────
@@ -121,6 +122,17 @@ class UpdatePersonProfileRequest(UpdateProfileRequest):
         None, max_length=500,
         description="Why the profile is being corrected (recorded in the audit log).",
     )
+    # Admin-only (the self-service UpdateProfileRequest has no such field):
+    # full 12-digit Aadhaar, "" clears all three stored columns (GDR-011).
+    aadhaar_number: str | None = Field(
+        None, max_length=20,
+        description="Full 12-digit Aadhaar (spaces/hyphens allowed; Verhoeff-checked, GDR-011). Stored encrypted; never echoed.",
+    )
+
+    @field_validator("aadhaar_number")
+    @classmethod
+    def _aadhaar_number_valid(cls, v: str | None) -> str | None:
+        return aadhaar_field_validator(v)
 
 
 class PersonProfileResponse(BaseModel):
@@ -146,6 +158,10 @@ class PersonProfileResponse(BaseModel):
     emergency_contact_phone: str | None = None
     emergency_relationship_master_data_pk: UUID | None = None
     remarks: str | None = None
+    # GDR-011 — None unless the caller is the person or PERSON_VIEW_SENSITIVE in
+    # scope (gate_aadhaar_fields). Never the full number.
+    aadhaar_last4: str | None = None
+    aadhaar_full_on_file: bool | None = None
 
 
 class SanghaSeviBatchCheckRequest(BaseModel):

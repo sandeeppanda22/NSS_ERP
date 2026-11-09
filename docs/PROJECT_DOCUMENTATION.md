@@ -20,14 +20,14 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 17 routers, 252 endpoints (decorator-counted). |
-| Database (`database/`) | Hand-written PostgreSQL DDL, 71 tables in schema `nss`, no migration tool. |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 19 routers, 284 endpoints (registered routes in the working tree — 272 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
+| Database (`database/`) | Hand-written PostgreSQL DDL, 79 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (3979 items collected). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5173 items collected on 2026-11-05). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
-Mahila, Publications/UPBS, Finance, Reports/Backup), Assets & Property. Render.com + Neon.dev
+Mahila, Publications/UPBS, Finance, Reports/Backup) (Assets & Property backend and admin UI are built; the UI has not been opened in a browser). Render.com + Neon.dev
 deployment is declared (`render.yaml`, `render_build.sh`) but unverified in production.
 
 ### Tier status
@@ -41,13 +41,12 @@ deployment is declared (`render.yaml`, `render_build.sh`) but unverified in prod
 | 4 | Family + Membership | Released v0.10.0 (hotfixes v0.10.1-v0.10.3, performance v0.10.4) |
 | 5 | Authentication + Administration + Audit | Released v0.11.0 (on `develop` and `main`) |
 | 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Merged into the local `develop` 2026-11-02 (merge `bc6e42f`; 37 commits from `feature/tier6-governance`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **not pushed or released**; fix 1 (per-user `/live` rate limit, `api/rate_limit.py`) and fix 2 (adaptive live polling in `attendance-register.js`, `_attRegisterShown()` hooks in `admin.js`/`dashboard.js`, UI tests) are committed |
-| 6 (rest) | Assets & Property | Design only |
+| 6 (rest) | Assets & Property (Module #22) | **Implemented 2026-11-02, committed 2026-11-03 on `feature/tier6-governance` (not yet merged to `develop`)** — 7 tables (`ddl/11_assets_property/`, build Phase 11g), `assets_property.py` (26 endpoints), `ASSET_VIEW`/`ASSET_MANAGE`, 757 backend tests collected (never run against a DB); implementation decisions in GDR-010 (`Proposed`). Admin UI added 2026-11-02: `admin.html` group "Assets & Property" with Properties / Assets tabs, logic in `assets-property.js`, 83 UI source-parsing tests; never opened in a browser. Owner decisions 2026-11-03 (GDR-010 §2E/§2F, uncommitted): optional `ACQUISITION_METHOD` master-data column on `property`/`asset`; DISPOSED/RETIRED END the active custodianship in the same transaction while the last custodian stays on the record (effective custodian = active, else the last ENDED one for a terminal record, used by detail/list/filters/scope checks; `custodian_is_last`/`custodian_ended_at`); patches `11_…acquisition_method_patch.sql`, `12_…terminal_custody_patch.sql`; guard `trg_custodianship_terminal_guard`. |
 | 7-13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Finance, Reports + Backup | Design only |
 
 `main` = `99f80e6`, one docs-refresh commit past tag `v0.11.0` (= `c8f2c9c`; the tag exists
 locally; confirm it is pushed before relying on it); local `develop` = `bc6e42f` = `main` + Tier 6 (not pushed). Release notes: `docs/05_Releases/`. The
-Attendance tests and every test written 2026-10-30/31 have never been run against a DB (see
-`tests/README.md`).
+owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed since, unconfirmed), ~4336 passed, 47 skipped, so the backend suites have now run against a real DB; Playwright/browser checks of the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics, the x-show fix) have not (see `tests/README.md`). `feature/tier6-governance` is 25 commits ahead of `develop` as of 2026-11-06 (Assets & Property, Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes); the x-show UI fix is committed (`f2610e4`); working tree clean.
 
 ## Architecture
 
@@ -59,7 +58,7 @@ Middleware: SlowAPI rate limit → CORS (only if configured) → security header
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
-  └─ /api/v1/<router>/...                           api/routers/*.py (17 routers)
+  └─ /api/v1/<router>/...                           api/routers/*.py (19 routers)
         │  Depends: get_current_user / require_permission / require_org_in_scope
         │  helpers: api/helpers.py   services: api/services/
         ▼
@@ -84,13 +83,14 @@ All mounted in `api/main.py` with the prefix shown. Auth model is **per router**
 | `admin.py` | `/api/v1/admin` | 32 | `ADMIN_*` / `ORGANIZATION_*` permissions + admin scope |
 | `registration.py` | `/api/v1/register` | 13 | Public (reference data incl. `/address-types`, register, lookup-existing, claim) |
 | `claim_approval.py` | `/api/v1/admin/claims` | 5 | Permission + admin scope |
-| `audit.py` | `/api/v1/audit` | 1 | `AUDIT_VIEW` (read pool) |
+| `audit.py` | `/api/v1/audit` | 5 (`/change-log`, `/events`, `/events/facets`, `/events/{pk}`, `/live-change-markers`) | `AUDIT_VIEW` (read pool) |
 | `geo_approval.py` | `/api/v1/admin/geo-entries` | 4 | `FOUNDATION_MANAGE` + admin scope |
 | `governance.py` | `/api/v1/governance` | 56 | `GOVERNANCE_VIEW/MANAGE` + org scope; `/public/*`, open-for-voting and `votes/self` need login only |
 | `membership_change_request.py` | `/api/v1/membership/change-requests` | 5 | Member-initiated Sakha Transfer / Apply for Darshak |
 | `correspondence.py` | `/api/v1/correspondence` | 19 | `CORRESPONDENCE_VIEW/MANAGE` + org scope; member-facing and approval-step endpoints |
 | `attendance.py` | `/api/v1/attendance` | 21 | `ATTENDANCE_VIEW/MANAGE` + scope; review actions gated by live Secretary/President seat |
 | `org_reparent.py` | `/api/v1/org-reparent` | 4 | login-only; Sakha re-parent approvals decided by live President seat (no admin override) |
+| `assets_property.py` | `/api/v1/assets-property` | 26 | `ASSET_VIEW/MANAGE` + admin scope on the record's EFFECTIVE custodian organization (the active one, or the last one for a DISPOSED/RETIRED record — the terminal transition ENDs the custodianship in the same transaction, GDR-010 §2F) (`ASSET_MANAGE`: Admin/Kendra/Sakha/Patha Chakra; Anchalika/Zilla view-only; Mahila none); records with no effective custodian global-authority only; transfer needs scope over both organizations; custodian must be a physical organization (422 otherwise); optional informational `belongs_to_organization_pk` and `acquisition_method_code` (master data `ACQUISITION_METHOD`, GDR-010 §2E); responses add `custodian_is_last`/`custodian_ended_at`; lists accept `include_sub_organizations`, `belongs_to_organization_pk` and `acquisition_method_code`; no member/public exposure |
 
 Endpoint-level contract: `docs/03_Solution/api/API_CONTRACT.md`. Per-file layer reference:
 `api/README.md`, `api/routers/README.md`, `api/services/README.md`.
@@ -133,12 +133,12 @@ Two write paths, both intentional:
    `system_event_log` rows of different shape — accepted.
 
 `field_change_log` is deliberately not exposed under `/foundation` (a test enforces this); it is
-read via `audit.py`.
+read via `audit.py`. The same router serves the admin console's Audit & Diagnostics tabs: a System Event Log explorer over `system_event_log` (`#auditEvents`; default window last 24 h, count capped at 10,000, detail view joins the field-level rows of the same transaction from `/change-log`) and a Live Change Markers page over `live_change_marker` (`#liveMarkers`, 5 s own poll while visible; whitelist flag from `live.py::LIVE_FEED_TABLES`). Both gated by `AUDIT_VIEW` (`canViewAudit`), logic in `audit-diagnostics.js`.
 
 ### Middleware
 
 Registered in `api/main.py` / `api/middleware.py`: `SlowAPIMiddleware` (one global per-IP limit,
-`RATE_LIMIT`, default `300/minute`; the one per-route override is the per-user `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance `/live` poll), `CORSMiddleware` only when
+`RATE_LIMIT`, default `300/minute`; the per-route overrides are the per-user `LIVE_ATTENDANCE_RATE_LIMIT` on the attendance `/live` poll and `LIVE_CHANGES_RATE_LIMIT` on `GET /live/changes`), `CORSMiddleware` only when
 `CORS_ORIGINS` is non-empty (GET/POST/PATCH/DELETE, credentials, never a wildcard), and security
 headers (`nosniff`, `X-Frame-Options: DENY`, referrer/permissions policy, `no-store` on `/api/*`,
 86400s cache on `/assets/*`) plus a Content-Security-Policy from `build_csp()`. CSP `script-src`
@@ -152,11 +152,11 @@ Static pages served by `_serve_page()`, which rewrites `/assets/*.js|css` refere
 `/docs` and `/openapi.json` unshadowed. Pages: `login`, `register`, `dashboard` (role-aware member
 dashboard: personal, family tree, membership, attendance, governance, documents, change requests),
 `admin` (users, organizations, registration approvals, person/member directories, reference data,
-geography, geo approvals, governance, correspondence, attendance, system settings).
+geography, geo approvals, governance, correspondence, attendance, assets & property, system settings).
 Shared scripts: `auth.js` (JWT + authed fetch), `nss-config.js` (display names such as
 `PROBATIONARY` → "Darshaka", badge maps), `nss-layout.js`, `org-dashboard.js` (one Alpine component,
-six org-type layouts), `attendance-register.js` (one marking mixin used by `admin.js` and
-`org-dashboard.js`), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
+six org-type layouts), `audit-diagnostics.js` (AUDIT_VIEW tabs System Event Log / Live Change Markers mixin installed into `admin.js`), `live-refresh.js` (live-refresh mixin installed into `admin.js` and `dashboard.js`: one `/live/changes` poll per page, per-page table→tab maps), `attendance-register.js` (one marking mixin used by `admin.js` and
+`org-dashboard.js`), `assets-property.js` (Assets & Property mixin installed into `admin.js`), `nss-config.js` `NSS.aadhaar` (the one client-side Aadhaar validator, GDR-011: optional field on `register.html` and the admin Create Person / Profile Details / claim-edit forms, `aadhaar_number` sent only when non-empty, admin-only "Reveal Aadhaar" gated by `PERSON_VIEW_SENSITIVE` + `aadhaar_full_on_file`, value blanked on dialog close; not opened in a browser), plus datepicker/dialog/location/password/combobox helpers. `badges.css` owns
 badge classes (never redefine inline). `tailwind.min.css` is a **committed, generated** file:
 rebuild it after changing any Tailwind/DaisyUI class (`npm run css:build`). The old six
 Tier 0-4 verification pages are deleted; their features live in `admin`/`dashboard`. Full file
@@ -164,12 +164,12 @@ reference: `frontend/README.md`, `frontend/assets/js/README.md`, `frontend/asset
 
 ### Data layer
 
-Hand-written DDL under `database/ddl/` (numbered module folders `00_bootstrap` … `10_attendance`),
+Hand-written DDL under `database/ddl/` (numbered module folders `00_bootstrap` … `11_assets_property`),
 seeds under `database/seed/`, scripts under `database/scripts/`. All tables are in schema `nss`
 with explicit `nss.` prefixes; extensions (pgcrypto, pg_trgm, btree_gin, postgis) live in
 `public`. Table inventory by phase: `database/README.md`. Table count by module:
 Bootstrap 3, Foundation 15 (incl. `system_event_log`), Organization 3 (`organization` + the 2 re-parent approval tables), Person 2, Family 6,
-Membership 16, Authentication 5, Administration 2, Governance 10, Correspondence 5, Attendance 4 = 71.
+Membership 16, Authentication 5, Administration 2, Governance 10, Correspondence 5, Attendance 4, Assets & Property 7, Live refresh 1 = 79.
 
 ### Documentation corpus (`03_Solution/` detail)
 
@@ -221,9 +221,9 @@ Per-folder detail: [`api/README.md`](../api/README.md), [`database/README.md`](.
 
 Run everything from the **repository root**.
 
-1. **Python deps:** `python3 -m pip install -r requirements.txt` (Windows: `py -m pip ...`).
+1. **Python deps:** Python **3.15** (`.python-version`, `render.yaml`; no virtual environment by owner choice): `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install -r requirements.txt` (Homebrew Pythons are PEP 668 "externally managed"; Windows: `py -m pip ...`).
    Includes FastAPI, Uvicorn, psycopg2-binary, Pydantic, python-dotenv, slowapi, argon2-cffi,
-   PyJWT, pytest, httpx/httpx2 (needed by `TestClient`) and the Playwright stack.
+   PyJWT, cryptography (Aadhaar AES-256-GCM, GDR-011; version range unverified on Python 3.15), pytest, httpx/httpx2 (needed by `TestClient`) and the Playwright stack.
 2. **Database** (details: `database/README.md`, `database/scripts/README.md`,
    `docs/03_Solution/architecture/GETTING_STARTED.md`):
    1. `database/scripts/00_create_database.sql` (superuser) — database `nss_erp` and roles
@@ -233,7 +233,7 @@ Run everything from the **repository root**.
       including a random `JWT_SECRET_KEY`. On Windows set passwords with `ALTER ROLE` and write
       `api/.env` by hand.
    4. `02_build.sh` / `02_build.ps1` (as `nss_db_owner`) — all DDL and seed in phase order
-      (0 Bootstrap RBAC … 11e Attendance, 11f Sakha re-parent approval, 12 writer grants, 13 admin seed, 13b geo backfill,
+      (0 Bootstrap RBAC … 11e Attendance, 11f Sakha re-parent approval, 11g Assets & Property, 12 writer grants, 13 admin seed, 13b geo backfill, 13c audit-actor FKs,
       14 audit, optional 15 demo seed). The Foundation seed includes all-India geography, so
       Phase 2 is slow. Seeds the admin superuser via `scripts/bootstrap_admin.py` (login `SS1`/`P1`,
       password `Admin@123`; INSERT-only, never resets an existing password).
@@ -262,11 +262,11 @@ Build-script rules:
 ### Tests
 
 ```bash
-pytest                                   # all (api + db + security + ui)
-pytest -m integration                    # tests/api + tests/db + tests/security
-pytest -m ui                             # Playwright; needs browsers; starts its own server
-pytest tests/api/test_organization.py    # one file
-pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok   # one test
+python3 -m pytest                        # all (api + db + security + ui)
+python3 -m pytest -m integration         # tests/api + tests/db + tests/security
+python3 -m pytest -m ui                  # Playwright; needs browsers; starts its own server
+python3 -m pytest tests/api/test_organization.py    # one file
+python3 -m pytest tests/api/test_bootstrap.py::TestHealth::test_health_returns_ok   # one test
 ```
 
 Markers (`pytest.ini`): `integration`, `ui`, `db`. Every `tests/api|db|security` test is a real
@@ -274,9 +274,8 @@ integration test (nothing mocked) and needs a bootstrapped DB plus `api/.env`. `
 overrides both pool dependencies to yield one session-scoped writer connection and wraps each test
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
-`NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `pytest --collect-only`
-reports 3979 items (api 2303, db 199, security 850, ui 627); per-file counts and the not-yet-run list are in
-`tests/README.md` (Attendance suites and everything written 2026-10-30/31 have never been run against a DB). No
+`NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `python3 -m pytest --collect-only -qq`
+reports 5173 items (api 2757, db 401, security 1227, ui 788); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)
@@ -305,6 +304,10 @@ UTF-8 BOM tolerated). A template is at `api/.env.example`.
 | `CORS_ORIGINS` | empty | Comma-separated; empty means `CORSMiddleware` is never registered |
 | `RATE_LIMIT` | `300/minute` | Global per-IP (`slowapi` spec) |
 | `LIVE_ATTENDANCE_RATE_LIMIT` | `120/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /attendance/pujas/{pk}/live` only |
+| `AADHAAR_ENCRYPTION_KEYS` | none | GDR-011: `key_id:base64(32 bytes)` pairs, comma separated; first = active key, rest decrypt-only. Optional for startup; a capture/reveal without it is 503/500. `python3 scripts/generate_aadhaar_keys.py` |
+| `AADHAAR_HASH_PEPPER` | none | GDR-011: secret for `aadhaar_hash` (HMAC-SHA256); separate from the keys; changing it orphans stored hashes |
+| `AADHAAR_REVEAL_RATE_LIMIT` | `10/minute` | Per signed-in user; replaces `RATE_LIMIT` for the Aadhaar reveal route only |
+| `LIVE_CHANGES_RATE_LIMIT` | `60/minute` | Per signed-in user (JWT `sub`; IP if no valid token); replaces `RATE_LIMIT` for `GET /live/changes` only |
 | `CSP_ENABLED`, `CSP_REPORT_ONLY` | `true`, `false` | Report-only emits `Content-Security-Policy-Report-Only` |
 | `CSP_SCRIPT_SRC_EXTRA`, `CSP_STYLE_SRC_EXTRA` | empty | Extra CSP origins without code change |
 | `DISABLE_DOCS` | `false` | Truthy removes Swagger/ReDoc/OpenAPI |
@@ -414,7 +417,7 @@ in-memory graph (`api/services/family_graph.py::build_family_graph()`) and
 `compute_relationships()` BFS-derives every other kinship term (grandfather, aunt, in-laws) from
 the viewer's perspective via the `PATH_LABELS` table — so changing the family head needs no data
 re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implemented once as
-`FAMILY_MAJORITY_CTE_SQL` in `api/helpers.py` and shared by organization stats and all family reads
+`family_majority_cte()` in `api/services/family_majority.py` (ties go to the lowest `organization_pk`) and shared by organization stats and all family reads
 (`/sakha-alignment` flags mismatches against members' own affiliations).
 
 ### 5. Member-assisted geography and Tier 6 workflows
@@ -437,6 +440,31 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   the original to ACTIONED when under the same register; assigning a responsible party auto-moves
   REGISTERED to PENDING_ACTION. `/dispatch` and `/broadcast` are the two deliberate exceptions to
   the admin-scope rule (they write into other organizations' registers).
+- **Assets & Property (`assets_property.py`, Module #22):** properties (`PROP<n>`) and assets (`AST<n>`) with a temporal
+  custodianship (one ACTIVE custodian; a transfer ENDs the old row with an end reason and opens a new one — history is
+  never overwritten), property-only statutory records, maintenance records and document links through Foundation
+  `document_master`. Authorization is `ASSET_VIEW/MANAGE` + admin scope on the record's CURRENT custodian
+  organization; a custodian-less record is global-authority only and a transfer needs scope over both organizations.
+  **The custodian must be a PHYSICAL organization** (owner rule 2026-11-02, GDR-010 §2C): Sakha (incl. Sakha Asana),
+  Patha Chakra, Kendra, Nilachala Kutira or Smruti Mandira — never a conceptual grouping (Anchalika/Zilla), a wing
+  organization or the Advisory Board (422 naming the organization's type; DB trigger `trg_custodianship_custodian_guard`
+  as backstop; one definition per layer: `ASSET_CUSTODIAN_ORG_TYPES` / `nss.fn_is_asset_custodian_org_type()` /
+  `NSS.ASSET_CUSTODIAN_ORG_TYPES`). Gotchas: an Anchalika/Zilla admin sees (read-only, `ASSET_VIEW` without `ASSET_MANAGE` — owner decision 2026-11-02)
+  the physical organizations beneath them through the ordinary admin-scope subtree rule (lists take
+  `include_sub_organizations=true` with a custodian filter); the Mahila admin holds no `ASSET_*` permission at all
+  (owner decision 2026-11-02; the 4 withdrawn grants are soft-deleted by `06_assets_property_permissions_revoke_patch.sql`);
+  a custodianship stored before the rule is left as is (`03_validate` WARNs). **"Belongs to"** (owner-directed
+  2026-11-02, GDR-010 §2D): `property`/`asset` carry an optional nullable `belongs_to_organization_pk` (FK `organization`,
+  any ACTIVE organization type, `null` clears, list filter of the same name) for an organization that differs from the
+  physical custodian (custodian Kendra, belongs to Mahila Sangha); informational only — no effect on authorization, scope,
+  the custodian rule or the lifecycle, and the filter never widens visibility. The admin UI picker uses the scoped
+  `/organization/organizations/in-scope` search (no type restriction), so a scoped admin can only pick organizations inside
+  their own admin scope while NSS-wide admins can pick any. Column delivered by `10_assets_property_belongs_to_patch.sql`
+  for existing databases and by `01_property.sql`/`02_asset.sql` for fresh ones. **Acquisition method** (owner decision 2026-11-03, GDR-010 §2E): optional nullable `acquisition_method_master_data_pk` (`ACQUISITION_METHOD` master data; PURCHASE/DONATION source-grounded, GIFT/BEQUEST/TRANSFER_IN/CONSTRUCTION/OTHER candidates), informational only, filterable; delivered by `11_assets_property_acquisition_method_patch.sql` (+ the DDL files for fresh builds). **Disposal/retirement closes custody** (owner decision 2026-11-03, GDR-010 §2F): the DISPOSED/RETIRED transition ENDs the ACTIVE custodianship in the same transaction (end reasons `DISPOSED`/`RETIRED`, reserved); the *effective custodian* (active, else the last ENDED one of a terminal record) feeds detail, lists, filters and every scope check so the record stays visible to the same admins; responses add `custodian_is_last`/`custodian_ended_at`; `12_assets_property_terminal_custody_patch.sql` repairs existing terminal records; `trg_custodianship_terminal_guard` refuses new custody on a terminal record. Lifecycle per SOL-AP-003 is enforced in the API and by DB triggers; disposal/retirement is *recorded*, not approved
+  (Governance), and no financial column exists (Finance). The PENDING value sets (property/asset type, end reason,
+  document relationship) are admin-extendable `master_data`; holding arrangement, location and condition are free
+  text — see GDR-010 (`Proposed`). Reference data and RBAC are delivered by idempotent patches, not by editing the
+  existence-gated Foundation/RBAC seeds.
 - **Governance (`governance.py`):** governing bodies, seats, elections, nominations, votes and
   results. `NSS_ERP_ADVISORY_BOARD_ADMIN` and other body-derived admin roles are auto-granted by
   `rbac_service.load_composite_grants()` (§63), not via `user_role`.
@@ -473,6 +501,25 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   `api/services/seat_service.py` (also used by Correspondence); logic in
   `api/services/org_reparent_service.py`; tables `organization_reparent_request`/`_step` (build
   Phase 11f). Other org types still re-parent directly.
+- **Assets & Property admin UI (Module #22, `admin.html` group "Assets & Property", 2026-11-02):** two tabs,
+  Properties (`#properties`) and Assets (`#assets`), rendered by ONE panel/ONE implementation
+  (`frontend/assets/js/assets-property.js`, an `NSSAssetsProperty.install()` mixin on `adminPanel()`; the
+  kind is the active tab). Visible when `/auth/me` carries `ASSET_VIEW` or `ASSET_MANAGE` (`canViewAssets`);
+  every write control (new/edit, lifecycle transition, archive, assign/transfer custody, maintenance,
+  statutory, document attach/detach) needs `ASSET_MANAGE` (`canManageAssets`), so Auditor and Report Viewer
+  are read-only. The `/admin` `init()` guard also admits a user whose only relevant permission is
+  `ASSET_VIEW`/`ASSET_MANAGE` (Report Viewer: no `ADMIN_*`, `MEMBERSHIP_APPROVE` or `GOVERNANCE_*`) and
+  lands them on Properties without the general loaders; the general groups stay hidden behind
+  `hasGeneralAdminAccess`. Records are scoped server-side by admin scope on the CURRENT custodian, so a
+  Sakha/org-scoped admin only ever receives their own records; the UI hides what the API would refuse
+  (first-custodian assignment is offered to NSS-wide admins only; REGISTERED -> first state only once a
+  custodian exists; archive only for REGISTERED/DISPOSED/RETIRED) and shows server errors verbatim
+  (`NSS.errorMessage`). Lifecycle tables, labels and badges are `NSS.ASSET_PROPERTY_*` (`nss-config.js`) and
+  `badge-ap-*` (`badges.css`); a test pins the tables to `api/routers/assets_property.py`. Disposal /
+  retirement asks for a "Governance decision reference" (sent as `remarks`) plus a confirm dialog and is
+  recorded, not approved. Organization pickers reuse the `corr*` type-ahead over
+  `/organization/organizations/in-scope`; documents are attached by choosing an existing row of
+  `GET /foundation/documents` (no upload path exists in the API). Never opened in a browser.
 - **Membership change requests:** member-initiated Sakha Transfer / Apply for Darshak; the source
   Sakha releases, then the destination accepts.
 - **Assign Role (`admin.html` modal -> `POST /admin/users/{pk}/roles`, `admin.py::assign_role()`):**
@@ -487,16 +534,42 @@ re-entry. A family's "effective Sakha" follows the FAM-036 majority rule, implem
   public `/register/address-types`; APPROVED-or-own-PENDING geography only; one primary address; soft
   delete) through `nss-combobox.js` + `nss-location.js` (`NSSLocation`: cascading country/state/district/
   PIN/city with stale-response guards). PIN is narrowed by `district_pk`. `admin.js` resets every child
-  dropdown when its parent changes. `nss-password.js` (`x-pw-reveal`) adds the show/hide toggle to
-  password inputs.
+  dropdown when its parent changes. `nss-password.js` (`x-pw-reveal`, shared; used on `login.html`, `register.html`, `admin.html`) wraps a
+  password input in `.pw-reveal-wrap` and adds a `.pw-reveal-btn` show/hide toggle (styles in `nss-layout.css`); use the
+  directive rather than hand-rolling a toggle.
 
+
+### 6. Live refresh (owner decision 2026-11-03)
+
+Pages refresh themselves instead of asking users to reload. `GET /api/v1/live/changes` (`api/routers/live.py`,
+login only, read pool, per-user `LIVE_CHANGES_RATE_LIMIT`) reads the marker table `nss.live_change_marker` (one row
+per watched table: `table_name`, `change_seq` from the single global sequence `nss.live_change_seq`, `changed_at`)
+and answers `{changed:[{table_name, change_seq}]}` for the whitelisted tables, no data, no ids. A statement-level
+trigger (`trg_live_change_marker` -> `fn_live_change_marker()`, SECURITY DEFINER, `ddl/12_live_refresh/`, build
+Phase 11h) bumps the table's marker with one UPSERT, so the new number is visible exactly when the writing
+transaction COMMITS and vanishes on rollback: no look-back window and no dependence on `system_event_log`. There is
+deliberately no cursor: `change_seq` is taken at write time, so a global cursor could skip a slower transaction
+that commits later with a smaller number; the client compares each table's number with the one it saw last
+(`changedTabs()`; the first reply is only the baseline). The whitelist `LIVE_FEED_TABLES` in `live.py` is
+authoritative (credential/session/counter/ballot tables never appear) and must equal the literal table list in
+`02_live_change_triggers.sql` (`tests/api/test_live_changes.py::TestSqlParity`; 55 tables since batch 2). An entry of that list may carry an ignored-column suffix, `'table!col1,col2'`: the trigger is then created `AFTER INSERT OR DELETE OR UPDATE OF <every other column>`. Only `user_account` uses it (`failed_login_attempts, locked_until, last_failed_login_at, last_login_at, updated_at` are login bookkeeping and never bump its marker; status, password, force-change and soft-delete changes do). Batch 2 (Users, Organizations, Person/Member directories, Credentials, Reference Data, Geography, Location Approvals, System Settings and the member dashboard personal/membership/family/governance tabs + admin stat tiles) was added by editing that list and the whitelist; existing databases pick up the new triggers and marker rows by re-running `02_live_change_triggers.sql` (Phase 11h, every build). The marker table is excluded from
+`fn_audit_trigger()` (CROSS_MODULE_PRINCIPLES §7.1). `frontend/assets/js/live-refresh.js` runs ONE poll per
+open page (policy `LIVE_FEED`: 5 s active, 15 s after 60 s idle, 4/8/16/30 s back-off with `Retry-After`, paused
+while the browser tab is hidden, immediate poll on return). `admin.js` and `dashboard.js` each declare a
+`LIVE_TABLE_TABS` map (table → tabs) and a `LIVE_REFRESH_CONFIG` of per-tab `reload`/`busy` hooks; a changed table
+re-runs the ACTIVE tab's existing loader (`{silent:true}`: no spinner, filters/paging/selection kept; stale-response
+guarded), other tabs reload when opened, `background` entries (sidebar badges) always reload. A tab that is `busy`
+(form/modal/dialog/typed input open) is never reloaded — a "This view has new updates — Refresh" banner appears
+instead. The reply never carries data, so permissions and admin scope are untouched: pages reload through their own
+scoped endpoints. The attendance register keeps its own finer poller. Parity test:
+`tests/api/test_live_changes.py::TestJsMapParity` (every table in a JS map must be on the whitelist) and `::TestSqlParity` (SQL trigger list == whitelist).
 
 ## Conventions & gotchas
 
 ### Role hierarchy by access (lowest → highest)
 
 Derived from `database/seed/00_bootstrap/02_role_master.sql`, `03_role_permission.sql` and the idempotent
-`04_role_permission_mahila_advisory_board_patch.sql` (166 `role_permission` rows). "Reach" is a
+`04_role_permission_mahila_advisory_board_patch.sql` (166 `role_permission` rows) plus the idempotent `05_assets_property_permissions_patch.sql` (`ASSET_VIEW`/`ASSET_MANAGE` and their 12 grants: 178 rows, 30 permissions), whose `06_assets_property_permissions_revoke_patch.sql` soft-deletes (`is_active = FALSE`) the 4 grants an earlier version created and `07_person_view_sensitive_auditor_revoke_patch.sql` soft-deletes the Auditor's `PERSON_VIEW_SENSITIVE` grant (so 178 rows, 177 active; a database that ran the original asset patch holds 182 rows, 4 more inactive; owner decisions 2026-11-02: Anchalika/Zilla admins view-only, Mahila admin none). "Reach" is a
 separate axis from permissions: an ORGANIZATIONAL role only acts inside its `admin_scope`
 subtree; `NSS_ERP_ADMIN` and Kendra/NSS-WIDE scope are global (`UserContext.is_nss_wide()`). Two NULL-organization scope levels
 are resolved in `rbac_service.actor_scope_root_org_pks()`: `KENDRA_MAHILA_SANGHA` -> every `MAHILA_SANGHA` organization + subtree;
@@ -505,18 +578,18 @@ are resolved in `rbac_service.actor_scope_root_org_pks()`: `KENDRA_MAHILA_SANGHA
 | Rank | Role (display name) | `role_code` | Scope level | Perms | Permissions | Access relationship |
 |---|---|---|---|---|---|---|
 | 1 | Attendance Marker | `NSS_ERP_ATTENDANCE_MARKER` | SAKHA | 2 | `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW` | `ATTENDANCE_MANAGE` + `ATTENDANCE_VIEW` only; subset of every role below that holds attendance perms (Sakha Admin and up) |
-| 2 | Report Viewer | `NSS_ERP_REPORT_VIEWER` | NSS-WIDE | 8 | `ATTENDANCE_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only views + `REPORT_VIEW`; subset of Auditor |
-| 3 | Auditor | `NSS_ERP_AUDITOR` | NSS-WIDE | 14 | `ADMIN_PERMISSION_VIEW`, `ADMIN_USER_VIEW`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Read-only across modules + `AUDIT_VIEW`, `PERSON_VIEW_SENSITIVE`, admin user/permission views; no write permission; subset of Kendra Admin and `NSS_ERP_ADMIN` |
-| 4 | Anchalika / Zilla / Patha Chakra Administrator | `NSS_ERP_ANCHALIKA_ADMIN`, `_ZILLA_ADMIN`, `_PATHA_CHAKRA_ADMIN` | ANCHALIKA / ZILLA / PATHA_CHAKRA | 15 each | `ATTENDANCE_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `REPORT_VIEW` | Identical permission sets (person, family, membership incl. approve, correspondence, view modules, `ATTENDANCE_VIEW`); differ only by scope; each a subset of Sakha, Mahila and Kendra Admin |
-| 5a | Kendra Mahila Sangha Administrator | `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` | KENDRA_MAHILA_SANGHA (no org; resolves to every `MAHILA_SANGHA` organization + subtree) | 18 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `ORGANIZATION_MANAGE` | Kendra Administrator's operational set (its 26 minus `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `AUDIT_VIEW`, `FOUNDATION_MANAGE`, `PERSON_VIEW_SENSITIVE`); subset of Kendra Admin, **not** of Sakha Admin (`ORGANIZATION_MANAGE`). Reach is bounded to Mahila Sanghas (owner decision 2026-10-30), so every `*_MANAGE` grant acts only there; never holds `ADMIN_*` |
-| 5b | Sakha Administrator | `NSS_ERP_SAKHA_ADMIN` | SAKHA | 18 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GEO_ENTRY_APPROVE`, `GOVERNANCE_MANAGE` | The rank-4 set plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `GEO_ENTRY_APPROVE`; same size as 5a but incomparable with it; **not** a subset of Kendra Admin (`GEO_ENTRY_APPROVE` is held by no other role, including Kendra Admin and `NSS_ERP_ADMIN`) |
-| 6 | Kendra Administrator | `NSS_ERP_KENDRA_ADMIN` | KENDRA (NSS-wide-equivalent, no org) | 26 | `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_MANAGE`, `FOUNDATION_VIEW`, `GOVERNANCE_MANAGE`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_MANAGE`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Everything `NSS_ERP_ADMIN` has except `FOUNDATION_CALENDAR_MANAGE`; includes `ADMIN_ROLE_MANAGE`/`ADMIN_SCOPE_MANAGE`/`ADMIN_USER_MANAGE` |
-| 7 | NSS ERP Administrator | `NSS_ERP_ADMIN` | NSS-WIDE | 27 | all of rank 6, plus `FOUNDATION_CALENDAR_MANAGE` | Superset of every other role except for `GEO_ENTRY_APPROVE` (held only by Sakha Administrator); the only holder of `FOUNDATION_CALENDAR_MANAGE` |
+| 2 | Report Viewer | `NSS_ERP_REPORT_VIEWER` | NSS-WIDE | 9 | `ASSET_VIEW`, `ATTENDANCE_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only views + `REPORT_VIEW`; subset of Auditor |
+| 3 | Auditor | `NSS_ERP_AUDITOR` | NSS-WIDE | 14 | `ADMIN_PERMISSION_VIEW`, `ADMIN_USER_VIEW`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_VIEW`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW`, `REPORT_VIEW` | Read-only across modules + `AUDIT_VIEW`, admin user/permission views (`PERSON_VIEW_SENSITIVE` is soft-deleted from the Auditor by patch `07`, GDR-011); no write permission; subset of Kendra Admin and `NSS_ERP_ADMIN` |
+| 4 | Anchalika / Zilla / Patha Chakra Administrator | `NSS_ERP_ANCHALIKA_ADMIN`, `_ZILLA_ADMIN`, `_PATHA_CHAKRA_ADMIN` | ANCHALIKA / ZILLA / PATHA_CHAKRA | 17 (Patha Chakra); 16 (Anchalika, Zilla: no `ASSET_MANAGE`, view-only for assets) | `ASSET_MANAGE`, `ASSET_VIEW`, `ATTENDANCE_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `REPORT_VIEW` | Identical permission sets except that Anchalika and Zilla admins hold `ASSET_VIEW` but not `ASSET_MANAGE` (owner decision 2026-11-02; they see the physical organizations beneath them read-only); differ by scope; each a subset of Sakha, Mahila and Kendra Admin |
+| 5a | Kendra Mahila Sangha Administrator | `NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN` | KENDRA_MAHILA_SANGHA (no org; resolves to every `MAHILA_SANGHA` organization + subtree) | 18 | all of rank 4 except `ASSET_MANAGE`/`ASSET_VIEW` (the Mahila admin holds no Assets & Property permission, owner decision 2026-11-02), plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `ORGANIZATION_MANAGE` | Kendra Administrator's operational set (its 28 minus `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `AUDIT_VIEW`, `FOUNDATION_MANAGE`, `PERSON_VIEW_SENSITIVE`); subset of Kendra Admin, **not** of Sakha Admin (`ORGANIZATION_MANAGE`). Reach is bounded to Mahila Sanghas (owner decision 2026-10-30), so every `*_MANAGE` grant acts only there; never holds `ADMIN_*` |
+| 5b | Sakha Administrator | `NSS_ERP_SAKHA_ADMIN` | SAKHA | 20 | all of rank 4, plus `ATTENDANCE_MANAGE`, `GEO_ENTRY_APPROVE`, `GOVERNANCE_MANAGE` | The rank-4 set plus `ATTENDANCE_MANAGE`, `GOVERNANCE_MANAGE`, `GEO_ENTRY_APPROVE`; same size as 5a but incomparable with it; **not** a subset of Kendra Admin (`GEO_ENTRY_APPROVE` is held by no other role, including Kendra Admin and `NSS_ERP_ADMIN`) |
+| 6 | Kendra Administrator | `NSS_ERP_KENDRA_ADMIN` | KENDRA (NSS-wide-equivalent, no org) | 28 | `ADMIN_PERMISSION_VIEW`, `ADMIN_ROLE_MANAGE`, `ADMIN_SCOPE_MANAGE`, `ADMIN_USER_MANAGE`, `ADMIN_USER_VIEW`, `ASSET_MANAGE`, `ASSET_VIEW`, `ATTENDANCE_MANAGE`, `ATTENDANCE_VIEW`, `AUDIT_VIEW`, `BOOTSTRAP_VIEW`, `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FAMILY_MANAGE`, `FAMILY_VIEW`, `FOUNDATION_MANAGE`, `FOUNDATION_VIEW`, `GOVERNANCE_MANAGE`, `GOVERNANCE_VIEW`, `MEMBERSHIP_APPROVE`, `MEMBERSHIP_MANAGE`, `MEMBERSHIP_VIEW`, `ORGANIZATION_MANAGE`, `ORGANIZATION_VIEW`, `PERSON_MANAGE`, `PERSON_VIEW`, `PERSON_VIEW_SENSITIVE`, `REPORT_VIEW` | Everything `NSS_ERP_ADMIN` has except `FOUNDATION_CALENDAR_MANAGE`; includes `ADMIN_ROLE_MANAGE`/`ADMIN_SCOPE_MANAGE`/`ADMIN_USER_MANAGE` |
+| 7 | NSS ERP Administrator | `NSS_ERP_ADMIN` | NSS-WIDE | 29 | all of rank 6, plus `FOUNDATION_CALENDAR_MANAGE` | Superset of every other role except for `GEO_ENTRY_APPROVE` (held only by Sakha Administrator); the only holder of `FOUNDATION_CALENDAR_MANAGE` |
 | — | Advisory Board Administrator | `NSS_ERP_ADVISORY_BOARD_ADMIN` | ADVISORY_BOARD (no `organization_pk`; resolves to the singleton `ADVISORY_BOARD` organization) | 8 | `CORRESPONDENCE_MANAGE`, `CORRESPONDENCE_VIEW`, `FOUNDATION_VIEW`, `GOVERNANCE_MANAGE`, `GOVERNANCE_VIEW`, `MEMBERSHIP_VIEW`, `ORGANIZATION_VIEW`, `PERSON_VIEW` | Off the ladder (subset of Sakha, Mahila, Kendra and Admin): auto-granted at runtime to the Advisory Board President/Secretary (§63, `rbac_service.load_composite_grants()`) and manually assignable. Body side: `GOVERNANCE_MANAGE` is confined server-side to ADVISORY_BOARD-type bodies (seat assignments, acting cover, removal requests — `governance.py::_require_scope_for_org_or_nss_wide(body_type_code=)`); the Sakha-nominated MEMBER seat stays with the nominating Sakha; other bodies, body-type/position catalogues and elections are refused. `MEMBERSHIP_VIEW` is the member search used to seat officers. Organization side (owner 2026-10-30, "Advisory Board should be an org type" / "needs a correspondence register"): `CORRESPONDENCE_VIEW`/`_MANAGE` bounded by admin scope to the Advisory Board organization's own register; `ORGANIZATION_VIEW` feeds the register switcher / recipient pickers; `FOUNDATION_VIEW` supplies the mandatory Medium catalogue. `PERSON_VIEW` (owner 2026-10-30) feeds the correspondence person pickers: `GET /person/persons` is scope-filtered (empty for this role), person detail is self/relative/scope-only (403), `/person/search` is the same NSS-wide trigram search the login-only `/search-selectable` already offers. Not granted: `BOOTSTRAP_VIEW`, `REPORT_VIEW`, `ORGANIZATION_MANAGE` and every `ADMIN_*` permission |
 
 #### What each permission means
 
-All 28 seeded permissions (`01_permission_master.sql`), in plain language. "Held by" is from `03_role_permission.sql`; Marker = Attendance Marker, Viewer = Report Viewer, Admin = NSS ERP Administrator.
+All 30 permissions (28 in `01_permission_master.sql` plus `ASSET_VIEW`/`ASSET_MANAGE` from the `05` patch), in plain language. "Held by" is from `03_role_permission.sql` (and, for the two `ASSET_*` permissions, the `05` patch minus the `06` withdrawals); Marker = Attendance Marker, Viewer = Report Viewer, Admin = NSS ERP Administrator.
 
 | Permission | In plain language | Held by |
 |---|---|---|
@@ -525,6 +598,8 @@ All 28 seeded permissions (`01_permission_master.sql`), in plain language. "Held
 | `ADMIN_SCOPE_MANAGE` | Decide which organization a role applies to (e.g. which Sakha someone administers). | Kendra, Admin |
 | `ADMIN_USER_MANAGE` | Create, deactivate, lock and unlock login accounts, and reset passwords. | Kendra, Admin |
 | `ADMIN_USER_VIEW` | See the list of login accounts and their details (no changes). | Auditor, Kendra, Admin |
+| `ASSET_MANAGE` | Register and edit properties and assets, record lifecycle events, assign/transfer custody, and record statutory obligations, maintenance and documents — only for records whose current custodian organization is in one's own admin scope. Approval of acquisition/disposal stays with Governance; payments with Finance. | Patha Chakra, Sakha, Kendra, Admin |
+| `ASSET_VIEW` | See properties, assets, custody history, statutory records, maintenance and documents within one's admin scope (no changes). | Viewer, Auditor, Anchalika/Zilla/Patha Chakra, Sakha, Kendra, Admin |
 | `ATTENDANCE_MANAGE` | Create the weekly Sangha Puja and mark each member present, absent or excused. Does not allow reviewing or closing attendance cases; that belongs to the Sakha Secretary/President seats. | Marker, Sakha, Mahila, Kendra, Admin |
 | `ATTENDANCE_VIEW` | See weekly puja events, attendance records, exceptions and reviews (no changes). | Marker, Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Kendra, Admin |
 | `AUDIT_VIEW` | See the audit trail: who changed what, and when. | Auditor, Kendra, Admin |
@@ -546,7 +621,7 @@ All 28 seeded permissions (`01_permission_master.sql`), in plain language. "Held
 | `ORGANIZATION_VIEW` | See organizations, their hierarchy and statistics (no changes). | Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Advisory Board, Sakha, Kendra, Admin |
 | `PERSON_MANAGE` | Create, edit and deactivate person records. | Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Kendra, Admin |
 | `PERSON_VIEW` | See person records, except sensitive details (no changes). | Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Advisory Board, Kendra, Admin |
-| `PERSON_VIEW_SENSITIVE` | See sensitive identity details such as Aadhaar. (Seeded but not yet enforced; Aadhaar is currently always masked.) | Auditor, Kendra, Admin |
+| `PERSON_VIEW_SENSITIVE` | See sensitive identity details: `aadhaar_last4` (and `aadhaar_full_on_file`) of a person in admin scope, and the audited full-number reveal `GET /person/persons/{pk}/aadhaar` (GDR-011, Proposed). Enforced since 2026-11-04. | Kendra, Admin (the Auditor grant is soft-deleted by `seed/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql`) |
 | `REPORT_VIEW` | See reports and dashboards. | Viewer, Auditor, Anchalika/Zilla/Patha Chakra/Mahila, Sakha, Kendra, Admin |
 
 Only `NSS_ERP_ADMIN` and `NSS_ERP_KENDRA_ADMIN` hold `ADMIN_ROLE_MANAGE`, so only they can reach
@@ -584,6 +659,11 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 
 ### Gotchas
 
+- **Alpine `x-show` and inline `display`:** `x-show` hides with inline `display:none` and REMOVES the inline `display` property when showing, so never put `display:flex|grid` in the inline `style` of an `x-show` element; use the Tailwind class `flex`/`grid` (the admin dashboard stat tiles collapsed into stacked boxes; ~75 elements in `admin.html`/`dashboard.html` were fixed in `f2610e4`). Guard: `tests/ui/test_ui_xshow_display.py`.
+- **Alpine `<template x-if>` renders only its FIRST root element:** multi-sibling content inside it silently drops everything after the first node, so wrap it in ONE root `<div>`. Fixed in `frontend/register.html` (legacy-member fields, commit `8dc993e`).
+- **Effective custodian tie-break (Assets & Property):** `assets_property.py::_effective_custodian_join()` orders the candidate custodianships ACTIVE first, then latest `effective_to`, latest `effective_from`, the one ended by the reserved terminal end reason (so a transfer and the disposal on the same day resolve to the LAST custodian), then `created_at`; never re-derive it.
+- **Live refresh is table-level and commit-visible.** `/live/changes` returns every watched table's `change_seq` (marker table, bumped by a statement-level trigger); there is no cursor and no look-back. Concurrent writers to one table queue on its marker row until commit; a transaction that touches several watched tables in opposite orders can deadlock on marker rows (PostgreSQL aborts one with 40P01) - keep write transactions short. Adding a table to a page's `LIVE_TABLE_TABS` requires adding it to `LIVE_FEED_TABLES` AND to the `watched` list in `02_live_change_triggers.sql` (parity tests), then re-running the build. Election ballot tables stay off the feed (ballot timing is private); attendance tables stay off it (own poller).
+
 - **Tier 5 gating is per router** (see the router table). `bootstrap.py` and the public
   registration/auth endpoints are the only ones reachable without a JWT. Family's ownership model
   is deliberate, not a missing gate.
@@ -614,11 +694,10 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   never a premises address (DB-trigger enforced).
 - **Search:** member search is 7-field, person search 4-field, trigram threshold 0.45;
   email-shaped input is reduced with `re.split(r'[.@]', q)[0]`.
-- **Aadhaar** ciphertext/hash are never returned; masking is unconditional.
-  `PERSON_VIEW_SENSITIVE` is seeded but not wired.
-- **Sangha Sevi creation is split:** `sangha_sevi` is created on admin approval
-  (`claim_approval.py::approve_claim()`), and also independently by `admin.py::create_user()` and
-  `create_sangha_sevi()` — three `INSERT INTO nss.sangha_sevi` sites with no shared helper.
+- **Aadhaar** (GDR-011, Proposed; legal confirmation outstanding): the full 12-digit number is optionally captured (`aadhaar_number` on registration, admin create/edit person, claim edit) and stored by `aadhaar_service.set_person_aadhaar()` as AES-256-GCM ciphertext (+ HMAC-SHA256 hash with a separate pepper, + derived last-4); keys only in the environment. `aadhaar_encrypted`/`aadhaar_hash` are never returned; `aadhaar_last4`/`aadhaar_full_on_file` only to the person or a scoped `PERSON_VIEW_SENSITIVE` holder; the decrypted number only from the audited, rate-limited `GET /person/persons/{pk}/aadhaar`. Without keys a capture is 503. The audit trigger redacts the columns' values.
+- **Sangha Sevi creation has one owner:** every runtime path (claim approval, `admin.py::create_user()`,
+  `create_sangha_sevi()`) calls `helpers.create_sangha_sevi_with_home_affiliation()`, the only
+  `INSERT INTO nss.sangha_sevi` under `api/` (enforced by `tests/api/test_sangha_sevi_insert_parity.py`).
 - **Role assignment guard:** only `NSS_ERP_ADMIN` and `NSS_ERP_KENDRA_ADMIN` hold
   `ADMIN_ROLE_MANAGE`; see the self-assignment paragraph above.
 - **Admin bootstrap** runs after the schema exists but before the audit trigger, so the admin and
@@ -631,8 +710,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 - **Password reset OTPs are never delivered** (`api/routers/auth.py` TODO); they are visible only
   via `otp_debug` when `DEBUG_MODE` is set. There is deliberately no `/forgot-password` page — the
   flow is inline on `/login`.
-- **Recursive CTEs:** `/children-stats` and `/stats` have no depth cap (`/hierarchy` caps at 10).
-- **Audit-actor FKs** (`*_by_sangha_sevi_pk`) are still unconstrained on all tables (Pass 2).
+- **Recursive CTEs (2026-11-04):** every `WITH RECURSIVE` in `api/` (organization subtrees/ancestors, admin-scope resolution, membership/governance subtree checks, correspondence reply threads) carries a depth cap driven by the single constant `api/helpers.py::MAX_RECURSION_DEPTH` (20; the real hierarchy is ~5 levels) plus, for organization walks, a visited-path cycle guard, built from `recursive_anchor_cols`/`recursive_step_cols`/`recursive_guard`; the subtree walk used by `rbac_service` and the membership/governance checks exists once as `org_subtree_cte_sql()`. `/organization/hierarchy` keeps its documented UI cap of 10 (`HIERARCHY_MAX_DEPTH`). Legitimate trees return identical results. `tests/api/test_recursive_cte_guard.py` fails if a new `WITH RECURSIVE` lacks the guard.
+- **Audit-actor FKs (2026-11-04):** every `*_by_sangha_sevi_pk` column of every `nss` table has a foreign key to `nss.sangha_sevi` via the catalog-driven patch `database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (build Phase 13c; `fk_<table>_<column>`, NOT VALID first then a VALIDATE attempt that only warns). A bogus actor uuid is rejected for every new/updated row; non-Sangha-Sevi actors must write NULL. `03_validate` warns on missing/NOT VALID actor FKs; dangling-value diagnostic SELECT: `database/scripts/README.md`. `system_event_log.actor_sangha_sevi_pk` is out of scope. Tests: `tests/db/test_audit_actor_fk.py` (never run against a DB).
 - **Design-doc divergences** (not drift in code): the implemented `organization` table has
   `organization_code VARCHAR(10) NULL` and `short_code VARCHAR(5) NULL`, whereas
   `ORG-PENDING-001` froze `organization_short_code VARCHAR(5) NOT NULL`; seeded org-type codes are
@@ -651,6 +730,8 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 
 ## Open questions / TODOs
 
+- **`system_event_log` retention/growth:** append-only with no retention policy today (independent of the live-refresh feed, which no longer reads it). Owner decision needed if it grows large. Live refresh scope (batches 1 and 2) and what stays off the feed (election tally/ballots, attendance tables, id/credential counters, sessions): see CLAUDE.md Open items.
+
 **Release / process**
 - Push local `develop` (Tier 6 merged 2026-11-02) and decide when it is released (tag, `docs/05_Releases/vX.Y.Z.md`, GitHub Release).
 - Add the NSS Governing Body's own approval reference to GDR-005..009 if its minutes exist (the records are `Approved` on the project owner's instruction).
@@ -658,8 +739,7 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   owner to specify the fields).
 - Existing DBs: run the diagnostic SELECT in `database/scripts/README.md` for duplicate singleton
   organizations before the next build (the singleton trigger never scans existing rows).
-- Run `pytest` against a freshly built DB: Attendance API/security tests and several newer test
-  classes were written but never run (`tests/README.md`).
+- Re-run the full suite (`python3 -m pytest`) on the post-fix tree to confirm the 2 failures from the owner's last DB run are gone, and open the newest UI (Assets & Property, Aadhaar, live refresh, audit diagnostics) in a browser/Playwright.
 - Confirm the `v0.11.0` tag and GitHub Release are pushed.
 - Existing members without a home Sakha affiliation (owner reports `SS1752`/`SS1753` on the dev DB; not verifiable without the DB): `03_validate` only WARNs and no backfill is written, deliberately. AUTH-BR-086-related questions (GDR-009 amends it) remain open for the owner.
 - Local Mahila Sangha and Paribarik Asana now have a Sakha-like parent (GDR-008) but no creation path: ORG-BR-096 keeps Asana/Sakha creation out of the standard `create_organization` flow. Owner to decide how they are created.
@@ -668,13 +748,10 @@ are the source of truth for permissions; the §63 rules are the source of truth 
 **Code**
 - Share one helper for the three `INSERT INTO nss.sangha_sevi` paths, or decide they stay separate.
 - Either apply `padding_length` in `next_id()` or drop the column.
-- Cap recursion depth in `/children-stats` and `/stats`.
-- Constrain the `*_by_sangha_sevi_pk` audit-actor FKs.
 - Assigning a role above the caller's own is unguarded (a Kendra Administrator can assign
   `NSS_ERP_ADMIN`).
 - Deliver forgot-password OTPs (email/SMS).
-- Run the newly written tests (SAVEPOINT isolation `tests/api/test_savepoint_isolation.py`, CORS `tests/security/test_cors_configured.py`, public-surface class in `tests/security/test_registration_security.py`) — written 2026-10-30, collected but never executed against a DB.
-- Wire `PERSON_VIEW_SENSITIVE` or drop it.
+- GDR-011 (Aadhaar capture + gated reveal): owner approval, legal/compliance confirmation, key management, retention and a browser check of the built forms / Reveal dialog are open; generate keys with `scripts/generate_aadhaar_keys.py` and set them locally/on Render.
 - Correspondence: the `correspondence_finance_reference.financial_transaction_pk` FK is deferred
   until Finance; `CORR-BR-018` relationship types are PENDING; there is no reverse "replies to
   this" listing.
@@ -694,7 +771,9 @@ are the source of truth for permissions; the §63 rules are the source of truth 
   filename.
 - Pending rules: `MEM-PENDING-001` (local Sakha number format / identity chain),
   `ATT-PENDING-001` (Visitor vs. approved Darshak threshold), `AP-066` (sacred articles:
-  Assets vs. Heritage).
+  Assets vs. Heritage) — still PENDING after the Assets & Property implementation; owner decisions for
+  GDR-010 (`Proposed`) are listed in its §7.
+- Build the Assets & Property frontend (admin.html tab) and review/approve GDR-010.
 - Freeze Module #21 (Programmes & Events).
 - Add `SOL-LIFE-001`/`SOL-LIFE-002` cross-references to the six lifecycle docs that restate the
   death-cascade rules.

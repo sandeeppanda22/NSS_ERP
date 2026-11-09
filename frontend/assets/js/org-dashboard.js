@@ -111,7 +111,33 @@ function orgDashboardTab() {
             return truncated ? `${v}+` : String(v);
         },
 
+        // Live refresh (live-refresh.js): the host page's tab entry for the org
+        // dashboard reaches this component through NSSLiveRefresh.target("orgDashboard").
+        // Registered per mount (an org switch remounts, so the new init() re-registers).
+        // The attendance card is NOT reloaded here: it has its own poller.
+        destroy() {
+            if (window.NSSLiveRefresh) NSSLiveRefresh.unregisterTarget("orgDashboard", this);
+        },
+
+        // True while something on the dashboard is mid-interaction (the "all
+        // members" modal is open). The attendance register is not part of this
+        // component and has its own poller.
+        liveBusy() {
+            return !!(this.govAllMembers && this.govAllMembers.open);
+        },
+
+        // Re-read the stats cards in place: no spinner, no clearing, same org.
+        async liveReload() {
+            const orgPk = this.org && this.org.organization_pk;
+            if (!orgPk || this.loading) return;
+            await this._loadTierData();
+            if (!this.org || this.org.organization_pk !== orgPk) return;   // remounted on another org
+            this._loadGovernanceSection({ silent: true });
+            this._loadCorrespondenceSection({ silent: true });
+        },
+
         async init(orgPk) {
+            if (window.NSSLiveRefresh) NSSLiveRefresh.registerTarget("orgDashboard", this);
             if (!orgPk) {
                 this.error = "No organization specified.";
                 this.loading = false;
@@ -575,8 +601,8 @@ function orgDashboardTab() {
             return this.darshakShowAll ? this.attendanceDarshaks : this.attendanceDarshaks.slice(0, 5);
         },
 
-        async _loadGovernanceSection() {
-            this.govBodies = [];
+        async _loadGovernanceSection(opts = {}) {
+            if (!opts.silent) this.govBodies = [];
             if (!this.org) return;
             // Kendra's governing bodies (Kendra Governing Body, Advisory Board,
             // central Mahila Parichalana Mandali) are NSS-wide singletons
@@ -593,13 +619,13 @@ function orgDashboardTab() {
             // A central Mahila Sangha's Mandali is NSS-wide, so the org-scoped
             // path returns nothing for it (it surfaces on the Kendra dashboard
             // instead) — deliberately rendered empty rather than fabricated.
-            if (this.isKendra) return this._loadGovernanceNssWide();
+            if (this.isKendra) return this._loadGovernanceNssWide(opts);
             if (!this.canSeeGovernance) return;
-            return this._loadGovernanceOrgScoped();
+            return this._loadGovernanceOrgScoped(opts);
         },
 
-        async _loadGovernanceNssWide() {
-            this.govSectionLoading = true;
+        async _loadGovernanceNssWide(opts = {}) {
+            if (!opts.silent) this.govSectionLoading = true;
             try {
                 const [bodiesRes, openRes] = await Promise.all([
                     NSSAuth.apiFetch("/api/v1/governance/public/national-bodies")
@@ -648,9 +674,9 @@ function orgDashboardTab() {
             }
         },
 
-        async _loadGovernanceOrgScoped() {
+        async _loadGovernanceOrgScoped(opts = {}) {
             const orgPk = this.org.organization_pk;
-            this.govSectionLoading = true;
+            if (!opts.silent) this.govSectionLoading = true;
             try {
                 // page_size caps at 100 on this endpoint (NSS.MAX_PAGE_SIZE=500
                 // would 422) — one org never has more than a handful of bodies.
@@ -720,12 +746,14 @@ function orgDashboardTab() {
         // or erroring card. For a scoped admin viewing an org inside their
         // subtree the list returns that org's records; outside it the API
         // scope-filters to an empty list (not a 403), so no error surfaces.
-        async _loadCorrespondenceSection() {
-            this.corrRecent = [];
-            this.corrCount = null;
+        async _loadCorrespondenceSection(opts = {}) {
+            if (!opts.silent) {
+                this.corrRecent = [];
+                this.corrCount = null;
+            }
             if (!this.org || !this.canSeeCorrespondence) return;
             const orgPk = this.org.organization_pk;
-            this.corrSectionLoading = true;
+            if (!opts.silent) this.corrSectionLoading = true;
             try {
                 // page_size caps at 100 here too; 5 is plenty for a recent list.
                 const res = await NSSAuth.apiFetch(

@@ -224,6 +224,20 @@ both declared in `15_audit_trigger.sql`:
 Excluded *tables* still receive row-level rows in `system_event_log`, so trigger coverage of
 the schema remains complete — only their field-level diffs are suppressed.
 
+In addition, the audit trigger is not attached at all to three infrastructure tables (the
+`excluded_tables` array in `15_audit_trigger.sql`): `system_event_log` and `field_change_log`
+(the audit trail itself) and `live_change_marker` (owner decision 2026-11-03: the live-refresh
+change marker, one counter row per watched table bumped by a statement-level trigger on every
+write to that table; auditing it would add a second audit row to every business write and
+record no business event).
+
+**Value redaction (GDR-011, Proposed, 2026-11-04).** Distinct from an exclusion: for the
+`person` table the trigger still logs every change of `aadhaar_encrypted`, `aadhaar_hash` and
+`aadhaar_last4` (field, action, actor, time, and whether a value was set or cleared) in both
+`field_change_log` and the `system_event_log` detail, but the old/new VALUE is replaced by the
+literal `[REDACTED]` (`v_redact_cols` in `15_audit_trigger.sql`, v1.4). Diffing still uses the raw
+values, so a changed number is always recorded as a change.
+
 Any further exclusion is an architectural decision and shall be recorded here. Exclusions
 must never be introduced silently in application code.
 

@@ -39,7 +39,7 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
@@ -54,6 +54,7 @@ from api.helpers import (
     validate_mobile, validate_email,
     fetch_person_date_of_birth,
 )
+from api.services.aadhaar_service import aadhaar_field_validator, set_person_aadhaar
 from api.services.rbac_service import (
     UserContext,
     actor_scope_org_pks,
@@ -133,6 +134,17 @@ class UpdateClaimRequest(BaseModel):
     last_name: str | None = Field(None, max_length=100)
     country_phone_code: str | None = Field(None, max_length=5)
     mobile_number: str | None = Field(None, max_length=15)
+    # GDR-011: full 12-digit Aadhaar, "" clears; stored via set_person_aadhaar().
+    aadhaar_number: str | None = Field(
+        None, max_length=20,
+        description="Full 12-digit Aadhaar (spaces/hyphens allowed; Verhoeff-checked, GDR-011). Stored encrypted; never echoed.",
+    )
+
+    @field_validator("aadhaar_number")
+    @classmethod
+    def _aadhaar_number_valid(cls, v: str | None) -> str | None:
+        return aadhaar_field_validator(v)
+
     email: str | None = Field(None, max_length=200)
 
 
@@ -535,6 +547,15 @@ def update_claim(
         if body.email is not None:
             person_sets.append("email = %s")
             person_params.append(body.email.strip().lower() if body.email.strip() else None)
+
+        if body.aadhaar_number is not None:
+            set_person_aadhaar(cur, person_pk, body.aadhaar_number,
+                               updated_by_sangha_sevi_pk=user.actor_pk)
+            log_audit(cur, action="UPDATE", table_name="person",
+                      record_pk=str(person_pk), actor_pk=actor_pk,
+                      actor_user_account_pk=str(user.user_account_pk),
+                      module="claim_approval",
+                      summary="Updated person Aadhaar from claim edit")
 
         if person_sets:
             person_sets.append("updated_at = NOW()")

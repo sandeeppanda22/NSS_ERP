@@ -132,6 +132,7 @@ hard-DELETEs them (audit-logged).
 
 Standard block on every table: `created_at`, `created_by_sangha_sevi_pk` (nullable),
 `updated_at`, `updated_by_sangha_sevi_pk`, `deleted_at`, `deleted_by_sangha_sevi_pk`,
-`is_active`. Audit-actor FKs (`*_by_sangha_sevi_pk`) are nullable columns in this pass — their
-FK constraints are deferred to Pass 2, same as every other module. Soft-delete is enforced by
+`is_active`. Audit-actor columns (`*_by_sangha_sevi_pk`) are plain nullable UUIDs in the table DDL;
+their FKs to `sangha_sevi` come from `database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql`
+(build Phase 13c), same as every other module. Soft-delete is enforced by
 `chk_*_soft_delete` on each table.

@@ -1764,6 +1764,8 @@ class TestCreateUserWithSanghaSevi:
             JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
             WHERE md.value_code = 'SAKHA_SANGHA'
               AND o.is_active = TRUE
+              AND o.short_code IS NOT NULL AND btrim(o.short_code) <> ''
+            ORDER BY o.organization_name
             LIMIT 1
         """)
         row = cur.fetchone()

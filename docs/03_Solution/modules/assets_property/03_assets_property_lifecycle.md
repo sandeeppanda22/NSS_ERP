@@ -169,6 +169,9 @@ A custodianship may end due to:
 | Organizational restructuring | Architectural interpretation |
 | Dissolution (Mahila) | Mahila Bye-Law: "remaining property vests in Kendra Sangha" |
 | Other statutory change | Architectural interpretation |
+| Disposal of the property / retirement of the asset | Owner decision 2026-11-03 (GDR-010 §2F) |
+
+> **Amendment (2026-11-03, owner-directed, GDR-010 §2F).** The terminal transition (property → DISPOSED, asset → RETIRED) also moves the ACTIVE custodianship to ENDED in the same transaction (end reason `DISPOSED` / `RETIRED`); the record keeps showing that organization as its *last custodian*. No new custodianship follows (§5.4 applies to transfers, not to disposal), and AP-LIF-003/AP-046/AP-047 are unchanged.
 
 ## 5.4 New Custodianship on End
 

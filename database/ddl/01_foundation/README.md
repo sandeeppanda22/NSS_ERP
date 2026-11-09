@@ -48,10 +48,10 @@ executes correctly in sequence because its dependency is already created
 by earlier files. **Files 14–15 (Tier 5) must run last** — `15_audit_trigger.sql`
 attaches `nss.fn_audit_trigger()` to every table already present in the `nss` schema at the
 time it runs (`SELECT tablename FROM pg_tables WHERE schemaname = 'nss'`), excluding only
-`system_event_log` and `field_change_log` themselves; if it ran before later modules'
+`system_event_log`, `field_change_log` and `live_change_marker` (the live-refresh counter table, `CROSS_MODULE_PRINCIPLES.md` §7.1); if it ran before later modules'
 DDL (Organization/Person/Family/Membership/Authentication/Administration), those tables
-would silently end up without an audit trigger. `02_build.sh`/`02_build.ps1` run it as the
-final step of the full build, after every other module's DDL.
+would silently end up without an audit trigger. `02_build.sh`/`02_build.ps1` run it in Phase 14,
+after every other module's DDL (including the Phase 13c audit-actor FK patch).
 
 ## Execution Command
 
@@ -234,8 +234,8 @@ sets a field from NULL to a value is otherwise indistinguishable from a
 `CREATE`.
 
 No FK constraints — `table_name` and `record_pk` are stored as plain values
-(VARCHAR + UUID) to avoid circular dependencies. Both actor columns are
-likewise raw UUIDs without FK constraint. Referential integrity is
+(VARCHAR + UUID) to avoid circular dependencies. `changed_by_user_account_pk` is likewise a raw UUID without FK; `changed_by_sangha_sevi_pk` gets its FK to
+`sangha_sevi` from the Phase 13c patch (below). Referential integrity of the rest is
 enforced by the application layer.
 
 | Column | Type | Constraint | Purpose |
@@ -249,7 +249,7 @@ enforced by the application layer.
 | `new_value` | TEXT | NULL | New value (NULL for deletions) |
 | `change_reason` | TEXT | NULL | Why the change was made |
 | `changed_at` | TIMESTAMPTZ | NOT NULL, auto | When the change occurred |
-| `changed_by_sangha_sevi_pk` | UUID | NULL | Who made the change (no FK — application-enforced) |
+| `changed_by_sangha_sevi_pk` | UUID | NULL | Who made the change (FK to `sangha_sevi` added by the Phase 13c patch) |
 | `changed_by_user_account_pk` | UUID | NULL | Acting account — recorded because an authenticated user does not always have a Sangha Sevi record |
 
 Both actor columns are NULL for public self-registration and for seed/system
@@ -465,7 +465,7 @@ A member may type a geographic value not yet in the lists; it is inserted as
 `APPROVED` active rows (partial unique indexes, FND-BR-090) so a PENDING submission never collides
 with a canonical row. `submitted_by_`/`reviewed_by_sangha_sevi_pk` are created as plain nullable
 UUIDs here (Foundation builds before Membership) and get real FKs from
-`05_membership/16_foundation_audit_fk.sql` (Phase 7b of `02_build.sh`). Authority: SOL-FND-004
+`05_membership/16_foundation_audit_fk.sql` (Phase 7b of `02_build.sh`; the Phase 13c patch skips columns that already have a `sangha_sevi` FK). Authority: SOL-FND-004
 §16.7–16.8, FND-BR-085..090. Review API: `api/routers/geo_approval.py`.
 
 ---
@@ -513,7 +513,7 @@ different `module`/`summary`/`detail` shapes rather than one. No de-duplication 
 Not a table file — a `SECURITY DEFINER` PL/pgSQL trigger function plus a `DO $$ ... $$` block
 that dynamically attaches an `AFTER INSERT OR UPDATE OR DELETE` trigger
 (`trg_audit_<table>`) to every table currently in the `nss` schema (via
-`pg_tables`), excluding `system_event_log` and `field_change_log` themselves.
+`pg_tables`), excluding `system_event_log`, `field_change_log` and `live_change_marker`.
 
 It writes **two** logs per operation:
 
@@ -548,9 +548,12 @@ new table is added after the initial build.
 
 ## Design Decisions
 
-- **No audit-actor FKs** — `created_by_sangha_sevi_pk` / `updated_by_sangha_sevi_pk` /
-  `deleted_by_sangha_sevi_pk` are NOT included in Foundation tables. They will be added
-  via ALTER TABLE in Pass 2 after `sangha_sevi` exists (SOL-ARCH-010 §5).
+- **Audit-actor FKs are not declared in Foundation DDL** — `*_by_sangha_sevi_pk` columns (e.g.
+  `field_change_log.changed_by_sangha_sevi_pk`) are plain nullable UUIDs here. Every such column in
+  schema `nss` gets its FK to `sangha_sevi` from the single idempotent catalog-driven patch
+  `database/ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql` (build Phase 13c; `NOT VALID` first, then a
+  VALIDATE attempt that only WARNs). `system_event_log.actor_sangha_sevi_pk` is not covered. Never
+  hand-write these FKs.
 - **Soft-delete backfill** — `deleted_at TIMESTAMPTZ NULL` plus a
   `(is_active = TRUE AND deleted_at IS NULL) OR (is_active = FALSE AND deleted_at IS NOT NULL)`
   CHECK constraint added to the original 10 tables that carry `is_active` (the later `post_office`, `festival_*` tables carry the same CHECK)

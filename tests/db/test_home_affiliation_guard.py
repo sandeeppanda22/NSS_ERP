@@ -101,6 +101,21 @@ def _commit_time_check(conn):
         cur.close()
 
 
+@pytest.fixture(autouse=True)
+def _per_test_savepoint(write_conn):
+    """Isolate every test: the module shares ONE transaction, and SET CONSTRAINTS IMMEDIATE
+    re-checks EVERY queued deferred event, so a violator left by an earlier test (the "refused"
+    tests deliberately create one) would fail a later test that expects a pass."""
+    cur = write_conn.cursor()
+    cur.execute("SAVEPOINT guard_test")
+    cur.close()
+    yield
+    cur = write_conn.cursor()
+    cur.execute("ROLLBACK TO SAVEPOINT guard_test")
+    cur.execute("RELEASE SAVEPOINT guard_test")
+    cur.close()
+
+
 def _lid():
     return f"HG{uuid4().hex[:8].upper()}"
 

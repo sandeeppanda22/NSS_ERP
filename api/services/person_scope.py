@@ -30,3 +30,29 @@ def person_in_admin_scope(conn, person_pk, user: UserContext) -> bool:
         except HTTPException:
             return False
     return True
+
+
+def can_view_aadhaar_last4(conn, person_pk, user: UserContext) -> bool:
+    """
+    GDR-011: may *user* see ``aadhaar_last4`` (and the on-file flag) of
+    *person_pk*? Only the person themself, or a PERSON_VIEW_SENSITIVE holder
+    whose admin scope covers the person. The permission alone never confers
+    global reach — NSS_ERP_ADMIN is global only through its scope
+    (ADMIN-BR-077). Family/relative access does NOT qualify.
+    """
+    if str(person_pk) == str(user.person_pk):
+        return True
+    return user.has_permission("PERSON_VIEW_SENSITIVE") and person_in_admin_scope(conn, person_pk, user)
+
+
+def gate_aadhaar_fields(conn, person_pk, user: UserContext, model) -> None:
+    """
+    Apply the GDR-011 visibility rule to a response *model* in place: when
+    the caller may not see Aadhaar data, ``aadhaar_last4`` and
+    ``aadhaar_full_on_file`` become None. The ONE helper every response that
+    carries those two fields must pass through (a source-sweep test in
+    tests/security enforces it).
+    """
+    if not can_view_aadhaar_last4(conn, person_pk, user):
+        model.aadhaar_last4 = None
+        model.aadhaar_full_on_file = None

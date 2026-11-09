@@ -42,6 +42,7 @@ from api.helpers import (
     rows_to_models,
     require_entity,
     MEMBER_JOINS_SQL,
+    org_subtree_cte_sql,
     require_self_or_permission,
 )
 from api.services.rbac_service import UserContext, actor_scope_org_pks, org_in_scope, require_org_in_scope
@@ -408,13 +409,7 @@ def search_members(
     where = f"""
         WHERE ss.is_active = TRUE
           AND (%s::uuid IS NULL OR EXISTS (
-              WITH RECURSIVE subtree(organization_pk) AS (
-                  SELECT %s::uuid
-                  UNION ALL
-                  SELECT o.organization_pk
-                  FROM nss.organization o
-                  JOIN subtree s ON o.parent_organization_pk = s.organization_pk
-              )
+              {org_subtree_cte_sql("SELECT %s::uuid")}
               SELECT 1 FROM subtree st
               WHERE st.organization_pk = ss.organization_pk
           ))
@@ -498,15 +493,9 @@ def member_directory(
     params: list = []
 
     if organization_pk:
-        conditions.append("""
+        conditions.append(f"""
             EXISTS (
-                WITH RECURSIVE subtree(organization_pk) AS (
-                    SELECT %s::uuid
-                    UNION ALL
-                    SELECT o.organization_pk
-                    FROM nss.organization o
-                    JOIN subtree s ON o.parent_organization_pk = s.organization_pk
-                )
+                {org_subtree_cte_sql("SELECT %s::uuid")}
                 SELECT 1 FROM subtree st WHERE st.organization_pk = ss.organization_pk
             )
         """)

@@ -19,8 +19,8 @@
 
 # 1. Overview
 
-The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **252 endpoints** across 17
-routers. Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
+The NSS ERP exposes a REST API (FastAPI, raw `psycopg2`, no ORM) of **284 endpoints** across 19
+routers (252 / 17 on `develop`; the 26-endpoint Assets & Property router is committed on `feature/tier6-governance`, not yet merged; counts re-verified 2026-11-05 from the registered routes: 272 decorators + 12 `add_api_route`). Tiers 0-4 were originally read-only and unauthenticated; **Tier 5
 (released as v0.11.0)** added JWT authentication, RBAC, write endpoints, and gated almost everything:
 
 - **Only the 4 Tier 0 `bootstrap.py` endpoints and the 13 `/api/v1/register` endpoints (public
@@ -217,11 +217,12 @@ table; see `docs/03_Solution/api/ORGANIZATION_API_CONTRACT.md` §3.2.4 for the f
 | # | Method | Path | Filters | Description | Response Model |
 |---|---|---|---|---|---|
 | 28 | GET | `/persons` | `gender_code`, `marital_status_code`, `blood_group_code`, `limit`, `offset` | List persons (summary) | `PersonListResponse` (`{persons, total}`, see §2.1) |
-| 29 | GET | `/persons/{pk}` | — | Person detail (with aadhaar_last4) | `PersonDetailResponse` |
+| 29 | GET | `/persons/{pk}` | — | Person detail; `aadhaar_last4`/`aadhaar_full_on_file` null unless self or `PERSON_VIEW_SENSITIVE` in admin scope (GDR-011) | `PersonDetailResponse` |
 | 30 | GET | `/persons/{pk}/addresses` | — | Person addresses | `list[PersonAddressResponse]` |
 | 30a | POST | `/persons/{pk}/addresses` | — | Add an address (201); body `PersonAddressCreateRequest` | `PersonAddressResponse` |
 | 30b | PATCH | `/persons/{pk}/addresses/{person_address_pk}` | — | Partial address update; body `PersonAddressUpdateRequest` | `PersonAddressResponse` |
 | 30c | DELETE | `/persons/{pk}/addresses/{person_address_pk}` | — | Soft-delete an address | `MessageResponse` |
+| 30d | GET | `/persons/{pk}/aadhaar` | — | **Aadhaar reveal (GDR-011, Proposed):** `PERSON_VIEW_SENSITIVE` + admin scope; decrypted 12 digits; 403 for the person themself and for everyone else; 404 `Full Aadhaar not on record`; 429 per-user (`AADHAAR_REVEAL_RATE_LIMIT`, default 10/min); 500 (no value) if decryption fails; audited as `VIEW_SENSITIVE` without the value | `PersonAadhaarResponse` (`{person_pk, aadhaar_number}`) |
 | 120 | GET | `/search-selectable?q=` | `q` (min 2 chars, required), `limit` (default 50), `offset` | Same search as #31 but gated on authentication only, for the family-head add-member picker | `PersonListResponse` |
 | 31 | GET | `/search?q=` | `q` (min 2 chars, required), `limit` (default 50), `offset` | Trigram + prefix search across name + ID + contact | `PersonListResponse` (`{persons, total}`, see §2.1) |
 
@@ -674,6 +675,26 @@ Authority: `docs/03_Solution/modules/attendance/` (frozen 2026-10-27). Automated
 
 ---
 
+# 12g. Live-refresh change feed
+
+**Router prefix:** `/api/v1/live` (`api/routers/live.py`) — 1 endpoint, owner decision 2026-11-03 ("make data refresh automatically"). Read pool, no DDL.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/changes` | login only (`get_current_user`; no module permission) | Current `change_seq` of every watched table (marker table; no `since`) |
+
+**Response** (`LiveChangesResponse`): `{"changed": [{"table_name": "...", "change_seq": 123}]}` - every table on the whitelist with the change number of its latest COMMITTED write (read from `nss.live_change_marker`). There is no `since`/cursor (an old client's `since` is ignored): the client keeps the last `change_seq` it saw per table and treats a different value as a change; its first reply is only the baseline. 401 without a valid token.
+
+**What it discloses:** only THAT a table on the `LIVE_FEED_TABLES` whitelist (module constant in `live.py`, authoritative) changed — never record data or ids, and never a table outside the list (credential, session, counter, internal and ballot tables are excluded). The client then re-runs its own scoped loaders, so permissions and admin scope are untouched. The whitelist covers registration/claim and change-request approvals, Correspondence, Governance (bodies, assignments, acting cover, elections, nominations, results), the org-dashboard stats tables, Assets & Property and Sakha re-parent approvals (batch 1), plus (batch 2, 55 tables in all) users and roles (`user_account`, `user_role`, `admin_scope`, `role_master`), person/membership/family tables, reference and geography data, system settings and the festival calendar. `user_account` is on the list but its trigger ignores routine login bookkeeping columns, so a login never bumps its marker.
+
+**Change numbers:** `change_seq` comes from the single global sequence `nss.live_change_seq`, assigned by a statement-level trigger (`fn_live_change_marker()`, `ddl/12_live_refresh/`) in the writing transaction, so it appears at commit and disappears on rollback; one multi-row statement is one bump; numbers can have gaps. Two commits to the SAME table are ordered by number (they queue on that table's marker row); numbers of different tables are not commit-ordered, which is why there is no global cursor.
+
+**Rate limit:** per signed-in user (`LIVE_CHANGES_RATE_LIMIT`, default `60/minute`, key = JWT `sub`, client IP without a valid token — `api/rate_limit.py::user_or_ip_key`); replaces the global per-IP `RATE_LIMIT` for this route. The page polls every 5 s while active (12/min), 15 s when idle, paused while hidden (`LIVE_FEED` in `frontend/assets/js/live-refresh.js`).
+
+Tests: `tests/api/test_live_changes.py`, `tests/security/test_live_security.py`, `tests/ui/test_ui_live_refresh.py` plus `tests/db/test_live_change_marker.py` (integration items not yet run against the project DB).
+
+---
+
 # 12f. Tier 6 — Sakha Re-parent Approvals
 
 **Router prefix:** `/api/v1/org-reparent` (`api/routers/org_reparent.py`) — 4 endpoints, all login-only (`get_current_user`); visibility is the requester, assigned approvers, Kendra Governing Body members, and admins whose scope contains the Sakha (404 otherwise). Owner rule 2026-10-30: re-parenting a Sakha under a different Anchalika/Zilla (SAKHA_SANGHA or SAKHA_ASANA) is direct only for Kendra Governing Body members and the `NSS_ERP_ADMIN` super administrator (by role); everyone else files a request via `PATCH /admin/organizations/{pk}` (see below). Approval authority (deciding a step) is the LIVE office seat (substantive holder or active acting delegate) — no permission and no `NSS_ERP_ADMIN` override.
@@ -693,14 +714,92 @@ Automated tests: `tests/api/test_org_reparent.py` (60 collected; chain matrix ex
 
 ---
 
+# 12g. Module #22 — Assets & Property
+
+**Router prefix:** `/api/v1/assets-property` (`api/routers/assets_property.py`, schemas in `api/schemas/assets_property.py`) — 26 endpoints. Backend implemented 2026-11-02 (uncommitted; not yet run against the project DB); admin UI (`admin.html` Properties / Assets tabs, `assets-property.js`) added 2026-11-02, never opened in a browser. Design: `docs/03_Solution/modules/assets_property/` (SOL-AP-001..005); implementation decisions: GDR-010 (`Proposed`).
+
+**Auth (every endpoint):** `Authorization: Bearer` JWT. Reads need `ASSET_VIEW` (or `ASSET_MANAGE`); writes need `ASSET_MANAGE`. In addition, **admin scope on the record's EFFECTIVE custodian organization** (`actor_scope_org_pks` / `require_org_in_scope`): a scope-bounded admin sees and manages only records whose effective custodian is an organization inside their scope subtree. *Effective custodian* (owner decision 2026-11-03, GDR-010 §2F) = the organization of the ACTIVE custodianship, or — for a **DISPOSED property / RETIRED asset only**, whose custody the terminal transition ENDed — the organization of its most recently ENDED custodianship (one SQL definition, `_effective_custodian_join()`, used by detail, list rows, every filter and every scope check; a disposed/retired record therefore stays visible to — and only to — the admins who could see it before, and never becomes custodian-less). A record with **no** effective custodian is visible/manageable only by the global authority (NSS_ERP_ADMIN / NSS-WIDE / KENDRA scope); 403 `This record has no custodian, so only NSS-wide administrators can <action>.` Roles (owner decisions 2026-11-02): ADMIN, KENDRA, SAKHA and PATHA_CHAKRA admins hold VIEW + MANAGE; ANCHALIKA and ZILLA admins, AUDITOR and REPORT_VIEWER hold VIEW only (an Anchalika/Zilla admin sees the physical organizations beneath them through the admin-scope subtree rule but every write is 403); the KENDRA_MAHILA_SANGHA admin, ATTENDANCE_MARKER, ADVISORY_BOARD admin and members hold neither (403). No member/public exposure. Errors: 401 no/invalid JWT; 403 missing permission or out of scope (`You can only <verb> this <property|asset> within your admin scope.`); 404 unknown/archived record; 409 conflict (second active custodian, live record archive, duplicate document link); 422 validation / invalid lifecycle transition / unknown master-data code (`Unknown PROPERTY_TYPE value 'X'.`).
+
+**`{kind}`** in a path is the literal `properties` or `assets` (anything else is 422). **Controlled values travel as master_data `value_code` strings** (`*_code`), resolved server-side; the lists are admin-extendable, read them with `GET /foundation/master-data?category_code=…` (needs `FOUNDATION_VIEW`, which every role holding `ASSET_VIEW` also holds): `PROPERTY_TYPE` (LAND, BUILDING, PREMISES, OTHER_IMMOVABLE), `ASSET_TYPE` (EQUIPMENT, FURNITURE, INSTRUMENT, ARTICLE, OTHER_MOVABLE), `CUSTODIANSHIP_END_REASON` (TRANSFER, DISSOLUTION_VESTING, ORGANIZATIONAL_CHANGE, OTHER, DISPOSED, RETIRED — the last two are reserved for the terminal event, a transfer using them is 422), `STATUTORY_OBLIGATION_TYPE` (LAND_REVENUE, MUNICIPAL_TAX, LAND_RECORD, OTHER), `MAINTENANCE_TYPE` (REPAIR_MINOR, REPAIR_MAJOR, IMPROVEMENT, ADDITION, ALTERATION, UPKEEP, OTHER), `ASSET_PROPERTY_DOCUMENT_RELATIONSHIP` (TITLE_DEED, LAND_RECORD, MAINTENANCE_CERTIFICATE, PHOTOGRAPH, OTHER), `ACQUISITION_METHOD` (PURCHASE, DONATION, GIFT, BEQUEST, TRANSFER_IN, CONSTRUCTION, OTHER; the value lists were accepted as seeded by the owner, 2026-11-03). Lifecycle `status` values are fixed (not master data). All UUIDs are strings. Dates are `YYYY-MM-DD`; `effective_from` / `performed_at` / `custodian_effective_from` may not be in the future (422). No financial fields exist anywhere.
+
+**Lifecycle (SOL-AP-003; also enforced by DB triggers).** Property: `REGISTERED → ACTIVE ⇄ UNDER_MAINTENANCE`, `ACTIVE|UNDER_MAINTENANCE → DISPOSED` (terminal). Asset: `REGISTERED → IN_CUSTODY ⇄ UNDER_MAINTENANCE`, `IN_CUSTODY|UNDER_MAINTENANCE → RETIRED` (terminal). REGISTERED advances to ACTIVE / IN_CUSTODY **automatically when the first custodian is assigned** (at registration or via `custodianships`); it cannot be advanced without a custodian. A custody transfer never changes status. Disposal/retirement is *recorded* here (the Governance approval reference goes in `remarks`, kept in the audit trail), never approved. **Disposal / retirement closes custody (owner decision 2026-11-03, GDR-010 §2F):** moving to DISPOSED / RETIRED ENDs the ACTIVE custodianship in the SAME transaction (`effective_to` = the transition date, end reason `DISPOSED` / `RETIRED`); the record keeps reporting that organization as its last custodian (`custodian_is_last`, below). A DISPOSED/RETIRED record accepts no further custody assignment/transfer (422, AP-046/047; also a DB trigger).
+
+### Properties (`/properties`) and assets (`/assets`) — 6 endpoints each
+
+| Method | Path | Auth | Request → Response |
+|---|---|---|---|
+| POST | `/properties` | `ASSET_MANAGE` + scope on `custodian_organization_pk` | Body `PropertyCreate`: `property_name` (req, ≤200), `property_type_code` (req), `location_description`, `holding_arrangement` (free text, recorded/legal holder — not the custodian), `notes` (each ≤2000, optional), `acquired_at` (date), `belongs_to_organization_pk` (uuid, optional; any ACTIVE organization — see "Belongs to" below), `acquisition_method_code` (optional ACQUISITION_METHOD code — see "Acquisition method" below), `custodian_organization_pk` (uuid; **required for scope-bounded admins**, optional only for NSS-wide admins → record starts REGISTERED with no custodian), `custodian_effective_from` (default today). → **201** `PropertyResponse` (`property_id` = `PROP<n>`, `status` ACTIVE when a custodian was given else REGISTERED). 403 foreign custodian org; 422 missing custodian (scoped admin) / unknown type / unknown org. |
+| GET | `/properties` | `ASSET_VIEW` + scope | Query: `q` (name / id / location, case-insensitive substring), `type_code`, `status`, `custodian_organization_pk` (403 if outside scope), `include_sub_organizations` (bool, default false; with `custodian_organization_pk` matches that organization AND its whole subtree, still limited to the caller's scope; ignored without a custodian filter), `belongs_to_organization_pk` (uuid; only records attributed to that organization — ANDed with the custodian-scope clause, never widens visibility; no scope check on the value itself), `acquisition_method_code` (ACQUISITION_METHOD code; informational filter, ANDed with the scope clause), `page` (≥1, default 1), `page_size` (1–100, default 20). → `{items: PropertyResponse[], total, page, page_size}`; newest first; scope-bounded admins see only records whose effective custodian (active, or last for a DISPOSED/RETIRED record) is in scope. |
+| GET | `/properties/{entity_pk}` | `ASSET_VIEW` + scope | → `PropertyResponse`: `property_pk, property_id, property_name, property_type_code, property_type_name, status, location_description, holding_arrangement, notes, acquired_at, current_custodianship_pk, current_custodian_organization_pk, current_custodian_organization_name, current_custodian_since, created_at, updated_at, belongs_to_organization_pk, belongs_to_organization_name` (both null when unset), `acquisition_method_code, acquisition_method_name` (null when unset), `custodian_is_last, custodian_ended_at` (see "Effective custodian fields" below). |
+| PATCH | `/properties/{entity_pk}` | `ASSET_MANAGE` + scope | Body `PropertyUpdate` (any of `property_name`, `property_type_code`, `location_description`, `holding_arrangement`, `notes`, `acquired_at`, `belongs_to_organization_pk`, `acquisition_method_code`; only keys present are applied, `null` clears optional fields, name/type cannot be null; `status`/ids are ignored). Empty body → 422. → `PropertyResponse`. |
+| POST | `/properties/{entity_pk}/transition` | `ASSET_MANAGE` + scope | Body `{status, remarks?}` (target status; `remarks` ≤2000, e.g. Governing Body decision reference). `DISPOSED` also ENDs the active custodianship in the same transaction (end reason `DISPOSED`). → `PropertyResponse`. 422 on unknown/invalid/terminal/same-status transition or REGISTERED without custodian. |
+| DELETE | `/properties/{entity_pk}` | `ASSET_MANAGE` + scope | Soft-delete (archive); only while REGISTERED (registered in error) or DISPOSED; 409 for a live record. → `{message}`. Archived records 404 everywhere. |
+| POST | `/assets` | as property | Body `AssetCreate`: `asset_name` (req), `asset_type_code` (req), `location_description`, `condition` (free text), `notes`, `acquired_at`, `belongs_to_organization_pk`, `acquisition_method_code`, `custodian_organization_pk`, `custodian_effective_from`. → **201** `AssetResponse` (`asset_id` = `AST<n>`, status IN_CUSTODY when a custodian was given). |
+| GET | `/assets` | as property | Same filters (`type_code` = ASSET_TYPE code). → `{items: AssetResponse[], total, page, page_size}`. |
+| GET | `/assets/{entity_pk}` | as property | → `AssetResponse`: `asset_pk, asset_id, asset_name, asset_type_code, asset_type_name, status, location_description, condition, notes, acquired_at, current_custodianship_pk, current_custodian_organization_pk, current_custodian_organization_name, current_custodian_since, created_at, updated_at, belongs_to_organization_pk, belongs_to_organization_name, acquisition_method_code, acquisition_method_name, custodian_is_last, custodian_ended_at`. |
+| PATCH | `/assets/{entity_pk}` | as property | Body `AssetUpdate` (`asset_name`, `asset_type_code`, `location_description`, `condition`, `notes`, `acquired_at`, `belongs_to_organization_pk`, `acquisition_method_code`). → `AssetResponse`. |
+| POST | `/assets/{entity_pk}/transition` | as property | Body `{status, remarks?}`. → `AssetResponse`. `RETIRED` also ENDs the active custodianship (see Lifecycle). |
+| DELETE | `/assets/{entity_pk}` | as property | Archive while REGISTERED or RETIRED. → `{message}`. |
+
+**"Belongs to" (owner-directed 2026-11-02, GDR-010 §2D).** `belongs_to_organization_pk` (nullable) on `POST`/`PATCH` of both kinds names the organization the property/asset belongs to when that differs from its physical custodian, e.g. an asset belonging to the Mahila Sangha but held under the supervision of the Kendra Sangha (custodian = Kendra, belongs to = Mahila Sangha). It is **informational only**: any organization type is allowed (Mahila incl. central, Kumari, Sevak, Paribarik, Zilla, Anchalika …), the only check is that the organization exists and is active (**422** `Belongs-to organization not found.`), there is no scope check on it and it never affects authorization, scope, the custodian rule, custodianship or the lifecycle; a custody transfer leaves it unchanged. `PATCH` with `null` clears it, omitting the key leaves it as is. Responses carry `belongs_to_organization_pk` and `belongs_to_organization_name`. Example: `POST /assets {"asset_name": "Harmonium", "asset_type_code": "INSTRUMENT", "custodian_organization_pk": "<Kendra>", "belongs_to_organization_pk": "<Mahila Sangha>"}`.
+
+**Acquisition method (owner-directed 2026-11-03, GDR-010 §2E).** `acquisition_method_code` (optional) on `POST`/`PATCH` of both kinds records HOW the record was acquired (AP-023), from master-data category `ACQUISITION_METHOD` (PURCHASE and DONATION are grounded in the source documents; GIFT, BEQUEST, TRANSFER_IN, CONSTRUCTION, OTHER are candidates; admin-extendable). Unknown code → **422** `Unknown ACQUISITION_METHOD value '<code>'.`; `null` clears it on PATCH; omitting the key leaves it as is. **Informational only** — no effect on authorization, scope, the custodian rule or the lifecycle. Responses carry `acquisition_method_code` / `acquisition_method_name`; the list endpoints accept the filter `acquisition_method_code`.
+
+**Effective custodian fields (owner decision 2026-11-03, GDR-010 §2F).** `current_custodianship_pk`, `current_custodian_organization_pk`, `current_custodian_organization_name` and `current_custodian_since` keep their names and carry the *effective* custodian (active, or — for a DISPOSED/RETIRED record — the last one). Two fields flag it: `custodian_is_last` (bool; `true` only on a DISPOSED/RETIRED record whose custodianship was ended by the terminal event, else `false`) and `custodian_ended_at` (date the custody ended, null while the custodian is active). A UI shows "Last custodian" plus a Disposed/Retired badge when `custodian_is_last`. The full history (including the ENDED row with end reason `DISPOSED`/`RETIRED`) stays in `GET …/custodianships`. The `custodian_organization_pk` / `include_sub_organizations` list filters match the effective custodian.
+
+### Custodianship (`{kind}` = properties \| assets) — 3 endpoints
+
+**Custodian type rule (owner rule 2026-11-02, GDR-010 §2C).** Property and assets are held only by PHYSICAL organizations: `SAKHA_SANGHA`, `SAKHA_ASANA`, `PATHA_CHAKRA`, `KENDRA`, `NILACHALA_KUTIRA`, `SMRUTI_MANDIRA`. Naming any other organization (Anchalika/Zilla Sangha, Kumari/Sevak/Mahila/Paribarik wings, Advisory Board) as custodian — in `POST /properties`, `POST /assets`, `POST …/custodianships` or `POST …/custodianships/transfer` — returns **422** `<Custodian|New custodian> organization '<name>' is a <type name> (<TYPE_CODE>); property and assets are held by physical organizations (Sakha, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira). Assign it to the Sakha or other physical organization instead.` The check precedes the scope check; the DB trigger `trg_custodianship_custodian_guard` is the backstop.
+
+
+| Method | Path | Auth | Request → Response |
+|---|---|---|---|
+| GET | `/{kind}/{entity_pk}/custodianships` | `ASSET_VIEW` + scope | Full custody history, newest first. → `{items: CustodianshipResponse[], total}`; `CustodianshipResponse`: `custodianship_pk, property_pk, asset_pk` (one is null), `custodian_organization_pk, custodian_organization_name, status` (ACTIVE\|ENDED), `effective_from, effective_to, end_reason_code, end_reason_name, notes, created_at`. Exactly one ACTIVE row is the current custodian — except on a DISPOSED/RETIRED record, where nothing is ACTIVE and the newest ENDED row (end reason `DISPOSED`/`RETIRED`) is the last custodian. |
+| POST | `/{kind}/{entity_pk}/custodianships` | `ASSET_MANAGE` + scope (⇒ NSS-wide only, since it targets a custodian-less record) | Assign the FIRST custodian. Body `{custodian_organization_pk, effective_from?, notes?}`. → **201** `CustodianshipResponse` (status ACTIVE); advances REGISTERED → ACTIVE/IN_CUSTODY. 409 if an ACTIVE custodian exists (use transfer); 422 for a DISPOSED/RETIRED record. |
+| POST | `/{kind}/{entity_pk}/custodianships/transfer` | `ASSET_MANAGE` + scope over BOTH the current and the new custodian | Body `{new_custodian_organization_pk, end_reason_code? (default TRANSFER; use DISSOLUTION_VESTING for statutory vesting; DISPOSED/RETIRED are reserved → 422), effective_from? (default today; not future; not before the current custodianship began), notes?, location_description? (optional, updates the record's location in the same transaction)}`. Closes the current custodianship (ENDED, `effective_to`, end reason) and opens a new ACTIVE one; status unchanged. → **201** `{previous: CustodianshipResponse, current: CustodianshipResponse}`. 409 no current custodian; 422 same organization / terminal record / bad reason or date. After the transfer the record leaves the former custodian's scope. |
+
+### Maintenance records — 4 endpoints
+
+| Method | Path | Auth | Request → Response |
+|---|---|---|---|
+| GET | `/{kind}/{entity_pk}/maintenance-records` | `ASSET_VIEW` + scope | → `{items: MaintenanceResponse[], total}` (newest `performed_at` first). |
+| POST | `/{kind}/{entity_pk}/maintenance-records` | `ASSET_MANAGE` + scope | Body `{maintenance_type_code (req), description?, performed_at?, notes?}`. → **201** `MaintenanceResponse`: `maintenance_record_pk, property_pk, asset_pk` (one null), `maintenance_type_code, maintenance_type_name, description, performed_at, notes, created_at`. Records what was done; no cost fields, no status change. |
+| PATCH | `/maintenance-records/{record_pk}` | `ASSET_MANAGE` + scope (via the parent) | Body `{maintenance_type_code?, description?, performed_at?, notes?}` → `MaintenanceResponse`; the parent cannot change. |
+| DELETE | `/maintenance-records/{record_pk}` | `ASSET_MANAGE` + scope | Soft-delete → `{message}`. |
+
+### Statutory records — property only (AP-040), 4 endpoints (there is **no** asset route; `/assets/{pk}/statutory-records` is 404)
+
+| Method | Path | Auth | Request → Response |
+|---|---|---|---|
+| GET | `/properties/{entity_pk}/statutory-records` | `ASSET_VIEW` + scope | → `{items: StatutoryRecordResponse[], total}`; `StatutoryRecordResponse`: `property_statutory_record_pk, property_pk, obligation_type_code, obligation_type_name, description, reference_number, notes, created_at`. |
+| POST | `/properties/{entity_pk}/statutory-records` | `ASSET_MANAGE` + scope | Body `{obligation_type_code (req), description?, reference_number? (≤100), notes?}` → **201** `StatutoryRecordResponse`. Identifies the obligation only; payment is Finance's. |
+| PATCH | `/statutory-records/{record_pk}` | `ASSET_MANAGE` + scope | Body `{obligation_type_code?, description?, reference_number?, notes?}` → `StatutoryRecordResponse`. |
+| DELETE | `/statutory-records/{record_pk}` | `ASSET_MANAGE` + scope | Soft-delete → `{message}`. |
+
+### Document links (Foundation `document_master`) — 3 endpoints
+
+| Method | Path | Auth | Request → Response |
+|---|---|---|---|
+| GET | `/{kind}/{entity_pk}/documents` | `ASSET_VIEW` + scope | → `{items: DocumentLinkResponse[], total}`; `DocumentLinkResponse`: `link_pk, property_pk, asset_pk` (one null), `document_master_pk, document_type_code, document_name, document_number, relationship_type_code, relationship_type_name, notes, created_at`. |
+| POST | `/{kind}/{entity_pk}/documents` | `ASSET_MANAGE` + scope | Body `{document_master_pk (req, must be an active document_master row), relationship_type_code?, notes?}` → **201** `DocumentLinkResponse`. 409 if already attached; 422 unknown document / relationship code. Files are not uploaded here — the document must already exist in the Foundation registry. |
+| DELETE | `/{kind}/{entity_pk}/documents/{link_pk}` | `ASSET_MANAGE` + scope | Detach (soft-delete the link; the document stays) → `{message}`. The same document can be re-attached later. |
+
+**Audit:** every write is recorded by the DB audit trigger (`system_event_log` + `field_change_log`, AP-071) and by `log_audit()` with `module = 'assets_property'` (actions `CREATE`, `UPDATE`, `DELETE`, `STATUS_CHANGE`, `TRANSFER`). Automated tests: `tests/db/test_assets_property_schema.py` (104 collected), `tests/api/test_assets_property.py` (81), `tests/security/test_assets_property_security.py` (208) — written but never run against the project DB.
+
+---
+
 # 13. Tier 5 — Audit
 
-**Router prefix:** `/api/v1/audit` — 1 endpoint, `require_permission("AUDIT_VIEW")` (seeded to
+**Router prefix:** `/api/v1/audit` — 5 endpoints, `require_permission("AUDIT_VIEW")` (seeded to
 `NSS_ERP_ADMIN`, `NSS_ERP_KENDRA_ADMIN`, `NSS_ERP_AUDITOR`), read-only pool.
 
 | # | Method | Path | Filters | Description |
 |---|---|---|---|---|
 | 108 | GET | `/change-log` | `table_name`, `record_pk`, `field_name`, `changed_by_sangha_sevi_pk`, `changed_from`, `changed_to`, `limit`, `offset` | Paginated read of `nss.field_change_log` |
+| 108a | GET | `/events` | `table_name`, `action`, `module`, `record_pk`, `actor_sangha_sevi_id`, `is_success`, `event_from`, `event_to`, `q`, `sort` (`asc`/`desc`), `limit`, `offset` | System event log explorer. Returns `{items, total, total_capped, event_from, limit, offset}`; without `event_from` and `record_pk` only the last 24 h are searched; `total` is exact up to 10,000 |
+| 108b | GET | `/events/facets` | -- | Distinct `tables`, `actions`, `modules` of the last 30 days (filter dropdowns) |
+| 108c | GET | `/events/{system_event_log_pk}` | -- | One event incl. its JSONB `detail`; 404 if unknown. Field-level rows of the same transaction: `/change-log` with `changed_from = changed_to = event_at` |
+| 108d | GET | `/live-change-markers` | -- | Every `nss.live_change_marker` row (most recent `change_seq` first) with `on_live_whitelist`, plus `latest_change_seq`, `latest_table_name`, `whitelist_size`, `whitelist_without_marker`, `server_time` |
 
 ---
 
@@ -712,7 +811,7 @@ Automated tests: `tests/api/test_org_reparent.py` (60 collected; chain matrix ex
 | `/login` | Login page | `login.html` |
 | `/register` | Self-registration page | `register.html` |
 | `/dashboard` | Member Dashboard (Personal, Membership, Family, Attendance, Governance, Documents tabs + an Org Dashboard for holders of an admin scope — tabs are built from the caller's role scopes) | `dashboard.html` |
-| `/admin` | Administration console (Users, User Detail, Create User, Create Sangha-Sevi, Password, Create Organization, Organizations, Assign Sakhas, Registration Approvals, Geo Approvals, Person Directory, Member Directory, Organization Hierarchy, Org Dashboard, Reference Data, Geography, System Settings tabs) | `admin.html` |
+| `/admin` | Administration console (Users, User Detail, Create User, Create Sangha-Sevi, Password, Create Organization, Organizations, Assign Sakhas, Registration Approvals, Geo Approvals, Person Directory, Member Directory, Organization Hierarchy, Org Dashboard, Reference Data, Geography, System Settings tabs; for `AUDIT_VIEW` holders the Audit & Diagnostics group: System Event Log `#auditEvents`, Live Change Markers `#liveMarkers`) | `admin.html` |
 | `/forgot-password` | **No standalone page by design** — the forgot/reset flow is inline on `/login` (`login.html`) | -- |
 | `/docs` | Swagger UI (OpenAPI) | auto-generated |
 | `/redoc` | ReDoc | auto-generated |
@@ -741,7 +840,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 0 | Bootstrap | 4 |
 | 1 | Foundation | 33 (21 read + 8 admin write + 4 member propose) |
 | 2 | Organization | 12 |
-| 3 | Person | 8 (5 read + 3 address writes) |
+| 3 | Person | 9 (5 read + 3 address writes + 1 Aadhaar reveal, GDR-011) |
 | 4 | Family | 16 (7 original read + 9 Tier 5) |
 | 4 | Membership | 9 (8 + Tier 6 `/directory`) |
 | 5 | Authentication | 10 |
@@ -749,15 +848,17 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 5 | Claim Approval | 5 |
 | 5 | Administration | 28 (+4 Tier 6 credential endpoints = 32) |
 | 5 | Geo-Entry Approval | 4 |
-| 5 | Audit | 1 |
+| 5 | Audit | 5 |
 | 6 | Governance | 56 |
 | 6 | Membership Change Requests | 5 |
 | 6 | Correspondence Register | 19 |
 | 6 | Attendance | 20 |
 | 6 | Sakha Re-parent Approvals | 4 |
-| **Total** | | **252** |
+| 6 | Assets & Property (Module #22) | 26 |
+| 6 | Live-refresh change feed | 1 |
+| **Total** | | **284** |
 
-(per-router, decorator-counted: admin 32, attendance 21, audit 1, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 8, registration 13.)
+(per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 
 The endpoint numbers in the tables above are stable identifiers, not path order: #1-#46 are the
 original Tier 0-4 set; #47-#137 were appended as Tier 5 endpoints landed. Tier 6 endpoints (sections 8b, 12c and the `T6` admin rows) are not numbered.

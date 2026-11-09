@@ -141,8 +141,10 @@
 #                     insensitive, whitespace-tolerant; default: skipped)
 #
 # Keep phase order in sync with database/scripts/02_build.sh
-# if it changes. Verified identical on 2026-11-01: every DDL/seed/patch file
-# below is run in the same order as 02_build.sh (71 tables).
+# if it changes. Verified identical on 2026-11-02: every DDL/seed/patch file
+# below is run in the same order as 02_build.sh (79 tables; Phase 11g
+# Assets & Property + the ASSET_* permissions patch added 2026-11-02; Phase 11h
+# live-refresh change marker added 2026-11-03).
 #
 # Idempotent patch files run on EVERY deploy via run_sql (never existence-
 # gated; they carry changes to already-existing tables/seeds): role_permission
@@ -153,7 +155,8 @@
 # members without a Local Sakha ID still deploys; 03_validate WARNs about
 # them), registration_claim legacy-member patch, governance nomination
 # re-file index, Sakha Asana governing-body patch, attendance live-version
-# index, organization_reparent_step source-role patch.
+# index, organization_reparent_step source-role patch, Assets & Property
+# permissions patch, guard triggers and reference-data patch.
 #
 # Render/Neon notes for the objects above:
 #   - Functions (fn_next_sakha_local_number, fn_assert_sevi_has_home_affiliation,
@@ -306,6 +309,12 @@ run_seed "role_permission (seed)"   "role_permission"   "${SEED_BASE}/00_bootstr
 # Idempotent patch: the seed above is existence-gated, so rows added to it later
 # (Mahila admin 15->18, Advisory Board admin 0->8, 2026-10-30) reach existing DBs here.
 run_sql "role_permission mahila/advisory-board patch" "${SEED_BASE}/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql"
+# Idempotent patch (2026-11-02, GDR-010): ASSET_VIEW / ASSET_MANAGE permissions + 12 grants (permission_master 28->30, role_permission 166->178); both seeds above are existence-gated.
+run_sql "assets_property permissions patch" "${SEED_BASE}/00_bootstrap/05_assets_property_permissions_patch.sql"
+# Idempotent patch (2026-11-02, GDR-010 owner decision): soft-deletes (is_active=FALSE) the 4 grants an earlier version of the patch above created (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE) on databases that already ran it; no-op on fresh builds.
+run_sql "assets_property permissions revoke patch" "${SEED_BASE}/00_bootstrap/06_assets_property_permissions_revoke_patch.sql"
+# Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
+run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -523,6 +532,33 @@ run_ddl "organization_reparent_step"    "organization_reparent_step"    "${DDL_B
 run_sql "organization_reparent_step source-role patch" "${DDL_BASE}/02_organization/09_organization_reparent_step_source_role_patch.sql"
 
 echo ""
+echo "--- Phase 11g: Assets & Property — DDL (7 tables, Module #22, Tier 6: property, asset, custodianship, property_statutory_record, maintenance_record, property_document, asset_document) ---"
+run_ddl "property"                  "property"                  "${DDL_BASE}/11_assets_property/01_property.sql"
+run_ddl "asset"                     "asset"                     "${DDL_BASE}/11_assets_property/02_asset.sql"
+run_ddl "custodianship"             "custodianship"             "${DDL_BASE}/11_assets_property/03_custodianship.sql"
+run_ddl "property_statutory_record" "property_statutory_record" "${DDL_BASE}/11_assets_property/04_property_statutory_record.sql"
+run_ddl "maintenance_record"        "maintenance_record"        "${DDL_BASE}/11_assets_property/05_maintenance_record.sql"
+run_ddl "property_document"         "property_document"         "${DDL_BASE}/11_assets_property/06_property_document.sql"
+run_ddl "asset_document"            "asset_document"            "${DDL_BASE}/11_assets_property/07_asset_document.sql"
+run_sql "assets_property_guards" "${DDL_BASE}/11_assets_property/08_assets_property_guards.sql"
+# Idempotent patch (2026-11-02, GDR-010 §2C owner rule): the single SQL definition of custodian-eligible (physical) org types + BEFORE INSERT/UPDATE trigger on nss.custodianship; CREATE TRIGGER does not scan existing rows.
+run_sql "asset_custodian_org_type_function" "${DDL_BASE}/11_assets_property/09_asset_custodian_org_type_function.sql"
+# Idempotent patch (2026-11-02, GDR-010 item 4): nullable belongs_to_organization_pk (FK + index) on property and asset for databases built before the column existed; no-op on fresh builds (01/02 DDL already carry it).
+run_sql "assets_property_belongs_to_patch" "${DDL_BASE}/11_assets_property/10_assets_property_belongs_to_patch.sql"
+# Idempotent patch (2026-11-03, GDR-010 §2E): nullable acquisition_method_master_data_pk (FK + index) on property and asset for databases built before the column existed; no-op on fresh builds (01/02 DDL already carry it).
+run_sql "assets_property_acquisition_method_patch" "${DDL_BASE}/11_assets_property/11_assets_property_acquisition_method_patch.sql"
+# Idempotent patch (2026-11-02, GDR-010): PROPERTY/ASSET id sequences + the 7 Assets & Property master categories/values (incl. ACQUISITION_METHOD and the DISPOSED/RETIRED end reasons); the Foundation seeds are existence-gated.
+run_sql "assets_property reference data patch" "${SEED_BASE}/11_assets_property/01_assets_property_reference_data_patch.sql"
+# Idempotent patch (2026-11-03, GDR-010 §2F): ENDs the still-ACTIVE custodianship of already DISPOSED properties / RETIRED assets (end reason DISPOSED / RETIRED, seeded by the reference data patch above, so it MUST run after it); no-op on fresh builds.
+run_sql "assets_property_terminal_custody_patch" "${DDL_BASE}/11_assets_property/12_assets_property_terminal_custody_patch.sql"
+
+echo ""
+echo "--- Phase 11h: Live refresh — DDL (1 table: live_change_marker + idempotent change-marker triggers on the watched tables, owner decision 2026-11-03) ---"
+run_ddl "live_change_marker" "live_change_marker" "${DDL_BASE}/12_live_refresh/01_live_change_marker.sql"
+# Idempotent, runs EVERY deploy: the watched-table list may grow; must run after every table it names exists.
+run_sql "live_change_triggers" "${DDL_BASE}/12_live_refresh/02_live_change_triggers.sql"
+
+echo ""
 echo "--- Phase 12: Grant nss_db_writer write access ---"
 run_sql "create_writer_role" "${REPO_ROOT}/database/scripts/05_create_writer_role.sql"
 
@@ -574,6 +610,10 @@ else
     echo "${output}" | sed 's/^/         /'
     exit 1
 fi
+
+echo ""
+echo "--- Phase 13c: Audit-actor foreign keys (*_by_sangha_sevi_pk -> sangha_sevi; idempotent, NOT VALID then VALIDATE) ---"
+run_sql "audit_actor_fk_patch" "${DDL_BASE}/13_audit_actor_fk/01_audit_actor_fk_patch.sql"
 
 echo ""
 echo "--- Phase 14: Audit — DDL (1 table + trigger) ---"

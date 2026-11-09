@@ -7,6 +7,10 @@
 # modules only.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
+# Version: 2.9  - Phase 11h live-refresh change marker (1 table, 79 total) (2026-11-03);
+#          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
+# Version: 2.8  - Phase 11g Assets & Property (7 tables, 78 total) + Phase 0 ASSET_VIEW/ASSET_MANAGE patch (2026-11-02);
+#          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
 # Version: 2.7  - header/phase audit (2026-11-01): 71 tables in 13 table-creating phases; all
 #          idempotent patch files (Invoke-Sql, run every build) listed below;
 #          Invoke-Sql / Phase 13b run psql under ErrorActionPreference=Continue
@@ -70,12 +74,19 @@
 #   Phase 11f- Organization re-parent approval DDL (2 tables:
 #              organization_reparent_request, organization_reparent_step -
 #              Sakha re-parenting approval chain, owner rule 2026-10-30)
+#   Phase 11g- Assets & Property DDL (7 tables: property, asset, custodianship,
+#              property_statutory_record, maintenance_record, property_document,
+#              asset_document - Module #22, Tier 6) + lifecycle/history guard
+#              triggers + reference-data patch (GDR-010)
+#   Phase 11h- Live refresh DDL (1 table: live_change_marker + sequence live_change_seq;
+#              idempotent statement-level triggers on the watched tables)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
 #   Phase 13 - Admin bootstrap seed (NSS Admin superuser)
 #   Phase 13b- Geo attribution backfill (city_village/postal_code/
 #              post_office submitted_by_person_pk -> P1, for rows the
 #              Phase 2 bulk seed left unattributed; must run after
 #              Phase 13 since P1's person_pk doesn't exist before it)
+#   Phase 13c- Audit-actor FKs (ddl\13_audit_actor_fk\01_audit_actor_fk_patch.sql: FK on every *_by_sangha_sevi_pk, NOT VALID then VALIDATE)
 #   Phase 14 - Audit DDL (system_event_log table + DB trigger)
 #   Phase 15 - (OPTIONAL, local dev only) demo/test seed, run only when
 #              $env:RUN_DEMO_SEED is truthy and database\seed\demo\nss_demo_seed.sql
@@ -85,6 +96,9 @@
 # existence-gated - they carry changes to already-existing tables or seeds to
 # databases built before the change; see database/scripts/README.md):
 #   Phase 0   seed/00_bootstrap/04_role_permission_mahila_advisory_board_patch.sql
+#             seed/00_bootstrap/05_assets_property_permissions_patch.sql
+#             seed/00_bootstrap/06_assets_property_permissions_revoke_patch.sql
+#             seed/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql
 #   Phase 3   ddl/02_organization/08_organization_singleton_trigger.sql
 #             ddl/02_organization/10_sakha_like_org_type_function.sql
 #   Phase 4   seed/02_organization/07_advisory_board_organization_patch.sql
@@ -96,13 +110,18 @@
 #   Phase 11c seed/08_governance/04_sakha_asana_governing_body_patch.sql
 #   Phase 11e ddl/10_attendance/05_attendance_live_version_index_patch.sql
 #   Phase 11f ddl/02_organization/09_organization_reparent_step_source_role_patch.sql
-# Table count: 71 (3+14+1+2+6+16+5+2+10+5+4+2+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,14).
+#   Phase 11g ddl/11_assets_property/08_assets_property_guards.sql
+#             ddl/11_assets_property/09_asset_custodian_org_type_function.sql
+#             ddl/11_assets_property/10_assets_property_belongs_to_patch.sql
+#             ddl/11_assets_property/11_assets_property_acquisition_method_patch.sql
+#             seed/11_assets_property/01_assets_property_reference_data_patch.sql
+#             ddl/11_assets_property/12_assets_property_terminal_custody_patch.sql
+# Table count: 79 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,14).
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data - Person data lives in
 #     Foundation master_data; the superseded 01_person_master_tables.sql
 #     DDL/seed were removed 2026-10-01, dead code with zero references)
-#   - Pass 2 audit-actor FK constraints (deferred)
 # =====================================================
 
 param(
@@ -246,6 +265,12 @@ Invoke-Seed "role_permission (seed)"   "role_permission"   "$SeedBase\00_bootstr
 # Idempotent patch: the seed above is existence-gated, so rows added to it later
 # (Mahila admin 15->18, Advisory Board admin 0->8, 2026-10-30) reach existing DBs here.
 Invoke-Sql "role_permission mahila/advisory-board patch" "$SeedBase\00_bootstrap\04_role_permission_mahila_advisory_board_patch.sql"
+# Idempotent patch (2026-11-02, GDR-010): ASSET_VIEW / ASSET_MANAGE permissions + 12 grants (permission_master 28->30, role_permission 166->178); both seeds above are existence-gated.
+Invoke-Sql "assets_property permissions patch" "$SeedBase\00_bootstrap\05_assets_property_permissions_patch.sql"
+# Idempotent patch (2026-11-02, GDR-010 owner decision): soft-deletes (is_active=FALSE) the 4 grants an earlier version of the patch above created (Mahila VIEW+MANAGE, Anchalika/Zilla MANAGE) on databases that already ran it; no-op on fresh builds.
+Invoke-Sql "assets_property permissions revoke patch" "$SeedBase\00_bootstrap\06_assets_property_permissions_revoke_patch.sql"
+# Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
+Invoke-Sql "person_view_sensitive auditor revoke patch" "$SeedBase\00_bootstrap\07_person_view_sensitive_auditor_revoke_patch.sql"
 Write-Host ""
 
 # Phase 1: Foundation DDL
@@ -544,6 +569,58 @@ Invoke-Sql "organization_reparent_step source-role patch" "$DdlBase\02_organizat
 Write-Host ""
 
 # -------------------------------------------------
+# Phase 11g: Assets & Property DDL (7 tables, Module #22, Tier 6)
+# property FK -> master_data (PROPERTY_TYPE); asset FK -> master_data (ASSET_TYPE)  (Depth 1)
+# custodianship FK -> property, asset, organization, master_data
+#   (CUSTODIANSHIP_END_REASON)  (Depth 2)
+# property_statutory_record FK -> property, master_data (STATUTORY_OBLIGATION_TYPE)
+# maintenance_record FK -> property, asset, master_data (MAINTENANCE_TYPE)
+# property_document / asset_document FK -> property|asset, document_master
+#   (Foundation, Phase 1), master_data (ASSET_PROPERTY_DOCUMENT_RELATIONSHIP)
+# 08_assets_property_guards.sql is NOT a table (idempotent trigger functions:
+# lifecycle-transition / identifier-immutability / custodianship-history
+# backstops) so it is Invoke-Sql, not Invoke-Ddl. 01_assets_property_reference_data_
+# patch.sql carries the id_sequence_master (PROPERTY, ASSET), master_category
+# and master_data rows to existing databases (the Foundation seeds are
+# existence-gated). Placed after Organization/Foundation/Governance and
+# before Phase 12/14 so the writer grant and audit trigger cover these
+# tables, same reasoning as Phase 11b/11d/11e. GDR-010.
+# -------------------------------------------------
+Write-Host "[Phase 11g] Assets & Property - DDL (7 tables)" -ForegroundColor Cyan
+Invoke-Ddl "property"                  "property"                  "$DdlBase\11_assets_property\01_property.sql"
+Invoke-Ddl "asset"                     "asset"                     "$DdlBase\11_assets_property\02_asset.sql"
+Invoke-Ddl "custodianship"             "custodianship"             "$DdlBase\11_assets_property\03_custodianship.sql"
+Invoke-Ddl "property_statutory_record" "property_statutory_record" "$DdlBase\11_assets_property\04_property_statutory_record.sql"
+Invoke-Ddl "maintenance_record"        "maintenance_record"        "$DdlBase\11_assets_property\05_maintenance_record.sql"
+Invoke-Ddl "property_document"         "property_document"         "$DdlBase\11_assets_property\06_property_document.sql"
+Invoke-Ddl "asset_document"            "asset_document"            "$DdlBase\11_assets_property\07_asset_document.sql"
+Invoke-Sql "assets_property_guards" "$DdlBase\11_assets_property\08_assets_property_guards.sql"
+# Idempotent patch (2026-11-02, GDR-010 §2C owner rule): the single SQL definition of custodian-eligible (physical) org types + BEFORE INSERT/UPDATE trigger on nss.custodianship; CREATE TRIGGER does not scan existing rows.
+Invoke-Sql "asset_custodian_org_type_function" "$DdlBase\11_assets_property\09_asset_custodian_org_type_function.sql"
+# Idempotent patch (2026-11-02, GDR-010 item 4): nullable belongs_to_organization_pk (FK + index) on property and asset for databases built before the column existed; no-op on fresh builds (01/02 DDL already carry it).
+Invoke-Sql "assets_property_belongs_to_patch" "$DdlBase\11_assets_property\10_assets_property_belongs_to_patch.sql"
+# Idempotent patch (2026-11-03, GDR-010 §2E): nullable acquisition_method_master_data_pk (FK + index) on property and asset for databases built before the column existed; no-op on fresh builds (01/02 DDL already carry it).
+Invoke-Sql "assets_property_acquisition_method_patch" "$DdlBase\11_assets_property\11_assets_property_acquisition_method_patch.sql"
+# Idempotent patch (2026-11-02, GDR-010): PROPERTY/ASSET id sequences + the 7 Assets & Property master categories/values (incl. ACQUISITION_METHOD and the DISPOSED/RETIRED end reasons); the Foundation seeds are existence-gated.
+Invoke-Sql "assets_property reference data patch" "$SeedBase\11_assets_property\01_assets_property_reference_data_patch.sql"
+# Idempotent patch (2026-11-03, GDR-010 §2F): ENDs the still-ACTIVE custodianship of already DISPOSED properties / RETIRED assets (end reason DISPOSED / RETIRED, seeded by the reference data patch above, so it MUST run after it); no-op on fresh builds.
+Invoke-Sql "assets_property_terminal_custody_patch" "$DdlBase\11_assets_property\12_assets_property_terminal_custody_patch.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11h: Live refresh (1 table + 1 sequence, cross-cutting, owner decision 2026-11-03)
+# nss.live_change_marker + nss.live_change_seq (existence-gated), then the
+# idempotent statement-level triggers on the watched tables (run EVERY build:
+# the table list in 02_live_change_triggers.sql may grow; must run after every
+# table it names exists, i.e. after Phase 11g). Placed before Phase 12/14 so the
+# writer grant covers the marker table; Phase 14's audit trigger EXCLUDES it.
+# -------------------------------------------------
+Write-Host "[Phase 11h] Live refresh - DDL (1 table + change-marker triggers)" -ForegroundColor Cyan
+Invoke-Ddl "live_change_marker" "live_change_marker" "$DdlBase\12_live_refresh\01_live_change_marker.sql"
+Invoke-Sql "live_change_triggers" "$DdlBase\12_live_refresh\02_live_change_triggers.sql"
+Write-Host ""
+
+# -------------------------------------------------
 # Phase 12: Grant nss_db_writer write access (Tier 5)
 # Must run AFTER Auth + Admin DDL so the tables exist.
 # Grants SELECT on ALL tables (login lookups) +
@@ -636,6 +713,17 @@ if ($psqlExit -eq 0) {
 Write-Host ""
 
 # -------------------------------------------------
+# Phase 13c: Audit-actor foreign keys (owner decision 2026-11-04)
+# Catalog-driven and idempotent (run EVERY build): adds
+# FOREIGN KEY -> nss.sangha_sevi to every *_by_sangha_sevi_pk column
+# that has none (NOT VALID, then a VALIDATE attempt that only WARNs).
+# Must run after every table exists (all DDL phases above).
+# -------------------------------------------------
+Write-Host "[Phase 13c] Audit-actor foreign keys (*_by_sangha_sevi_pk -> sangha_sevi)" -ForegroundColor Cyan
+Invoke-Sql "audit_actor_fk_patch" "$DdlBase\13_audit_actor_fk\01_audit_actor_fk_patch.sql"
+Write-Host ""
+
+# -------------------------------------------------
 # Phase 14: Audit DDL (system_event_log + DB trigger)
 # Must run AFTER all other DDL so the trigger can
 # attach to every table in the nss schema.
@@ -679,9 +767,6 @@ Write-Host ""
 
 if ($failed -eq 0) {
     Write-Host "  Database build completed successfully." -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Not executed (future phases):" -ForegroundColor Yellow
-    Write-Host "    - Pass 2 audit-actor FK constraints"
     exit 0
 } else {
     Write-Host "  Database build FAILED ($failed errors)." -ForegroundColor Red

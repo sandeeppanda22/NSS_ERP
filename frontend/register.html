@@ -583,6 +583,22 @@
                 * At least one of mobile or email is required.
             </p>
 
+            <div class="form-group">
+                <label class="reg-label" for="reg-aadhaar">Aadhaar number (optional)</label>
+                <input type="text" id="reg-aadhaar" x-model="form.aadhaar_number"
+                       @input="form.aadhaar_number = NSS.aadhaar.group(form.aadhaar_number)"
+                       inputmode="numeric" autocomplete="off" maxlength="14"
+                       placeholder="XXXX XXXX XXXX" class="reg-input"
+                       :disabled="loading">
+                <p class="pw-requirements" style="margin-top: 0.25rem;"
+                   x-show="!NSS.aadhaar.validate(form.aadhaar_number)">
+                    Stored encrypted and used only by authorised administrators.
+                </p>
+                <p style="margin-top: 0.25rem; font-size: 0.75rem; color: #b91c1c;"
+                   x-show="NSS.aadhaar.validate(form.aadhaar_number)"
+                   x-text="NSS.aadhaar.validate(form.aadhaar_number)"></p>
+            </div>
+
             <div class="form-row" style="margin-bottom: 0.85rem;">
                 <div>
                     <label class="reg-label">Country *</label>
@@ -955,6 +971,7 @@
                                 </label>
                             </div>
                             <template x-if="form.legacy_choice === 'yes'">
+                              <div>
                                 <div style="margin-top: 0.5rem;">
                                     <label class="reg-label">
                                         Local Sakha Number
@@ -991,6 +1008,7 @@
                                         Enter the number exactly as printed on your card: number/year/next year (e.g. 345/2026/2027). Your Sakha admin will verify this.
                                     </p>
                                 </div>
+                              </div>
                             </template>
                             <template x-if="form.legacy_choice === 'no'">
                                 <p class="pw-requirements" style="margin-top: 0.5rem;">

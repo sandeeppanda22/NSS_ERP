@@ -19,6 +19,6 @@ Reference data (`ATTENDANCE_STATUS`, `ATTENDANCE_EXCEPTION_TYPE`, review statuse
 `NSS_ERP_ATTENDANCE_MARKER`) in `database/seed/00_bootstrap/`.
 
 API: `api/routers/attendance.py` + `api/schemas/attendance.py`. `03_validate.sh`/`.ps1` run
-existence checks for these tables (no seed). API/security pytest coverage: `tests/api/test_attendance.py`, `tests/security/test_attendance_security.py` (fixtures in `tests/attendance_support.py`; written but not yet run against the DB). There is no `tests/db` schema test for these tables.
+existence checks for these tables (no seed). API/security pytest coverage: `tests/api/test_attendance.py`, `tests/security/test_attendance_security.py` (fixtures in `tests/attendance_support.py`; first exercised in the owner's full DB run of 2026-11; per-test results not recorded here). There is no `tests/db` schema test for these tables.
 
 Folder index: [`../README.md`](../README.md). Deep doc: `docs/PROJECT_DOCUMENTATION.md`.

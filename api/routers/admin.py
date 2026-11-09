@@ -43,7 +43,7 @@ from uuid import UUID
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
@@ -101,6 +101,8 @@ from api.services.rbac_service import (
     load_composite_grants as _load_composite_grants,
 )
 from api.services import org_reparent_service
+from api.services.aadhaar_service import aadhaar_field_validator, set_person_aadhaar
+from api.services.person_scope import gate_aadhaar_fields
 from api.services.org_reparent_service import ALLOWED_PARENT_TYPES
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -425,6 +427,15 @@ class AdminCreatePersonRequest(BaseModel):
     country_phone_code: str | None = Field(None, max_length=10)
     mobile_number: str | None = Field(None, max_length=20)
     email: str | None = Field(None, max_length=255)
+    aadhaar_number: str | None = Field(
+        None, max_length=20,
+        description="Full 12-digit Aadhaar (spaces/hyphens allowed; Verhoeff-checked, GDR-011). Stored encrypted; never echoed.",
+    )
+
+    @field_validator("aadhaar_number")
+    @classmethod
+    def _aadhaar_number_valid(cls, v: str | None) -> str | None:
+        return aadhaar_field_validator(v)
 
 
 @router.post("/persons", status_code=201)
@@ -481,6 +492,8 @@ def admin_create_person(
             ),
         )
         person_pk = cur.fetchone()[0]
+        if body.aadhaar_number:
+            set_person_aadhaar(cur, person_pk, body.aadhaar_number, updated_by_sangha_sevi_pk=actor)
         log_audit(cur, action="CREATE", table_name="person", record_pk=str(person_pk),
                   actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
                   module="admin", summary=f"Created person {body.first_name} {body.last_name}")
@@ -1548,7 +1561,8 @@ def get_person_profile(
                    gender_master_data_pk, marital_status_master_data_pk,
                    blood_group_master_data_pk, country_phone_code, mobile_number,
                    email, emergency_contact_name, emergency_contact_phone,
-                   emergency_relationship_master_data_pk, remarks
+                   emergency_relationship_master_data_pk, remarks,
+                   aadhaar_last4, (aadhaar_encrypted IS NOT NULL)
             FROM nss.person
             WHERE person_pk = %s AND is_active = TRUE
             """,
@@ -1562,14 +1576,17 @@ def get_person_profile(
             detail="Person not found.",
         )
 
-    return PersonProfileResponse(
+    profile = PersonProfileResponse(
         person_pk=row[0], first_name=row[1], middle_name=row[2], last_name=row[3],
         date_of_birth=row[4], gender_master_data_pk=row[5],
         marital_status_master_data_pk=row[6], blood_group_master_data_pk=row[7],
         country_phone_code=row[8], mobile_number=row[9], email=row[10],
         emergency_contact_name=row[11], emergency_contact_phone=row[12],
         emergency_relationship_master_data_pk=row[13], remarks=row[14],
+        aadhaar_last4=row[15], aadhaar_full_on_file=row[16],
     )
+    gate_aadhaar_fields(conn, person_pk, user, profile)  # GDR-011: last4/flag only if permitted
+    return profile
 
 
 # ── PATCH /persons/{pk} ─────────────────────────────────────────────────

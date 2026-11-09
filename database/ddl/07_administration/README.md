@@ -25,7 +25,7 @@ SQL files' own `-- Depth:` headers say 3 (`user_role`) and 4 (`admin_scope`) —
 
 ## What These Tables Are For
 
-- **`user_role`** — junction table assigning one of the 10 frozen `role_master` roles to a
+- **`user_role`** — junction table assigning one of the `role_master` roles (11 seeded) to a
   `user_account`. Multi-role per user is supported (a user can hold several rows), and a user
   can even hold the **same** role twice with different scopes (e.g. `NSS_ERP_SAKHA_ADMIN` for
   two different Sakhas) — duplicate-scope prevention (same role + same scope_level + same org)

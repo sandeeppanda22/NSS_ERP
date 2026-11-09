@@ -143,6 +143,8 @@ The custodian shall always be an organization unit (FK to
 `organization.organization_pk`). Custodianship is not assigned to
 individuals.
 
+> **Amendment (2026-11-02, owner-directed, GDR-010)** — *Custodians are physical organizations.* NSS has two kinds of organization: CONCEPTUAL (Zilla Sangha, Anchalika Sangha — administrative groupings with no premises) and PHYSICAL (Sakha, Patha Chakra, Kendra, Nilachala Kutira, Smruti Mandira). "All the assets will come to Sakhas": property and assets are HELD (custodian) only by physical organizations. AP-015 therefore reads: the custodian is always a *physical* organization unit. A Sakha Asana is a Sakha for all purposes (GDR-008) and so is physical; wing organizations (Kumari, Sevak, local Mahila Sangha, Paribarik Asana/Sangha), the central Mahila Sangha and the Advisory Board organization are not custodians (their things belong to their Sakha / the Kendra). Custodian-eligible organization types: `SAKHA_SANGHA`, `SAKHA_ASANA`, `PATHA_CHAKRA`, `KENDRA`, `NILACHALA_KUTIRA`, `SMRUTI_MANDIRA`. Enforced by the API (422), by the DB trigger `trg_custodianship_custodian_guard` (function `nss.fn_is_asset_custodian_org_type()`), and in the UI pickers. Admins of a conceptual organization still see and manage the records of the physical organizations beneath them through the ordinary admin-scope subtree rule. This narrows the set of organizations that may be named; it does not conflict with AP-014 (the Kendra and the Sakhas are physical and remain custodians) or AP-020 (Sakha custodianship). Status: part of GDR-010 (`Proposed`).
+
 ## AP-016 — Custodianship as Separate Entity (ERP)
 
 Custodianship is modeled as a separate entity to support historical
@@ -170,6 +172,8 @@ Office-bearers of Sakha Sanghas function as custodians of the properties
 and other assets given to their charge.
 
 **Source:** Bye-Law item 12.
+
+> **Amendment (2026-11-02, owner-directed, GDR-010)** — consistent with AP-020: Sakha (and Sakha Asana, GDR-008) remain custodians. The custodian-type restriction recorded under AP-015 (physical organizations only; Anchalika/Zilla Sangha, wing organizations and the Advisory Board are not custodians) refines AP-014..AP-019 without contradicting this CONSTITUTIONAL rule.
 
 ---
 
