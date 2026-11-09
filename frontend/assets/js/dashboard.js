@@ -299,10 +299,10 @@ const LIVE_TABLE_TABS = {
     election: ["pendingItems", "orgDashboard", "governance"],
     election_nomination: ["pendingItems", "governance"],
     election_result: ["governance"],
-    body_master: ["orgDashboard", "governance"],
-    body_member_assignment: ["orgDashboard", "governance"],
-    body_type_master: ["governance"],
-    position_master: ["governance"],
+    body_master: ["orgDashboard", "governance", "advisoryBoard"],
+    body_member_assignment: ["orgDashboard", "governance", "advisoryBoard"],
+    body_type_master: ["governance", "advisoryBoard"],
+    position_master: ["governance", "advisoryBoard"],
     correspondence: ["orgDashboard"],
     organization: ["orgDashboard", "membership", "documents", "adminStats"],
     membership_sakha_affiliation: ["orgDashboard", "membership", "documents", "adminStats"],
@@ -312,7 +312,7 @@ const LIVE_TABLE_TABS = {
     // ── Batch 2: member dashboard personal / membership / family / governance tabs ──
     // The Documents tab shows the same Parichaya / Anumati data as Membership,
     // so it shares that entry's loader (reloadOnOpen is default: opening reloads).
-    person: ["personal"],
+    person: ["personal", "advisoryBoard"],
     person_address: ["personal"],
     master_data: ["personal", "membership", "documents", "adminStats"],
     sangha_sevi: ["orgDashboard", "personal", "membership", "documents", "adminStats"],
@@ -347,6 +347,11 @@ const LIVE_REFRESH_CONFIG = {
             reload: (h) => h._loadPendingItems(),
             busy: (h) => [h.sendApp.decisionRemarks, h.reparentRemarks]
                 .some((m) => Object.values(m || {}).some((v) => String(v || "").trim() !== "")),
+        },
+        // Advisory Board dashboard (governance bodies / seats / people it lists): a read-only view.
+        advisoryBoard: {
+            reload: (h) => h._loadAdvisoryBoardDashboard({ silent: true }),
+            busy: () => false,
         },
         orgDashboard: {
             reload: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return t ? t.liveReload() : null; },
@@ -5668,18 +5673,19 @@ function dashboardApp() {
                 || scopes.some(s => s.role_code === "NSS_ERP_ADVISORY_BOARD_ADMIN");
         },
 
-        async _loadAdvisoryBoardDashboard() {
+        async _loadAdvisoryBoardDashboard(opts = {}) {
             if (!this.canViewAdvisoryBoardDashboard) return;
-            this.adbDash.loading = true;
+            // silent (live refresh): keep what is on screen, no spinner and no error flash.
+            if (!opts.silent) this.adbDash.loading = true;
             this.adbDash.error = "";
             try {
                 const res = await NSSAuth.apiFetch("/api/v1/governance/advisory-board/dashboard");
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 this.adbDash.data = await res.json();
             } catch (e) {
-                this.adbDash.error = e.message || "Failed to load the Advisory Board dashboard.";
+                if (!opts.silent) this.adbDash.error = e.message || "Failed to load the Advisory Board dashboard.";
             } finally {
-                this.adbDash.loading = false;
+                if (!opts.silent) this.adbDash.loading = false;
                 this.adbDash.loaded = true;
             }
         },

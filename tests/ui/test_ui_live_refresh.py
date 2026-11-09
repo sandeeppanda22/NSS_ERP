@@ -109,7 +109,12 @@ def test_loaders_accept_silent_without_a_second_code_path():
         assert re.search(rf"async {loader}\(opts = \{{\}}\)", admin), loader
     assert "async apLoadList(opts = {})" in (JS / "assets-property.js").read_text()
     # The reload hooks call the SAME loaders the tab-open handlers call.
-    assert "reload: (h) => h.loadClaims({ silent: true })" in admin
+    assert "reload: (h) => Promise.all([h.loadClaims({ silent: true }), h.reloadSelectedClaim()])" in admin
+    # The open claim is re-read through the SAME request viewClaim uses, never a second copy,
+    # and not while an edit is open.
+    assert admin.count("/api/v1/admin/claims/${claimPk}`") == 1
+    assert "async reloadSelectedClaim()" in admin
+    assert re.search(r"async reloadSelectedClaim\(\) \{\s+if \(!this\.selectedClaim \|\| this\.claimEditing\) return;", admin)
 
 
 def test_org_dashboard_registers_as_a_live_target():
@@ -246,3 +251,19 @@ def test_live_marker_diagnostics_labels_cover_the_batch2_admin_tabs():
     block = src[src.index("const TAB_LABELS"):src.index("/** Rows whose change_seq")]
     for tab in BATCH2_ADMIN_TABS:
         assert re.search(rf"\b{tab}:", block), tab
+
+
+def test_advisory_board_and_governance_catalog_tabs_have_live_hooks():
+    """2026-11-09 audit: these two read-only views were the only data tabs of their pages
+    with watched tables behind them but no hook."""
+    dash = (JS / "dashboard.js").read_text()
+    admin = (JS / "admin.js").read_text()
+    # Member dashboard: the Advisory Board tab refreshes silently (no spinner, no error flash).
+    assert "reload: (h) => h._loadAdvisoryBoardDashboard({ silent: true })" in dash
+    assert "async _loadAdvisoryBoardDashboard(opts = {})" in dash
+    for table in ("body_master", "body_member_assignment", "body_type_master", "position_master", "person"):
+        assert re.search(rf'{table}: \[[^\]]*"advisoryBoard"', dash), table
+    # Admin console: Governance catalogue refreshes on body-type / position changes, busy while a form is open.
+    assert "reload: (h) => h.loadGovCatalog({ silent: true })" in admin
+    assert "async loadGovCatalog(opts = {})" in admin
+    assert 'body_type_master: ["govCatalog"]' in admin and 'position_master: ["govCatalog"]' in admin

@@ -94,6 +94,9 @@ const LIVE_TABLE_TABS = {
     election: ["govElections", "orgDashboard"],
     election_nomination: ["govElections"],
     election_result: ["govElections"],
+    // Governance catalogue tab (body types / positions)
+    body_type_master: ["govCatalog"],
+    position_master: ["govCatalog"],
     organization: ["orgDashboard", "organizations", "orgHierarchy", "users", "detail", "memberDir"],
     membership_sakha_affiliation: ["orgDashboard", "users", "detail", "memberDir", "credentials"],
     parichaya_patra: ["orgDashboard", "memberDir", "credentials", "credentialsBadge"],
@@ -146,7 +149,10 @@ const LIVE_REFRESH_CONFIG = {
     activeTab: (h) => h.activeTab,
     tabs: {
         claims: {
-            reload: (h) => h.loadClaims({ silent: true }),
+            // The list AND, when a claim is open, that claim's detail (so a status change by
+            // another admin shows up without leaving the page). busy (below) already holds
+            // the reload back behind the banner while an edit / remark / reveal is open.
+            reload: (h) => Promise.all([h.loadClaims({ silent: true }), h.reloadSelectedClaim()]),
             busy: (h) => !!h.claimEditing || (h.adminRemarks || "").trim() !== "" || !!h.aadhaarReveal.open,
         },
         claimsBadge: { background: true, reload: (h) => h.loadClaimsPendingCount() },
@@ -159,6 +165,11 @@ const LIVE_REFRESH_CONFIG = {
             reload: (h) => (h.corrSelected ? h._reloadCorrDetail() : h.loadCorrespondence({ silent: true })),
             busy: (h) => !!(h.corrCreateForm.show || h.corrResponsibleForm.show || h.corrDocumentForm.show
                 || h.corrFinanceForm.show || h.corrDispatchForm.saving),
+        },
+        govCatalog: {
+            reload: (h) => h.loadGovCatalog({ silent: true }),
+            busy: (h) => !!(h.govBodyTypeForm.show || h.govBodyTypeForm.saving || h.govBodyTypeEdit.pk
+                || h.govPositionForm.show || h.govPositionForm.saving || h.govPositionEdit.pk),
         },
         govBodies: {
             reload: (h) => h.loadGovBodies({ silent: true }),
@@ -4079,13 +4090,35 @@ function adminApp() {
             } catch { /* non-critical */ }
         },
 
+        // The one request for a claim's detail; viewClaim (user opens a row) and
+        // reloadSelectedClaim (live refresh) both go through it.
+        _fetchClaim(claimPk) {
+            return NSSAuth.apiFetch(`/api/v1/admin/claims/${claimPk}`);
+        },
+
+        // Live refresh of the OPEN claim: silent, never touches the typed remarks or an
+        // edit in progress, and drops the result if the admin has moved to another claim
+        // or closed the panel while the request was in flight.
+        async reloadSelectedClaim() {
+            if (!this.selectedClaim || this.claimEditing) return;
+            const pk = this.selectedClaim.registration_claim_pk;
+            try {
+                const res = await this._fetchClaim(pk);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (this.selectedClaim && this.selectedClaim.registration_claim_pk === pk && !this.claimEditing) {
+                    this.selectedClaim = data;
+                }
+            } catch { /* keep what is on screen; the next change retries */ }
+        },
+
         async viewClaim(claimPk) {
             this.claimActionError = "";
             this.adminRemarks = "";
             this.claimEditing = false;
             this.claimEditError = "";
             try {
-                const res = await NSSAuth.apiFetch(`/api/v1/admin/claims/${claimPk}`);
+                const res = await this._fetchClaim(claimPk);
                 if (res.ok) {
                     this.selectedClaim = await res.json();
                 } else {
@@ -6482,9 +6515,10 @@ function adminApp() {
 
         // ── Governance (Tier 6): Body Types & Positions catalog ──
 
-        async loadGovCatalog() {
+        async loadGovCatalog(opts = {}) {
             if (this.govCatalogLoading) return;
-            this.govCatalogLoading = true;
+            // silent (live refresh): keep the table on screen, no spinner.
+            if (!opts.silent) this.govCatalogLoading = true;
             this.govCatalogError = "";
             try {
                 const [bt, p] = await Promise.all([
@@ -6498,9 +6532,9 @@ function adminApp() {
                 this.govBodyTypes = bt.ok ? await bt.json() : [];
                 this.govPositions = p.ok ? await p.json() : [];
             } catch (err) {
-                this.govCatalogError = err.message || "Failed to load the Governance catalog.";
+                if (!opts.silent) this.govCatalogError = err.message || "Failed to load the Governance catalog.";
             } finally {
-                this.govCatalogLoading = false;
+                if (!opts.silent) this.govCatalogLoading = false;
             }
         },
 
