@@ -221,7 +221,7 @@ Per-folder detail: [`api/README.md`](../api/README.md), [`database/README.md`](.
 
 Run everything from the **repository root**.
 
-1. **Python deps:** Python **3.15** (`.python-version`, `render.yaml`; no virtual environment by owner choice): `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install -r requirements.txt` (Homebrew Pythons are PEP 668 "externally managed"; Windows: `py -m pip ...`).
+1. **Python deps:** Python **3.15** for development (`.python-version`; no virtual environment by owner choice); **Render deploys on 3.14.0** (`render.yaml` `PYTHON_VERSION`, owner decision 2026-11-09: no cp315 wheels for `pydantic_core`/`psycopg2-binary` yet, so the 3.15.2 build failed compiling `pydantic_core`): `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install -r requirements.txt` (Homebrew Pythons are PEP 668 "externally managed"; Windows: `py -m pip ...`).
    Includes FastAPI, Uvicorn, psycopg2-binary, Pydantic, python-dotenv, slowapi, argon2-cffi,
    PyJWT, cryptography (Aadhaar AES-256-GCM, GDR-011; version range unverified on Python 3.15), pytest, httpx/httpx2 (needed by `TestClient`) and the Playwright stack.
 2. **Database** (details: `database/README.md`, `database/scripts/README.md`,

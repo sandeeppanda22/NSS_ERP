@@ -18,11 +18,11 @@ services:
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT --workers 2
     envVars:
       # DB_NAME / DB_USER are not secrets — pinned here so the deploy
-      # always targets the Neon `nsserp` database as role `nss_db_owner`.
+      # always targets the Neon `nss_erp` database as role `nss_db_owner`.
       # The database and this role MUST already exist in Neon (see note
       # below); DB_PASSWORD/DB_HOST/DB_PORT stay dashboard-set secrets.
       - key: DB_NAME
-        value: nsserp
+        value: nss_erp
       - key: DB_USER
         value: nss_db_owner
       - key: DB_PASSWORD
@@ -33,11 +33,14 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
-      # Python 3.15.x (owner decision 2026-11-03: dev and deploy on the same minor).
-      # Confirm Render's native runtime offers 3.15.2 and that every pin in
-      # requirements.txt has a cp315 wheel before the next deploy (never tested here).
+      # Python 3.14.x on Render (owner decision 2026-11-09, reverses the 2026-11-03
+      # same-minor rule for DEPLOY only; dev stays on 3.15.2 per .python-version).
+      # Why: on 3.15.2 the 2026-11-09 build found no cp315 wheel for pydantic_core
+      # and psycopg2-binary, fell back to source builds, and failed (pydantic_core
+      # needs Rust; Render's cargo registry is read-only). PYTHON_VERSION takes
+      # precedence over .python-version. Revisit when those pins ship cp315 wheels.
       - key: PYTHON_VERSION
-        value: "3.15.2"
+        value: "3.14.0"
       # Tier 5: Authentication + Administration
       - key: JWT_SECRET_KEY
         sync: false
