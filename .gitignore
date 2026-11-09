@@ -10,6 +10,8 @@ venv/
 
 # Environment Variables
 .env
+deploy/*.env
+deploy/*-setup.sql
 
 # VS Code
 .vscode/
@@ -36,5 +38,7 @@ node_modules/
 # Run locally only via RUN_DEMO_SEED=true ./database/scripts/02_build.sh
 database/seed/demo/
 
+# Local clipboard images (VS Code extension)
+# Local Project Context file
 clipboard_image_*
 NSS_ERP_PROJECT_CONTEXT.md

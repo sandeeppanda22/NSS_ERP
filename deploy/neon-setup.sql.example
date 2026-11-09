@@ -1,0 +1,34 @@
+-- ======================================================================
+-- NSS ERP - Neon one-time setup (template, placeholders)
+-- ======================================================================
+-- Does NOT use neondb_owner. Order:
+--  A. Neon CONSOLE (not SQL):
+--       1. Roles -> New role: nss_db_owner. Copy the password it shows.
+--       2. Databases -> New database: nss_erp, owner nss_db_owner.
+--     (Console-created roles can create roles, so STEP 1 below works as them.)
+--  B. SQL editor / psql, connected AS nss_db_owner to database nss_erp
+--     (connection string: postgresql://nss_db_owner:<password>@<direct-host>/nss_erp?sslmode=require):
+--       run STEP 1 below.
+--  C. Deploy on Render: render_build.sh finds the roles already present and
+--     creates schema nss, the extensions, search_path, all tables and grants.
+-- ======================================================================
+
+-- STEP 1: make the console password match DB_PASSWORD in the Render env
+-- (skip this line if you copy the console's password into DB_PASSWORD instead).
+ALTER ROLE nss_db_owner PASSWORD '<DB_PASSWORD from the env file>';
+
+-- Runtime roles (attributes match database/scripts/00_create_database.sql).
+-- nss_db_backend reuses DB_PASSWORD, as render_build.sh does.
+CREATE ROLE nss_db_backend LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '<DB_PASSWORD from the env file>';
+CREATE ROLE nss_db_writer  LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '<DB_WRITE_PASSWORD from the env file>';
+
+GRANT CONNECT ON DATABASE nss_erp TO nss_db_backend, nss_db_writer;
+
+-- ======================================================================
+-- CHECK (optional): roles and database as expected?
+--   SELECT rolname, rolcanlogin, rolsuper, rolcreaterole FROM pg_roles WHERE rolname LIKE 'nss_db_%';
+--   SELECT datname, pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = 'nss_erp';
+-- AFTER the first successful Render deploy, in database nss_erp:
+--   SELECT count(*) FROM pg_tables WHERE schemaname = 'nss';          -- expect 79
+--   SELECT person_id FROM nss.person;                                 -- expect P1 (admin, if RUN_DB_BOOTSTRAP=true)
+-- ======================================================================
