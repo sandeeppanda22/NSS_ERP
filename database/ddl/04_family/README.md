@@ -159,7 +159,7 @@ the table DDL; their FKs to `sangha_sevi` are added by the single catalog-driven
   type or family status, transition type is **not** resolved through Foundation `master_data` —
   it's a plain `VARCHAR(50)` with a CHECK constraint, since it's a closed, small, code-only set
   with no display-name/description/sort-order metadata worth modeling as reference data.
-- **`chk_family_link_type`** — `CHECK (link_type IN ('PARENT_OF', 'SPOUSE_OF'))`, the same
+- **`chk_family_link_type`** — `CHECK (link_type IN ('PARENT_OF', 'SPOUSE_OF', 'SIBLING_OF'))` (declared in `CREATE TABLE`; a fresh build gets the full list, no separate `ALTER`), the same
   CHECK-not-master_data closed-enum treatment as `transition_type` above.
 - **`chk_family_link_no_self`** — `CHECK (person_a_pk <> person_b_pk)`: a person cannot be
   recorded as their own parent or spouse.

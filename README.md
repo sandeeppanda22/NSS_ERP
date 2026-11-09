@@ -121,7 +121,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Deployment
 
 * Render.com — `render.yaml` (repo root) defines a free-tier web service (`uvicorn
-  api.main:app --workers 2`). It does not provision a database itself; `DB_NAME`/`DB_USER`/
+  api.main:app --workers 2`; Python 3.14.0 on Render, `deploy/` holds the DEV/PROD env templates). It does not provision a database itself; `DB_NAME`/`DB_USER`/
   `DB_PASSWORD`/`DB_HOST`/`DB_PORT` (plus the Tier 5 `DB_WRITE_USER`/`DB_WRITE_PASSWORD`/
   `JWT_SECRET_KEY`) are set manually in the Render dashboard, pointing at an external Neon.dev
   PostgreSQL instance. `render_build.sh` builds the Tailwind CSS, installs Python deps and then
@@ -1031,6 +1031,7 @@ NSS_ERP
 ├── pytest.ini
 ├── .python-version, .nvmrc  (Python 3.15 / pinned Node)
 ├── render.yaml, render_build.sh
+├── deploy/  (Render DEV/PROD env templates *.env.example; filled *.env gitignored)
 └── requirements.txt
 ```
 

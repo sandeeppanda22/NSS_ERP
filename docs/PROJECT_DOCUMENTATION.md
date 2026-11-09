@@ -28,7 +28,7 @@ What exists today:
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
 Mahila, Publications/UPBS, Finance, Reports/Backup) (Assets & Property backend and admin UI are built; the UI has not been opened in a browser). Render.com + Neon.dev
-deployment is declared (`render.yaml`, `render_build.sh`) but unverified in production.
+deployment is declared (`render.yaml`, `render_build.sh`, env templates in `deploy/`); the DEV build succeeded on Render + Neon on 2026-11-09 (phases 0-14, 79 tables) and PROD is not yet rebuilt.
 
 ### Tier status
 
@@ -207,7 +207,8 @@ NSS_ERP/
 ├── tests/          api/ db/ security/ ui/ + conftest.py and *_support.py shared builders
 ├── docs/           00_Project_Governance, 01_Authoritative_References, 03_Solution, 05_Releases
 ├── BY-LAW/         Original Bye-Law source documents
-├── render.yaml, render_build.sh   Render/Neon deployment (declared, unverified)
+├── render.yaml, render_build.sh   Render/Neon deployment (DEV build verified 2026-11-09)
+├── deploy/         Render DEV/PROD env templates (`*.env.example`; filled `*.env` gitignored), Neon setup SQL template
 ├── requirements.txt, package.json, tailwind.config.js, pytest.ini
 ├── CLAUDE.md, README.md, NSS_ERP_PROJECT_CONTEXT.md
 └── NSS LOGO/       Source logo artwork
@@ -288,6 +289,8 @@ phases as `02_build.sh` on every deploy (existence-gated). `RUN_DB_BOOTSTRAP` (t
 `postgis`, a Phase 13 failure only warns, the demo-seed Phase 15 is not mirrored, `render.yaml`
 declares an unused `DATABASE_URL`, and `npm install` in a `runtime: python` service is
 untested. See `docs/03_Solution/architecture/DEPLOYMENT_PROCEDURE.md`.
+
+Setup used for DEV and PROD (decision 2026-11-09): two Render services, each paired with its own Neon project (separate roles and secrets, so a dev build or hard rebuild never touches prod); Render builds on Python 3.14.0 because pydantic_core and psycopg2-binary had no cp315 wheel (the 3.15.2 build failed compiling pydantic_core). Per environment: create the `nss_db_owner` role and the `nss_erp` database in the Neon console (the repo's own `nss_db_owner` is `NOCREATEROLE`, so the owner must come from the console), use the direct (non-pooler) host, set the env from `deploy/render-<env>.env.example` (`RUN_DB_BOOTSTRAP=true` on the first deploy only; `RATE_LIMIT` must stay at the 300/minute default or higher), then deploy; `render_build.sh` creates the schema, extensions, remaining roles, tables and admin. A hard rebuild is `DROP SCHEMA nss CASCADE;` followed by a redeploy (steps in the `render_build.sh` header). `PGSSLMODE=require` is the effective SSL setting; `DB_SSLMODE` and `DB_CHANNEL_BINDING` are not read by any code. Forgot-password OTPs are only visible via `DEBUG_MODE` (dev only).
 
 ## Configuration
 

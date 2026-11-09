@@ -72,7 +72,7 @@ Sakha branches and the one admin. Real data arrives via `POST /api/v1/register` 
 - `.sh`/`.ps1` script pairs must stay operationally identical (shell wrappers only).
 - **`render_build.sh` (repo root) duplicates the build sequence for Render/Neon** — keep it in
   sync with `02_build.sh`. `RUN_DB_BOOTSTRAP` (truthy = `true`/`1`/`yes`/`on`, case/whitespace-insensitive; default off) gates **only** Phase 13 (admin seed); all DDL/seed phases run every deploy, existence-gated. Known drift: no `postgis`, a Phase 13 failure only warns, `render.yaml` declares an unused `DATABASE_URL`, and
-  `npm install` in a `runtime: python` service is untested.
+  `npm install` in a `runtime: python` service is untested. Render deploys on Python 3.14.0 (`render.yaml`). Env templates for the DEV and PROD portals (each with its own Neon project, own roles/secrets) are in `deploy/` (`*.env.example`; filled `deploy/*.env` is gitignored); the hard-rebuild and Neon setup steps are in the `render_build.sh` header. `DB_SSLMODE`/`DB_CHANNEL_BINDING` are read by nothing — the libpq variable is `PGSSLMODE`. A table's DDL file must carry all its columns/constraints in `CREATE TABLE` (no trailing `ALTER` safety nets: `run_ddl` skips the whole file for an existing table); changes to existing tables go in a separate `run_sql` patch.
 - `nss_db_*` = PostgreSQL roles (lowercase); `NSS_ERP_*` = application RBAC roles in
   `role_master` (uppercase) — separate security boundaries.
 - Naming: tables `snake_case`; internal PK `_pk`; FKs reference PKs, never business IDs; business
