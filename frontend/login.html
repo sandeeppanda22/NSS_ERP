@@ -314,7 +314,7 @@
     <!-- Version badge -->
     <span class="version-badge">v0.11.0</span>
 
-    <div x-data="loginApp()" x-init="init()" @keydown.window="handleKeydown($event)">
+    <div x-data="loginApp()" @keydown.window="handleKeydown($event)">
 
         <!-- Login Card -->
         <div class="login-card" x-show="!showChangePassword && !showForgotPassword && !showResetPassword">
