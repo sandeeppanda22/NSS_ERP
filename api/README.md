@@ -94,7 +94,11 @@ api/
 │                        default) — `get_connection()` is a FastAPI generator dependency. Tier 5
 │                        (in progress): write pool (`get_write_pool()`/`get_write_connection()`,
 │                        `nss_db_writer`, 1-5 conns by default) — commits on success, rolls
-│                        back on exception. Also `close_pool()` (closes both) and
+│                        back on exception. Each pool is fronted by a BoundedSemaphore: a request
+│                        waits up to `DB_POOL_WAIT_SECONDS` for a free connection (then `PoolBusyError`
+│                        -> 503 + Retry-After) and a closed/idle-dead connection is replaced
+│                        (`_checkout`/`_release`; `checkout_write()`/`release_write()` are also used
+│                        by `dependencies/auth.py::get_write_connection`). Also `close_pool()` (closes both) and
 │                        `check_connection()` (backs `/bootstrap/health`)
 ├── error_handlers.py    Three app-wide handlers registered in `main.py`, so every failure reaches
 │                        the browser as a readable `detail` string instead of a bare status code:

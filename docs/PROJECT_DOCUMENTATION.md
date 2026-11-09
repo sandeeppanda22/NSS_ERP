@@ -54,7 +54,7 @@ owner's last full DB run (Python 3.15, after a rebuild) was 2 failed (fixed sinc
 Browser
   │
   ▼
-Middleware: SlowAPI rate limit → CORS (only if configured) → security headers + CSP (api/middleware.py)
+Middleware: SlowAPI rate limit → CORS (only if configured) → security headers + CSP (api/middleware.py) → gzip (`GZipMiddleware`, `api/main.py`, outermost)
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
@@ -143,7 +143,7 @@ Registered in `api/main.py` / `api/middleware.py`: `SlowAPIMiddleware` (one glob
 headers (`nosniff`, `X-Frame-Options: DENY`, referrer/permissions policy, `no-store` on `/api/*`,
 86400s cache on `/assets/*`) plus a Content-Security-Policy from `build_csp()`. CSP `script-src`
 has no `'unsafe-inline'`, so frontend code must not use inline event handlers. HSTS is left to
-the edge. Tests: `tests/security/test_security_headers.py`.
+the edge. `GZipMiddleware` (added last, so outermost; responses under 1 KB or already encoded are left alone) compresses the large pages and assets — the HTML is `no-store`, so without it every visit re-downloads `admin.html` (~840 KB) in full. Tests: `tests/security/test_security_headers.py`, `tests/api/test_compression.py`.
 
 ### Frontend
 
@@ -302,7 +302,9 @@ UTF-8 BOM tolerated). A template is at `api/.env.example`.
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | none (required) | `Settings.validate()` raises `RuntimeError` if missing |
 | `DB_HOST`, `DB_PORT` | `localhost`, `5432` | |
 | `DB_WRITE_USER`, `DB_WRITE_PASSWORD`, `JWT_SECRET_KEY` | none | `Settings.validate_auth()` raises if missing; only write/auth paths call it, so read endpoints start without them |
-| `DB_READ_POOL_MIN/MAX`, `DB_WRITE_POOL_MIN/MAX` | `2/15`, `1/5` | `ThreadedConnectionPool` sizes |
+| `DB_READ_POOL_MIN/MAX`, `DB_WRITE_POOL_MIN/MAX` | `2/15`, `1/5` | `ThreadedConnectionPool` sizes (per uvicorn worker; Render runs 2 workers) |
+| `DB_POOL_WAIT_SECONDS` | `20` | A request that finds every pooled connection in use waits this long, then gets HTTP 503 + `Retry-After` (`PoolBusyError`, `api/database.py`) instead of the old immediate 500 `connection pool exhausted` |
+| `DB_POOL_PING_AFTER_SECONDS` | `30` | A pooled connection idle longer than this is tested with `SELECT 1` before reuse and replaced if dead (Neon drops idle connections) |
 | `JWT_ACCESS_TOKEN_MINUTES`, `JWT_REFRESH_TOKEN_DAYS`, `JWT_ABSOLUTE_SESSION_DAYS` | `30`, `7`, `30` | Algorithm fixed `HS256`; absolute cap enforced in `decode_token()` from `session_start` |
 | `CORS_ORIGINS` | empty | Comma-separated; empty means `CORSMiddleware` is never registered |
 | `RATE_LIMIT` | `300/minute` | Global per-IP (`slowapi` spec) |
