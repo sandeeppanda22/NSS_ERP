@@ -634,6 +634,9 @@ elif echo "${output}" | grep -qiE 'column .* does not exist'; then
     # Not fatal: SKIP, not FAIL, so this step never breaks a routine
     # Render redeploy.
     echo "  [SKIP] geo_attribution_backfill  (submitted_by_person_pk column absent — needs a full hard rebuild)"
+    # Show the real psql error: the pattern above matches ANY 'column ... does
+    # not exist', so without this the message can hide which column/table it is.
+    echo "${output}" | sed 's/^/         /'
 else
     echo "  [FAIL] geo_attribution_backfill"
     echo "${output}" | sed 's/^/         /'

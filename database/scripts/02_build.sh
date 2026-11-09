@@ -804,6 +804,9 @@ elif echo "${output}" | grep -qiE 'column .* does not exist'; then
     # other existing-table column add in this script. Not fatal: SKIP,
     # not FAIL, so this step alone never aborts the whole build/deploy.
     echo -e "  ${YELLOW}[SKIP]${NC} geo_attribution_backfill  (submitted_by_person_pk column absent — needs a full hard rebuild)"
+    # Show the real psql error: the pattern above matches ANY 'column ... does
+    # not exist', so without this the message can hide which column/table it is.
+    echo "${output}" | sed 's/^/         /'
     skipped=$((skipped + 1))
 else
     echo -e "  ${RED}[FAIL]${NC} geo_attribution_backfill"

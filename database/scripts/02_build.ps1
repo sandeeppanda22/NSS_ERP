@@ -703,6 +703,9 @@ if ($psqlExit -eq 0) {
         # an incremental build against an already-bootstrapped
         # city_village/postal_code/post_office. Not fatal: SKIP, not FAIL.
         Write-Host "  [SKIP] geo_attribution_backfill  (submitted_by_person_pk column absent - needs a full hard rebuild)" -ForegroundColor Yellow
+        # Show the real psql error: the pattern above matches ANY 'column ... does
+        # not exist', so without this the message can hide which column/table it is.
+        $outputText -split "`r?`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "         $_" }
         $script:skipped++
     } else {
         Write-Host "  [FAIL] geo_attribution_backfill" -ForegroundColor Red
