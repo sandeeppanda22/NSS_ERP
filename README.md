@@ -86,7 +86,7 @@ design philosophy, ensuring that business rules are frozen before implementation
 ## Backend
 
 * FastAPI — the only web/API layer in the codebase (`api/`, raw `psycopg2`, no ORM):
-  19 routers (284 endpoints on `feature/tier6-governance`; 252 / 17 routers on local `develop`; `assets_property.py` (Module #22, 26 endpoints, committed on `feature/tier6-governance`, not yet merged), `live.py` (1 endpoint) plus `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02), one per tier/module (per-router endpoint counts: `api/README.md` and
+  19 routers (284 endpoints on local `develop`, 137 / 12 routers at v0.11.0; `assets_property.py` (Module #22, 26 endpoints), `live.py` (1 endpoint) plus `governance.py`, `membership_change_request.py`, `correspondence.py`, `attendance.py` and `org_reparent.py` are Tier 6, merged into the local `develop` 2026-11-02 / 2026-11-09), one per tier/module (per-router endpoint counts: `api/README.md` and
   `docs/03_Solution/api/API_CONTRACT.md`); `bootstrap.py` is the only unauthenticated router
   besides public registration.
   Tiers 1-4 GET endpoints are gated by `require_permission(...)` (Foundation/Organization/
@@ -736,7 +736,7 @@ Completed:
   values, shared across modules) — now consumed by the Tier 2 Organization API (see below). This
   diverges from the frozen 3-table module design — see `docs/PROJECT_DOCUMENTATION.md` →
   Gotchas. Combined with Foundation, Bootstrap RBAC, Person, Family, Membership, Authentication +
-  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6, committed on `feature/tier6-governance`) and the live-refresh marker table: **79 tables implemented** — see `database/README.md`)
+  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6) and the live-refresh marker table: **79 tables implemented** — see `database/README.md`)
 * Bootstrap RBAC DDL (`role_master`/`permission_master`/`role_permission`, `SOL-BOOT-001`/
   `SOL-ARCH-011` — DDL implemented and committed; `role_master` seeded with 11 roles
   (incl. `NSS_ERP_ADVISORY_BOARD_ADMIN` and `NSS_ERP_ATTENDANCE_MARKER`, Tier 6); `permission_master` (30 permissions, incl. `ASSET_VIEW`/`ASSET_MANAGE` from the idempotent `05_assets_property_permissions_patch.sql`, 12 grants - Anchalika/Zilla admins view-only, Mahila admin none, the 4 withdrawn grants soft-deleted by `06_assets_property_permissions_revoke_patch.sql`;
@@ -902,7 +902,7 @@ Completed:
   endpoints. **48 tables at release** (incl. `post_office`/festival tables added later on the branch). New routers at that point: `auth.py` (8 endpoints then; 10 now), `registration.py` (6 then; 13 now,
   public), `claim_approval.py` (5), `admin.py` (25 then; 32 now), `audit.py` (1), plus 9 endpoints added to
   `family.py` and 6 write endpoints added to `foundation.py` (`FOUNDATION_MANAGE`; 8 writes plus 4 member `propose` POSTs now) — **108
-  endpoints at that point (137 at the v0.11.0 release, 252 on `develop` incl. Tier 6, 284 on `feature/tier6-governance` with `assets_property.py`, `live.py` and the audit diagnostics endpoints)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
+  endpoints at that point (137 at the v0.11.0 release, 284 on local `develop` incl. Tier 6 with `assets_property.py`, `live.py` and the audit diagnostics endpoints)**. New `nss_db_writer` PostgreSQL role (write access scoped to the
   auth/admin tables). `permission_master`/`role_permission` are seeded. Every Tier 4
   "verification"/demo seed file has been deleted — a fresh build produces **zero demo
   Person/Family/Membership data**; real data comes from the registration/approval flow or the
@@ -911,7 +911,7 @@ Completed:
   session-scoped `SAVEPOINT`-per-module `conftest.py`. See `CLAUDE.md` and
   `docs/PROJECT_DOCUMENTATION.md` for the full, current detail — this bullet is a summary, not
   the source of truth.
-* **Tier 6 — Governance (merged into the local `develop` 2026-11-02 (merge commit `bc6e42f`), not pushed or released; Assets & Property, Aadhaar, live refresh, audit diagnostics and audit-actor FKs sit on `feature/tier6-governance`, 25 commits ahead of `develop` as of 2026-11-06, not yet merged; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
+* **Tier 6 — Governance (merged into the local `develop` 2026-11-02 (merge commit `bc6e42f`), not pushed or released; Assets & Property, Aadhaar, live refresh, audit diagnostics and audit-actor FKs followed and were merged by `a83e896` on 2026-11-09; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
   10 new tables under `database/ddl/08_governance/` — `body_type_master`, `position_master`,
   `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`,
   `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` — plus
@@ -922,17 +922,17 @@ Completed:
   Two new routers: `governance.py` (56 endpoints, `GOVERNANCE_VIEW`/`GOVERNANCE_MANAGE`) and
   `membership_change_request.py` (5 endpoints, Sakha Transfer / Apply for Darshak workflow) and
   `correspondence.py` (19 endpoints, Correspondence Register, `CORRESPONDENCE_VIEW`/`CORRESPONDENCE_MANAGE`) —
-  **252 endpoints, 17 routers, 71 tables on `develop` (284 / 19 / 79 on `feature/tier6-governance` with the Assets & Property module: `assets_property.py` + 7 tables, the live-refresh feed `live.py` + marker table `live_change_marker`, and the extra `audit.py` endpoints) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
+  **284 endpoints, 19 routers, 79 tables on local `develop` (71 tables / 252 endpoints / 17 routers at the first Tier 6 merge; since then the Assets & Property module: `assets_property.py` + 7 tables, the live-refresh feed `live.py` + marker table `live_change_marker`, and the extra `audit.py` endpoints) (incl. Tier 6 `attendance.py` + 4 attendance tables, `correspondence_approval_step`, and `org_reparent.py` + 2 re-parent approval tables)**. New role `NSS_ERP_ADVISORY_BOARD_ADMIN`
   (auto-granted by `rbac_service.load_composite_grants`); 28 permissions (adds `CORRESPONDENCE_*`, `GEO_ENTRY_APPROVE`, `ATTENDANCE_*`), 11 roles (adds `NSS_ERP_ATTENDANCE_MARKER`).
 
 Current Focus:
 
-* Tier 6 verification: Governance, Correspondence, Attendance and re-parent approvals are merged into the local `develop` (2026-11-02; push and release pending); Assets & Property, Aadhaar (GDR-011, Proposed), live refresh, audit diagnostics and audit-actor FKs are on `feature/tier6-governance` awaiting merge to `develop`. The newest UI has not been opened in a browser. Tier 5 (released as v0.11.0): still pending push of the local `v0.11.0` tag.
+* Tier 6 verification: Governance, Correspondence, Attendance and re-parent approvals are merged into the local `develop` (2026-11-02; push and release pending); Assets & Property, Aadhaar (GDR-011, Proposed), live refresh, audit diagnostics and audit-actor FKs were merged into the local `develop` 2026-11-09 (push and release pending). The newest UI has not been opened in a browser. Tier 5 (released as v0.11.0): still pending push of the local `v0.11.0` tag.
 * Reconciling Solution-layer design docs with actual SQL/API implementation across all 22
   documented modules — every module has a complete (or largely complete) design, and
   several groups have real SQL: Bootstrap RBAC (3 tables), Foundation (15), Organization (1, plus the 2 re-parent approval tables counted below), Person
   (2), Family (6), Membership (16), Authentication (5), Administration (2) and Governance (10), Correspondence (5), Attendance (4) and Organization re-parent approval (2, within the Organization module)
-  and Assets & Property (7) and Live refresh (1, `live_change_marker`), the last two committed on `feature/tier6-governance` — 79 tables.
+  and Assets & Property (7) and Live refresh (1, `live_change_marker`), the last two merged into the local `develop` — 79 tables.
   Released API/UI slices: Tier 0 (v0.6.0), Foundation (v0.7.0), Organization (v0.8.0), Person
   (v0.9.0), Family + Membership (v0.10.0, hotfixes through v0.10.4). The pytest suite has grown
   well beyond its v0.10.4 size (410 tests; 5173 collected on 2026-11-05: api 2757, db 401, security 1227, ui 788; the owner's last full DB run was ~4336 passed, 47 skipped, 2 failed since fixed) — see `tests/README.md` for current counts and the
@@ -952,7 +952,7 @@ Each tier follows the vertical slice pattern: **DB -> API -> Web UI -> Flutter M
 | **3** | Person | Person identity, contact, address (2 tables: `person`, `person_address`) | Done | Done (4 endpoints at release; 8 now) | Done (folded into `admin.html` Person Directory) | -- |
 | **4** | Family, Membership | Family groups/relationships + dynamic relationship graph (5 tables) + membership registration/approval/transfer/lifecycle (12 tables) | Done | Done (14 endpoints at release; 24 now incl. 9 Tier 5 Family endpoints) | Done (folded into `dashboard.html`/`admin.html`) | -- |
 | **5** | Authentication, Administration | `user_account`, `password_history`, `registration_claim`, `password_reset_token`, `user_session`, `user_role`, `admin_scope` (5 auth + 2 admin tables, plus supporting tables added to Family/Membership/Foundation) — RBAC management, JWT, audit | Done (v0.11.0) | Done (auth, registration, claim-approval, admin, audit, geo-approval routers; 108 endpoints at release incl. Tier 1-4 additions) | Done (login/register/dashboard/admin pages) | -- |
-| **6** | Governance (+ Correspondence, Membership change requests, Attendance, Assets & Property backend) | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly Sangha Puja attendance (Tier 6 `attendance.py`, 4 tables) and Sakha re-parent approvals (`org_reparent.py`, 2 tables) implemented; Assets & Property (`assets_property.py`, 7 tables, plus admin UI tabs, committed on `feature/tier6-governance`, not yet merged) | In progress (10 governance + 5 correspondence + 4 attendance + 2 re-parent + 2 membership + 7 assets & property tables) | In progress (`governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19 + `attendance.py` 21 + `org_reparent.py` 4 + `assets_property.py` 26 + `live.py` 1 endpoints, plus admin credential and audit-diagnostics endpoints; 284 total across all tiers on the feature branch, 252 on `develop`) | In progress (newest UI not yet browser-checked) | -- |
+| **6** | Governance (+ Correspondence, Membership change requests, Attendance, Assets & Property backend) | Unified body governance + elections (10 tables: `database/ddl/08_governance/`), Sakha Transfer / Apply for Darshak workflow; weekly Sangha Puja attendance (Tier 6 `attendance.py`, 4 tables) and Sakha re-parent approvals (`org_reparent.py`, 2 tables) implemented; Assets & Property (`assets_property.py`, 7 tables, plus admin UI tabs, merged into the local `develop`) | In progress (10 governance + 5 correspondence + 4 attendance + 2 re-parent + 2 membership + 7 assets & property tables) | In progress (`governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19 + `attendance.py` 21 + `org_reparent.py` 4 + `assets_property.py` 26 + `live.py` 1 endpoints, plus admin credential and audit-diagnostics endpoints; 284 total across all tiers on local `develop`) | In progress (newest UI not yet browser-checked) | -- |
 | **7** | Heritage (Founder & Heritage) | Founder record, teachings, objectives, milestones, publications framework (8 tables) | Not started | Not started | Not started | -- |
 | **8** | Programmes & Events | Common event framework (DRAFT, not frozen) — programme types, event instances, sessions | Not started | Not started | Not started | -- |
 | **9** | Kumari Sangha, Kishor Puja, Sevak Sangha | Youth/seva modules — KM/KH identity, annual events, guardian assignment, SS transition, Sevak volunteer/training/seva | Not started | Not started | Not started | -- |
@@ -988,7 +988,7 @@ Next Release Target:
 Tier 6 Governance — unified body governance (bodies, positions, assignments, acting
 assignments) + elections (nominations, ballots, results, vote participation), the
 Sakha Transfer / Apply for Darshak change-request workflow, ADVISORY_BOARD admin scope.
-(Governance, Correspondence, Attendance and re-parent approvals are merged into the local `develop`; Assets & Property and later work is still on `feature/tier6-governance`; no version tag assigned yet.)
+(All Tier 6 work, including Assets & Property, is merged into the local `develop`; not pushed; no version tag assigned yet.)
 ```
 
 ---
