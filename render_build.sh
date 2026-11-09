@@ -135,16 +135,45 @@
 #
 # Required env vars (set in Render dashboard):
 #   DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
-#   DB_WRITE_USER, DB_WRITE_PASSWORD (Tier 5 nss_db_writer pool)
+#   DB_WRITE_USER, DB_WRITE_PASSWORD (Tier 5 nss_db_writer pool; also used by
+#                     scripts/bootstrap_admin.py at Phase 13)
 #   JWT_SECRET_KEY (Tier 5 auth)
 #   RUN_DB_BOOTSTRAP (optional; truthy = true/1/yes/on, case-
 #                     insensitive, whitespace-tolerant; default: skipped)
+# Runtime-only (read by the app, not by this script; the app starts without
+# them, but capturing a full Aadhaar number is a 503 until both are set -
+# generate with scripts/generate_aadhaar_keys.py, GDR-011):
+#   AADHAAR_ENCRYPTION_KEYS, AADHAAR_HASH_PEPPER
+#
+# HARD REBUILD on Render/Neon (this script never drops anything: it is
+# existence-gated, so a redeploy alone skips every table that exists and
+# does NOT pick up edited DDL/seed of existing tables). Local equivalent:
+# docs/03_Solution/architecture/GETTING_STARTED.md "Full Rebuild Procedure".
+#   1. Suspend the Render service (or stop its deploys) so its connection
+#      pool does not hold sessions or write while the schema is dropped.
+#   2. In the Neon SQL editor, as nss_db_owner (DESTROYS ALL DATA - back up
+#      first; the nss_db_* roles and extensions survive, they are not in
+#      the schema):
+#          DROP SCHEMA nss CASCADE;
+#      Do not recreate it by hand: this script runs CREATE SCHEMA IF NOT
+#      EXISTS nss, the extensions, and creates any missing nss_db_* roles
+#      (it does NOT change the password of a role that already exists - use
+#      ALTER ROLE nss_db_writer PASSWORD '...' if DB_WRITE_PASSWORD changed).
+#   3. Set RUN_DB_BOOTSTRAP=true for this one deploy (the admin seed is the
+#      only step it gates), then trigger the deploy. Default admin login
+#      SS1 / P1, password Admin@123 - change it immediately.
+#   4. Set RUN_DB_BOOTSTRAP back to false and resume the service.
+#   5. Optionally validate from a machine that can reach Neon:
+#      ./database/scripts/03_validate.sh <DB_NAME> <DB_USER> <DB_HOST> <DB_PORT>
 #
 # Keep phase order in sync with database/scripts/02_build.sh
-# if it changes. Verified identical on 2026-11-02: every DDL/seed/patch file
+# if it changes. Verified identical on 2026-11-09: every DDL/seed/patch file
 # below is run in the same order as 02_build.sh (79 tables; Phase 11g
 # Assets & Property + the ASSET_* permissions patch added 2026-11-02; Phase 11h
-# live-refresh change marker added 2026-11-03).
+# live-refresh change marker added 2026-11-03; Phase 13c audit-actor FK patch;
+# the Aadhaar audit-trigger redaction ships inside 15_audit_trigger.sql, which
+# Phase 14 re-runs on every deploy). Intentional differences: no demo seed
+# (Phase 15), no PostGIS, the foundation loops are unrolled.
 #
 # Idempotent patch files run on EVERY deploy via run_sql (never existence-
 # gated; they carry changes to already-existing tables/seeds): role_permission
