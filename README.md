@@ -935,7 +935,7 @@ Current Focus:
   and Assets & Property (7) and Live refresh (1, `live_change_marker`), the last two merged into the local `develop` — 79 tables.
   Released API/UI slices: Tier 0 (v0.6.0), Foundation (v0.7.0), Organization (v0.8.0), Person
   (v0.9.0), Family + Membership (v0.10.0, hotfixes through v0.10.4). The pytest suite has grown
-  well beyond its v0.10.4 size (410 tests; 5173 collected on 2026-11-05: api 2757, db 401, security 1227, ui 788; the owner's last full DB run was ~4336 passed, 47 skipped, 2 failed since fixed) — see `tests/README.md` for current counts and the
+  well beyond its v0.10.4 size (410 tests; 5189 collected on 2026-11-10: api 2770, db 401, security 1227, ui 791; the owner's last full DB run was ~4336 passed, 47 skipped, 2 failed since fixed) — see `tests/README.md` for current counts and the
   per-file breakdown and fixture architecture.
 
 ---

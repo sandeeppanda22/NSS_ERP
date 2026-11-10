@@ -23,7 +23,7 @@ What exists today:
 | API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 19 routers, 284 endpoints (registered routes in the working tree — 272 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 79 tables in schema `nss`, no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5173 items collected on 2026-11-05). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5189 items collected on 2026-11-10). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
@@ -276,7 +276,7 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `python3 -m pytest --collect-only -qq`
-reports 5173 items (api 2757, db 401, security 1227, ui 788); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
+reports 5189 items (api 2770, db 401, security 1227, ui 791); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)
