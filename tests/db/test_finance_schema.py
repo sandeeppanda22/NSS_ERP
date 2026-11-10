@@ -52,6 +52,7 @@ TABLE_FILES = [
     ("09_financial_transfer.sql", "financial_transfer"),
     ("10_upi_payment_request.sql", "upi_payment_request"),
     ("11_finance_gateway_event.sql", "finance_gateway_event"),
+    ("13_finance_disbursement_authority.sql", "finance_disbursement_authority"),
 ]
 TABLES = [t for _, t in TABLE_FILES]
 APPEND_ONLY = {"finance_gateway_event"}                  # an event log: no soft delete, no audit-actor columns
@@ -656,3 +657,49 @@ class TestUpiRequestAndGatewayEvent:
             cur.execute(ins, ("evt-1", False))
             _expect(cur, psycopg2.errors.CheckViolation,
                     "INSERT INTO nss.finance_gateway_event (provider, event_id, signature_valid, payload, outcome) VALUES ('MOCK', 'e2', TRUE, '{}', 'BOGUS')")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Bye-Law disbursement authority (Kendra / central Mahila Sangha money) - DB-free parity
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDisbursementAuthorityParity:
+    def test_service_status_steps_exist_in_the_lifecycles(self):
+        from api.services import finance_authority as FA
+
+        assert {FA.KIND_STEPS["payment"]["start"], FA.KIND_STEPS["payment"]["finish"], *FA.KIND_STEPS["payment"]["open"]} <= set(S.PAYMENT_STATUSES)
+        assert {FA.KIND_STEPS["transfer"]["start"], FA.KIND_STEPS["transfer"]["finish"], *FA.KIND_STEPS["transfer"]["open"]} <= set(S.TRANSFER_STATUSES)
+        # the Treasurer's step and the completion step are real transitions of the one lifecycle table
+        assert ("APPROVED", "INITIATED") in router._STEPS["payment"] and ("INITIATED", "COMPLETED") in router._STEPS["payment"]
+        assert ("APPROVED", "EXECUTED") in router._STEPS["transfer"] and ("EXECUTED", "COMPLETED") in router._STEPS["transfer"]
+
+    def test_basis_values_match_the_ddl_check(self):
+        from api.services import finance_authority as FA
+
+        ddl = _ddl("13_finance_disbursement_authority.sql")
+        assert _check_values(ddl, "chk_fda_basis") == {FA.KENDRA, FA.MAHILA}
+        assert set(FA.BODY_TYPE) == {FA.KENDRA, FA.MAHILA}
+
+    def test_purpose_seed_is_prefixed_by_the_body_and_covers_the_bye_law(self):
+        text = (SEED / "03_finance_disbursement_purpose_patch.sql").read_text(encoding="utf-8")
+        codes = set(re.findall(r"\('((?:KENDRA|MAHILA)_[A-Z_]+)',", text))
+        assert len(codes) >= 20
+        # F[c](ii)-(v), F[A](vi) and Mahila 7(iii)(b)-(h)(j)(k) each have a purpose
+        assert {"KENDRA_NILACHALA_KUTIR", "KENDRA_MATHA_GURU_DHAMA_DONATION", "KENDRA_SATSIKSHYA_BISTAR",
+                "KENDRA_SPECIFIC_PURPOSE", "MAHILA_SPECIFIC_PURPOSE", "MAHILA_PRESIDENT_VP_EXPENSES"} <= codes
+        from api.services import finance_authority as FA
+
+        assert FA.PARICHALAK_PURPOSES <= codes
+
+    def test_the_ddl_encodes_the_three_separate_kendra_steps(self):
+        ddl = _code_only(_ddl("13_finance_disbursement_authority.sql"))
+        for needle in ("chk_fda_one_target", "chk_fda_kendra_president_order", "chk_fda_joint_signers_differ",
+                       "chk_fda_secretary_after_treasurer", "chk_fda_order_after_resolution", "uq_fda_payment", "uq_fda_transfer"):
+            assert needle in ddl, needle
+
+    def test_build_scripts_create_the_table_and_apply_the_purpose_patch(self):
+        for rel in BUILD_SCRIPTS:
+            src = _script(rel)
+            assert "13_finance_disbursement_authority.sql" in src and "03_finance_disbursement_purpose_patch.sql" in src, rel
+            assert src.index("13_finance_disbursement_authority.sql") < src.index("03_finance_disbursement_purpose_patch.sql"), rel
+            assert src.index("03_finance_disbursement_purpose_patch.sql") < src.index("02_live_change_triggers.sql"), rel

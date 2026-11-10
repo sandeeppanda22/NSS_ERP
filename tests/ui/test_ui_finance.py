@@ -394,7 +394,7 @@ class TestCustomizationAndCollectionScreens:
         pay = DASH_JS.split("async pranamiPayStart()")[1].split("_pranamiPayPoll(pk, tries) {")[0]
         assert "/api/v1/finance/my-pranami/pay" in pay and "sangha_sevi" not in pay and "person" not in pay
         card = _pranami_panel()
-        assert "Pay Pranami by UPI" in card and 'x-show="pranamiPay.heads.length > 0"' in card
+        assert "Pay by UPI" in card and 'x-show="pranamiPay.heads.length > 0"' in card
 
 
 NODE = shutil.which("node")
@@ -455,3 +455,55 @@ class TestPureLogicInNode:
             NSS.financeStatusLabel("PENDING_APPROVAL"), NSS.financeStatusLabel("SOMETHING_NEW"),
             NSS.financeStatusBadgeClass("POSTED"), NSS.financeStatusBadgeClass("SOMETHING_NEW")]));""")
         assert data == ["Pending approval", "Something New", "badge-fin-done", "badge-muted"]
+
+
+class TestByeLawAuthorityPanel:
+    """The Bye-Law disbursement panel: one panel for payments AND transfers, wired to the six API routes."""
+
+    def test_one_panel_two_entry_points(self):
+        p = _panel()
+        assert p.count("Bye-Law authority —") == 1                      # a single implementation (no duplicate markup)
+        assert "finAuthOpen('payment'" in p and "finAuthOpen('transfer'" in p
+
+    def test_api_paths_are_real_routes(self):
+        assert "`/${a.kind}s/${a.pk}/authority`" in FIN_JS and "`/${a.kind}s/${a.pk}/countersign`" in FIN_JS
+        from api.routers.finance_authority import router
+        paths = {r.path for r in router.routes}
+        assert "/api/v1/finance/payments/{payment_pk}/authority" in paths and "/api/v1/finance/transfers/{transfer_pk}/countersign" in paths
+
+    def test_request_fields_match_the_schema(self):
+        from api.schemas.finance import AuthorityWrite
+        for field in ("resolution_reference", "resolution_date", "scheme_description", "purpose_code",
+                      "parichalak_consulted", "president_order_reference", "president_order_date"):
+            assert field in AuthorityWrite.model_fields and field in FIN_JS
+
+    def test_signing_is_not_a_client_side_decision(self):
+        # the UI only offers the buttons; the Treasurer/Secretary seat is checked by the server
+        assert "countersign" in FIN_JS and "TREASURER" not in FIN_JS and "SECRETARY" not in FIN_JS
+
+    def test_panel_is_live_refresh_aware(self):
+        assert "this.finAuth]" in FIN_JS                                  # an open panel counts as busy for the live feed
+        assert "finance_disbursement_authority" in ADMIN_JS
+
+
+class TestMemberDestinationsAndEventsUi:
+    def test_the_pay_card_groups_by_sangha_and_names_the_destination(self):
+        card = _pranami_panel()
+        assert "pranamiPayGroups()" in card and "<optgroup" in card
+        assert "organization_name" in card                                    # the result line says WHICH Sangha is being paid
+        assert "pranamiPayGroups()" in DASH_JS and "pranamiPayDescription()" in DASH_JS
+        # every field read off a head / group is one the API really returns
+        from api.schemas.finance import MyPayableHead
+        for field in re.findall(r"\bh\.([a-z_]+)", card):
+            assert field in MyPayableHead.model_fields, field
+
+    def test_the_event_form_posts_what_the_api_accepts(self):
+        from api.schemas.finance import EventCreate
+        body = SETUP_JS.split("async finEventSubmit()")[1].split("async finHeadAdopt()")[0] if "async finHeadAdopt()" in SETUP_JS else SETUP_JS.split("async finEventSubmit()")[1]
+        assert '"/events"' in body
+        for field in ("organization_pk", "event_name", "description", "collection_account_pk"):
+            assert field in EventCreate.model_fields and field in body
+
+    def test_events_are_configured_by_an_approver_only(self):
+        p = _panel()
+        assert 'x-show="canApproveFinance && finHeadsAreEvents"' in p and "finEventOpenCreate()" in p

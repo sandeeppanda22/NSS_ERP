@@ -618,3 +618,112 @@ class TestMemberSelfService:
         mine = client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": u["head"]["finance_head_pk"], "amount": "10.00"}, headers=plain_member_h).json()
         assert client.get(f"{BASE}/payment-requests", params={"q": mine["request_reference"]}, headers=admin_h).json()["total"] == 1
         assert client.get(f"{BASE}/transactions", params={"q": mine["request_reference"]}, headers=admin_h).json()["total"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Where a member can pay (own Sakha + the Kendra) and events (e.g. Rasa) set up by the concerned Sangha
+# ═══════════════════════════════════════════════════════════════════════
+
+def _kendra_pk(write_conn) -> str:
+    from tests.reparent_support import kendra_pks
+
+    return kendra_pks(write_conn)[0]
+
+
+def _event(client, headers, org_pk, account, name="Rasa Utsav", **over):
+    body = {"organization_pk": str(org_pk), "event_name": name, "description": "Annual Rasa; contributions towards the celebration",
+            "collection_account_pk": account["financial_account_pk"]}
+    body.update(over)
+    return client.post(f"{BASE}/events", json=body, headers=headers)
+
+
+class TestMemberPaysOwnSakhaOrKendra:
+    def test_the_member_is_offered_their_own_sakha_and_the_kendra_but_no_other_sakha(self, client, admin_h, write_conn, register_org_pk, other_org_pk, mock_gateway, plain_member_h):
+        mine = upi_world(client, admin_h, register_org_pk, mock_gateway)
+        kendra = upi_world(client, admin_h, _kendra_pk(write_conn), mock_gateway)
+        theirs = upi_world(client, admin_h, other_org_pk, mock_gateway)
+        offered = {h["finance_head_pk"]: h for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
+        assert mine["head"]["finance_head_pk"] in offered and kendra["head"]["finance_head_pk"] in offered
+        assert theirs["head"]["finance_head_pk"] not in offered
+        assert offered[kendra["head"]["finance_head_pk"]]["is_kendra"] is True
+        assert offered[mine["head"]["finance_head_pk"]]["is_kendra"] is False
+        assert offered[mine["head"]["finance_head_pk"]]["organization_pk"] == str(register_org_pk)
+
+    def test_own_sakha_is_listed_before_the_kendra(self, client, admin_h, write_conn, register_org_pk, mock_gateway, plain_member_h):
+        upi_world(client, admin_h, _kendra_pk(write_conn), mock_gateway)
+        upi_world(client, admin_h, register_org_pk, mock_gateway)
+        flags = [h["is_kendra"] for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()]
+        assert flags == sorted(flags)                                           # all own-Sakha heads (False) come first
+
+    def test_a_member_pays_the_kendra_and_the_money_is_booked_to_the_kendra(self, client, admin_h, write_conn, register_org_pk, mock_gateway, plain_member_h):
+        ensure_open_year_covering_today(write_conn)
+        kendra = upi_world(client, admin_h, _kendra_pk(write_conn), mock_gateway)
+        r = client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": kendra["head"]["finance_head_pk"], "amount": "250.00"}, headers=plain_member_h)
+        assert r.status_code == 201, r.text
+        assert r.json()["organization_name"]                                      # the member is told WHICH Sangha they are paying
+        order = client.get(f"{BASE}/payment-requests", params={"finance_head_pk": kendra["head"]["finance_head_pk"]}, headers=admin_h).json()["items"][0]
+        assert order["financial_scope_pk"] == kendra["world"]["scope"]["financial_scope_pk"]
+
+    def test_another_sakhas_head_is_refused_even_if_the_pk_is_known(self, client, admin_h, other_org_pk, mock_gateway, plain_member_h):
+        theirs = upi_world(client, admin_h, other_org_pk, mock_gateway)
+        r = client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": theirs["head"]["finance_head_pk"], "amount": "10.00"}, headers=plain_member_h)
+        assert r.status_code == 422
+
+    def test_a_head_whose_scope_is_no_longer_active_is_hidden(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h):
+        mine = upi_world(client, admin_h, register_org_pk, mock_gateway)
+        move(client, admin_h, "scopes", mine["world"]["scope"]["financial_scope_pk"], "CLOSING")
+        assert mine["head"]["finance_head_pk"] not in {h["finance_head_pk"] for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
+
+
+class TestEvents:
+    def test_a_sangha_sets_up_an_event_in_one_step(self, client, admin_h, register_org_pk, mock_gateway):
+        account = make_account(client, admin_h, register_org_pk, mock_gateway)
+        r = _event(client, admin_h, register_org_pk, account)
+        assert r.status_code == 201, r.text
+        head = r.json()
+        assert head["is_pranami"] is True and head["allow_upi"] is True and head["direction"] == "INCOME"
+        assert head["head_name"] == "Rasa Utsav" and head["organization_pk"] == str(register_org_pk)
+        scope = client.get(f"{BASE}/scopes/{head['collection_scope_pk']}", headers=admin_h).json()
+        assert scope["scope_type"] == "EVENT" and scope["status"] == "ACTIVE" and scope["organization_pk"] == str(register_org_pk)
+        listed = client.get(f"{BASE}/heads", params={"events_only": True, "organization_pk": str(register_org_pk), "page_size": 100}, headers=admin_h).json()["items"]
+        assert head["finance_head_pk"] in {h["finance_head_pk"] for h in listed} and all(h["collection_scope_code"].startswith("EVT") for h in listed)
+
+    def test_a_member_sees_and_pays_the_event_and_is_told_its_name(self, client, admin_h, write_conn, register_org_pk, mock_gateway, plain_member_h):
+        ensure_open_year_covering_today(write_conn)
+        account = make_account(client, admin_h, register_org_pk, mock_gateway)
+        head = _event(client, admin_h, register_org_pk, account, name="Rasa 2090").json()
+        offered = {h["finance_head_pk"]: h for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
+        assert offered[head["finance_head_pk"]]["event_name"] == "Rasa 2090"
+        r = client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": head["finance_head_pk"], "amount": "108.00"}, headers=plain_member_h)
+        assert r.status_code == 201, r.text
+
+    def test_switching_the_event_off_stops_collection(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h):
+        account = make_account(client, admin_h, register_org_pk, mock_gateway)
+        head = _event(client, admin_h, register_org_pk, account).json()
+        move(client, admin_h, "heads", head["finance_head_pk"], "INACTIVE")
+        assert head["finance_head_pk"] not in {h["finance_head_pk"] for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
+        assert client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": head["finance_head_pk"], "amount": "10.00"}, headers=plain_member_h).status_code == 422
+
+    def test_the_concerned_sangha_configures_its_own_event_only(self, client, admin_h, sakha_admin_h, register_org_pk, other_org_pk, mock_gateway):
+        mine = make_account(client, admin_h, register_org_pk, mock_gateway)
+        theirs = make_account(client, admin_h, other_org_pk, mock_gateway)
+        assert _event(client, admin_h, register_org_pk, mine).status_code == 201                       # (a scoped admin needs APPROVE too; see below)
+        assert _event(client, sakha_admin_h, other_org_pk, theirs).status_code == 403                  # outside the admin's scope
+
+    def test_the_account_must_belong_to_the_sangha_and_have_a_gateway(self, client, admin_h, register_org_pk, other_org_pk, mock_gateway):
+        foreign = make_account(client, admin_h, other_org_pk, mock_gateway)
+        no_gateway = make_account(client, admin_h, register_org_pk)
+        assert _event(client, admin_h, register_org_pk, foreign).status_code == 422
+        assert _event(client, admin_h, register_org_pk, no_gateway).status_code == 422
+
+    def test_blank_name_and_unknown_organization_are_422(self, client, admin_h, register_org_pk, mock_gateway):
+        account = make_account(client, admin_h, register_org_pk, mock_gateway)
+        assert _event(client, admin_h, register_org_pk, account, name="   ").status_code == 422
+        assert _event(client, admin_h, "00000000-0000-0000-0000-000000000000", account).status_code in (404, 422)
+
+    def test_a_failed_setup_leaves_no_half_built_event(self, client, admin_h, register_org_pk, mock_gateway):
+        no_gateway = make_account(client, admin_h, register_org_pk)
+        before = client.get(f"{BASE}/scopes", params={"scope_type": "EVENT", "organization_pk": str(register_org_pk), "page_size": 100}, headers=admin_h).json()["total"]
+        assert _event(client, admin_h, register_org_pk, no_gateway).status_code == 422
+        after = client.get(f"{BASE}/scopes", params={"scope_type": "EVENT", "organization_pk": str(register_org_pk), "page_size": 100}, headers=admin_h).json()["total"]
+        assert after == before                                                                       # the 422 rolled the scope back

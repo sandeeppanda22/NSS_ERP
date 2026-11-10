@@ -39,6 +39,7 @@ tests/
 │   ├── test_local_sakha_id.py     # Local Sakha ID always generated: allocator, shared creator, admin paths (14). NOT yet run
 │   ├── test_admin_scope.py        # ADMIN-BR-076/077 admin-scope subtree enforcement across admin/claim endpoints (85; 99)
 │   ├── test_assets_property.py    # Module #22 Assets & Property API: register/list/filters/PATCH/archive for properties and assets, SOL-AP-003 lifecycle + terminal states, custodianship assign/transfer/history (AP-017/018/042), property-only statutory records, maintenance, document links, scope + audit (90; 167; incl. custodian-must-be-physical on create/assign/transfer, every eligible type accepted, `include_sub_organizations` + scope intersection, Anchalika admin view-only, `TestBelongsTo`: set/clear/filter, inactive org 422, no scope widening, custodian rule unaffected). NOT yet run
+│   ├── test_finance_bye_law.py    # Finance Bye-Law disbursement controls (Kendra): applicability, resolution/purpose/President's order, Treasurer + Secretary joint operation, vacant seats, no super-administrator override, Sakha unaffected, Kendra transfers (NOT yet run against the DB)
 │   ├── test_finance_heads.py      # Finance accounts + per-Sangha finance heads: templates/adoption, immutability, UPI-head rules, scope (run only in a throwaway PostgreSQL harness, not the project DB)
 │   ├── test_finance_upi.py        # UPI payment requests: create, signed webhook (idempotent), PAID_NEEDS_REVIEW paths, post, member pay (harness only)
 │   ├── test_upi_gateway.py        # upi_gateway service: MOCK/RAZORPAY adapters, signing, credentials-by-reference (DB-free parts)
@@ -93,6 +94,7 @@ tests/
 │
 ├── security/            # Cross-tier security assertions — 17 files
 │   ├── test_assets_property_security.py # Assets & Property: 401/403 matrix over all 34 (kind-expanded) route rows incl. Attendance Marker / Advisory Board admin / view-only role, custodian-scope refusals with exact messages, custodian-less records NSS-wide only, transfer needs both scopes (24; 292; incl. `include_sub_organizations` never widens scope, Mahila admin has no access, Anchalika/Zilla admins cannot write). NOT yet run
+│   ├── test_finance_authority_security.py # Bye-Law authority routes: inventory guard, 401/403 matrix, view-only cannot write, scoped Sakha admin cannot reach Kendra money, a permission without the seat cannot sign (NOT yet run)
 │   ├── test_finance_upi_security.py # UPI: webhook signature/replay/size, 401/403 matrix, no secrets in responses, member isolation (harness only)
 │   ├── test_finance_security.py   # Finance: 31-route inventory guard + permission-dependency guard (DB-free, ran), 401 / 403 matrix, view-only cannot write, MANAGE-only cannot use approve routes, cross-Sakha isolation, login-only `my-pranami` (158). The matrix NOT yet run against the DB
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17; 17)
