@@ -17,6 +17,9 @@ import pytest
 
 from tests.finance_support import (  # noqa: F401  (fixtures)
     BASE,
+    adopt_templates,
+    head_pk,
+    txn_body,
     _login_headers,
     FAKE_UUID,
     admin_h,
@@ -57,7 +60,8 @@ class TestReference:
         body = r.json()
         codes = [m["code"] for m in body["payment_methods"]]
         assert "UPI" in codes and "CASH" in codes
-        assert "PRANAMI_ANNUAL" in body["income_categories"]
+        assert body["head_directions"] == ["INCOME", "EXPENSE"] and "BANK" in body["account_types"]
+        assert isinstance(body["gateway_providers"], list)
         pairs = {(t["from"], t["to"]) for t in body["transitions"]["transaction"]}
         assert ("PENDING_APPROVAL", "APPROVED") in pairs and ("POSTED", "SETTLED") in pairs
 
@@ -215,44 +219,33 @@ class TestTransactions:
     @pytest.mark.parametrize("amount", ["0", "-5", "1.234"])
     def test_bad_amounts_are_422(self, client, admin_h, register_org_pk, amount):
         w = make_world(client, admin_h, register_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "transaction_type": "INCOME", "transaction_category": "PRANAMI_ANNUAL", "amount": amount,
-                "transaction_date": w["year"]["start_date"]}
+        body = txn_body(client, admin_h, w, amount=amount)
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
 
     def test_date_must_fall_inside_the_year(self, client, admin_h, register_org_pk):
         w = make_world(client, admin_h, register_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "transaction_type": "INCOME", "transaction_category": "PRANAMI_ANNUAL", "amount": "10",
-                "transaction_date": "2001-01-01"}
+        body = txn_body(client, admin_h, w, txn_date="2001-01-01")
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
 
     def test_needs_open_year_and_active_scope(self, client, admin_h, register_org_pk):
         planned = make_year(client, admin_h, open_=False)
         scope = make_scope(client, admin_h, register_org_pk, activate_with=admin_h)
-        body = {"financial_year_pk": planned["financial_year_pk"], "financial_scope_pk": scope["financial_scope_pk"],
-                "transaction_type": "INCOME", "transaction_category": "PRANAMI_ANNUAL", "amount": "10",
-                "transaction_date": planned["start_date"]}
+        body = txn_body(client, admin_h, {"year": planned, "scope": scope})
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422   # year PLANNED
         year = make_year(client, admin_h)
         draft_scope = make_scope(client, admin_h, register_org_pk)
-        body.update(financial_year_pk=year["financial_year_pk"], financial_scope_pk=draft_scope["financial_scope_pk"],
-                    transaction_date=year["start_date"])
+        body = txn_body(client, admin_h, {"year": year, "scope": draft_scope})
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422   # scope DRAFT
 
     def test_category_must_match_type(self, client, admin_h, register_org_pk):
         w = make_world(client, admin_h, register_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "transaction_type": "EXPENSE", "transaction_category": "PRANAMI_ANNUAL", "amount": "10",
-                "transaction_date": w["year"]["start_date"]}
+        body = txn_body(client, admin_h, w, kind="EXPENSE", code="PRANAMI_ANNUAL")      # an INCOME head on an expense
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
 
     def test_fund_must_belong_to_the_scope(self, client, admin_h, register_org_pk):
         w = make_world(client, admin_h, register_org_pk)
         other = make_world(client, admin_h, register_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "fund_master_pk": other["fund"]["fund_master_pk"], "transaction_type": "INCOME",
-                "transaction_category": "PRANAMI_ANNUAL", "amount": "10", "transaction_date": w["year"]["start_date"]}
+        body = txn_body(client, admin_h, w, fund=other["fund"])
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
 
     def test_full_income_lifecycle(self, client, admin_h, register_org_pk):
@@ -326,18 +319,14 @@ class TestRestrictedMoney:
 
     def test_specific_purpose_donation_needs_a_restricted_fund(self, client, admin_h, register_org_pk):
         w = make_world(client, admin_h, register_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "transaction_type": "INCOME", "transaction_category": "DONATION_SPECIFIC_PURPOSE", "amount": "10",
-                "transaction_date": w["year"]["start_date"]}
+        body = txn_body(client, admin_h, w, code="DONATION_SPECIFIC_PURPOSE")
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
         body["fund_master_pk"] = w["fund"]["fund_master_pk"]                                 # general fund: still no
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
 
     def test_restricted_expense_must_use_restricted_category(self, client, admin_h, register_org_pk):
         w, fund = self._restricted_world(client, admin_h, register_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "fund_master_pk": fund["fund_master_pk"], "transaction_type": "EXPENSE",
-                "transaction_category": "EXPENSE_GENERAL", "amount": "10", "transaction_date": w["year"]["start_date"]}
+        body = txn_body(client, admin_h, w, kind="EXPENSE", code="EXPENSE_GENERAL", fund=fund)
         assert client.post(f"{BASE}/transactions", json=body, headers=admin_h).status_code == 422
 
     def test_restricted_expense_cannot_exceed_the_fund_balance(self, client, admin_h, register_org_pk):
@@ -529,9 +518,14 @@ class TestSummary:
 
     def test_scoped_admin_sees_only_own_scopes(self, client, admin_h, other_admin_h, register_org_pk):
         w = make_world(client, admin_h, register_org_pk)
-        post_txn(client, admin_h, make_txn(client, admin_h, w["year"], w["scope"], amount="1000.00"))
-        s = client.get(f"{BASE}/summary", params={"financial_year_pk": w["year"]["financial_year_pk"]}, headers=other_admin_h).json()
-        assert float(s["income_total"]) == 0.0
+        post_txn(client, admin_h, make_txn(client, admin_h, w["year"], w["scope"], fund=w["fund"], amount="1000.00"))
+        params = {"financial_year_pk": w["year"]["financial_year_pk"]}
+        # the foreign admin cannot even ask about this scope ...
+        r = client.get(f"{BASE}/summary", params={**params, "financial_scope_pk": w["scope"]["financial_scope_pk"]}, headers=other_admin_h)
+        assert r.status_code == 403
+        # ... and its fund never shows in their year-wide summary (the year may be shared with other tests' data)
+        s = client.get(f"{BASE}/summary", params=params, headers=other_admin_h).json()
+        assert all(f["fund_master_pk"] != w["fund"]["fund_master_pk"] for f in s["by_fund"])
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -608,25 +602,24 @@ class TestMyPranami:
         self._pranami(client, admin_h, w, plain_member)
         item = client.get(f"{BASE}/my-pranami", headers=plain_member_h).json()["items"][0]
         assert set(item) == {"financial_transaction_pk", "transaction_reference", "transaction_date", "year_code",
-                             "transaction_category", "amount", "scope_name", "organization_name", "status", "receipts"}
+                             "transaction_category", "finance_head_name", "amount", "scope_name", "organization_name", "status", "receipts"}
 
 
 class TestLinkingAMember:
-    def _body(self, w, **over):
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "transaction_type": "INCOME", "transaction_category": "PRANAMI_ANNUAL", "amount": "10",
-                "transaction_date": w["year"]["start_date"]}
+    def _body(self, client, headers, w, **over):
+        # the world's scope belongs to a Sangha, so the head must be that Sangha's own (the templates were adopted into it)
+        body = txn_body(client, headers, w, amount="10")
         body.update(over)
         return body
 
     def test_unknown_member_id_is_422(self, client, admin_h, register_org_pk):
         w = make_world(client, admin_h, register_org_pk)
-        r = client.post(f"{BASE}/transactions", json=self._body(w, sangha_sevi_id="SS999999999"), headers=admin_h)
+        r = client.post(f"{BASE}/transactions", json=self._body(client, admin_h, w, sangha_sevi_id="SS999999999"), headers=admin_h)
         assert r.status_code == 422
 
     def test_member_must_be_inside_the_admins_scope(self, client, admin_h, other_admin_h, plain_member, other_org_pk):
         w = make_world(client, admin_h, other_org_pk)                     # a scope the foreign admin may use ...
-        r = client.post(f"{BASE}/transactions", json=self._body(w, sangha_sevi_id=plain_member["sangha_sevi_id"]), headers=other_admin_h)
+        r = client.post(f"{BASE}/transactions", json=self._body(client, admin_h, w, sangha_sevi_id=plain_member["sangha_sevi_id"]), headers=other_admin_h)
         assert r.status_code == 403                                       # ... but not this member (they belong to the other Sakha)
 
     def test_draft_can_be_relinked_and_unlinked(self, client, admin_h, plain_member, register_org_pk):

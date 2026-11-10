@@ -186,7 +186,12 @@ class TestOwnerDecisionPatchesWiring:
             "belongs_to_organization_pk",
         ):
             assert needle in sh and needle in ps, needle
-        assert '"role_permission" 178' in sh and '"role_permission" 178' in ps
+        # the minimum grows with every module's grants (Finance: 178 -> 192): assert the two scripts AGREE and never drop
+        # below the Assets & Property-era minimum, instead of pinning the number
+        import re
+        sh_min = re.search(r'"role_permission" (\d+)', sh)
+        ps_min = re.search(r'"role_permission" (\d+)', ps)
+        assert sh_min and ps_min and sh_min.group(1) == ps_min.group(1) and int(sh_min.group(1)) >= 178
 
 
 class TestAcquisitionAndTerminalCustodyWiring:

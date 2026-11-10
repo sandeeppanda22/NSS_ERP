@@ -28,6 +28,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     admin_user,
     make_scope,
     make_txn,
+    txn_body,
     make_world,
     other_admin,
     other_admin_h,
@@ -67,7 +68,7 @@ ENDPOINTS: list[tuple[str, str, dict | None]] = [
     ("GET", f"{BASE}/transactions", None),
     ("POST", f"{BASE}/transactions", {
         "financial_year_pk": FAKE_UUID, "financial_scope_pk": FAKE_UUID, "transaction_type": "INCOME",
-        "transaction_category": "PRANAMI_ANNUAL", "amount": "10", "transaction_date": _DATE}),
+        "finance_head_pk": FAKE_UUID, "amount": "10", "transaction_date": _DATE}),
     ("GET", f"{BASE}/transactions/{FAKE_UUID}", None),
     ("PATCH", f"{BASE}/transactions/{FAKE_UUID}", {"description": "x"}),
     ("POST", f"{BASE}/transactions/{FAKE_UUID}/transition", {"status": "PENDING_APPROVAL"}),
@@ -215,7 +216,5 @@ class TestAdminScope:
 
     def test_scoped_admin_cannot_target_a_foreign_year_scope_pair(self, client, admin_h, sakha_admin_h, other_org_pk):
         w = make_world(client, admin_h, other_org_pk)
-        body = {"financial_year_pk": w["year"]["financial_year_pk"], "financial_scope_pk": w["scope"]["financial_scope_pk"],
-                "transaction_type": "INCOME", "transaction_category": "PRANAMI_ANNUAL", "amount": "10",
-                "transaction_date": w["year"]["start_date"]}
+        body = txn_body(client, admin_h, w)
         assert client.post(f"{BASE}/transactions", json=body, headers=sakha_admin_h).status_code == 403
