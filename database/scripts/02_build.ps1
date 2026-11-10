@@ -7,7 +7,7 @@
 # modules only.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
-# Version: 2.10 - Phase 11i Finance (11 tables, 90 total) + Phase 0 FINANCE_* permissions patch + Finance reference-data patch (2026-11-10);
+# Version: 2.10 - Phase 11i Finance (12 tables, 91 total; + disbursement authority) + Phase 0 FINANCE_* permissions patch + Finance reference-data patch (2026-11-10);
 #          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
 # Version: 2.9  - Phase 11h live-refresh change marker (1 table, 79 total) (2026-11-03);
 #          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
@@ -82,7 +82,7 @@
 #              triggers + reference-data patch (GDR-010)
 #   Phase 11h- Live refresh DDL (1 table: live_change_marker + sequence live_change_seq;
 #              idempotent statement-level triggers on the watched tables)
-#   Phase 11i- Finance DDL (11 tables: financial_year, financial_scope, fund_master, financial_account,
+#   Phase 11i- Finance DDL (12 tables: financial_year, financial_scope, fund_master, financial_account,
 #              finance_head, financial_transaction, financial_receipt, financial_payment, financial_transfer,
 #              upi_payment_request, finance_gateway_event — Module Finance, Tier 12)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
@@ -627,10 +627,10 @@ Invoke-Ddl "live_change_marker" "live_change_marker" "$DdlBase\12_live_refresh\0
 Write-Host ""
 
 # -------------------------------------------------
-# Phase 11i: Finance DDL (11 tables, Tier 12) - DRAFT, owner approval pending
+# Phase 11i: Finance DDL (12 tables, Tier 12) - DRAFT, owner approval pending
 # Same order and placement as 02_build.sh Phase 11i.
 # -------------------------------------------------
-Write-Host "[Phase 11i] Finance - DDL (11 tables)" -ForegroundColor Cyan
+Write-Host "[Phase 11i] Finance - DDL (12 tables)" -ForegroundColor Cyan
 Invoke-Ddl "financial_year" "financial_year" "$DdlBase\14_finance\01_financial_year.sql"
 Invoke-Ddl "financial_scope" "financial_scope" "$DdlBase\14_finance\02_financial_scope.sql"
 Invoke-Ddl "fund_master" "fund_master" "$DdlBase\14_finance\03_fund_master.sql"
@@ -642,10 +642,13 @@ Invoke-Ddl "financial_payment" "financial_payment" "$DdlBase\14_finance\08_finan
 Invoke-Ddl "financial_transfer" "financial_transfer" "$DdlBase\14_finance\09_financial_transfer.sql"
 Invoke-Ddl "upi_payment_request" "upi_payment_request" "$DdlBase\14_finance\10_upi_payment_request.sql"
 Invoke-Ddl "finance_gateway_event" "finance_gateway_event" "$DdlBase\14_finance\11_finance_gateway_event.sql"
+Invoke-Ddl "finance_disbursement_authority" "finance_disbursement_authority" "$DdlBase\14_finance\13_finance_disbursement_authority.sql"
 Invoke-Sql "finance reference data patch" "$SeedBase\12_finance\01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 Invoke-Sql "finance head templates patch" "$SeedBase\12_finance\02_finance_head_templates_patch.sql"
 Invoke-Sql "finance heads structure patch" "$DdlBase\14_finance\12_finance_heads_patch.sql"
+# Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
+Invoke-Sql "finance disbursement purpose patch" "$SeedBase\12_finance\03_finance_disbursement_purpose_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 Invoke-Sql "live_change_triggers" "$DdlBase\12_live_refresh\02_live_change_triggers.sql"

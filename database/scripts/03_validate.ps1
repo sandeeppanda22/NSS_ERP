@@ -7,7 +7,7 @@
 # run 02_build.ps1 first.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
-# Version: 1.8 - Finance now 11 tables (90 total): + financial_account, finance_head, upi_payment_request, finance_gateway_event, head/UPI checks (2026-11-10; desk-checked, never run on PowerShell).
+# Version: 1.8 - Finance now 12 tables (91 total): + finance_disbursement_authority, disbursement purpose checks; earlier + financial_account, finance_head, upi_payment_request, finance_gateway_event, head/UPI checks (2026-11-10; desk-checked, never run on PowerShell).
 # Version: 1.7 - add Finance (7 tables, 86 total), FINANCE_* / PAYMENT_METHOD patch checks, raised minimums: permission_master 33,
 #                 role_permission 192, master_category 27, master_data 162, id_sequence_master 21 (2026-11-10; desk-checked, never run on PowerShell).
 # Version: 1.6 - add Module 11 live_change_marker (1 table, 79 total) (2026-11-03; desk-checked, never run on PowerShell).
@@ -569,6 +569,7 @@ Check-TableExists "financial_account"
 Check-TableExists "finance_head"
 Check-TableExists "upi_payment_request"
 Check-TableExists "finance_gateway_event"
+Check-TableExists "finance_disbursement_authority"
 
 Check-ColumnExists "financial_scope" "scope_code"
 Check-ColumnExists "financial_scope" "organization_pk"
@@ -592,6 +593,9 @@ Check-ColumnExists "upi_payment_request" "financial_account_pk"
 Check-ColumnExists "upi_payment_request" "provider_order_id"
 Check-ColumnExists "finance_gateway_event" "event_id"
 Check-ColumnExists "finance_gateway_event" "signature_valid"
+Check-ColumnExists "finance_disbursement_authority" "resolution_reference"
+Check-ColumnExists "finance_disbursement_authority" "treasurer_person_pk"
+Check-ColumnExists "finance_disbursement_authority" "secretary_person_pk"
 
 Write-Host "  FK integrity (no orphans - vacuously true until used):"
 Check-FkIntegrity "financial_scope -> financial_year" "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
@@ -608,6 +612,10 @@ Check-FkIntegrity "financial_transaction -> finance_head" "SELECT COUNT(*) FROM 
 Check-FkIntegrity "upi_payment_request -> financial_account" "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.financial_account p ON c.financial_account_pk = p.financial_account_pk WHERE c.financial_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
 Check-FkIntegrity "upi_payment_request -> finance_head" "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
 Check-FkIntegrity "finance_gateway_event -> upi_payment_request" "SELECT COUNT(*) FROM nss.finance_gateway_event c LEFT JOIN nss.upi_payment_request p ON c.upi_payment_request_pk = p.upi_payment_request_pk WHERE c.upi_payment_request_pk IS NOT NULL AND p.upi_payment_request_pk IS NULL;"
+Check-FkIntegrity "finance_disbursement_authority -> financial_payment" "SELECT COUNT(*) FROM nss.finance_disbursement_authority c LEFT JOIN nss.financial_payment p ON c.financial_payment_pk = p.financial_payment_pk WHERE c.financial_payment_pk IS NOT NULL AND p.financial_payment_pk IS NULL;"
+Check-FkIntegrity "finance_disbursement_authority -> financial_transfer" "SELECT COUNT(*) FROM nss.finance_disbursement_authority c LEFT JOIN nss.financial_transfer p ON c.financial_transfer_pk = p.financial_transfer_pk WHERE c.financial_transfer_pk IS NOT NULL AND p.financial_transfer_pk IS NULL;"
+Check-FkIntegrity "no COMPLETED Kendra/Mahila disbursement without both the Treasurer and the Secretary signature" "SELECT COUNT(*) FROM nss.finance_disbursement_authority a LEFT JOIN nss.financial_payment py ON py.financial_payment_pk = a.financial_payment_pk LEFT JOIN nss.financial_transfer tr ON tr.financial_transfer_pk = a.financial_transfer_pk WHERE (py.status = 'COMPLETED' OR tr.status = 'COMPLETED') AND (a.treasurer_signed_at IS NULL OR a.secretary_signed_at IS NULL);"
+Check-FkIntegrity "DISBURSEMENT_PURPOSE master_data present (disbursement purpose patch ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'DISBURSEMENT_PURPOSE') >= 20 THEN 0 ELSE 1 END;"
 Check-FkIntegrity "every transaction has a finance head (heads structure patch ran)" "SELECT COUNT(*) FROM nss.financial_transaction WHERE finance_head_pk IS NULL;"
 Check-FkIntegrity "no UPI-enabled head without a collection scope and account" "SELECT COUNT(*) FROM nss.finance_head WHERE allow_upi AND (collection_scope_pk IS NULL OR collection_account_pk IS NULL);"
 Check-FkIntegrity "no PAID UPI request left unposted without a review reason" "SELECT COUNT(*) FROM nss.upi_payment_request WHERE status = 'PAID' AND financial_transaction_pk IS NULL AND review_reason IS NULL;"

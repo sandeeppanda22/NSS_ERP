@@ -21,7 +21,7 @@
 #   DB_HOST  = localhost
 #   DB_PORT  = 5432
 #
-# Modules validated (90 tables in all):
+# Modules validated (91 tables in all):
 #   - Bootstrap RBAC (3 tables)
 #   - Foundation (12 tables)
 #   - Organization (1 table — type/status in Foundation master_data)
@@ -32,7 +32,7 @@
 #   - Governance (10 tables — existence only, no seed)
 #   - Correspondence (5), Attendance (4), Organization re-parent approval (2),
 #     Assets & Property (7 — existence, key columns, FK integrity, XOR / one-active-custodian invariants)
-#   - Finance (11 — existence, key columns, FK integrity, uniqueness; the PAYMENT_METHOD master data and the
+#   - Finance (12 — existence, key columns, FK integrity, uniqueness; the PAYMENT_METHOD master data and the
 #     FINANCE_* permissions are FAIL checks because they are delivered by idempotent patches)
 #   - Patch-delivered objects (a patch that did not run FAILs here): Advisory
 #     Board org + singleton trigger, fn_is_sakha_like_org_type, Sakha Asana
@@ -774,6 +774,7 @@ check_table_exists "financial_account"
 check_table_exists "finance_head"
 check_table_exists "upi_payment_request"
 check_table_exists "finance_gateway_event"
+check_table_exists "finance_disbursement_authority"
 
 check_column_exists "financial_scope" "scope_code"
 check_column_exists "financial_scope" "organization_pk"
@@ -797,6 +798,9 @@ check_column_exists "upi_payment_request" "financial_account_pk"
 check_column_exists "upi_payment_request" "provider_order_id"
 check_column_exists "finance_gateway_event" "event_id"
 check_column_exists "finance_gateway_event" "signature_valid"
+check_column_exists "finance_disbursement_authority" "resolution_reference"
+check_column_exists "finance_disbursement_authority" "treasurer_person_pk"
+check_column_exists "finance_disbursement_authority" "secretary_person_pk"
 
 check_fk_integrity "financial_scope -> financial_year" \
     "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
@@ -826,6 +830,14 @@ check_fk_integrity "upi_payment_request -> finance_head" \
     "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
 check_fk_integrity "finance_gateway_event -> upi_payment_request" \
     "SELECT COUNT(*) FROM nss.finance_gateway_event c LEFT JOIN nss.upi_payment_request p ON c.upi_payment_request_pk = p.upi_payment_request_pk WHERE c.upi_payment_request_pk IS NOT NULL AND p.upi_payment_request_pk IS NULL;"
+check_fk_integrity "finance_disbursement_authority -> financial_payment" \
+    "SELECT COUNT(*) FROM nss.finance_disbursement_authority c LEFT JOIN nss.financial_payment p ON c.financial_payment_pk = p.financial_payment_pk WHERE c.financial_payment_pk IS NOT NULL AND p.financial_payment_pk IS NULL;"
+check_fk_integrity "finance_disbursement_authority -> financial_transfer" \
+    "SELECT COUNT(*) FROM nss.finance_disbursement_authority c LEFT JOIN nss.financial_transfer p ON c.financial_transfer_pk = p.financial_transfer_pk WHERE c.financial_transfer_pk IS NOT NULL AND p.financial_transfer_pk IS NULL;"
+check_fk_integrity "no COMPLETED Kendra/Mahila disbursement without both the Treasurer and the Secretary signature" \
+    "SELECT COUNT(*) FROM nss.finance_disbursement_authority a LEFT JOIN nss.financial_payment py ON py.financial_payment_pk = a.financial_payment_pk LEFT JOIN nss.financial_transfer tr ON tr.financial_transfer_pk = a.financial_transfer_pk WHERE (py.status = 'COMPLETED' OR tr.status = 'COMPLETED') AND (a.treasurer_signed_at IS NULL OR a.secretary_signed_at IS NULL);"
+check_fk_integrity "DISBURSEMENT_PURPOSE master_data present (disbursement purpose patch ran)" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'DISBURSEMENT_PURPOSE') >= 20 THEN 0 ELSE 1 END;"
 check_fk_integrity "every transaction has a finance head (heads structure patch ran)" \
     "SELECT COUNT(*) FROM nss.financial_transaction WHERE finance_head_pk IS NULL;"
 check_fk_integrity "no UPI-enabled head without a collection scope and account" \

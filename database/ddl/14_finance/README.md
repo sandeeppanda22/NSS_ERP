@@ -1,6 +1,6 @@
 # database/ddl/14_finance/
 
-Finance module DDL — **11 tables** (Tier 12, work in progress on `feature/tier12-finance`, **uncommitted**). Built as
+Finance module DDL — **12 tables** (Tier 12, work in progress on `feature/tier12-finance`, **uncommitted**). Built as
 Phase 11i of `02_build.sh`/`.ps1` and `render_build.sh` (after Live refresh, before the Phase 12 writer grant and
 Phase 14 audit trigger, so both cover these tables; the live-refresh trigger file is invoked at the END of the phase).
 Design authority: `docs/03_Solution/modules/finance/` (`SOL-FIN-001`..`005`, `DRAFT — SOURCE ALIGNED`) as amended by
@@ -19,11 +19,13 @@ the owner decisions of 2026-11-10 below. File numbers are the build (dependency)
 | `09_financial_transfer.sql` | `financial_transfer` | Between two DIFFERENT scopes (CHECK); optional source/destination fund. |
 | `10_upi_payment_request.sql` | `upi_payment_request` | One request to collect money by UPI: head, account, scope, optional fund, payer (member or name), `provider` + unique `provider_order_id`, `pay_url`/`upi_uri`, expiry, status CREATED/PENDING/PAID/FAILED/EXPIRED/CANCELLED. CHECKs: a PAID request carries its evidence (`provider_payment_id`, `paid_amount`, `paid_at`); a transaction hangs off a PAID request only. `review_reason` explains a PAID request waiting for a treasurer. |
 | `11_finance_gateway_event.sql` | `finance_gateway_event` | **Append-only** log of every webhook the gateway sent. A partial unique index on `(provider, event_id) WHERE signature_valid` makes processing idempotent while a FORGED event can never block a real one. No soft delete, off the live feed (it carries payer details; retention is an owner decision). |
+| `13_finance_disbursement_authority.sql` | `finance_disbursement_authority` | **Bye-Law controls on money leaving the Kendra / central Mahila Sangha.** One row per payment or transfer-out (exactly one target, CHECK). Keeps the three Kendra steps SEPARATE (FIN-BR-040): the Governing Body resolution + scheme + permitted purpose, the President's written order (CHECK: mandatory when `bye_law_basis = 'KENDRA'`, never before the resolution), then the Treasurer's and Secretary's signatures (F[b], MS-7(ii): two DIFFERENT persons, Secretary only after the Treasurer). Other levels have no row: their authorization matrix is PENDING (FIN-BR-044). |
 | `12_finance_heads_patch.sql` | (patch) | Idempotent `run_sql`, runs AFTER `seed/12_finance/02_finance_head_templates_patch.sql`: brings a database built with the OLD `financial_transaction` (fixed category CHECK, no head) to the new shape by mapping every existing row onto the template with the same old category code. A no-op on a fresh build. |
 
 Reference data and RBAC: `database/seed/12_finance/01_finance_reference_data_patch.sql` (`PAYMENT_METHOD` incl. UPI, id
 sequences `FTX`/`RCT`/`PAY`/`FTR`/`PRQ`, initial year 2026-27), `database/seed/12_finance/02_finance_head_templates_patch.sql`
-(the 12 Kendra templates: the former category codes verbatim, so nothing is lost) and
+(the 12 Kendra templates: the former category codes verbatim, so nothing is lost), `database/seed/12_finance/03_finance_disbursement_purpose_patch.sql`
+(`DISBURSEMENT_PURPOSE` master data: the 11 Kendra purposes of F[c](ii)-(v) and F[A](vi) and the 9 Mahila purposes of 7(iii), `KENDRA_*`/`MAHILA_*`) and
 `database/seed/00_bootstrap/08_finance_permissions_patch.sql` (`FINANCE_VIEW`/`FINANCE_MANAGE`/`FINANCE_APPROVE`).
 
 **Proposed, not frozen (owner to confirm):** `NUMERIC(14,2)` strictly-positive amounts (the `ADJUSTMENT` sign / reversal rule
@@ -34,7 +36,7 @@ the API requires NEW transactions to use a head owned by the scope's organizatio
 
 **Verification (2026-11-10).** The real `02_build.sh` and `03_validate.sh` were run, unmodified, against a throwaway
 single-user PostgreSQL 18 through a `psql` stand-in (the authoring sandbox forbids sockets, so this is not the project
-database): fresh build — every Finance phase `[OK]`, 90 tables, live triggers + marker rows on the 10 live tables, audit
+database): fresh build — every Finance phase `[OK]` (before the Bye-Law disbursement table was added: 90 tables, the harness has since applied that table and its seed patch and exercised its CHECKs; the full build was not re-run), 91 tables now, live triggers + marker rows on the 10 live tables, audit
 trigger on all 11, writer role INSERT/UPDATE but no DELETE, backend SELECT only; `03_validate` 350 passed / 0 failed; a
 second `02_build` run skipped 114 scripts and duplicated nothing; an OLD-shape database holding rows was upgraded by the
 patch with every existing transaction mapped to its head; `tests/db/test_finance_schema.py` 103/103 (55 DB-free + 48

@@ -5,7 +5,7 @@
 -- Version: 1.0 (2026-11-10)
 -- Authority: owner decision 2026-11-10 (customizable finance heads with Kendra
 --            templates); SOL-FIN-004 §10.5 (the former fixed category list,
---            whose 12 codes are kept verbatim as the starting templates).
+--            whose 12 codes are kept verbatim as the starting templates; PARICHAYA_PATRA and ANUMATI_PATRA were added 2026-11-10 as operational heads a member can pay).
 -- =====================================================
 -- Kendra-published TEMPLATE heads (organization_pk NULL). A Sangha adopts them into
 -- its own catalogue (POST /finance/heads/adopt-templates) and then renames, switches
@@ -19,6 +19,8 @@ INSERT INTO nss.finance_head
      required_fund_type, is_pranami, display_order)
 VALUES
     (NULL, 'MEMBERSHIP_SUBSCRIPTION', 'Membership subscription', 'Subscription paid by a member.', 'INCOME', FALSE, NULL, NULL, FALSE, 10),
+    (NULL, 'PARICHAYA_PATRA',         'Parichaya Patra',          'Payment towards a member''s Parichaya Patra (operational head, not a Bye-Law fund category).', 'INCOME', FALSE, NULL, NULL, TRUE, 12),
+    (NULL, 'ANUMATI_PATRA',           'Anumati Patra',            'Payment towards a member''s Anumati Patra, paid to the Sakha (operational head, not a Bye-Law fund category).', 'INCOME', FALSE, NULL, NULL, TRUE, 14),
     (NULL, 'PRANAMI_ANNUAL',          'Annual Pranami',           'Annual Pranami (Bye-Law Section F[A](ii)).', 'INCOME', FALSE, NULL, NULL, TRUE, 20),
     (NULL, 'PRANAMI_SPECIAL',         'Special Pranami',          'Special Pranami.', 'INCOME', FALSE, NULL, NULL, TRUE, 30),
     (NULL, 'PRANAMI_SINKING_FUND',    'Pranami to Sinking Fund',  'Special Pranami that builds a Sakha''s Sinking Fund, held under the Kendra (FIN-BR-023/024).', 'INCOME', FALSE, NULL, 'SINKING_FUND', TRUE, 40),

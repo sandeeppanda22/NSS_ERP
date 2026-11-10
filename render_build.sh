@@ -24,7 +24,7 @@
 # that still reported a clean build. Fixed by moving the gate down to
 # wrap only the Phase 13 call.
 #
-# Finance (Tier 12, 2026-11-10): Phase 11i (11 tables, 90 total) + the FINANCE_* permissions patch (Phase 0) and the Finance
+# Finance (Tier 12, 2026-11-10): Phase 11i (12 tables, 91 total) + the FINANCE_* permissions patch (Phase 0) and the Finance
 # reference-data patch (after Phase 11i) are mirrored below from 02_build.sh, same order.
 #
 # Existence-gated bootstrap (Version 3.0, 2026-10-05) —
@@ -171,10 +171,10 @@
 #
 # Keep phase order in sync with database/scripts/02_build.sh
 # if it changes. Verified identical on 2026-11-09: every DDL/seed/patch file
-# below is run in the same order as 02_build.sh (90 tables, Phase 11i Finance added; Phase 11g
+# below is run in the same order as 02_build.sh (91 tables, Phase 11i Finance added; Phase 11g
 # Assets & Property + the ASSET_* permissions patch added 2026-11-02; Phase 11h
 # live-refresh change marker added 2026-11-03; Phase 13c audit-actor FK patch;
-# the Aadhaar audit-trigger redaction ships inside 15_audit_trigger.sql, which
+# the Aadhaar audit-trigger redaction ships inside the audit trigger file, which
 # Phase 14 re-runs on every deploy). Intentional differences: no demo seed
 # (Phase 15), no PostGIS, the foundation loops are unrolled.
 #
@@ -602,10 +602,13 @@ run_ddl "financial_payment" "financial_payment" "${DDL_BASE}/14_finance/08_finan
 run_ddl "financial_transfer" "financial_transfer" "${DDL_BASE}/14_finance/09_financial_transfer.sql"
 run_ddl "upi_payment_request" "upi_payment_request" "${DDL_BASE}/14_finance/10_upi_payment_request.sql"
 run_ddl "finance_gateway_event" "finance_gateway_event" "${DDL_BASE}/14_finance/11_finance_gateway_event.sql"
+run_ddl "finance_disbursement_authority" "finance_disbursement_authority" "${DDL_BASE}/14_finance/13_finance_disbursement_authority.sql"
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 run_sql "finance head templates patch" "${SEED_BASE}/12_finance/02_finance_head_templates_patch.sql"
 run_sql "finance heads structure patch" "${DDL_BASE}/14_finance/12_finance_heads_patch.sql"
+# Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
+run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 # Idempotent, runs EVERY deploy: the watched-table list may grow; must run after every table it names exists.
