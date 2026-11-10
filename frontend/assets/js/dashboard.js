@@ -1022,12 +1022,26 @@ function dashboardApp() {
             return this.pranamiFiltered().reduce((sum, i) => sum + Number(i.amount), 0);
         },
         // ── Pay Pranami by UPI (Finance, Tier 12) ────────────────────────────
-        // GET /finance/my-pranami/heads lists what the member's own Sakha can collect by UPI; POST /finance/my-pranami/pay
+        // GET /finance/my-pranami/heads lists what the member's own Sakha and the Kendra can collect by UPI; POST /finance/my-pranami/pay
         // starts a payment of THEIR OWN Pranami (the payer is the token). This page never marks anything paid: the gateway's
         // signed webhook does, and the status poll below only reports it. Links are rendered only with the expected scheme.
         pranamiPay: { heads: [], head: "", amount: "", saving: false, error: "", result: null },
         _pranamiPayTimer: null,
 
+        // The heads grouped by the Sangha they pay: the member's own Sakha first, then the Kendra (the server sorts them so).
+        pranamiPayGroups() {
+            const groups = [];
+            for (const h of this.pranamiPay.heads) {
+                let g = groups.find((x) => x.organization_pk === h.organization_pk);
+                if (!g) { g = { organization_pk: h.organization_pk, name: h.organization_name || "", heads: [] }; groups.push(g); }
+                g.heads.push(h);
+            }
+            return groups;
+        },
+        pranamiPayDescription() {
+            const h = this.pranamiPay.heads.find((x) => x.finance_head_pk === this.pranamiPay.head);
+            return h && h.description ? h.description : "";
+        },
         pranamiSafeUrl(url) { return typeof url === "string" && /^https:\/\//i.test(url) ? url : ""; },
         pranamiSafeUpi(uri) { return typeof uri === "string" && /^upi:\/\/pay\?/i.test(uri) ? uri : ""; },
 

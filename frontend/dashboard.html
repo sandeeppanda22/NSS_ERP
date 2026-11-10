@@ -4514,7 +4514,8 @@
 
                         <!-- Pay by UPI: starts a payment of the member's OWN Pranami; the gateway's signed callback books it -->
                         <div class="data-card" x-show="pranamiPay.heads.length > 0">
-                            <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Pay Pranami by UPI</h2></div>
+                            <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Pay by UPI</h2>
+                                <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Pranami, cards and events — to your own Sakha or to the Kendra. The money goes straight to that Sangha's account.</p></div>
                             <div style="padding: 0.6rem 1.25rem 1rem;">
                                 <div x-show="!pranamiPay.result">
                                     <div class="card-grid" style="gap: 0.75rem; align-items: end;">
@@ -4522,10 +4523,15 @@
                                             <label style="font-size: 0.7rem; color: #6b7280;">What are you paying?</label>
                                             <select class="nss-select" x-model="pranamiPay.head">
                                                 <option value="">Select…</option>
-                                                <template x-for="h in pranamiPay.heads" :key="h.finance_head_pk">
-                                                    <option :value="h.finance_head_pk" x-text="h.head_name + ' — ' + h.organization_name"></option>
+                                                <template x-for="g in pranamiPayGroups()" :key="g.organization_pk">
+                                                    <optgroup :label="g.name">
+                                                        <template x-for="h in g.heads" :key="h.finance_head_pk">
+                                                            <option :value="h.finance_head_pk" x-text="h.event_name ? h.head_name + ' (event)' : h.head_name"></option>
+                                                        </template>
+                                                    </optgroup>
                                                 </template>
                                             </select>
+                                            <div style="font-size: 0.72rem; color: #6b7280; margin-top: 0.25rem;" x-show="pranamiPayDescription()" x-text="pranamiPayDescription()"></div>
                                         </div>
                                         <div>
                                             <label style="font-size: 0.7rem; color: #6b7280;">Amount (₹)</label>
@@ -4539,7 +4545,7 @@
                                 </div>
                                 <div x-show="pranamiPay.result">
                                     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                                        <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiPay.result && (NSS.formatMoney(pranamiPay.result.amount) + ' — ' + pranamiPay.result.head_name)"></span>
+                                        <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiPay.result && (NSS.formatMoney(pranamiPay.result.amount) + ' — ' + pranamiPay.result.head_name + (pranamiPay.result.organization_name ? ' (' + pranamiPay.result.organization_name + ')' : ''))"></span>
                                         <span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(pranamiPay.result && pranamiPay.result.status)" x-text="pranamiPay.result && NSS.financeStatusLabel(pranamiPay.result.status)"></span>
                                     </div>
                                     <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem;">

@@ -34,6 +34,10 @@
         required_fund_type: "", is_pranami: false, allow_upi: false, collection_scope_pk: "", collection_fund_pk: "",
         collection_account_pk: "", display_order: 100, lockedShape: false,
     });
+    // An event a Sangha collects for (e.g. Rasa): one step creates its EVENT scope and a member-payable UPI head.
+    const newEventForm = () => ({
+        show: false, saving: false, error: "", organization: emptyPicker(), event_name: "", description: "", collection_account_pk: "",
+    });
     const newAcctForm = () => ({
         show: false, mode: "create", pk: "", saving: false, error: "", organization: emptyPicker(), account_label: "",
         account_type: "BANK", bank_name: "", branch_name: "", account_holder_name: "", account_number_last4: "", ifsc_code: "",
@@ -47,13 +51,13 @@
             // Tab entry + live refresh (called by finance.js' finEnterTab / finLiveReload / finLiveBusy)
             // ═════════════════════════════════════════════════════════
             async finSetupEnter() {
-                this.finHeadForm = newHeadForm(); this.finAcctForm = newAcctForm();
+                this.finHeadForm = newHeadForm(); this.finAcctForm = newAcctForm(); this.finEventForm = newEventForm();
                 await Promise.all([this.finHeadsLoad(), this.finAcctsLoad()]);
             },
             async finSetupReload() {
                 await Promise.all([this.finHeadsLoad({ silent: true }), this.finAcctsLoad({ silent: true })]);
             },
-            finSetupBusy() { return !!(this.finHeadForm.show || this.finAcctForm.show || this.finHeadForm.saving || this.finAcctForm.saving); },
+            finSetupBusy() { return !!(this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
 
             async finReqEnter() {
                 this.finReq = null; this.finReqForm = newReqForm();
@@ -77,12 +81,13 @@
             // Finance heads
             // ═════════════════════════════════════════════════════════
             finHeads: [], finHeadsTotal: 0, finHeadsLoading: false, finHeadsError: "", _finHeadsSeq: 0,
-            finHeadView: "sangha",                 // "sangha" | "templates"
+            finHeadView: "sangha",                 // "sangha" | "events" | "templates"
             finHeadQ: "", finHeadDirFilter: "", finHeadStatusFilter: "",
             finHeadForm: newHeadForm(), finHeadScopes: [], finHeadFunds: [], finHeadAccounts: [],
             finHeadOptions: { fundTypes: [] },
 
             get finHeadsAreTemplates() { return this.finHeadView === "templates"; },
+            get finHeadsAreEvents() { return this.finHeadView === "events"; },
 
             async finHeadsLoad(opts = {}) {
                 const seq = ++this._finHeadsSeq;
@@ -90,7 +95,8 @@
                 try {
                     const data = await this._finGet("/heads", {
                         q: this.finHeadQ.trim(), direction: this.finHeadDirFilter, status: this.finHeadStatusFilter, page_size: 200,
-                        ...(this.finHeadsAreTemplates ? { templates_only: "true" } : { with_templates: "false", organization_pk: this.finSetupOrgPk }),
+                        ...(this.finHeadsAreTemplates ? { templates_only: "true" }
+                            : { with_templates: "false", organization_pk: this.finSetupOrgPk, ...(this.finHeadView === "events" ? { events_only: "true" } : {}) }),
                     });
                     if (seq !== this._finHeadsSeq) return;
                     this.finHeads = data.items; this.finHeadsTotal = data.total;
@@ -187,6 +193,50 @@
                     await this.finHeadsLoad({ silent: true });
                 } catch (err) {
                     f.error = err.message || "Could not save the finance head.";
+                } finally {
+                    f.saving = false;
+                }
+            },
+
+            // ── Events (e.g. Rasa): configured by the concerned Sangha ─────────────
+            finEventForm: newEventForm(), finEventAccounts: [],
+            finEventOpenCreate() {
+                this.finEventForm = { ...newEventForm(), show: true };
+                this.finEventAccounts = [];
+                if (this.finSetupOrg.selected) {
+                    this.finEventForm.organization = { ...emptyPicker(), selected: this.finSetupOrg.selected, query: this.finSetupOrg.selected.organization_name };
+                    return this.finEventOrgChanged();
+                }
+            },
+            finEventCancel() { this.finEventForm = { ...this.finEventForm, show: false }; },
+            // The receiving account is chosen from the Sangha's own ACTIVE accounts.
+            async finEventOrgChanged() {
+                const f = this.finEventForm;
+                const org = f.organization.selected ? f.organization.selected.organization_pk : "";
+                f.collection_account_pk = ""; this.finEventAccounts = [];
+                if (!org) return;
+                try {
+                    this.finEventAccounts = (await this._finGet("/accounts", { organization_pk: org, status: "ACTIVE", page_size: 100 })).items;
+                    if (this.finEventAccounts.length === 1) f.collection_account_pk = this.finEventAccounts[0].financial_account_pk;
+                } catch { /* the list stays empty; the server explains on save */ }
+            },
+            async finEventSubmit() {
+                const f = this.finEventForm;
+                if (!f.organization.selected) { f.error = "Choose the Sangha running the event."; return; }
+                if (!blank(f.event_name)) { f.error = "The event needs a name."; return; }
+                if (!f.collection_account_pk) { f.error = "Choose the Sangha's receiving account (it needs a payment gateway)."; return; }
+                f.saving = true; f.error = "";
+                try {
+                    await this._finSend("POST", "/events", {
+                        organization_pk: f.organization.selected.organization_pk, event_name: f.event_name.trim(),
+                        description: blank(f.description), collection_account_pk: f.collection_account_pk,
+                    });
+                    this.finEventForm = newEventForm();
+                    this._finNote("Event created. Members of this Sangha (or all members, for the Kendra) can now pay towards it by UPI; switch its head off to stop collecting.");
+                    this.finHeadView = "events";
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    f.error = err.message || "Could not create the event.";
                 } finally {
                     f.saving = false;
                 }

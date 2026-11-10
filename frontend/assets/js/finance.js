@@ -72,6 +72,12 @@
         show: false, saving: false, error: "", receipt_date: "", amount: "", received_from: "",
         payment_method_code: "", instrument_reference: "",
     });
+    // The Bye-Law disbursement panel (Kendra / central Mahila money): one panel for payments AND transfers.
+    const newAuth = () => ({
+        show: false, saving: false, error: "", kind: "", pk: "", title: "", state: null,
+        form: { resolution_reference: "", resolution_date: "", scheme_description: "", purpose_code: "",
+                parichalak_consulted: false, president_order_reference: "", president_order_date: "" },
+    });
     const newPaymentForm = () => ({
         show: false, saving: false, error: "", payment_date: "", amount: "", paid_to: "",
         payment_method_code: "", instrument_reference: "",
@@ -103,6 +109,7 @@
             finRef: null,
             finNotice: "",
             finTx: newTx(),          // the one lifecycle dialog (remarks) shared by every entity
+            finAuth: newAuth(),
 
             async finLoadRef() {
                 if (this.finRef) return;
@@ -115,6 +122,22 @@
             get finScopeTypes() { return (this.finRef && this.finRef.scope_types) || []; },
             get finTxnTypes() { return (this.finRef && this.finRef.transaction_types) || []; },
             get finStatuses() { return (this.finRef && this.finRef.statuses) || {}; },
+            // Permitted purposes for the body that governs the open payment / transfer (KENDRA_* or MAHILA_* codes).
+            get finAuthPurposes() {
+                const basis = this.finAuth.state && this.finAuth.state.bye_law_basis;
+                const all = (this.finRef && this.finRef.disbursement_purposes) || [];
+                return basis ? all.filter((p) => p.code.startsWith(basis + "_")) : [];
+            },
+            get finAuthEditable() {
+                const st = this.finAuth.state;
+                return !!st && st.applies && !(st.authority && st.authority.treasurer_signed_at)
+                    && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(st.status) && this.canManageFinance;
+            },
+            get finAuthCanCountersign() {
+                const st = this.finAuth.state;
+                return !!st && st.applies && !!st.authority && !!st.authority.treasurer_signed_at
+                    && !st.authority.secretary_signed_at && this.canManageFinance;
+            },
 
             finLabel(status) { return NSS.financeStatusLabel(status); },
             finBadge(status) { return NSS.financeStatusBadgeClass(status); },
@@ -202,11 +225,73 @@
                 if (this.finTxn) await this.finReloadTxn();
             },
 
+            // ── Bye-Law disbursement authority (Kendra / central Mahila money) ──
+            // kind: payment | transfer. The server decides whether the controls apply to this record's level.
+            async finAuthOpen(kind, pk, title) {
+                this.finAuth = { ...newAuth(), show: true, kind, pk, title };
+                await this.finAuthReload();
+            },
+            async finAuthReload() {
+                const a = this.finAuth;
+                try {
+                    a.state = await this._finGet(`/${a.kind}s/${a.pk}/authority`);
+                    const cur = a.state.authority;
+                    if (cur) {
+                        a.form = {
+                            resolution_reference: cur.resolution_reference, resolution_date: cur.resolution_date,
+                            scheme_description: cur.scheme_description, purpose_code: cur.purpose_code,
+                            parichalak_consulted: !!cur.parichalak_consulted,
+                            president_order_reference: cur.president_order_reference || "",
+                            president_order_date: cur.president_order_date || "",
+                        };
+                    }
+                    a.error = "";
+                } catch (err) {
+                    a.error = err.message || "Could not load the Bye-Law authority.";
+                }
+            },
+            finAuthClose() { this.finAuth = newAuth(); },
+            async finAuthSave() {
+                const a = this.finAuth, f = a.form;
+                if (blank(f.resolution_reference) === null || !f.resolution_date || blank(f.scheme_description) === null || !f.purpose_code) {
+                    a.error = "Give the Governing Body resolution (reference, date), the scheme and the purpose.";
+                    return;
+                }
+                a.saving = true; a.error = "";
+                try {
+                    a.state = await this._finSend("PUT", `/${a.kind}s/${a.pk}/authority`, {
+                        resolution_reference: f.resolution_reference.trim(), resolution_date: f.resolution_date,
+                        scheme_description: f.scheme_description.trim(), purpose_code: f.purpose_code,
+                        parichalak_consulted: !!f.parichalak_consulted,
+                        president_order_reference: blank(f.president_order_reference), president_order_date: f.president_order_date || null,
+                    });
+                    this._finNote("Bye-Law authority recorded.");
+                } catch (err) {
+                    a.error = err.message || "Could not record the authority.";
+                } finally {
+                    a.saving = false;
+                }
+            },
+            async finAuthCountersign() {
+                const a = this.finAuth;
+                a.saving = true; a.error = "";
+                try {
+                    a.state = await this._finSend("POST", `/${a.kind}s/${a.pk}/countersign`);
+                    this._finNote("Countersigned. Funds are operated jointly by the Treasurer and the Secretary.");
+                    await this._finReloadAfter(a.kind);
+                } catch (err) {
+                    a.error = err.message || "Could not countersign.";
+                } finally {
+                    a.saving = false;
+                }
+            },
+
             // ── Tab entry ─────────────────────────────────────────────
             async finEnterTab(tab) {
                 if (tab) this.activeTab = tab;
                 this.finNotice = "";
                 this.finTx = newTx();
+                this.finAuth = newAuth();
                 await this.finLoadRef();
                 if (this.activeTab === "finOverview") {
                     await this.finLoadYears();
@@ -230,7 +315,7 @@
             // Live refresh hooks (LIVE_REFRESH_CONFIG in admin.js)
             finLiveBusy() {
                 return [this.finYearForm, this.finScopeForm, this.finScopeEdit, this.finFundForm, this.finTxnForm,
-                    this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx]
+                    this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx, this.finAuth]
                     .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk
                     || this.finSetupBusy() || this.finReqBusy();
             },

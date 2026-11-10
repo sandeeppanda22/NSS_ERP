@@ -8424,6 +8424,80 @@
                             </template>
                         </div>
 
+                        <!-- ═════════ Bye-Law disbursement authority (one panel for payments and transfers) ═════════ -->
+                        <div class="data-card" x-show="finAuth.show && ['finTransactions','finTransfers'].includes(activeTab)" x-cloak>
+                            <div class="data-card-header">
+                                <div>
+                                    <h2 class="data-card-title">Bye-Law authority — <span x-text="finAuth.title"></span></h2>
+                                    <span style="font-size:0.75rem; color:#6b7280;" x-show="finAuth.state && finAuth.state.applies"
+                                          x-text="finAuth.state && finAuth.state.bye_law_basis === 'KENDRA' ? 'Kendra Sangha funds (NSS Bye-Law F[b], F[c], Treasurer duty 7(b))' : 'Mahila Sangha funds (Mahila Bye-Law 7(ii), 7(iii))'"></span>
+                                </div>
+                                <button class="btn-action" @click="finAuthClose()">Close</button>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="alert-msg alert-error" x-show="finAuth.error" x-text="finAuth.error"></div>
+                                <div style="padding:0.5rem 0; color:#6b7280;" x-show="!finAuth.state && !finAuth.error">Loading…</div>
+                                <div style="padding:0.5rem 0; color:#6b7280;" x-show="finAuth.state && !finAuth.state.applies"
+                                     x-text="finAuth.state && finAuth.state.note"></div>
+                                <template x-if="finAuth.state && finAuth.state.applies">
+                                    <div>
+                                        <ol style="margin:0 0 0.75rem 1.1rem; font-size:0.8rem; color:#374151; list-style:decimal;">
+                                            <template x-for="line in finAuth.state.requirements" :key="line"><li x-text="line"></li></template>
+                                        </ol>
+                                        <div class="form-grid-2">
+                                            <div>
+                                                <label class="form-label">Governing Body resolution — reference</label>
+                                                <input type="text" class="form-input" maxlength="100" x-model="finAuth.form.resolution_reference" :disabled="!finAuthEditable" autocomplete="off">
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Resolution date</label>
+                                                <input type="date" class="form-input" x-model="finAuth.form.resolution_date" :disabled="!finAuthEditable">
+                                            </div>
+                                            <div style="grid-column:span 2;">
+                                                <label class="form-label">Scheme approved by the Governing Body</label>
+                                                <input type="text" class="form-input" maxlength="4000" x-model="finAuth.form.scheme_description" :disabled="!finAuthEditable" autocomplete="off">
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Permitted purpose</label>
+                                                <select class="nss-select" x-model="finAuth.form.purpose_code" :disabled="!finAuthEditable">
+                                                    <option value="">Select…</option>
+                                                    <template x-for="pp in finAuthPurposes" :key="pp.code"><option :value="pp.code" x-text="pp.name"></option></template>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="form-label">Parichalak consulted</label>
+                                                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem;">
+                                                    <input type="checkbox" x-model="finAuth.form.parichalak_consulted" :disabled="!finAuthEditable"> Yes (required for Mahila money and Satsikshya Bistar)
+                                                </label>
+                                            </div>
+                                            <div x-show="finAuth.state.bye_law_basis === 'KENDRA'">
+                                                <label class="form-label">President's written order — reference</label>
+                                                <input type="text" class="form-input" maxlength="100" x-model="finAuth.form.president_order_reference" :disabled="!finAuthEditable" autocomplete="off">
+                                            </div>
+                                            <div x-show="finAuth.state.bye_law_basis === 'KENDRA'">
+                                                <label class="form-label">Order date</label>
+                                                <input type="date" class="form-input" x-model="finAuth.form.president_order_date" :disabled="!finAuthEditable">
+                                            </div>
+                                        </div>
+                                        <div class="detail-grid cols-3" style="margin-top:0.75rem;" x-show="finAuth.state.authority">
+                                            <div class="detail-item"><div class="label">Treasurer</div>
+                                                <div class="value" x-text="finAuth.state.authority && finAuth.state.authority.treasurer_signed_at ? 'Signed ' + NSS.formatDateTime(finAuth.state.authority.treasurer_signed_at) : 'Not yet'"></div></div>
+                                            <div class="detail-item"><div class="label">Secretary (countersign)</div>
+                                                <div class="value" x-text="finAuth.state.authority && finAuth.state.authority.secretary_signed_at ? 'Signed ' + NSS.formatDateTime(finAuth.state.authority.secretary_signed_at) : 'Not yet'"></div></div>
+                                            <div class="detail-item"><div class="label">Next step</div><div class="value" x-text="finAuth.state.next_step || 'Complete'"></div></div>
+                                        </div>
+                                        <div style="margin-top:0.75rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                                            <button class="btn-action primary" x-show="finAuthEditable" :disabled="finAuth.saving" @click="finAuthSave()" x-text="finAuth.saving ? 'Saving…' : 'Record authority'"></button>
+                                            <button class="btn-action primary" x-show="finAuthCanCountersign" :disabled="finAuth.saving" @click="finAuthCountersign()">Countersign as Secretary</button>
+                                        </div>
+                                        <p style="margin-top:0.6rem; font-size:0.75rem; color:#6b7280;">
+                                            The Treasurer disburses by moving the record to the “disburse” step; only the person seated as Treasurer can do this, and only the person seated as Secretary can countersign. Nobody else, including the super administrator, can sign for them.
+                                        </p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
                         <!-- ═════════ Transactions ═════════ -->
                         <div x-show="activeTab === 'finTransactions'" x-cloak>
 
@@ -8739,6 +8813,7 @@
                                                                     <template x-for="a in finActions('payment', p.status)" :key="a.to">
                                                                         <button class="link-action" @click="finAskTransition('payment', p.financial_payment_pk, 'Payment ' + p.payment_reference, a)" x-text="a.label"></button>
                                                                     </template>
+                                                                    <button class="link-action" @click="finAuthOpen('payment', p.financial_payment_pk, 'Payment ' + p.payment_reference)">Bye-Law authority</button>
                                                                 </td>
                                                             </tr>
                                                         </template>
@@ -8904,6 +8979,7 @@
                                             <template x-for="a in finActions('transfer', finTransfer.status)" :key="a.to">
                                                 <button class="btn-action" :class="{ danger: a.danger, primary: !a.danger }" @click="finAskTransition('transfer', finTransfer.financial_transfer_pk, finTransfer.transfer_reference, a)" x-text="a.label"></button>
                                             </template>
+                                            <button class="btn-action" @click="finAuthOpen('transfer', finTransfer.financial_transfer_pk, 'Transfer ' + finTransfer.transfer_reference)">Bye-Law authority</button>
                                             <button class="btn-action" @click="finBackToTransfers()">Back to list</button>
                                         </div>
                                     </div>
@@ -8945,6 +9021,48 @@
                                             Showing <span x-text="finSetupOrg.selected && finSetupOrg.selected.organization_name"></span> only.
                                             <button type="button" class="link-action" @click="finSetupClearOrg()">Show all</button>
                                         </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Event form: a Sangha sets up what it collects for (e.g. Rasa) -->
+                            <div class="data-card" x-show="finEventForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">New event</h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint" style="margin-bottom:0.75rem;">An event is a Sangha's own collection (for example Rasa). Members of that Sakha — or every member, for the Kendra — will see it on their dashboard and can pay towards it by UPI; the money goes to the receiving account chosen here.</p>
+                                    <div class="form-grid-2">
+                                        <div class="typeahead-wrap">
+                                            <label class="form-label">Sangha running the event</label>
+                                            <input type="text" class="form-input" x-model="finEventForm.organization.query"
+                                                   @input="corrOnOrgQueryInput(finEventForm.organization)" placeholder="Search by Sangha name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="finEventForm.organization.results.length > 0">
+                                                <template x-for="org in finEventForm.organization.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(finEventForm.organization, org); finEventOrgChanged()">
+                                                        <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Event name</label>
+                                            <input type="text" class="form-input" maxlength="150" x-model="finEventForm.event_name" placeholder="e.g. Rasa Utsav" autocomplete="off">
+                                        </div>
+                                        <div style="grid-column:span 2;">
+                                            <label class="form-label">What members see <span class="optional">(optional)</span></label>
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finEventForm.description" placeholder="Dates, venue, what the contribution is for" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Receiving account</label>
+                                            <select class="nss-select" x-model="finEventForm.collection_account_pk">
+                                                <option value="">Select…</option>
+                                                <template x-for="a in finEventAccounts" :key="a.financial_account_pk"><option :value="a.financial_account_pk" x-text="a.account_label"></option></template>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finEventForm.error" x-text="finEventForm.error"></div>
+                                    <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
+                                        <button class="btn-action primary" :disabled="finEventForm.saving" @click="finEventSubmit()" x-text="finEventForm.saving ? 'Creating…' : 'Create event'"></button>
+                                        <button class="btn-action" :disabled="finEventForm.saving" @click="finEventCancel()">Cancel</button>
                                     </div>
                                 </div>
                             </div>
@@ -9060,10 +9178,12 @@
                                     <h2 class="data-card-title" x-text="finHeadsAreTemplates ? 'Kendra template heads' : 'Finance heads'"></h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
                                         <span style="font-size:0.75rem; color:#6b7280;" x-text="finHeadsTotal + ' total'"></span>
-                                        <button class="btn-action" :class="{ primary: !finHeadsAreTemplates }" @click="finHeadSetView('sangha')">Sangha heads</button>
+                                        <button class="btn-action" :class="{ primary: finHeadView === 'sangha' }" @click="finHeadSetView('sangha')">Sangha heads</button>
+                                        <button class="btn-action" :class="{ primary: finHeadsAreEvents }" @click="finHeadSetView('events')">Events</button>
                                         <button class="btn-action" :class="{ primary: finHeadsAreTemplates }" @click="finHeadSetView('templates')">Kendra templates</button>
                                         <button class="btn-action" x-show="canApproveFinance && !finHeadsAreTemplates" @click="finHeadAdopt()" title="Copy the Kendra templates into the Sangha chosen above">Add Kendra templates</button>
-                                        <button class="btn-action primary" x-show="canApproveFinance" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : '+ New head'"></button>
+                                        <button class="btn-action primary" x-show="canApproveFinance && finHeadsAreEvents" @click="finEventOpenCreate()">+ New event</button>
+                                        <button class="btn-action primary" x-show="canApproveFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : '+ New head'"></button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
