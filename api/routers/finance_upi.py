@@ -112,8 +112,8 @@ def _load_request(cur, pk, *, lock: bool = False) -> dict:
 
 
 def _member_view(row: dict) -> dict:
-    return {k: row[k] for k in ("upi_payment_request_pk", "request_reference", "head_name", "amount", "status", "pay_url",
-                                "upi_uri", "expires_at", "paid_at", "receipt_number")}
+    return {k: row[k] for k in ("upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status",
+                                "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number")}
 
 
 @router.get("/payment-requests", response_model=S.PaymentRequestListResponse)
@@ -557,27 +557,49 @@ def _member_org(cur, user: UserContext):
     return row[0]
 
 
+def _member_destinations(cur, user: UserContext) -> list[str]:
+    """The Sangha a member may pay: their OWN Sakha and the Kendra (owner decision 2026-11-10) - never another Sakha."""
+    home = str(_member_org(cur, user))
+    cur.execute(
+        """
+        SELECT o.organization_pk FROM nss.organization o
+          JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+         WHERE md.value_code = 'KENDRA' AND o.is_active = TRUE
+        """
+    )
+    return [home] + [str(r[0]) for r in cur.fetchall() if str(r[0]) != home]
+
+
+# A head a member can pay: INCOME, flagged for the member's own Pranami tab, UPI-enabled, with a ready account, and - when it
+# collects into a financial scope (an EVENT such as Rasa) - an ACTIVE scope. Closing the event or switching the head off hides it.
 _PAYABLE_SQL = """
-    SELECT h.finance_head_pk, h.head_name, h.description, o.organization_name, a.upi_vpa,
-           a.gateway_provider, a.gateway_credential_ref
+    SELECT h.finance_head_pk, h.head_name, h.description, h.organization_pk, o.organization_name,
+           (mdo.value_code = 'KENDRA') AS is_kendra,
+           CASE WHEN cs.scope_type = 'EVENT' THEN cs.scope_name END AS event_name,
+           a.upi_vpa, a.gateway_provider, a.gateway_credential_ref
       FROM nss.finance_head h
       JOIN nss.financial_account a ON a.financial_account_pk = h.collection_account_pk
                                   AND a.is_active = TRUE AND a.status = 'ACTIVE'
+      JOIN nss.financial_scope cs ON cs.financial_scope_pk = h.collection_scope_pk
+                                 AND cs.is_active = TRUE AND cs.status = 'ACTIVE'
       JOIN nss.organization o ON o.organization_pk = h.organization_pk
+      JOIN nss.master_data mdo ON mdo.master_data_pk = o.organization_type_master_data_pk
      WHERE h.is_active = TRUE AND h.status = 'ACTIVE' AND h.is_pranami = TRUE AND h.allow_upi = TRUE
-       AND h.organization_pk = %s
+       AND h.direction = 'INCOME' AND h.organization_pk = ANY(%s::uuid[])
 """
+_MEMBER_HEAD_FIELDS = ("finance_head_pk", "head_name", "description", "organization_pk", "organization_name", "is_kendra",
+                       "event_name", "upi_vpa")
 
 
 @router.get("/my-pranami/heads", response_model=list[S.MyPayableHead])
 def my_payable_heads(user: UserContext = Depends(get_current_user), conn=Depends(get_connection)):
-    """The Pranami heads of the signed-in member's OWN Sakha that can be paid by UPI right now (gateway ready)."""
+    """What the signed-in member can pay by UPI right now: the Pranami / event heads of their OWN Sakha and of the Kendra (gateway ready)."""
     with conn.cursor() as cur:
-        org = _member_org(cur, user)
-        cur.execute(_PAYABLE_SQL + " ORDER BY h.display_order, h.head_name", (str(org),))
+        destinations = _member_destinations(cur, user)
+        cur.execute(_PAYABLE_SQL + " ORDER BY (h.organization_pk = %s::uuid) DESC, o.organization_name, h.display_order, h.head_name",
+                    (destinations, destinations[0]))
         rows = F._fetch_all(cur)
-    return [{k: r[k] for k in ("finance_head_pk", "head_name", "description", "organization_name", "upi_vpa")}
-            for r in rows if account_ready(r)]
+    return [{k: r[k] for k in _MEMBER_HEAD_FIELDS} for r in rows if account_ready(r)]
 
 
 @router.post("/my-pranami/pay", response_model=S.MyPayment, status_code=status.HTTP_201_CREATED)
@@ -585,16 +607,16 @@ def my_payable_heads(user: UserContext = Depends(get_current_user), conn=Depends
 def pay_my_pranami(request: Request, body: S.MyPayRequest, user: UserContext = Depends(get_current_user),
                    conn=Depends(get_write_connection)):
     """
-    A member starts a UPI payment of their OWN Pranami. The payer is the token, never a field, and only the Pranami +
-    UPI heads of the member's own Sakha are accepted. The money is booked only when the gateway's signed webhook says
-    it was paid - never because the member's browser says so.
+    A member starts a UPI payment to their OWN Sakha or to the Kendra (a Pranami, a card, an event contribution...). The payer
+    is the token, never a field, and only member-payable UPI heads of those two Sangha are accepted. The money is booked only
+    when the gateway's signed webhook says it was paid - never because the member's browser says so.
     """
     with conn.cursor() as cur:
-        org = _member_org(cur, user)
-        cur.execute(_PAYABLE_SQL + " AND h.finance_head_pk = %s", (str(org), str(body.finance_head_pk)))
+        destinations = _member_destinations(cur, user)
+        cur.execute(_PAYABLE_SQL + " AND h.finance_head_pk = %s", (destinations, str(body.finance_head_pk)))
         head = F._fetch_one(cur)
         if head is None or not account_ready(head):
-            raise F._invalid("This Pranami head is not available for UPI payment.")
+            raise F._invalid("This payment is not available for UPI.")
         cur.execute("SELECT COUNT(*) FROM nss.upi_payment_request WHERE payer_person_pk = %s AND status IN ('CREATED','PENDING') "
                     "AND expires_at > NOW() AND is_active = TRUE", (str(user.person_pk),))
         if cur.fetchone()[0] >= _MAX_OPEN_REQUESTS_PER_MEMBER:

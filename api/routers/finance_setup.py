@@ -36,7 +36,7 @@ Rules enforced here (DB CHECKs in database/ddl/14_finance/ are the backstop):
 """
 
 import re
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -351,6 +351,7 @@ def list_heads(
     templates_only: bool = Query(False, description="Only Kendra templates"),
     with_templates: bool = Query(True, description="False: leave the Kendra templates out (only Sangha-owned heads)"),
     for_scope_pk: UUID | None = Query(None, description="Only ACTIVE heads a transaction in this financial scope may use"),
+    events_only: bool = Query(False, description="Only heads that collect for an event (an EVENT financial scope, e.g. Rasa)"),
     direction: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
     is_pranami: bool | None = Query(None),
@@ -386,6 +387,8 @@ def list_heads(
             where.append("h.status = %s"); params.append(status_filter)
         if is_pranami is not None:
             where.append("h.is_pranami = %s"); params.append(is_pranami)
+        if events_only:
+            where.append("cs.scope_type = 'EVENT'")
         if allow_upi is not None:
             where.append("h.allow_upi = %s"); params.append(allow_upi)
         if q and q.strip():
@@ -443,6 +446,56 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_APPROVE), conn=
         pk = cur.fetchone()[0]
         F._audit(cur, user, "CREATE", "finance_head", pk, f"Created finance head {code}",
                  {"organization_pk": str(body.organization_pk) if body.organization_pk else None, "direction": body.direction})
+        return _head_response(cur, pk)
+
+
+@router.post("/events", response_model=S.HeadResponse, status_code=status.HTTP_201_CREATED)
+def create_event(body: S.EventCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+    """
+    Set up an event a Sangha collects for (e.g. Rasa) in one step, configured by the concerned Sangha: an ACTIVE financial
+    scope of type EVENT owned by it (FIN-BR-062/063: events use the common Finance module through a scope) and a member-payable
+    UPI head collecting into that scope. Returns the head. Same authority as any configuration (FINANCE_APPROVE + admin scope on
+    the Sangha); the scope is created ACTIVE because the approver is the one switching it on.
+    """
+    name = F._clean(body.event_name)
+    if not name:
+        raise F._invalid("event_name cannot be blank.")
+    with conn.cursor() as cur:
+        F._require_org_access(cur, user, body.organization_pk, "set up an event for this organization")
+        F._require_active_organization(cur, body.organization_pk, "Organization")
+        suffix = uuid4().hex[:8].upper()
+        scope_code, head_code = f"EVT{suffix}", f"EVENT_{suffix}"
+        # All or nothing: a refused setup (wrong account, no gateway...) must not leave a half-built event scope behind.
+        cur.execute("SAVEPOINT event_setup")
+        try:
+            cur.execute(
+                """
+                INSERT INTO nss.financial_scope (scope_code, scope_name, scope_type, organization_pk, status, created_by_sangha_sevi_pk)
+                VALUES (%s, %s, 'EVENT', %s, 'ACTIVE', %s) RETURNING financial_scope_pk
+                """,
+                (scope_code, name, str(body.organization_pk), user.actor_pk),
+            )
+            scope_pk = cur.fetchone()[0]
+            F._audit(cur, user, "CREATE", "financial_scope", scope_pk, f"Created event scope {scope_code} ({name})",
+                     {"organization_pk": str(body.organization_pk), "scope_type": "EVENT"})
+            _validate_collection(cur, org_pk=body.organization_pk, direction="INCOME", is_restricted=False, required_fund_type=None,
+                                 allow_upi=True, scope_pk=scope_pk, fund_pk=None, account_pk=body.collection_account_pk)
+            cur.execute(
+                """
+                INSERT INTO nss.finance_head
+                    (organization_pk, head_code, head_name, description, direction, is_restricted, is_pranami, allow_upi,
+                     collection_scope_pk, collection_account_pk, display_order, created_by_sangha_sevi_pk)
+                VALUES (%s, %s, %s, %s, 'INCOME', FALSE, TRUE, TRUE, %s, %s, %s, %s) RETURNING finance_head_pk
+                """,
+                (str(body.organization_pk), head_code, name, F._clean(body.description), str(scope_pk),
+                 str(body.collection_account_pk), body.display_order, user.actor_pk),
+            )
+            pk = cur.fetchone()[0]
+            F._audit(cur, user, "CREATE", "finance_head", pk, f"Created event head {head_code} ({name})",
+                     {"organization_pk": str(body.organization_pk), "event_scope_code": scope_code})
+        except HTTPException:
+            cur.execute("ROLLBACK TO SAVEPOINT event_setup")
+            raise
         return _head_response(cur, pk)
 
 

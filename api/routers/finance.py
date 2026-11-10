@@ -67,6 +67,7 @@ from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_any_permission
 from api.helpers import SAKHA_LIKE_ORG_TYPES, get_master_data_pk, log_audit, next_id
 from api.schemas import finance as S
+from api.services import finance_authority as authority_service
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope, require_person_in_scope
 
@@ -369,6 +370,7 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
             """
         )
         methods = [{"code": r[0], "name": r[1]} for r in cur.fetchall()]
+        disbursement_purposes = authority_service.purposes(cur)
     return {
         "payment_methods": methods,
         "fund_types": list(S.FUND_TYPES),
@@ -377,6 +379,7 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
         "head_directions": list(S.HEAD_DIRECTIONS),
         "account_types": list(S.ACCOUNT_TYPES),
         "gateway_providers": sorted(upi_gateway.enabled_providers() & set(upi_gateway.PROVIDERS)),
+        "disbursement_purposes": disbursement_purposes,
         "statuses": {
             "year": list(S.YEAR_STATUSES), "scope": list(S.SCOPE_STATUSES), "fund": list(S.FUND_STATUSES),
             "transaction": list(S.TRANSACTION_STATUSES), "receipt": list(S.RECEIPT_STATUSES),
@@ -1528,6 +1531,9 @@ def transition_payment(payment_pk: UUID, body: S.TransitionRequest, user: UserCo
                                              payment["created_by_sangha_sevi_pk"])
         if body.status in ("APPROVED", "INITIATED", "COMPLETED") and txn["status"] not in ("APPROVED", "POSTED", "SETTLED"):
             raise _invalid(f"The transaction is {txn['status']}; its payments cannot move forward.")
+        # Kendra / central Mahila money: Governing Body resolution, President's order, Treasurer + Secretary (Bye-Law).
+        authority_service.enforce_transition(cur, user.person_pk, "payment", payment_pk, txn["scope_organization_pk"],
+                                             payment["status"], body.status)
         _update_row(cur, user, "financial_payment", "financial_payment_pk", payment_pk, {"status": body.status})
         _audit(cur, user, "STATUS_CHANGE", "financial_payment", payment_pk, f"Payment {payment['payment_reference']} {payment['status']} -> {body.status}",
                {"from": payment["status"], "to": body.status, "remarks": _clean(body.remarks),
@@ -1692,6 +1698,10 @@ def transition_transfer(transfer_pk: UUID, body: S.TransitionRequest, user: User
             )
         if body.status in ("APPROVED", "EXECUTED"):
             _check_transfer_funds(cur, transfer)
+        # Money leaving the Kendra / central Mahila Sangha: same Bye-Law controls as a payment.
+        authority_service.enforce_transition(cur, user.person_pk, "transfer", transfer_pk,
+                                             _scope_row(cur, transfer["source_scope_pk"])["organization_pk"],
+                                             transfer["status"], body.status)
         _update_row(cur, user, "financial_transfer", "financial_transfer_pk", transfer_pk, {"status": body.status})
         _audit(cur, user, "STATUS_CHANGE", "financial_transfer", transfer_pk,
                f"Transfer {transfer['transfer_reference']} {transfer['status']} -> {body.status}",

@@ -89,6 +89,7 @@ class FinanceReference(BaseModel):
     head_directions: list[str]
     account_types: list[str]
     gateway_providers: list[str]            # adapters ENABLED on this server (empty = UPI collection is off)
+    disbursement_purposes: list[NamedCode]  # Bye-Law-permitted purposes (KENDRA_* / MAHILA_* prefix), master_data DISBURSEMENT_PURPOSE
     statuses: dict[str, list[str]]
     transitions: dict[str, list[dict]]
 
@@ -482,6 +483,19 @@ class HeadCreate(BaseModel):
     display_order: int = Field(100, ge=0, le=10000)
 
 
+class EventCreate(BaseModel):
+    """
+    Set up an event a Sangha collects for (for example Rasa) in one step: an ACTIVE financial scope of type EVENT plus a
+    member-payable UPI head collecting into it. Closing the event later is switching its head off.
+    """
+
+    organization_pk: UUID = Field(..., description="The Sangha running the event (own Sakha or the Kendra)")
+    event_name: str = Field(..., min_length=1, max_length=150)
+    description: str | None = Field(None, max_length=2000, description="Shown to members: dates, venue, what the contribution is for")
+    collection_account_pk: UUID = Field(..., description="The Sangha's receiving account (with a gateway configured)")
+    display_order: int = Field(100, ge=0, le=10000)
+
+
 class HeadUpdate(BaseModel):
     """
     Code, organization, direction, restriction and required fund type never change once a transaction uses the head;
@@ -603,12 +617,15 @@ class PaymentRequestListResponse(BaseModel):
 
 
 class MyPayableHead(BaseModel):
-    """What a member may pay by UPI: heads of their own Sangha that are Pranami + UPI-enabled + ready."""
+    """What a member may pay by UPI: member-payable heads of their OWN Sakha and of the Kendra whose gateway is ready."""
 
     finance_head_pk: UUID
     head_name: str
     description: str | None
-    organization_name: str | None
+    organization_pk: UUID
+    organization_name: str | None           # the Sangha the money goes to
+    is_kendra: bool
+    event_name: str | None                  # set when the head collects for an event (e.g. Rasa)
     upi_vpa: str | None
 
 
@@ -618,6 +635,7 @@ class MyPayment(BaseModel):
     upi_payment_request_pk: UUID
     request_reference: str
     head_name: str
+    organization_name: str | None           # the Sangha being paid
     amount: Decimal
     status: str
     pay_url: str | None
@@ -711,3 +729,49 @@ class FinanceSummary(BaseModel):
     draft_transactions: int
     by_fund: list[FundSummaryRow]
     by_category: list[CategorySummaryRow]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Bye-Law disbursement authority (Kendra / central Mahila Sangha money)
+# ═══════════════════════════════════════════════════════════════════════
+
+class AuthorityWrite(BaseModel):
+    """Steps 1 and 2 of a disbursement: the Governing Body's scheme approval and (Kendra) the President's written order."""
+
+    resolution_reference: str = Field(..., min_length=1, max_length=100, description="Governing Body resolution / minute reference")
+    resolution_date: date
+    scheme_description: str = Field(..., min_length=1, max_length=4000, description="The scheme the Governing Body approved")
+    purpose_code: str = Field(..., max_length=50, description="DISBURSEMENT_PURPOSE value; KENDRA_* or MAHILA_* to match the body")
+    parichalak_consulted: bool = Field(False, description="Required for Mahila money and for Satsikshya Bistar")
+    president_order_reference: str | None = Field(None, max_length=100, description="Kendra only: the President's written order")
+    president_order_date: date | None = None
+
+
+class AuthorityResponse(BaseModel):
+    finance_disbursement_authority_pk: UUID
+    bye_law_basis: str
+    resolution_reference: str
+    resolution_date: date
+    scheme_description: str
+    purpose_code: str
+    purpose_name: str
+    parichalak_consulted: bool
+    president_order_reference: str | None
+    president_order_date: date | None
+    president_person_pk: UUID | None
+    treasurer_person_pk: UUID | None
+    treasurer_signed_at: datetime | None
+    secretary_person_pk: UUID | None
+    secretary_signed_at: datetime | None
+
+
+class AuthorityState(BaseModel):
+    """Whether Bye-Law controls apply to a payment / transfer, what they need, and where it stands."""
+
+    applies: bool
+    bye_law_basis: str | None
+    requirements: list[str]
+    authority: AuthorityResponse | None
+    next_step: str | None
+    status: str | None = None
+    note: str | None = None

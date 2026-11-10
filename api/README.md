@@ -5,7 +5,7 @@ FastAPI application — the only web/API layer in the codebase. Implements **Tie
 Organization), **Tier 3** (Person), and **Tier 4** (Family + Membership) —
 no ORM — behind a cross-tier security middleware stack (headers, opt-in CORS, rate limiting,
 plus a new Content-Security-Policy) and a shared error-handler layer (`error_handlers.py`).
-22 routers (337 registered endpoints — a `@router.*` decorator grep gives 325 because 12 of `assets_property.py`'s 26 are added by `_register_entity_routes`; Assets & Property adds `assets_property.py` 26; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4; Finance (Tier 12) adds `finance.py` 31 + `finance_setup.py` 11 (accounts, finance heads) + `finance_upi.py` 11 (UPI payment requests, webhook, member pay); `services/upi_gateway.py` is the provider adapter layer); the endpoint inventory and per-router counts live in
+23 routers (344 registered endpoints — a `@router.*` decorator grep gives 332 because 12 of `assets_property.py`'s 26 are added by `_register_entity_routes`; Assets & Property adds `assets_property.py` 26; Tier 6 adds `governance.py` 56 + `membership_change_request.py` 5 + `correspondence.py` 19, admin 28→32; Attendance adds `attendance.py` 21; Sakha re-parent approvals add `org_reparent.py` 4; Finance (Tier 12) adds `finance.py` 31 + `finance_setup.py` 12 (accounts, finance heads, `POST /events`) + `finance_upi.py` 11 (UPI payment requests, webhook, member pay) + `finance_authority.py` 6 (Bye-Law disbursement authority: resolution, President's order, Treasurer + Secretary joint operation; rules in `services/finance_authority.py`); `services/upi_gateway.py` is the provider adapter layer); the endpoint inventory and per-router counts live in
 `docs/03_Solution/api/API_CONTRACT.md`.
 **Partway through this branch's development, Tiers 1-3
 and Membership (Tier 4) gained authenticated gating** — they were read-only/no-auth through
@@ -45,7 +45,7 @@ api/
 │                        outermost, so security headers wrap everything — CSP is emitted by that
 │                        same security-headers middleware, not a separate layer), registers the
 │                        `error_handlers.py` handlers (validation / `psycopg2.IntegrityError` /
-│                        catch-all), includes all 22 routers (the six Tier 0-4 ones plus, Tier 5,
+│                        catch-all), includes all 23 routers (the six Tier 0-4 ones plus, Tier 5,
 │                        `auth`/`admin`/`registration`/`claim_approval`/`audit`/`geo_approval`, then Tier 6
 │                        `governance`/`membership_change_request`/`correspondence`),
 │                        mounts `frontend/assets/` at `/assets`. A `lifespan` hook logs a
@@ -178,7 +178,7 @@ api/
 │                        the `-Report-Only` variant when CSP_REPORT_ONLY is set; nothing when
 │                        CSP_ENABLED is false), skipping `CSP_EXEMPT_PATHS` — `/docs`, `/redoc`,
 │                        `/openapi.json` — because Swagger UI embeds an inline script
-├── routers/             22 routers; module docstrings of `foundation.py`,
+├── routers/             23 routers; module docstrings of `foundation.py`,
 │   │                    `membership.py`, `person.py`, `admin.py`, `auth.py`, `registration.py`
 │   │                    and `family.py` still describe their original/partial endpoint set — see
 │   │                    "Known gaps" at the bottom of this file
