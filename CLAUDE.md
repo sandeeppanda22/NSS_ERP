@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > (once ratified) or the relevant module's SOLUTION doc. For what is uncommitted, run `git status` —
 > Tier 5 (Authentication + Administration) is merged to `develop`/`main` and tagged `v0.11.0`;
 > Tier 6 (Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals) is on
-> merged into the local `develop` (first merge `bc6e42f`, 2026-11-02; the rest of the branch — Assets & Property (Module #22), Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes, x-show/x-if fixes, docs refresh — merged by `a83e896`, 2026-11-09). Not pushed: `main` and the `v0.11.0` tag are unchanged, no Tier 6 release yet. All Tier 6 code is on `develop`; what is still pending is listed under "Tier 6 pending work" in Open items.
+> merged into the local `develop` (first merge `bc6e42f`, 2026-11-02; the rest of the branch — Assets & Property (Module #22), Aadhaar, live-refresh marker, audit diagnostics, audit-actor FKs, post-DB-run test fixes, x-show/x-if fixes, docs refresh — merged by `a83e896`, 2026-11-09). Released locally as `v0.12.0` (2026-11-10; `main` = `develop` = the tag; release notes `docs/05_Releases/v0.12.0.md`). NOT pushed yet: push `main`, `develop` and both tags (`v0.11.0`, `v0.12.0`) from a terminal, then create the GitHub Release. What is still pending is listed under "Tier 6 pending work" in Open items.
 
 ## Commands
 
@@ -186,7 +186,7 @@ threshold 0.45 with `re.split(r'[.@]', q)[0]` for email-shaped input.
 only via a documented release (tag + `docs/05_Releases/vX.Y.Z.md` + GitHub Release). Verify the
 branch with `git status` before changes. Remotes: `personal` (daily dev) → PR → `org` (deploy
 source); pushes are often blocked in-sandbox, so push from a terminal. Never add a `Co-Authored-By`
-trailer to commits. Current state: `main` = `99f80e6` (a docs-refresh commit past tag `v0.11.0` = `c8f2c9c`; Tier 5 released); local `develop` = `main` + all of Tier 6 (merge commits `bc6e42f` and `a83e896`, plus docs commits; not pushed, not released). `feature/*` branches are merged leftovers — branch the next feature from `develop`.
+trailer to commits. Current state: `main` = `develop` = tag `v0.12.0` (Tier 6 released locally 2026-11-10, on top of tag `v0.11.0` = `c8f2c9c`, Tier 5); nothing pushed yet. `feature/*` branches are merged leftovers — branch the next feature from `develop`.
 
 ## Open items
 

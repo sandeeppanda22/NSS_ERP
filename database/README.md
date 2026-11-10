@@ -29,7 +29,7 @@ SOL-ARCH-011 (Bootstrap Architecture), module table-design documents
 > FAM-036 performance indexes now live in the table DDL itself). See `database/seed/README.md`,
 > `database/scripts/README.md`, and `docs/PROJECT_DOCUMENTATION.md` → Architecture ("Tier 5").
 
-> **Tier 6 (Governance, Correspondence, Attendance, Sakha re-parent approvals) is merged into the local `develop` (2026-11-02; unpushed, unreleased; the 2026-10-30/31 re-parent, singleton-trigger, Sakha-like-function and RBAC/Advisory-Board patch files are committed).** It adds
+> **Tier 6 (Governance, Correspondence, Attendance, Sakha re-parent approvals) is merged into the local `develop` (2026-11-02) and released locally as `v0.12.0` (2026-11-10; unpushed; the 2026-10-30/31 re-parent, singleton-trigger, Sakha-like-function and RBAC/Advisory-Board patch files are committed).** It adds
 > `ddl/08_governance/` (10 tables + `11_governance_immutability.sql` ballot-immutability triggers,
 > build Phases 11b/11c with `seed/08_governance/`: 8 body types, 10 positions, 3 NSS-wide bodies),
 > two Membership tables (`sakha_local_number_counter`, `membership_change_request`; Phase 7 is now
@@ -257,10 +257,10 @@ There is no `database/migrations/` or `database/fixes/` folder.
 | Membership | 16 | ✅ IMPLEMENTED (`darshak_attendance_registration`, `credential_sequence_counter` Tier 5; `sakha_local_number_counter`, `membership_change_request` Tier 6; + Sakha-only trigger) | — |
 | Authentication | 5 | ✅ Tier 5, released in v0.11.0 | — |
 | Administration | 2 (`user_role`/`admin_scope`; the 3 RBAC definition tables live in Bootstrap) | ✅ Tier 5, released in v0.11.0 | — |
-| Governance | 10 | 🚧 Tier 6, merged into the local `develop` (not pushed or released) | Push; Tier 6 release |
-| Correspondence | 5 | 🚧 Tier 6, merged into the local `develop` (not pushed or released) | Push; Tier 6 release |
-| Attendance | 4 | 🚧 Tier 6, merged into the local `develop` | Backend tests ran in the owner's DB run (2026-11-04/05); push and release pending |
-| Assets & Property | 7 | 🚧 Module #22 (Tier 6), written 2026-11-02, merged into the local `develop`; exercised by the owner's full DB run after a rebuild | Push and release; review GDR-010 (`Proposed`); open the admin UI in a browser |
+| Governance | 10 | ✅ Tier 6, released locally as `v0.12.0` (not pushed) | Push the tag |
+| Correspondence | 5 | ✅ Tier 6, released locally as `v0.12.0` (not pushed) | Push the tag |
+| Attendance | 4 | ✅ Tier 6, released locally as `v0.12.0` | Backend tests ran in the owner's DB run (2026-11-04/05); push pending |
+| Assets & Property | 7 | 🚧 Module #22 (Tier 6), written 2026-11-02, released locally as `v0.12.0`; exercised by the owner's full DB run after a rebuild | Push the tag; review GDR-010 (`Proposed`); open the admin UI in a browser |
 | Heritage | 4 | ⬜ NOT YET | — |
 
 Table counts for the implemented modules above are the actual counts of tables created by their

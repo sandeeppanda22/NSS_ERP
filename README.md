@@ -911,7 +911,7 @@ Completed:
   session-scoped `SAVEPOINT`-per-module `conftest.py`. See `CLAUDE.md` and
   `docs/PROJECT_DOCUMENTATION.md` for the full, current detail — this bullet is a summary, not
   the source of truth.
-* **Tier 6 — Governance (merged into the local `develop` 2026-11-02 (merge commit `bc6e42f`), not pushed or released; Assets & Property, Aadhaar, live refresh, audit diagnostics and audit-actor FKs followed and were merged by `a83e896` on 2026-11-09; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
+* **Tier 6 — Governance (merged into the local `develop` 2026-11-02 (merge commit `bc6e42f`) and released locally as `v0.12.0` on 2026-11-10 (not pushed yet); Assets & Property, Aadhaar, live refresh, audit diagnostics and audit-actor FKs followed and were merged by `a83e896` on 2026-11-09; the 2026-10-30/31 work — Advisory Board organization type, null-organization scopes, Sakha re-parent approvals, Sakha Asana parity, member address editor — is committed):**
   10 new tables under `database/ddl/08_governance/` — `body_type_master`, `position_master`,
   `body_master`, `body_member_assignment`, `acting_position_assignment`, `election`,
   `election_nomination`, `election_vote`, `election_result`, `election_vote_participation` — plus
@@ -980,7 +980,7 @@ release document under `docs/05_Releases/` before the next tier begins.
 | v0.10.0 | Tier 4 | Family + Membership — full vertical slice, family graph, Organization children-stats (**released**) |
 | v0.10.1-v0.10.4 | Tier 4 (hotfixes) | Idempotent DDL/seed, Neon role bootstrap, performance indexes, a11y/perf polish (**released**) |
 | v0.11.0 | Tier 5 | Authentication + Administration — full vertical slice (**released as v0.11.0**) |
-| ... | Tier 6-13 | One tag per tier through Tier 13 (Tier 6 is merged into the local `develop`, unreleased) |
+| ... | Tier 6-13 | One tag per tier through Tier 13 (Tier 6 = `v0.12.0`, tagged locally 2026-11-10, not pushed) |
 
 Next Release Target:
 
@@ -988,7 +988,7 @@ Next Release Target:
 Tier 6 Governance — unified body governance (bodies, positions, assignments, acting
 assignments) + elections (nominations, ballots, results, vote participation), the
 Sakha Transfer / Apply for Darshak change-request workflow, ADVISORY_BOARD admin scope.
-(All Tier 6 work, including Assets & Property, is merged into the local `develop`; not pushed; no version tag assigned yet.)
+(All Tier 6 work, including Assets & Property, was released as v0.12.0 on 2026-11-10; this block is kept as the Tier 6 scope statement. Next tier: Programmes & Events (#21) / Tier 7+.)
 ```
 
 ---
@@ -1042,11 +1042,12 @@ See `docs/PROJECT_DOCUMENTATION.md` for the full, code-verified breakdown of eac
 # Current Stable Version
 
 ```text
-v0.11.0
+v0.12.0
 ```
 
-Tier 5 Authentication + Administration (v0.11.0) — the latest release on `main` (tag created locally; push it
-with `git push <remote> v0.11.0`). `main` is a docs-refresh commit past the tag; Tier 6 is unreleased (merged only into local `develop`, not pushed). See `CLAUDE.md` and `docs/PROJECT_DOCUMENTATION.md` for current state.
+Tier 6 — Governance, Correspondence, Attendance, Assets & Property, Aadhaar, live refresh, audit diagnostics (v0.12.0, 2026-11-10;
+release notes `docs/05_Releases/v0.12.0.md`) — the latest release on `main`. Tier 5 is `v0.11.0`. Both tags exist locally; push them
+with `git push <remote> v0.11.0 v0.12.0`. `main` = `develop` = tag `v0.12.0`; neither tag is pushed yet. See `CLAUDE.md` and `docs/PROJECT_DOCUMENTATION.md` for current state.
 
 ---
 
