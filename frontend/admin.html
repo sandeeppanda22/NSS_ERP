@@ -25,6 +25,7 @@
     <script src="/assets/js/nss-combobox.js"></script>
     <script src="/assets/js/attendance-register.js"></script>
     <script src="/assets/js/assets-property.js"></script>
+    <script src="/assets/js/finance.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
     <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
@@ -864,6 +865,53 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
                                 </svg>
                                 Assets
+                            </a>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- ── Finance group (collapsible, Tier 12) ──
+                 FINANCE_VIEW / FINANCE_MANAGE / FINANCE_APPROVE (canViewFinance). Reads and
+                 writes are bounded server-side by admin scope on the financial scope's
+                 organization; the write buttons inside the tabs show only for
+                 FINANCE_MANAGE (canManageFinance) and the approve / post / execute / open /
+                 close buttons only for FINANCE_APPROVE (canApproveFinance). -->
+            <template x-if="canViewFinance">
+                <div>
+                    <div class="nav-divider"></div>
+                    <button type="button" class="nav-section-label collapsible" @click="toggleNavGroup('finance')">
+                        <span>Finance</span>
+                        <svg class="nav-chevron" :class="{ collapsed: isNavGroupCollapsed('finance') }"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                    </button>
+                    <template x-if="!isNavGroupCollapsed('finance')">
+                        <div>
+                            <a class="nav-item" :class="{ active: activeTab === 'finOverview' }" @click="finEnterTab('finOverview')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                                </svg>
+                                Overview
+                            </a>
+                            <a class="nav-item" :class="{ active: activeTab === 'finStructure' }" @click="finEnterTab('finStructure')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                                </svg>
+                                Years &amp; Scopes
+                            </a>
+                            <a class="nav-item" :class="{ active: activeTab === 'finTransactions' }" @click="finEnterTab('finTransactions')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                                </svg>
+                                Transactions
+                            </a>
+                            <a class="nav-item" :class="{ active: activeTab === 'finTransfers' }" @click="finEnterTab('finTransfers')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                </svg>
+                                Transfers
                             </a>
                         </div>
                     </template>
@@ -7904,6 +7952,961 @@
                         </template>
 
                     </div><!-- /Assets & Property -->
+
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: Finance (Tier 12) — api/routers/finance.py, logic: finance.js.
+                         FINANCE_VIEW reads, FINANCE_MANAGE records / submits, FINANCE_APPROVE
+                         approves / posts / executes / opens & closes (canViewFinance /
+                         canManageFinance / canApproveFinance). Everything is bounded server-side
+                         by admin scope on the financial scope's organization. Lifecycle buttons
+                         come from the server's own table (GET /finance/reference).
+                         Four tabs: finOverview, finStructure, finTransactions, finTransfers.
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="['finOverview','finStructure','finTransactions','finTransfers'].includes(activeTab) && canViewFinance" x-cloak>
+
+                        <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
+
+                        <!-- ── Modal: lifecycle step (remarks when the step needs a reason) ── -->
+                        <template x-if="finTx.show">
+                            <div class="modal-overlay" @click.self="finCancelTransition()">
+                                <div class="modal-card">
+                                    <div class="modal-card-header">
+                                        <h3 x-text="finTx.verb"></h3>
+                                        <p x-text="finTx.label + ' → ' + finLabel(finTx.target)"></p>
+                                    </div>
+                                    <div class="modal-card-body">
+                                        <label class="form-label">Remarks <span class="optional" x-show="!finTx.remarksRequired">(optional)</span></label>
+                                        <textarea class="form-input" rows="3" maxlength="2000" x-model="finTx.remarks"
+                                                  placeholder="Reason, resolution or order reference"></textarea>
+                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finTx.error" x-text="finTx.error"></div>
+                                    </div>
+                                    <div class="modal-card-footer">
+                                        <button class="btn-action" :disabled="finTx.saving" @click="finCancelTransition()">Cancel</button>
+                                        <button class="btn-action primary" :disabled="finTx.saving" @click="finConfirmTransition()"
+                                                x-text="finTx.saving ? 'Saving…' : finTx.verb"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- ═════════ Overview ═════════ -->
+                        <div x-show="activeTab === 'finOverview'" x-cloak>
+                            <div class="data-card">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Finance overview</h2>
+                                    <span style="font-size:0.75rem; color:#6b7280;" x-show="finSummary && finSummary.year_code" x-text="'Financial year ' + (finSummary && finSummary.year_code)"></span>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="form-grid-2" style="margin-bottom:1rem; align-items:end;">
+                                        <div>
+                                            <label class="form-label">Financial year</label>
+                                            <select class="nss-select" x-model="finSumYear" @change="finSummaryChanged()">
+                                                <template x-for="y in finYears" :key="y.financial_year_pk">
+                                                    <option :value="y.financial_year_pk" x-text="y.year_code + ' (' + finLabel(y.status) + ')'"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Financial scope</label>
+                                            <select class="nss-select" x-model="finSumScope" @change="finSummaryChanged()">
+                                                <option value="">All my scopes</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk">
+                                                    <option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finSummaryLoading"><div class="spinner"></div></div>
+                                    <div class="alert-msg alert-error" x-show="finSummaryError" x-text="finSummaryError"></div>
+
+                                    <template x-if="finSummary && !finSummaryLoading">
+                                        <div>
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                                                <div class="stat bg-emerald-50 rounded-xl p-4">
+                                                    <div class="stat-title text-xs text-base-content/60">Income (posted)</div>
+                                                    <div class="stat-value text-2xl text-emerald-700" x-text="finMoney(finSummary.income_total)"></div>
+                                                </div>
+                                                <div class="stat bg-rose-50 rounded-xl p-4">
+                                                    <div class="stat-title text-xs text-base-content/60">Expense (posted)</div>
+                                                    <div class="stat-value text-2xl text-rose-700" x-text="finMoney(finSummary.expense_total)"></div>
+                                                </div>
+                                                <div class="stat bg-indigo-50 rounded-xl p-4">
+                                                    <div class="stat-title text-xs text-base-content/60">Net</div>
+                                                    <div class="stat-value text-2xl text-indigo-700" x-text="finMoney(finSummary.net)"></div>
+                                                </div>
+                                                <div class="stat bg-amber-50 rounded-xl p-4">
+                                                    <div class="stat-title text-xs text-base-content/60">Waiting for approval</div>
+                                                    <div class="stat-value text-2xl text-amber-700" x-text="finPending"></div>
+                                                    <div class="stat-desc text-xs" x-text="finSummary.pending_transactions + ' transaction(s), ' + finSummary.pending_transfers + ' transfer(s); ' + finSummary.draft_transactions + ' draft(s)'"></div>
+                                                </div>
+                                            </div>
+
+                                            <h3 class="form-section-title">Fund balances</h3>
+                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finSummary.by_fund.length === 0">No active funds yet.</div>
+                                            <div style="overflow-x:auto;" x-show="finSummary.by_fund.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Fund</th><th>Scope</th><th>Income</th><th>Expense</th><th>Transfers in</th><th>Transfers out</th><th>Balance</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="f in finSummary.by_fund" :key="f.fund_master_pk">
+                                                            <tr>
+                                                                <td style="font-size:0.82rem;">
+                                                                    <span x-text="f.fund_code + ' — ' + f.fund_name"></span>
+                                                                    <span class="badge badge-xs badge-fin-pending" x-show="f.is_restricted">Restricted</span>
+                                                                </td>
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="f.scope_code"></td>
+                                                                <td style="font-size:0.8rem;" x-text="finMoney(f.income)"></td>
+                                                                <td style="font-size:0.8rem;" x-text="finMoney(f.expense)"></td>
+                                                                <td style="font-size:0.8rem;" x-text="finMoney(f.transfers_in)"></td>
+                                                                <td style="font-size:0.8rem;" x-text="finMoney(f.transfers_out)"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(f.balance)"></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            <h3 class="form-section-title" style="margin-top:1.25rem;">By category</h3>
+                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finSummary.by_category.length === 0">Nothing posted yet.</div>
+                                            <div style="overflow-x:auto;" x-show="finSummary.by_category.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Type</th><th>Category</th><th>Entries</th><th>Total</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="c in finSummary.by_category" :key="c.transaction_type + c.transaction_category">
+                                                            <tr>
+                                                                <td style="font-size:0.78rem;" x-text="finCode(c.transaction_type)"></td>
+                                                                <td style="font-size:0.82rem;" x-text="finCode(c.transaction_category)"></td>
+                                                                <td style="font-size:0.8rem;" x-text="c.count"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(c.total)"></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <p class="form-hint" style="margin-top:0.75rem;">Only posted / settled transactions and executed / completed transfers are counted. Adjustments are recorded but excluded until their rules are decided.</p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═════════ Years & Scopes ═════════ -->
+                        <div x-show="activeTab === 'finStructure'" x-cloak>
+
+                            <!-- Financial years -->
+                            <div class="data-card" x-show="!finScope && !finScopeForm.show">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Financial years</h2>
+                                    <button class="btn-action primary" x-show="canApproveFinance && !finYearForm.show" @click="finOpenYearForm()">+ New year</button>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="form-section" x-show="finYearForm.show">
+                                        <div class="form-grid-2" style="align-items:end;">
+                                            <div>
+                                                <label class="form-label">Starting year</label>
+                                                <input type="number" min="2000" max="2100" class="form-input" x-model="finYearForm.start_year" placeholder="2026">
+                                                <p class="form-hint">A financial year always runs 1 April – 31 March, e.g. 2026 → 2026-27.</p>
+                                            </div>
+                                            <div style="display:flex; gap:0.5rem;">
+                                                <button class="btn-action primary" :disabled="finYearForm.saving" @click="finSubmitYear()" x-text="finYearForm.saving ? 'Saving…' : 'Create year'"></button>
+                                                <button class="btn-action" :disabled="finYearForm.saving" @click="finYearForm.show = false">Cancel</button>
+                                            </div>
+                                        </div>
+                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finYearForm.error" x-text="finYearForm.error"></div>
+                                    </div>
+                                    <div class="alert-msg alert-error" x-show="finYearsError" x-text="finYearsError"></div>
+                                    <div style="padding:0.75rem; color:#6b7280;" x-show="finYears.length === 0 && !finYearsError">No financial year yet.</div>
+                                    <div style="overflow-x:auto;" x-show="finYears.length > 0">
+                                        <table class="admin-table">
+                                            <thead><tr><th>Year</th><th>From</th><th>To</th><th>Status</th><th>Transactions</th><th></th></tr></thead>
+                                            <tbody>
+                                                <template x-for="y in finYears" :key="y.financial_year_pk">
+                                                    <tr>
+                                                        <td class="mono" style="font-size:0.82rem;" x-text="y.year_code"></td>
+                                                        <td style="font-size:0.78rem;" x-text="NSS.formatDate(y.start_date)"></td>
+                                                        <td style="font-size:0.78rem;" x-text="NSS.formatDate(y.end_date)"></td>
+                                                        <td><span class="badge badge-xs" :class="finBadge(y.status)" x-text="finLabel(y.status)"></span></td>
+                                                        <td style="font-size:0.8rem;" x-text="y.transaction_count"></td>
+                                                        <td>
+                                                            <template x-for="a in finActions('year', y.status)" :key="a.to">
+                                                                <button class="link-action" @click="finAskTransition('year', y.financial_year_pk, 'Year ' + y.year_code, a)" x-text="a.label"></button>
+                                                            </template>
+                                                        </td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- New scope form -->
+                            <div class="data-card" x-show="finScopeForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">New financial scope</h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint">A financial scope is a financial context — a Sakha's regular finance, a festival, a special purpose. One organization can have several.</p>
+                                    <div class="form-grid-2">
+                                        <div>
+                                            <label class="form-label">Scope code</label>
+                                            <input type="text" class="form-input" maxlength="50" x-model="finScopeForm.scope_code" placeholder="e.g. KENDRA-REGULAR" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Scope name</label>
+                                            <input type="text" class="form-input" maxlength="200" x-model="finScopeForm.scope_name" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Type</label>
+                                            <select class="nss-select" x-model="finScopeForm.scope_type">
+                                                <template x-for="t in finScopeTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Limited to financial year <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finScopeForm.financial_year_pk">
+                                                <option value="">Spans years</option>
+                                                <template x-for="y in finYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
+                                            </select>
+                                        </div>
+                                        <div class="typeahead-wrap">
+                                            <label class="form-label">Organization <span class="optional" x-show="finScopeForm.scope_type !== 'ORGANIZATION'">(optional)</span></label>
+                                            <input type="text" class="form-input" x-model="finScopeForm.organization.query"
+                                                   @input="corrOnOrgQueryInput(finScopeForm.organization)" placeholder="Search by organization name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="finScopeForm.organization.results.length > 0">
+                                                <template x-for="org in finScopeForm.organization.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(finScopeForm.organization, org)">
+                                                        <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <p class="form-hint" x-show="finScopeForm.organization.selected">
+                                                Owned by <span x-text="finScopeForm.organization.selected && finScopeForm.organization.selected.organization_name"></span>.
+                                                <button type="button" class="link-action" @click="corrClearPicker(finScopeForm.organization)">Clear</button>
+                                            </p>
+                                            <p class="form-hint">Who may see and manage this scope's money follows this organization. Without one, only NSS-wide administrators can.</p>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Parent scope <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finScopeForm.parent_scope_pk">
+                                                <option value="">None</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finScopeForm.error" x-text="finScopeForm.error"></div>
+                                    <div class="form-section" style="display:flex; align-items:center; gap:0.6rem;">
+                                        <button class="btn-action primary" :disabled="finScopeForm.saving" @click="finSubmitScope()" x-text="finScopeForm.saving ? 'Saving…' : 'Create scope'"></button>
+                                        <button class="btn-action" :disabled="finScopeForm.saving" @click="finScopeForm = { ...finScopeForm, show: false }">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Scope list -->
+                            <div class="data-card" x-show="!finScope && !finScopeForm.show">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Financial scopes</h2>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finScopesTotal + ' total'"></span>
+                                        <button class="btn-action primary" x-show="canManageFinance" @click="finOpenScopeForm()">+ New scope</button>
+                                    </div>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
+                                        <div>
+                                            <label class="form-label">Search</label>
+                                            <input type="text" class="form-input" x-model="finScopeQ" @keydown.enter="finApplyScopeFilters()" placeholder="Code or name…" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Type</label>
+                                            <select class="nss-select" x-model="finScopeTypeFilter" @change="finApplyScopeFilters()">
+                                                <option value="">All types</option>
+                                                <template x-for="t in finScopeTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Status</label>
+                                            <select class="nss-select" x-model="finScopeStatusFilter" @change="finApplyScopeFilters()">
+                                                <option value="">All statuses</option>
+                                                <template x-for="st in (finStatuses.scope || [])" :key="st"><option :value="st" x-text="finLabel(st)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div style="display:flex; gap:0.4rem;">
+                                            <button class="btn-action primary" @click="finApplyScopeFilters()">Search</button>
+                                            <button class="btn-action" @click="finClearScopeFilters()">Reset</button>
+                                        </div>
+                                    </div>
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finScopesLoading"><div class="spinner"></div></div>
+                                    <div class="alert-msg alert-error" x-show="finScopesError" x-text="finScopesError"></div>
+                                    <template x-if="!finScopesLoading && !finScopesError">
+                                        <div>
+                                            <div style="padding:1rem; color:#6b7280;" x-show="finScopes.length === 0">No financial scopes found.</div>
+                                            <div style="overflow-x:auto;" x-show="finScopes.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Organization</th><th>Funds</th><th>Status</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="s in finScopes" :key="s.financial_scope_pk">
+                                                            <tr @click="finOpenScope(s.financial_scope_pk)" style="cursor:pointer;">
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="s.scope_code"></td>
+                                                                <td style="font-size:0.82rem;" x-text="s.scope_name"></td>
+                                                                <td style="font-size:0.78rem;" x-text="finCode(s.scope_type)"></td>
+                                                                <td style="font-size:0.78rem; color:#6b7280;" x-text="s.organization_name || 'NSS-wide only'"></td>
+                                                                <td style="font-size:0.8rem;" x-text="s.fund_count"></td>
+                                                                <td><span class="badge badge-xs" :class="finBadge(s.status)" x-text="finLabel(s.status)"></span></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="pagination-bar" x-show="finScopesTotal > finScopesPageSize">
+                                                <span x-text="'Page ' + finScopesPage + ' of ' + finScopesTotalPages"></span>
+                                                <div style="display:flex; gap:0.35rem;">
+                                                    <button class="btn-action" :disabled="finScopesPage <= 1" @click="finScopesPageBy(-1)">Prev</button>
+                                                    <button class="btn-action" :disabled="finScopesPage >= finScopesTotalPages" @click="finScopesPageBy(1)">Next</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Scope detail + funds -->
+                            <template x-if="finScope">
+                                <div>
+                                    <div class="data-card">
+                                        <div class="data-card-header">
+                                            <div>
+                                                <h2 class="data-card-title" x-text="finScope.scope_name"></h2>
+                                                <span class="mono" style="font-size:0.75rem; color:#6b7280;" x-text="finScope.scope_code"></span>
+                                            </div>
+                                            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                                                <span class="badge badge-sm" :class="finBadge(finScope.status)" x-text="finLabel(finScope.status)"></span>
+                                                <button class="btn-action" x-show="canManageFinance && ['DRAFT','ACTIVE'].includes(finScope.status)" @click="finStartScopeEdit()">Rename</button>
+                                                <template x-for="a in finActions('scope', finScope.status)" :key="a.to">
+                                                    <button class="btn-action" :class="{ danger: a.danger }" @click="finAskTransition('scope', finScope.financial_scope_pk, 'Scope ' + finScope.scope_code, a)" x-text="a.label"></button>
+                                                </template>
+                                                <button class="btn-action" @click="finBackToScopes()">Back to list</button>
+                                            </div>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <div class="form-section" x-show="finScopeEdit.show">
+                                                <label class="form-label">Scope name</label>
+                                                <input type="text" class="form-input" maxlength="200" x-model="finScopeEdit.name" autocomplete="off">
+                                                <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finScopeEdit.error" x-text="finScopeEdit.error"></div>
+                                                <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finScopeEdit.saving" @click="finSaveScopeEdit()" x-text="finScopeEdit.saving ? 'Saving…' : 'Save'"></button>
+                                                    <button class="btn-action" :disabled="finScopeEdit.saving" @click="finScopeEdit = { ...finScopeEdit, show: false }">Cancel</button>
+                                                </div>
+                                            </div>
+                                            <div class="detail-grid cols-3">
+                                                <div class="detail-item"><div class="label">Type</div><div class="value" x-text="finCode(finScope.scope_type)"></div></div>
+                                                <div class="detail-item"><div class="label">Organization</div><div class="value" x-text="finScope.organization_name || 'NSS-wide only'"></div></div>
+                                                <div class="detail-item"><div class="label">Financial year</div><div class="value" x-text="finScope.year_code || 'Spans years'"></div></div>
+                                                <div class="detail-item"><div class="label">Parent scope</div><div class="value" x-text="finScope.parent_scope_code || '—'"></div></div>
+                                                <div class="detail-item"><div class="label">Funds</div><div class="value" x-text="finScope.fund_count"></div></div>
+                                                <div class="detail-item"><div class="label">Transactions</div><div class="value" x-text="finScope.transaction_count"></div></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="data-card">
+                                        <div class="data-card-header">
+                                            <h2 class="data-card-title">Funds in this scope</h2>
+                                            <button class="btn-action primary" x-show="canManageFinance && !finFundForm.show && ['DRAFT','ACTIVE'].includes(finScope.status)" @click="finOpenFundForm()">+ New fund</button>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <div class="form-section" x-show="finFundForm.show">
+                                                <div class="form-grid-2">
+                                                    <div>
+                                                        <label class="form-label">Fund code</label>
+                                                        <input type="text" class="form-input" maxlength="50" x-model="finFundForm.fund_code" autocomplete="off">
+                                                    </div>
+                                                    <div>
+                                                        <label class="form-label">Fund name</label>
+                                                        <input type="text" class="form-input" maxlength="200" x-model="finFundForm.fund_name" autocomplete="off">
+                                                    </div>
+                                                    <div>
+                                                        <label class="form-label">Fund type</label>
+                                                        <select class="nss-select" x-model="finFundForm.fund_type">
+                                                            <template x-for="t in finFundTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label class="form-label">Restriction</label>
+                                                        <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
+                                                            <input type="checkbox" x-model="finFundForm.is_restricted"> Restricted — may be spent only for its stated purpose
+                                                        </label>
+                                                    </div>
+                                                    <div class="span-all" x-show="finFundForm.is_restricted" style="grid-column:span 2;">
+                                                        <label class="form-label">Purpose</label>
+                                                        <input type="text" class="form-input" maxlength="2000" x-model="finFundForm.restriction_purpose" placeholder="What this money may be used for" autocomplete="off">
+                                                    </div>
+                                                    <div class="typeahead-wrap" x-show="finFundNeedsSakha">
+                                                        <label class="form-label">Sakha (Sinking Fund)</label>
+                                                        <input type="text" class="form-input" x-model="finFundForm.organization.query"
+                                                               @input="corrOnOrgQueryInput(finFundForm.organization)" placeholder="Search by Sakha name…" autocomplete="off">
+                                                        <div class="typeahead-menu" x-show="finFundForm.organization.results.length > 0">
+                                                            <template x-for="org in finFundForm.organization.results" :key="org.organization_pk">
+                                                                <div class="typeahead-item" @click="corrSelectOrg(finFundForm.organization, org)">
+                                                                    <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                                </div>
+                                                            </template>
+                                                        </div>
+                                                        <p class="form-hint" x-show="finFundForm.organization.selected">
+                                                            <span x-text="finFundForm.organization.selected && finFundForm.organization.selected.organization_name"></span>
+                                                            <button type="button" class="link-action" @click="corrClearPicker(finFundForm.organization)">Clear</button>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finFundForm.error" x-text="finFundForm.error"></div>
+                                                <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finFundForm.saving" @click="finSubmitFund()" x-text="finFundForm.saving ? 'Saving…' : 'Create fund'"></button>
+                                                    <button class="btn-action" :disabled="finFundForm.saving" @click="finFundForm = { ...finFundForm, show: false }">Cancel</button>
+                                                </div>
+                                            </div>
+                                            <div class="alert-msg alert-error" x-show="finFundsError" x-text="finFundsError"></div>
+                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finFunds.length === 0 && !finFundsError">No funds in this scope yet.</div>
+                                            <div style="overflow-x:auto;" x-show="finFunds.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="f in finFunds" :key="f.fund_master_pk">
+                                                            <tr>
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="f.fund_code"></td>
+                                                                <td style="font-size:0.82rem;">
+                                                                    <template x-if="finFundEdit.pk === f.fund_master_pk">
+                                                                        <div>
+                                                                            <input type="text" class="form-input" maxlength="200" x-model="finFundEdit.name">
+                                                                            <input type="text" class="form-input" style="margin-top:0.3rem;" maxlength="2000" x-model="finFundEdit.purpose" x-show="finFundEdit.restricted" placeholder="Purpose">
+                                                                            <div class="alert-msg alert-error" style="margin-top:0.3rem;" x-show="finFundEdit.error" x-text="finFundEdit.error"></div>
+                                                                            <button class="link-action" :disabled="finFundEdit.saving" @click="finSaveFundEdit()">Save</button>
+                                                                            <button class="link-action" :disabled="finFundEdit.saving" @click="finFundEdit = { pk: '', saving: false, error: '', name: '', purpose: '' }">Cancel</button>
+                                                                        </div>
+                                                                    </template>
+                                                                    <template x-if="finFundEdit.pk !== f.fund_master_pk">
+                                                                        <div>
+                                                                            <span x-text="f.fund_name"></span>
+                                                                            <span class="badge badge-xs badge-fin-pending" x-show="f.is_restricted">Restricted</span>
+                                                                            <div style="font-size:0.7rem; color:#6b7280;" x-show="f.restriction_purpose" x-text="'Purpose: ' + f.restriction_purpose"></div>
+                                                                            <div style="font-size:0.7rem; color:#6b7280;" x-show="f.organization_name" x-text="'Sakha: ' + f.organization_name"></div>
+                                                                        </div>
+                                                                    </template>
+                                                                </td>
+                                                                <td style="font-size:0.78rem;" x-text="finCode(f.fund_type)"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(f.balance)"></td>
+                                                                <td><span class="badge badge-xs" :class="finBadge(f.status)" x-text="finLabel(f.status)"></span></td>
+                                                                <td>
+                                                                    <button class="link-action" x-show="canManageFinance && f.status !== 'INACTIVE' && finFundEdit.pk !== f.fund_master_pk" @click="finStartFundEdit(f)">Edit</button>
+                                                                    <template x-for="a in finActions('fund', f.status)" :key="a.to">
+                                                                        <button class="link-action" @click="finAskTransition('fund', f.fund_master_pk, 'Fund ' + f.fund_code, a)" x-text="a.label"></button>
+                                                                    </template>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- ═════════ Transactions ═════════ -->
+                        <div x-show="activeTab === 'finTransactions'" x-cloak>
+
+                            <!-- Create / edit form -->
+                            <div class="data-card" x-show="finTxnForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title" x-text="finTxnForm.mode === 'create' ? 'New transaction' : 'Edit transaction'"></h2></div>
+                                <div class="data-card-body">
+                                    <div class="form-grid-2">
+                                        <div>
+                                            <label class="form-label">Financial year</label>
+                                            <select class="nss-select" x-model="finTxnForm.financial_year_pk" @change="finTxnFormYearChanged()">
+                                                <option value="">Select…</option>
+                                                <template x-for="y in finOpenYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
+                                            </select>
+                                            <p class="form-hint" x-show="finOpenYears.length === 0">No financial year is open. An administrator must open one first.</p>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Financial scope</label>
+                                            <select class="nss-select" x-model="finTxnForm.financial_scope_pk" @change="finTxnFormScopeChanged()">
+                                                <option value="">Select…</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finTxnForm.fund_master_pk">
+                                                <option value="">No specific fund</option>
+                                                <template x-for="f in finTxnFormFunds" :key="f.fund_master_pk"><option :value="f.fund_master_pk" x-text="f.fund_code + ' — ' + f.fund_name + (f.is_restricted ? ' (restricted)' : '')"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Type</label>
+                                            <select class="nss-select" x-model="finTxnForm.transaction_type" @change="finTxnFormTypeChanged()">
+                                                <template x-for="t in finTxnTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Category</label>
+                                            <select class="nss-select" x-model="finTxnForm.transaction_category">
+                                                <option value="">Select…</option>
+                                                <template x-for="c in finCategoryChoices" :key="c"><option :value="c" x-text="finCode(c)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Amount (₹)</label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finTxnForm.amount" placeholder="0.00" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Date</label>
+                                            <input type="date" class="form-input" x-model="finTxnForm.transaction_date">
+                                        </div>
+                                        <div class="span-all" style="grid-column:span 2;">
+                                            <label class="form-label">Description <span class="optional">(optional)</span></label>
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finTxnForm.description" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Member (Sangha Sevi ID) <span class="optional">(optional)</span></label>
+                                            <input type="text" class="form-input" maxlength="20" x-model="finTxnForm.sangha_sevi_id" placeholder="e.g. SS12" autocomplete="off">
+                                            <p class="form-hint">The member this money is from. Pranami linked to a member appears in that member's own "Pranami" tab once it is posted.</p>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finTxnForm.error" x-text="finTxnForm.error"></div>
+                                    <div class="form-section" style="display:flex; align-items:center; gap:0.6rem;">
+                                        <button class="btn-action primary" :disabled="finTxnForm.saving" @click="finSubmitTxn()"
+                                                x-text="finTxnForm.saving ? 'Saving…' : (finTxnForm.mode === 'create' ? 'Record transaction' : 'Save changes')"></button>
+                                        <button class="btn-action" :disabled="finTxnForm.saving" @click="finTxnForm = { ...finTxnForm, show: false }">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- List -->
+                            <div class="data-card" x-show="!finTxnForm.show && !finTxn">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Transactions</h2>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finTxnsTotal + ' total'"></span>
+                                        <button class="btn-action primary" x-show="canManageFinance" @click="finOpenTxnForm()">+ New transaction</button>
+                                    </div>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
+                                        <div>
+                                            <label class="form-label">Search</label>
+                                            <input type="text" class="form-input" x-model="finTxnQ" @keydown.enter="finApplyTxnFilters()" placeholder="Reference, description, donor…" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Financial year</label>
+                                            <select class="nss-select" x-model="finTxnYear" @change="finApplyTxnFilters()">
+                                                <option value="">All years</option>
+                                                <template x-for="y in finYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Scope</label>
+                                            <select class="nss-select" x-model="finTxnScope" @change="finApplyTxnFilters()">
+                                                <option value="">All scopes</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Type</label>
+                                            <select class="nss-select" x-model="finTxnTypeFilter" @change="finApplyTxnFilters()">
+                                                <option value="">All types</option>
+                                                <template x-for="t in finTxnTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Status</label>
+                                            <select class="nss-select" x-model="finTxnStatusFilter" @change="finApplyTxnFilters()">
+                                                <option value="">All statuses</option>
+                                                <template x-for="st in (finStatuses.transaction || [])" :key="st"><option :value="st" x-text="finLabel(st)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">From</label>
+                                            <input type="date" class="form-input" x-model="finTxnFrom" @change="finApplyTxnFilters()">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">To</label>
+                                            <input type="date" class="form-input" x-model="finTxnTo" @change="finApplyTxnFilters()">
+                                        </div>
+                                        <div style="display:flex; gap:0.4rem;">
+                                            <button class="btn-action primary" @click="finApplyTxnFilters()">Search</button>
+                                            <button class="btn-action" @click="finClearTxnFilters()">Reset</button>
+                                        </div>
+                                    </div>
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finTxnsLoading"><div class="spinner"></div></div>
+                                    <div class="alert-msg alert-error" x-show="finTxnsError" x-text="finTxnsError"></div>
+                                    <template x-if="!finTxnsLoading && !finTxnsError">
+                                        <div>
+                                            <div style="padding:1rem; color:#6b7280;" x-show="finTxns.length === 0">No transactions found.</div>
+                                            <div style="overflow-x:auto;" x-show="finTxns.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Reference</th><th>Date</th><th>Scope</th><th>Category</th><th>Amount</th><th>Status</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="t in finTxns" :key="t.financial_transaction_pk">
+                                                            <tr @click="finOpenTxn(t.financial_transaction_pk)" style="cursor:pointer;">
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="t.transaction_reference"></td>
+                                                                <td style="font-size:0.78rem;" x-text="NSS.formatDate(t.transaction_date)"></td>
+                                                                <td style="font-size:0.78rem;" x-text="t.scope_code"></td>
+                                                                <td style="font-size:0.78rem;">
+                                                                    <span x-text="finCode(t.transaction_category)"></span>
+                                                                    <div style="font-size:0.7rem; color:#6b7280;" x-show="t.fund_code" x-text="'Fund: ' + t.fund_code"></div>
+                                                                </td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" :class="t.transaction_type === 'EXPENSE' ? 'text-rose-700' : (t.transaction_type === 'INCOME' ? 'text-emerald-700' : '')"
+                                                                    x-text="(t.transaction_type === 'EXPENSE' ? '− ' : (t.transaction_type === 'INCOME' ? '+ ' : '± ')) + finMoney(t.amount)"></td>
+                                                                <td><span class="badge badge-xs" :class="finBadge(t.status)" x-text="finLabel(t.status)"></span></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="pagination-bar" x-show="finTxnsTotal > finTxnsPageSize">
+                                                <span x-text="'Page ' + finTxnsPage + ' of ' + finTxnsTotalPages"></span>
+                                                <div style="display:flex; gap:0.35rem;">
+                                                    <button class="btn-action" :disabled="finTxnsPage <= 1" @click="finTxnsPageBy(-1)">Prev</button>
+                                                    <button class="btn-action" :disabled="finTxnsPage >= finTxnsTotalPages" @click="finTxnsPageBy(1)">Next</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Detail -->
+                            <template x-if="finTxn && !finTxnForm.show">
+                                <div>
+                                    <div class="data-card">
+                                        <div class="data-card-header">
+                                            <div>
+                                                <h2 class="data-card-title" x-text="finCode(finTxn.transaction_type) + ' — ' + finMoney(finTxn.amount)"></h2>
+                                                <span class="mono" style="font-size:0.75rem; color:#6b7280;" x-text="finTxn.transaction_reference"></span>
+                                            </div>
+                                            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                                                <span class="badge badge-sm" :class="finBadge(finTxn.status)" x-text="finLabel(finTxn.status)"></span>
+                                                <button class="btn-action" x-show="canManageFinance && finTxn.status === 'DRAFT'" @click="finOpenTxnForm(finTxn)">Edit</button>
+                                                <template x-for="a in finActions('transaction', finTxn.status)" :key="a.to">
+                                                    <button class="btn-action" :class="{ danger: a.danger, primary: !a.danger }" @click="finAskTransition('transaction', finTxn.financial_transaction_pk, finTxn.transaction_reference, a)" x-text="a.label"></button>
+                                                </template>
+                                                <button class="btn-action" @click="finBackToTxns()">Back to list</button>
+                                            </div>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <div class="detail-grid cols-3">
+                                                <div class="detail-item"><div class="label">Date</div><div class="value" x-text="NSS.formatDate(finTxn.transaction_date)"></div></div>
+                                                <div class="detail-item"><div class="label">Category</div><div class="value" x-text="finCode(finTxn.transaction_category)"></div></div>
+                                                <div class="detail-item"><div class="label">Financial year</div><div class="value" x-text="finTxn.year_code"></div></div>
+                                                <div class="detail-item"><div class="label">Scope</div><div class="value" x-text="finTxn.scope_code + ' — ' + finTxn.scope_name"></div></div>
+                                                <div class="detail-item"><div class="label">Organization</div><div class="value" x-text="finTxn.scope_organization_name || 'NSS-wide only'"></div></div>
+                                                <div class="detail-item"><div class="label">Fund</div><div class="value" x-text="finTxn.fund_code ? (finTxn.fund_code + ' — ' + finTxn.fund_name) : '—'"></div></div>
+                                                <div class="detail-item"><div class="label">Member</div><div class="value" x-text="finTxn.sangha_sevi_id ? (finTxn.sangha_sevi_id + (finTxn.person_name ? ' — ' + finTxn.person_name : '')) : (finTxn.person_name || '—')"></div></div>
+                                                <div class="detail-item" x-show="finTxn.description" style="grid-column:span 3;"><div class="label">Description</div><div class="value" x-text="finTxn.description"></div></div>
+                                                <div class="detail-item" x-show="finTxn.transaction_type === 'INCOME'"><div class="label">Receipted</div><div class="value" x-text="finMoney(finTxn.receipted_amount)"></div></div>
+                                                <div class="detail-item" x-show="finTxn.transaction_type === 'EXPENSE'"><div class="label">Paid</div><div class="value" x-text="finMoney(finTxn.paid_amount)"></div></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="alert-msg alert-error" x-show="finEvidenceError" x-text="finEvidenceError"></div>
+
+                                    <!-- Receipts (income) -->
+                                    <div class="data-card" x-show="finTxn.transaction_type === 'INCOME'">
+                                        <div class="data-card-header">
+                                            <h2 class="data-card-title">Receipts</h2>
+                                            <button class="btn-action primary" x-show="finCanReceipt && !finReceiptForm.show" @click="finOpenReceiptForm()">+ New receipt</button>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <p class="form-hint" x-show="['DRAFT','PENDING_APPROVAL','APPROVED'].includes(finTxn.status)">Receipts can be raised once the transaction is posted.</p>
+                                            <div class="form-section" x-show="finReceiptForm.show">
+                                                <div class="form-grid-2">
+                                                    <div><label class="form-label">Receipt date</label><input type="date" class="form-input" x-model="finReceiptForm.receipt_date"></div>
+                                                    <div><label class="form-label">Amount (₹)</label><input type="text" inputmode="decimal" class="form-input" x-model="finReceiptForm.amount" autocomplete="off"></div>
+                                                    <div><label class="form-label">Received from <span class="optional">(optional)</span></label><input type="text" class="form-input" maxlength="200" x-model="finReceiptForm.received_from" autocomplete="off"></div>
+                                                    <div>
+                                                        <label class="form-label">Paid via</label>
+                                                        <select class="nss-select" x-model="finReceiptForm.payment_method_code">
+                                                            <option value="">Not recorded</option>
+                                                            <template x-for="m in finPaymentMethods" :key="m.code"><option :value="m.code" x-text="m.name"></option></template>
+                                                        </select>
+                                                    </div>
+                                                    <div class="span-all" style="grid-column:span 2;">
+                                                        <label class="form-label">UPI transaction id / cheque no. / bank reference <span class="optional">(optional)</span></label>
+                                                        <input type="text" class="form-input" maxlength="100" x-model="finReceiptForm.instrument_reference" autocomplete="off">
+                                                    </div>
+                                                </div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finReceiptForm.error" x-text="finReceiptForm.error"></div>
+                                                <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finReceiptForm.saving" @click="finSubmitReceipt()" x-text="finReceiptForm.saving ? 'Saving…' : 'Save receipt'"></button>
+                                                    <button class="btn-action" :disabled="finReceiptForm.saving" @click="finReceiptForm = { ...finReceiptForm, show: false }">Cancel</button>
+                                                </div>
+                                            </div>
+                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finReceipts.length === 0">No receipts yet.</div>
+                                            <div style="overflow-x:auto;" x-show="finReceipts.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Receipt no.</th><th>Date</th><th>Amount</th><th>From</th><th>Via</th><th>Status</th><th></th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="r in finReceipts" :key="r.financial_receipt_pk">
+                                                            <tr>
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="r.receipt_number"></td>
+                                                                <td style="font-size:0.78rem;" x-text="NSS.formatDate(r.receipt_date)"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(r.amount)"></td>
+                                                                <td style="font-size:0.78rem;" x-text="r.received_from || '—'"></td>
+                                                                <td style="font-size:0.78rem;">
+                                                                    <span x-text="r.payment_method_name || '—'"></span>
+                                                                    <div class="mono" style="font-size:0.7rem; color:#6b7280;" x-show="r.instrument_reference" x-text="r.instrument_reference"></div>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="badge badge-xs" :class="finBadge(r.status)" x-text="finLabel(r.status)"></span>
+                                                                    <div style="font-size:0.7rem; color:#6b7280;" x-show="r.cancellation_reason" x-text="r.cancellation_reason"></div>
+                                                                </td>
+                                                                <td>
+                                                                    <template x-for="a in finActions('receipt', r.status)" :key="a.to">
+                                                                        <button class="link-action" @click="finAskTransition('receipt', r.financial_receipt_pk, 'Receipt ' + r.receipt_number, a)" x-text="a.label"></button>
+                                                                    </template>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Payments (expense) -->
+                                    <div class="data-card" x-show="finTxn.transaction_type === 'EXPENSE'">
+                                        <div class="data-card-header">
+                                            <h2 class="data-card-title">Payments</h2>
+                                            <button class="btn-action primary" x-show="finCanPayment && !finPaymentForm.show" @click="finOpenPaymentForm()">+ New payment</button>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <p class="form-hint" x-show="['DRAFT','PENDING_APPROVAL'].includes(finTxn.status)">Payments can be raised once the expense is approved.</p>
+                                            <div class="form-section" x-show="finPaymentForm.show">
+                                                <div class="form-grid-2">
+                                                    <div><label class="form-label">Payment date</label><input type="date" class="form-input" x-model="finPaymentForm.payment_date"></div>
+                                                    <div><label class="form-label">Amount (₹)</label><input type="text" inputmode="decimal" class="form-input" x-model="finPaymentForm.amount" autocomplete="off"></div>
+                                                    <div><label class="form-label">Paid to <span class="optional">(optional)</span></label><input type="text" class="form-input" maxlength="200" x-model="finPaymentForm.paid_to" autocomplete="off"></div>
+                                                    <div>
+                                                        <label class="form-label">Paid via</label>
+                                                        <select class="nss-select" x-model="finPaymentForm.payment_method_code">
+                                                            <option value="">Not recorded</option>
+                                                            <template x-for="m in finPaymentMethods" :key="m.code"><option :value="m.code" x-text="m.name"></option></template>
+                                                        </select>
+                                                    </div>
+                                                    <div class="span-all" style="grid-column:span 2;">
+                                                        <label class="form-label">UPI transaction id / cheque no. / bank reference <span class="optional">(optional)</span></label>
+                                                        <input type="text" class="form-input" maxlength="100" x-model="finPaymentForm.instrument_reference" autocomplete="off">
+                                                    </div>
+                                                </div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finPaymentForm.error" x-text="finPaymentForm.error"></div>
+                                                <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finPaymentForm.saving" @click="finSubmitPayment()" x-text="finPaymentForm.saving ? 'Saving…' : 'Save payment'"></button>
+                                                    <button class="btn-action" :disabled="finPaymentForm.saving" @click="finPaymentForm = { ...finPaymentForm, show: false }">Cancel</button>
+                                                </div>
+                                            </div>
+                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finPayments.length === 0">No payments yet.</div>
+                                            <div style="overflow-x:auto;" x-show="finPayments.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Reference</th><th>Date</th><th>Amount</th><th>Paid to</th><th>Via</th><th>Status</th><th></th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="p in finPayments" :key="p.financial_payment_pk">
+                                                            <tr>
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="p.payment_reference"></td>
+                                                                <td style="font-size:0.78rem;" x-text="NSS.formatDate(p.payment_date)"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(p.amount)"></td>
+                                                                <td style="font-size:0.78rem;" x-text="p.paid_to || '—'"></td>
+                                                                <td style="font-size:0.78rem;">
+                                                                    <span x-text="p.payment_method_name || '—'"></span>
+                                                                    <div class="mono" style="font-size:0.7rem; color:#6b7280;" x-show="p.instrument_reference" x-text="p.instrument_reference"></div>
+                                                                </td>
+                                                                <td><span class="badge badge-xs" :class="finBadge(p.status)" x-text="finLabel(p.status)"></span></td>
+                                                                <td>
+                                                                    <template x-for="a in finActions('payment', p.status)" :key="a.to">
+                                                                        <button class="link-action" @click="finAskTransition('payment', p.financial_payment_pk, 'Payment ' + p.payment_reference, a)" x-text="a.label"></button>
+                                                                    </template>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- ═════════ Transfers ═════════ -->
+                        <div x-show="activeTab === 'finTransfers'" x-cloak>
+
+                            <!-- Create form -->
+                            <div class="data-card" x-show="finTransferForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">New transfer</h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint">Moves money between two different financial scopes (for example Kendra → Mahila Sangha). It needs approval, then execution, and cannot take more than the source fund holds.</p>
+                                    <div class="form-grid-2">
+                                        <div>
+                                            <label class="form-label">Financial year</label>
+                                            <select class="nss-select" x-model="finTransferForm.financial_year_pk" @change="finTransferFormYearChanged()">
+                                                <option value="">Select…</option>
+                                                <template x-for="y in finOpenYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Date</label>
+                                            <input type="date" class="form-input" x-model="finTransferForm.transfer_date">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">From scope</label>
+                                            <select class="nss-select" x-model="finTransferForm.source_scope_pk" @change="finTransferScopeChanged('source')">
+                                                <option value="">Select…</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">To scope</label>
+                                            <select class="nss-select" x-model="finTransferForm.destination_scope_pk" @change="finTransferScopeChanged('destination')">
+                                                <option value="">Select…</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">From fund <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finTransferForm.source_fund_pk">
+                                                <option value="">No specific fund</option>
+                                                <template x-for="f in finTransferSourceFunds" :key="f.fund_master_pk"><option :value="f.fund_master_pk" x-text="f.fund_code + ' — balance ' + finMoney(f.balance)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">To fund <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finTransferForm.destination_fund_pk">
+                                                <option value="">No specific fund</option>
+                                                <template x-for="f in finTransferDestFunds" :key="f.fund_master_pk"><option :value="f.fund_master_pk" x-text="f.fund_code + ' — ' + f.fund_name"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Amount (₹)</label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finTransferForm.amount" placeholder="0.00" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Purpose</label>
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finTransferForm.purpose" autocomplete="off">
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finTransferForm.error" x-text="finTransferForm.error"></div>
+                                    <div class="form-section" style="display:flex; align-items:center; gap:0.6rem;">
+                                        <button class="btn-action primary" :disabled="finTransferForm.saving" @click="finSubmitTransfer()" x-text="finTransferForm.saving ? 'Saving…' : 'Record transfer'"></button>
+                                        <button class="btn-action" :disabled="finTransferForm.saving" @click="finTransferForm = { ...finTransferForm, show: false }">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- List -->
+                            <div class="data-card" x-show="!finTransferForm.show && !finTransfer">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Transfers</h2>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finTransfersTotal + ' total'"></span>
+                                        <button class="btn-action primary" x-show="canManageFinance" @click="finOpenTransferForm()">+ New transfer</button>
+                                    </div>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
+                                        <div>
+                                            <label class="form-label">Search</label>
+                                            <input type="text" class="form-input" x-model="finTransferQ" @keydown.enter="finApplyTransferFilters()" placeholder="Reference or purpose…" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Financial year</label>
+                                            <select class="nss-select" x-model="finTransferYear" @change="finApplyTransferFilters()">
+                                                <option value="">All years</option>
+                                                <template x-for="y in finYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Scope (either end)</label>
+                                            <select class="nss-select" x-model="finTransferScope" @change="finApplyTransferFilters()">
+                                                <option value="">All scopes</option>
+                                                <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Status</label>
+                                            <select class="nss-select" x-model="finTransferStatusFilter" @change="finApplyTransferFilters()">
+                                                <option value="">All statuses</option>
+                                                <template x-for="st in (finStatuses.transfer || [])" :key="st"><option :value="st" x-text="finLabel(st)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div style="display:flex; gap:0.4rem;">
+                                            <button class="btn-action primary" @click="finApplyTransferFilters()">Search</button>
+                                            <button class="btn-action" @click="finClearTransferFilters()">Reset</button>
+                                        </div>
+                                    </div>
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finTransfersLoading"><div class="spinner"></div></div>
+                                    <div class="alert-msg alert-error" x-show="finTransfersError" x-text="finTransfersError"></div>
+                                    <template x-if="!finTransfersLoading && !finTransfersError">
+                                        <div>
+                                            <div style="padding:1rem; color:#6b7280;" x-show="finTransfers.length === 0">No transfers found.</div>
+                                            <div style="overflow-x:auto;" x-show="finTransfers.length > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Reference</th><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Status</th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="t in finTransfers" :key="t.financial_transfer_pk">
+                                                            <tr @click="finOpenTransfer(t.financial_transfer_pk)" style="cursor:pointer;">
+                                                                <td class="mono" style="font-size:0.78rem;" x-text="t.transfer_reference"></td>
+                                                                <td style="font-size:0.78rem;" x-text="NSS.formatDate(t.transfer_date)"></td>
+                                                                <td style="font-size:0.78rem;" x-text="t.source_scope_code"></td>
+                                                                <td style="font-size:0.78rem;" x-text="t.destination_scope_code"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(t.amount)"></td>
+                                                                <td><span class="badge badge-xs" :class="finBadge(t.status)" x-text="finLabel(t.status)"></span></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="pagination-bar" x-show="finTransfersTotal > finTransfersPageSize">
+                                                <span x-text="'Page ' + finTransfersPage + ' of ' + finTransfersTotalPages"></span>
+                                                <div style="display:flex; gap:0.35rem;">
+                                                    <button class="btn-action" :disabled="finTransfersPage <= 1" @click="finTransfersPageBy(-1)">Prev</button>
+                                                    <button class="btn-action" :disabled="finTransfersPage >= finTransfersTotalPages" @click="finTransfersPageBy(1)">Next</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Detail -->
+                            <template x-if="finTransfer && !finTransferForm.show">
+                                <div class="data-card">
+                                    <div class="data-card-header">
+                                        <div>
+                                            <h2 class="data-card-title" x-text="'Transfer — ' + finMoney(finTransfer.amount)"></h2>
+                                            <span class="mono" style="font-size:0.75rem; color:#6b7280;" x-text="finTransfer.transfer_reference"></span>
+                                        </div>
+                                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                                            <span class="badge badge-sm" :class="finBadge(finTransfer.status)" x-text="finLabel(finTransfer.status)"></span>
+                                            <template x-for="a in finActions('transfer', finTransfer.status)" :key="a.to">
+                                                <button class="btn-action" :class="{ danger: a.danger, primary: !a.danger }" @click="finAskTransition('transfer', finTransfer.financial_transfer_pk, finTransfer.transfer_reference, a)" x-text="a.label"></button>
+                                            </template>
+                                            <button class="btn-action" @click="finBackToTransfers()">Back to list</button>
+                                        </div>
+                                    </div>
+                                    <div class="data-card-body">
+                                        <div class="detail-grid cols-3">
+                                            <div class="detail-item"><div class="label">Date</div><div class="value" x-text="NSS.formatDate(finTransfer.transfer_date)"></div></div>
+                                            <div class="detail-item"><div class="label">Financial year</div><div class="value" x-text="finTransfer.year_code"></div></div>
+                                            <div class="detail-item"><div class="label">Amount</div><div class="value" x-text="finMoney(finTransfer.amount)"></div></div>
+                                            <div class="detail-item"><div class="label">From</div><div class="value" x-text="finTransfer.source_scope_code + ' — ' + finTransfer.source_scope_name + (finTransfer.source_fund_code ? ' (' + finTransfer.source_fund_code + ')' : '')"></div></div>
+                                            <div class="detail-item"><div class="label">To</div><div class="value" x-text="finTransfer.destination_scope_code + ' — ' + finTransfer.destination_scope_name + (finTransfer.destination_fund_code ? ' (' + finTransfer.destination_fund_code + ')' : '')"></div></div>
+                                            <div class="detail-item" style="grid-column:span 3;"><div class="label">Purpose</div><div class="value" x-text="finTransfer.purpose"></div></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                    </div><!-- /Finance -->
 
                     <!-- ═══════════════════════════════════════════
                          VIEW: System Event Log explorer (AUDIT_VIEW, read only)

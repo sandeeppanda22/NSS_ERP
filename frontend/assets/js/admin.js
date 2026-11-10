@@ -80,6 +80,9 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // list); tests/api/test_live_changes.py::TestJsMapParity parses this block, so
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
+// Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
+const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers"];
+
 // LIVE_TABLE_TABS:begin
 const LIVE_TABLE_TABS = {
     registration_claim: ["claims", "claimsBadge", "users", "detail"],
@@ -109,6 +112,14 @@ const LIVE_TABLE_TABS = {
     property_statutory_record: ["properties"],
     property_document: ["properties"],
     asset_document: ["assets"],
+    // Finance (Tier 12)
+    financial_year: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    financial_scope: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    fund_master: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    financial_transaction: ["finOverview", "finTransactions"],
+    financial_receipt: ["finTransactions"],
+    financial_payment: ["finTransactions"],
+    financial_transfer: ["finOverview", "finTransfers"],
     // ── Batch 2 ──
     // Users tab + user detail. user_account's login churn (last_login_at, failed-login
     // counters, locked_until) never bumps its marker (ignored-column trigger), so a login
@@ -193,6 +204,10 @@ const LIVE_REFRESH_CONFIG = {
         },
         properties: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
         assets: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
+        finOverview: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
 
         // ── Batch 2 ──
         // Busy = a modal, inline editor or Profile Details editor of that tab is open.
@@ -264,12 +279,14 @@ function adminApp() {
     // NSSAssetsProperty.install() likewise adds the Assets & Property screens
     // (assets-property.js): permission getters, list/detail/forms/custody/
     // maintenance/statutory/documents for both the Properties and Assets tabs.
+    // NSSFinance.install() adds the Finance screens (finance.js): permission getters and the
+    // Overview / Years & Scopes / Transactions / Transfers tabs (FINANCE_VIEW / MANAGE / APPROVE).
     // NSSAuditDiagnostics.install() adds the AUDIT_VIEW-gated System Event Log explorer and
     // Live Change Markers diagnostics tabs (audit-diagnostics.js); they poll their own audit
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -1621,7 +1638,7 @@ function adminApp() {
             // ASSET_VIEW/ASSET_MANAGE (Assets & Property) also qualifies: Report
             // Viewer holds neither ADMIN_* nor GOVERNANCE_*, and gets an
             // Assets-&-Property-only panel.
-            if (!this.hasGeneralAdminAccess && !this.canViewGovernance && !this.canViewAssets && !this.canViewAudit) {
+            if (!this.canViewFinance && !this.hasGeneralAdminAccess && !this.canViewGovernance && !this.canViewAssets && !this.canViewAudit) {
                 window.location.href = "/dashboard";
                 return;
             }
@@ -1643,23 +1660,30 @@ function adminApp() {
                 // demand, so none of the general loaders are needed for it.
                 const assetsHash = (govHash === "assets" || govHash === "properties") && this.canViewAssets;
                 const auditHash = (govHash === "auditEvents" || govHash === "liveMarkers") && this.canViewAudit;
-                const assetsLanding = !auditHash && (assetsHash || (!this.canViewGovernance && this.canViewAssets));
+                // Finance (FINANCE_VIEW/MANAGE/APPROVE): #finOverview / #finStructure / #finTransactions /
+                // #finTransfers, or the landing tab of a holder with no governance, assets or audit access.
+                const financeHash = FINANCE_TABS.includes(govHash) && this.canViewFinance;
+                const financeLanding = !auditHash && (financeHash
+                    || (!this.canViewGovernance && !this.canViewAssets && !this.canViewAudit && this.canViewFinance));
+                const assetsLanding = !auditHash && !financeLanding && (assetsHash || (!this.canViewGovernance && this.canViewAssets));
                 // Audit & Diagnostics (AUDIT_VIEW): #auditEvents / #liveMarkers, or the landing
                 // tab of a holder of AUDIT_VIEW alone. An Auditor also holds ASSET_VIEW, so lands on Assets
                 // and reaches these from the sidebar.
-                const auditLanding = auditHash || (!this.canViewGovernance && !this.canViewAssets && this.canViewAudit);
+                const auditLanding = auditHash || (!this.canViewGovernance && !this.canViewAssets && !this.canViewFinance && this.canViewAudit);
                 // The Advisory Board admin's own Correspondence register (2026-10-30)
                 // is built from the organization tree + the ORGANIZATION_TYPE
                 // catalogue (ORGANIZATION_VIEW / FOUNDATION_VIEW, both granted to it).
                 const corrOnly = govHash === "correspondence" && this.canViewCorrespondence;
-                if (this.canViewCorrespondence && !assetsLanding && !auditLanding) {
+                if (this.canViewCorrespondence && !assetsLanding && !auditLanding && !financeLanding) {
                     await Promise.all([this.fetchOrganizations(), this.loadOrgTypes()]);
                 }
                 this.activeTab = auditLanding ? (auditHash ? govHash : "auditEvents")
+                    : financeLanding ? (financeHash ? govHash : "finOverview")
                     : assetsLanding ? (assetsHash ? govHash : "properties")
                     : corrOnly ? "correspondence"
                     : govHash === "govBodies" ? "govBodies" : "govAssignments";
                 if (auditLanding) await (this.activeTab === "liveMarkers" ? this.liveMarkersEnter() : this.auditEventsEnter());
+                else if (financeLanding) await this.finEnterTab();
                 else if (assetsLanding) await this.apEnterTab();
                 else if (this.activeTab === "correspondence") await this.loadCorrespondence();
                 else if (this.activeTab === "govBodies") await this.loadGovBodies();
@@ -1733,6 +1757,10 @@ function adminApp() {
                     correspondence: () => this.loadCorrespondence(),
                     properties: () => { if (this.canViewAssets) this.apEnterTab(); },
                     assets: () => { if (this.canViewAssets) this.apEnterTab(); },
+                    finOverview: () => { if (this.canViewFinance) this.finEnterTab("finOverview"); },
+                    finStructure: () => { if (this.canViewFinance) this.finEnterTab("finStructure"); },
+                    finTransactions: () => { if (this.canViewFinance) this.finEnterTab("finTransactions"); },
+                    finTransfers: () => { if (this.canViewFinance) this.finEnterTab("finTransfers"); },
                     auditEvents: () => { if (this.canViewAudit) this.auditEventsEnter(); },
                     liveMarkers: () => { if (this.canViewAudit) this.liveMarkersEnter(); },
                 };
@@ -9193,5 +9221,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    }))), LIVE_REFRESH_CONFIG);
+    })))), LIVE_REFRESH_CONFIG);
 }

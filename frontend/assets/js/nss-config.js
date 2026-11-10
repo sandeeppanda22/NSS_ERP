@@ -471,6 +471,48 @@ const NSS = {
         return this.ASSET_CUSTODIANSHIP_BADGE_MAP[status] || "badge-muted";
     },
 
+    // ── Finance (Tier 12) ──────────────────────────────────────────────
+    // Lifecycle statuses of a financial year / scope / fund / transaction /
+    // receipt / payment / transfer (SOL-FIN-005). Fixed values (not master
+    // data), so labels and badge classes live here; one map serves all seven
+    // entities because the same word means the same thing on each of them.
+    FINANCE_STATUS_LABELS: {
+        PLANNED: "Planned", OPEN: "Open", CLOSING: "Closing", CLOSED: "Closed",
+        DRAFT: "Draft", ACTIVE: "Active", INACTIVE: "Inactive",
+        PENDING_APPROVAL: "Pending approval", APPROVED: "Approved", POSTED: "Posted", SETTLED: "Settled",
+        REJECTED: "Rejected", CANCELLED: "Cancelled",
+        ISSUED: "Issued", INITIATED: "Initiated", COMPLETED: "Completed", EXECUTED: "Executed",
+    },
+
+    FINANCE_STATUS_BADGE_MAP: {
+        PLANNED: "badge-fin-neutral", DRAFT: "badge-fin-neutral",
+        OPEN: "badge-fin-live", ACTIVE: "badge-fin-live", ISSUED: "badge-fin-live",
+        PENDING_APPROVAL: "badge-fin-pending", CLOSING: "badge-fin-pending", INITIATED: "badge-fin-pending",
+        APPROVED: "badge-fin-approved", EXECUTED: "badge-fin-approved",
+        POSTED: "badge-fin-done", SETTLED: "badge-fin-done", COMPLETED: "badge-fin-done",
+        CLOSED: "badge-fin-closed", INACTIVE: "badge-fin-closed",
+        REJECTED: "badge-fin-bad", CANCELLED: "badge-fin-bad",
+    },
+
+    financeStatusLabel(status) {
+        return this.FINANCE_STATUS_LABELS[status] || this.codeLabel(status);
+    },
+
+    financeStatusBadgeClass(status) {
+        return this.FINANCE_STATUS_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Indian-rupee display of a decimal string / number ("1234567.5" -> "₹12,34,567.50").
+     * Money travels as decimal STRINGS from the API; this is display only.
+     * @returns {string}
+     */
+    formatMoney(value) {
+        const n = Number(value);
+        if (value === null || value === undefined || value === "" || Number.isNaN(n)) return "—";
+        return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+    },
+
     /**
      * Button caption for moving a property/asset from `from` to `to`.
      * @returns {string}
@@ -1374,8 +1416,7 @@ NSS.aadhaar = (() => {
         [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
         [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
     ];
-    const MESSAGE = "Aadhaar number must be exactly 12 digits (spaces or hyphens allowed), "
-        + "must not start with 0 or 1 and must pass the Verhoeff checksum.";
+    const MESSAGE = "Aadhaar number must be exactly 12 digits";
 
     function verhoeffValid(digits) {
         if (!/^[0-9]+$/.test(digits || "")) return false;

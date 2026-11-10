@@ -833,6 +833,42 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 
 ---
 
+# 12h. Tier 12 — Finance
+
+**Router prefix:** `/api/v1/finance` (`api/routers/finance.py`, schemas in `api/schemas/finance.py`) — 31 endpoints. Implemented on `feature/tier12-finance` (uncommitted; not run against the project DB). Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
+
+**Auth (every endpoint):** `Authorization: Bearer` JWT. Reads need any of `FINANCE_VIEW` / `FINANCE_MANAGE` / `FINANCE_APPROVE`; record / edit / submit need `FINANCE_MANAGE`; approve / post / execute / reject / cancel (approved items) / open and close years need `FINANCE_APPROVE`. Plus **admin scope on the Financial Scope's organization**; a scope with no organization and the financial years themselves are global-authority only. Every `/transition` endpoint is gated on MANAGE-or-APPROVE before any lookup, then on the step's own permission.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/reference` | Pick-lists (payment methods from `master_data`), status sets and the lifecycle table the UI renders its buttons from |
+| GET | `/summary` | Posted income/expense, pending work, per-fund balances, per-category totals (`financial_year_pk`, `financial_scope_pk` optional) |
+| GET | `/my-pranami` | **Login only** (any member): the caller's OWN posted/settled `PRANAMI_*` income linked to them, newest first, each with its ISSUED receipts. No id parameter (identity from the token); returns no descriptions, funds or other members. Backs the member dashboard's "Pranami" tab |
+| GET / POST | `/years` | List / create (`start_year` -> 01 Apr..31 Mar) |
+| POST | `/years/{pk}/transition` | PLANNED -> OPEN -> CLOSING -> CLOSED (close blocked by unfinished work) |
+| GET / POST | `/scopes` | List (filters `q`, `scope_type`, `status`, `organization_pk`, `financial_year_pk`) / create (DRAFT) |
+| GET / PATCH | `/scopes/{pk}` | Detail / rename, year, parent (no cycles) |
+| POST | `/scopes/{pk}/transition` | DRAFT -> ACTIVE -> CLOSING -> CLOSED |
+| GET / POST | `/funds` | List / create (restricted funds need a purpose; a Sinking Fund names its Sakha) |
+| GET / PATCH | `/funds/{pk}` | Detail incl. `balance` / edit |
+| POST | `/funds/{pk}/transition` | DRAFT -> ACTIVE -> INACTIVE |
+| GET / POST | `/transactions` | List (filters `q`, year, scope, fund, type, category, status, person, `date_from`/`date_to`) / record a DRAFT |
+| GET / PATCH | `/transactions/{pk}` | Detail (with `receipted_amount` / `paid_amount`) / edit a DRAFT |
+| POST | `/transactions/{pk}/transition` | DRAFT -> PENDING_APPROVAL -> APPROVED -> POSTED -> SETTLED; REJECTED / CANCELLED need remarks; the creator may not approve (super administrator excepted) |
+| POST | `/transactions/{pk}/receipts` | Draft a receipt (POSTED/SETTLED INCOME; total never above the amount) |
+| GET | `/receipts` | List (`financial_transaction_pk`, `status`, `q`) |
+| POST | `/receipts/{pk}/transition` | DRAFT -> ISSUED -> CANCELLED (reason required) |
+| POST | `/transactions/{pk}/payments` | Draft a payment (APPROVED/POSTED/SETTLED EXPENSE) |
+| GET | `/payments` | List |
+| POST | `/payments/{pk}/transition` | DRAFT -> APPROVED -> INITIATED -> COMPLETED; CANCELLED needs remarks |
+| GET / POST | `/transfers` | List / draft (scope over BOTH ends; two different ACTIVE scopes) |
+| GET | `/transfers/{pk}` | Detail |
+| POST | `/transfers/{pk}/transition` | DRAFT -> PENDING_APPROVAL -> APPROVED -> EXECUTED -> COMPLETED; a transfer cannot exceed the source fund's balance |
+
+Creating or editing a transaction accepts `sangha_sevi_id` (e.g. `SS12`), which resolves `sangha_sevi_pk` + `person_pk` (422 if unknown, 403 if the member is outside the caller's admin scope; null/blank unlinks on PATCH). Receipts and payments carry `payment_method_code` (`master_data` category `PAYMENT_METHOD`: CASH, CHEQUE, BANK_TRANSFER, UPI, DEMAND_DRAFT, OTHER; unknown -> 422) and `instrument_reference` (UPI transaction id / cheque no.). Money is a decimal string with at most two decimals, strictly positive.
+
+---
+
 # 15. Endpoint Count Summary
 
 | Tier | Module | Endpoints |
@@ -856,7 +892,8 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| **Total** | | **284** |
+| 12 | Finance | 31 |
+| **Total** | | **315** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 

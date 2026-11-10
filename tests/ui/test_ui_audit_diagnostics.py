@@ -56,7 +56,7 @@ def test_script_is_loaded_before_admin_js(admin_html):
 
 def test_admin_js_installs_the_mixin_and_closes_the_chain(admin_js):
     assert "NSSAuditDiagnostics.install(NSSAssetsProperty.install(" in admin_js
-    assert "}))), LIVE_REFRESH_CONFIG);" in admin_js
+    assert re.search(r"\}\)+, LIVE_REFRESH_CONFIG\);", admin_js)
     assert "this.auditTabChanged(tab)" in admin_js
 
 

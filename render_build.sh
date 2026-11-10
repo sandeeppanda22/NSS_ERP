@@ -24,6 +24,9 @@
 # that still reported a clean build. Fixed by moving the gate down to
 # wrap only the Phase 13 call.
 #
+# Finance (Tier 12, 2026-11-10): Phase 11i (7 tables, 86 total) + the FINANCE_* permissions patch (Phase 0) and the Finance
+# reference-data patch (after Phase 11i) are mirrored below from 02_build.sh, same order.
+#
 # Existence-gated bootstrap (Version 3.0, 2026-10-05) —
 # "only genuinely new tables are ever created or seeded; a
 # table that already exists is never dropped, re-created, or
@@ -168,7 +171,7 @@
 #
 # Keep phase order in sync with database/scripts/02_build.sh
 # if it changes. Verified identical on 2026-11-09: every DDL/seed/patch file
-# below is run in the same order as 02_build.sh (79 tables; Phase 11g
+# below is run in the same order as 02_build.sh (86 tables, Phase 11i Finance added; Phase 11g
 # Assets & Property + the ASSET_* permissions patch added 2026-11-02; Phase 11h
 # live-refresh change marker added 2026-11-03; Phase 13c audit-actor FK patch;
 # the Aadhaar audit-trigger redaction ships inside 15_audit_trigger.sql, which
@@ -344,6 +347,7 @@ run_sql "assets_property permissions patch" "${SEED_BASE}/00_bootstrap/05_assets
 run_sql "assets_property permissions revoke patch" "${SEED_BASE}/00_bootstrap/06_assets_property_permissions_revoke_patch.sql"
 # Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
 run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql"
+run_sql "finance permissions patch" "${SEED_BASE}/00_bootstrap/08_finance_permissions_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -584,6 +588,19 @@ run_sql "assets_property_terminal_custody_patch" "${DDL_BASE}/11_assets_property
 echo ""
 echo "--- Phase 11h: Live refresh — DDL (1 table: live_change_marker + idempotent change-marker triggers on the watched tables, owner decision 2026-11-03) ---"
 run_ddl "live_change_marker" "live_change_marker" "${DDL_BASE}/12_live_refresh/01_live_change_marker.sql"
+
+echo ""
+echo "--- Phase 11i: Finance — DDL (7 tables, Tier 12: financial_year, financial_scope, fund_master, financial_transaction, financial_receipt, financial_payment, financial_transfer) ---"
+run_ddl "financial_year" "financial_year" "${DDL_BASE}/14_finance/01_financial_year.sql"
+run_ddl "financial_scope" "financial_scope" "${DDL_BASE}/14_finance/02_financial_scope.sql"
+run_ddl "fund_master" "fund_master" "${DDL_BASE}/14_finance/03_fund_master.sql"
+run_ddl "financial_transaction" "financial_transaction" "${DDL_BASE}/14_finance/04_financial_transaction.sql"
+run_ddl "financial_receipt" "financial_receipt" "${DDL_BASE}/14_finance/05_financial_receipt.sql"
+run_ddl "financial_payment" "financial_payment" "${DDL_BASE}/14_finance/06_financial_payment.sql"
+run_ddl "financial_transfer" "financial_transfer" "${DDL_BASE}/14_finance/07_financial_transfer.sql"
+run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
+# Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
+# tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 # Idempotent, runs EVERY deploy: the watched-table list may grow; must run after every table it names exists.
 run_sql "live_change_triggers" "${DDL_BASE}/12_live_refresh/02_live_change_triggers.sql"
 

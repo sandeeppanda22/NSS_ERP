@@ -21,7 +21,7 @@
 #   DB_HOST  = localhost
 #   DB_PORT  = 5432
 #
-# Modules validated (79 tables in all):
+# Modules validated (86 tables in all):
 #   - Bootstrap RBAC (3 tables)
 #   - Foundation (12 tables)
 #   - Organization (1 table — type/status in Foundation master_data)
@@ -32,6 +32,8 @@
 #   - Governance (10 tables — existence only, no seed)
 #   - Correspondence (5), Attendance (4), Organization re-parent approval (2),
 #     Assets & Property (7 — existence, key columns, FK integrity, XOR / one-active-custodian invariants)
+#   - Finance (7 — existence, key columns, FK integrity, uniqueness; the PAYMENT_METHOD master data and the
+#     FINANCE_* permissions are FAIL checks because they are delivered by idempotent patches)
 #   - Patch-delivered objects (a patch that did not run FAILs here): Advisory
 #     Board org + singleton trigger, fn_is_sakha_like_org_type, Sakha Asana
 #     governing bodies, per-role permission minimums, Local Sakha ID allocator
@@ -196,11 +198,11 @@ check_table_exists "role_permission"
 
 echo "  Row counts:"
 check_row_count "role_master" 11
-check_row_count "permission_master" 30
+check_row_count "permission_master" 33
 # 178 = 166 + 12 asset grants. A DB that ran the original 16-row patch holds 182 rows, 4 of them
 # soft-deleted (is_active = FALSE, history is never hard-deleted): still >= 178, so the minimum holds.
 # Since 2026-11-04 (GDR-011) one more row (Auditor PERSON_VIEW_SENSITIVE) is soft-deleted by patch 07: 178 rows, 177 active; the minimum counts all rows.
-check_row_count "role_permission" 178
+check_row_count "role_permission" 192
 
 echo "  Unique constraints:"
 check_no_duplicates "role_master" "role_code"
@@ -238,9 +240,9 @@ for t in "${FOUNDATION_TABLES[@]}"; do
 done
 
 echo "  Row counts:"
-check_row_count "master_category" 26
-check_row_count "master_data" 156
-check_row_count "id_sequence_master" 16
+check_row_count "master_category" 27
+check_row_count "master_data" 162
+check_row_count "id_sequence_master" 20
 check_row_count "country" 5
 check_row_count "state" 112
 check_row_count "district" 780
@@ -753,6 +755,58 @@ check_warn_count "audit actor columns (*_by_sangha_sevi_pk) WITHOUT a foreign ke
     "SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND c.relkind IN ('r','p') AND a.attnum > 0 AND NOT a.attisdropped AND a.attname LIKE '%\_by\_sangha\_sevi\_pk' AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND k.conkey = ARRAY[a.attnum]::smallint[]);"
 check_warn_count "audit actor FKs still NOT VALID (dangling actor values exist; find them with the diagnostic SELECT in database/scripts/README.md, fix, re-run the build)" \
     "SELECT COUNT(*) FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.conkey[1] WHERE n.nspname = 'nss' AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND NOT k.convalidated AND a.attname LIKE '%\_by\_sangha\_sevi\_pk';"
+echo ""
+
+# =====================================================
+# Module 10: Finance (7 tables, Tier 12 — existence only; the initial Financial Year, PAYMENT_METHOD
+# master data and FINANCE_* permissions come from the idempotent patches)
+# =====================================================
+echo -e "${CYAN}Module 10: Finance${NC}"
+echo "  Tables (existence only):"
+check_table_exists "financial_year"
+check_table_exists "financial_scope"
+check_table_exists "fund_master"
+check_table_exists "financial_transaction"
+check_table_exists "financial_receipt"
+check_table_exists "financial_payment"
+check_table_exists "financial_transfer"
+
+check_column_exists "financial_scope" "scope_code"
+check_column_exists "financial_scope" "organization_pk"
+check_column_exists "fund_master" "financial_scope_pk"
+check_column_exists "financial_transaction" "financial_year_pk"
+check_column_exists "financial_transaction" "financial_scope_pk"
+check_column_exists "financial_transaction" "amount"
+check_column_exists "financial_receipt" "payment_method_master_data_pk"
+check_column_exists "financial_payment" "payment_method_master_data_pk"
+check_column_exists "financial_transfer" "source_scope_pk"
+check_column_exists "financial_transfer" "destination_scope_pk"
+
+check_fk_integrity "financial_scope -> financial_year" \
+    "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
+check_fk_integrity "fund_master -> financial_scope" \
+    "SELECT COUNT(*) FROM nss.fund_master c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+check_fk_integrity "financial_transaction -> financial_year" \
+    "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
+check_fk_integrity "financial_transaction -> financial_scope" \
+    "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+check_fk_integrity "financial_receipt -> financial_transaction" \
+    "SELECT COUNT(*) FROM nss.financial_receipt c LEFT JOIN nss.financial_transaction p ON c.financial_transaction_pk = p.financial_transaction_pk WHERE p.financial_transaction_pk IS NULL;"
+check_fk_integrity "financial_payment -> financial_transaction" \
+    "SELECT COUNT(*) FROM nss.financial_payment c LEFT JOIN nss.financial_transaction p ON c.financial_transaction_pk = p.financial_transaction_pk WHERE p.financial_transaction_pk IS NULL;"
+check_fk_integrity "financial_transfer -> financial_scope (source)" \
+    "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.source_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+check_fk_integrity "financial_transfer -> financial_scope (destination)" \
+    "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.destination_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+check_fk_integrity "PAYMENT_METHOD master_data present (reference-data patch ran)" \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'PAYMENT_METHOD' AND md.value_code = 'UPI') THEN 0 ELSE 1 END;"
+check_fk_integrity "FINANCE_* permissions present (permissions patch ran)" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.permission_master WHERE permission_code LIKE 'FINANCE\_%') = 3 THEN 0 ELSE 1 END;"
+echo "  Seed (initial Financial Year from the reference-data patch):"
+check_row_count "financial_year" 1
+echo "  Unique constraints:"
+check_no_duplicates "financial_transaction" "transaction_reference"
+check_no_duplicates "financial_year" "year_code"
 echo ""
 
 # =====================================================

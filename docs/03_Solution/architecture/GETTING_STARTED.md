@@ -61,11 +61,11 @@ psql -U postgres -d nss_erp -f database/scripts/01_extensions.sql
 ./database/scripts/03_validate.sh
 ```
 
-What the build does that is new since Tier 6: it creates **79 tables** and, on *every* run, applies a
+What the build does that is new since Tier 6: it creates **86 tables** and, on *every* run, applies a
 set of **idempotent patch files** (`run_sql`, not existence-gated — Advisory Board organization and
 role-permission rows, the organization singleton trigger, the Sakha-like org-type function, the Local
 Sakha ID allocator, the home-affiliation guard, the `registration_claim` legacy-member columns, the
-attendance live-register index, the re-parent step CHECKs, the Sakha Asana governing-body shells, the Assets & Property guard triggers / custodian-eligibility function + trigger / `belongs_to_organization_pk` columns / reference data / `ASSET_*` permissions and the withdrawn-grant revocation).
+attendance live-register index, the re-parent step CHECKs, the Sakha Asana governing-body shells, the Assets & Property guard triggers / custodian-eligibility function + trigger / `belongs_to_organization_pk` columns / reference data / `ASSET_*` permissions and the withdrawn-grant revocation, and — Finance, Tier 12 — the `FINANCE_*` permissions, the `PAYMENT_METHOD` master data (incl. UPI), the `FTX`/`RCT`/`PAY`/`FTR` id sequences and the initial Financial Year 2026-27).
 The full list is in the header of `02_build.sh` and in `database/scripts/README.md`. Because the
 patches run on every build, an **existing database does not need a rebuild for them — just re-run
 `02_build.sh` and then `03_validate.sh`** (see Section 7a-2). The default admin login created in
@@ -206,10 +206,10 @@ python3 -m pytest tests/api/test_organization.py   # one file
 py -m pytest tests/ -v
 ```
 
-**4905 collected items** (`pytest --collect-only -qq`, 2026-11-03): `tests/api/` 2631 (38 files — router and
-integration coverage), `tests/db/` 385 (9 files — cross-module data integrity, credential/festival schema,
-organization singleton triggers, home-affiliation guard, live-refresh change marker), `tests/security/` 1167 (18 files — auth-gating,
-401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 722 (34 files — Playwright browser tests plus
+**5476 collected items** (`pytest --collect-only -qq`, 2026-11-10): `tests/api/` 2833 (39 files — router and
+integration coverage), `tests/db/` 438 (10 files — cross-module data integrity, credential/festival schema,
+organization singleton triggers, home-affiliation guard, live-refresh change marker), `tests/security/` 1385 (19 files — auth-gating,
+401/403/RBAC, CSP/rate-limit/CORS) and `tests/ui/` 820 (36 files — Playwright browser tests plus
 source-parsing tests). Re-run `--collect-only -qq` for current numbers; this count drifts every session.
 See `tests/README.md` for the per-file inventory.
 
@@ -489,12 +489,12 @@ actually runs DDL/seed.
 
 ## Build Phases (execution order)
 
-The build script executes in this order (**79 tables**). All phases run within a
+The build script executes in this order (**86 tables**). All phases run within a
 single `02_build.sh` / `02_build.ps1` invocation; `render_build.sh` mirrors them for Render/Neon:
 
 | Phase | Module | What |
 |------:|--------|------|
-| 0 | Bootstrap RBAC | 3 tables + seed (roles, permissions) |
+| 0 | Bootstrap RBAC | 3 tables + seed (roles, permissions) + idempotent permission patches, incl. `08_finance_permissions_patch.sql` (`FINANCE_VIEW`/`FINANCE_MANAGE`/`FINANCE_APPROVE`, 14 PROPOSED grants) |
 | 1 | Foundation DDL | 14 tables, incl. the 5-level geography chain (`country` → `state` → `district` → `city_village` → `postal_code`) and `festival_master`/`festival_calendar_date`; `system_event_log` (15th) is created separately in Phase 14 |
 | 2 | Foundation Seed | Master categories, master data, geography, sequences, settings |
 | 3 | Organization DDL | 1 table (includes short_code column, performance indexes) + address-restriction, Kumari/Sevak, **singleton** (KENDRA, NILACHALA_KUTIRA, SMRUTI_MANDIRA, ADVISORY_BOARD, central Mahila Sangha) triggers + `fn_is_sakha_like_org_type()` |
@@ -513,7 +513,8 @@ single `02_build.sh` / `02_build.ps1` invocation; `render_build.sh` mirrors them
 | 11e | Attendance DDL | 4 tables (`weekly_sangha_puja`, `weekly_sangha_puja_attendance`, `attendance_exception`, `attendance_review`) + live-register index patch |
 | 11f | Organization re-parent approval DDL | 2 tables (`organization_reparent_request`, `organization_reparent_step`) + step-role/step-order CHECK patch (Sakha President → leaving Anchalika/Zilla → destination Anchalika/Zilla → Kendra President) |
 | 11g | Assets & Property DDL | 7 tables (`property`, `asset`, `custodianship`, `property_statutory_record`, `maintenance_record`, `property_document`, `asset_document`) + idempotent guard triggers (`08_assets_property_guards.sql`) + idempotent custodian-must-be-physical function/trigger (`09_asset_custodian_org_type_function.sql`) + idempotent `10_assets_property_belongs_to_patch.sql` (nullable `belongs_to_organization_pk` + FK + index on `property`/`asset`, GDR-010 §2D) + idempotent `11_assets_property_acquisition_method_patch.sql` (nullable `acquisition_method_master_data_pk` + FK + index, GDR-010 §2E) + idempotent reference-data patch (`PROPERTY`/`ASSET` sequences, 7 master categories incl. `ACQUISITION_METHOD`, `DISPOSED`/`RETIRED` end reasons) + idempotent `12_assets_property_terminal_custody_patch.sql` (ENDs the ACTIVE custodianship of already DISPOSED/RETIRED records, GDR-010 §2F; after the reference data) and `trg_custodianship_terminal_guard` in `08_assets_property_guards.sql`; Phase 0 also runs the `ASSET_VIEW`/`ASSET_MANAGE` permissions patch (12 grants; Anchalika/Zilla view-only, Mahila none) and `06_assets_property_permissions_revoke_patch.sql` (soft-deletes the 4 grants the original 16-row patch created) (GDR-010) |
-| 11h | Live refresh DDL | 1 table (`live_change_marker` + sequence `live_change_seq`) + idempotent statement-level change-marker triggers on the watched tables (`12_live_refresh/02_live_change_triggers.sql`, every build) |
+| 11h | Live refresh DDL | 1 table (`live_change_marker` + sequence `live_change_seq`) + idempotent statement-level change-marker triggers on the watched tables (`12_live_refresh/02_live_change_triggers.sql`, every build; invoked at the END of Phase 11i so the Finance tables exist first) |
+| 11i | Finance DDL | 7 tables (`financial_year`, `financial_scope`, `fund_master`, `financial_transaction`, `financial_receipt`, `financial_payment`, `financial_transfer`; `ddl/14_finance/`) + idempotent reference-data patch (`seed/12_finance/01_finance_reference_data_patch.sql`: `PAYMENT_METHOD` master data incl. UPI, id sequences, initial Financial Year 2026-27). Runs after Phase 11h, so the live-refresh triggers file lists the Finance tables too |
 | 12 | Grant Writer | `SELECT`/`INSERT`/`UPDATE` for `nss_db_writer` on every `nss` table |
 | 13 | Admin Bootstrap | Seed NSSAdmin user account (runtime bootstrap via `bootstrap_admin.py`) |
 | 13b | Geo Attribution Backfill | `UPDATE`s `city_village`/`postal_code`/`post_office.submitted_by_person_pk` to NSS Admin's person_pk (`P1`) for every row where it's still `NULL` and `submitted_by_sangha_sevi_pk` is also `NULL` (i.e. the bulk-reference-seeded rows from Phase 2, which had no app-level submitter) — attribution consistency, 2026-10-21. Must run after Phase 13 since `P1`'s `person_pk` doesn't exist before it (Phase 2's bulk geo seed runs 11 phases earlier). Idempotent (only touches `NULL` rows); tolerates a missing `submitted_by_person_pk` column (un-rebuilt environment) as `[SKIP]`, not `[FAIL]` |

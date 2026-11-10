@@ -73,7 +73,8 @@ class TestWiring:
 
     def test_mixin_is_installed_into_the_admin_component(self):
         assert "NSSAssetsProperty.install(NSSAttendanceRegister.install({" in ADMIN_JS
-        assert ADMIN_JS.rstrip().endswith("}))), LIVE_REFRESH_CONFIG);\n}")
+        # the chain's closing parens grow with every mixin installed around it (Audit, Finance, ...)
+        assert re.search(r"\}\)+, LIVE_REFRESH_CONFIG\);\n\}$", ADMIN_JS.rstrip())
         assert "window.NSSAssetsProperty" in AP_JS
 
     def test_install_uses_descriptors_not_spread(self):

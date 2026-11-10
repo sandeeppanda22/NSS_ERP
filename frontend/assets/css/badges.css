@@ -343,6 +343,24 @@
 .badge-ap-terminal     { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500  — DISPOSED / RETIRED (terminal)  */
 .badge-ap-ended        { background-color: #9ca3af !important; color: #fff !important; }  /* gray-400  — ended custodianship            */
 
+/* ── Finance (Tier 12) — one status vocabulary for year / scope / fund /
+ *    transaction / receipt / payment / transfer (NSS.financeStatusBadgeClass):
+ *   badge-fin-neutral   — PLANNED / DRAFT         (not started)
+ *   badge-fin-live      — OPEN / ACTIVE / ISSUED   (in force)
+ *   badge-fin-pending   — PENDING_APPROVAL / CLOSING / INITIATED (waiting)
+ *   badge-fin-approved  — APPROVED / EXECUTED      (cleared, not yet final)
+ *   badge-fin-done      — POSTED / SETTLED / COMPLETED (final, money counted)
+ *   badge-fin-closed    — CLOSED / INACTIVE        (retired, history only)
+ *   badge-fin-bad       — REJECTED / CANCELLED
+ * Palette reuses hexes from the families above. */
+.badge-fin-neutral   { background-color: #9ca3af !important; color: #fff !important; }  /* gray-400   */
+.badge-fin-live      { background-color: #16a34a !important; color: #fff !important; }  /* green-600  */
+.badge-fin-pending   { background-color: #d97706 !important; color: #fff !important; }  /* amber-600  */
+.badge-fin-approved  { background-color: #2563eb !important; color: #fff !important; }  /* blue-600   */
+.badge-fin-done      { background-color: #0f766e !important; color: #fff !important; }  /* teal-700   */
+.badge-fin-closed    { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500   */
+.badge-fin-bad       { background-color: #dc2626 !important; color: #fff !important; }  /* red-600    */
+
 /* ── Audit & Diagnostics (audit-diagnostics.js) ─────────────────────────
  *   badge-audit-success  — event succeeded / table is on the live whitelist
  *   badge-audit-failed   — event failed / table is not on the live whitelist

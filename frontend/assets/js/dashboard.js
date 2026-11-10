@@ -325,6 +325,9 @@ const LIVE_TABLE_TABS = {
     family_admin: ["family"],
     family_link: ["family"],
     family_transition_history: ["family"],
+    // Finance (Tier 12): the member's own Pranami contributions and their receipts
+    financial_transaction: ["pranami"],
+    financial_receipt: ["pranami"],
 };
 // LIVE_TABLE_TABS:end
 
@@ -357,6 +360,9 @@ const LIVE_REFRESH_CONFIG = {
             reload: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return t ? t.liveReload() : null; },
             busy: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return !!(t && t.liveBusy()); },
         },
+
+        // Finance: the member's own Pranami (read-only, nothing to protect from a reload).
+        pranami: { reload: (h) => h._loadPranami({ silent: true }), busy: () => false },
 
         // ── Batch 2 ──
         // Personal: person, addresses, own membership record and family. Busy while the
@@ -979,6 +985,46 @@ function dashboardApp() {
             );
         },
 
+        // ── Pranami tab (Finance, Tier 12): the member's OWN contributions ─────
+        // GET /api/v1/finance/my-pranami - login only, no id parameter, so it can
+        // only ever return the signed-in member's rows (posted / settled Pranami
+        // income linked to them, with its issued receipts).
+        pranami: { loading: false, error: "", data: null, year: "" },
+        _pranamiSeq: 0,
+
+        async _loadPranami(opts = {}) {
+            const seq = ++this._pranamiSeq;
+            if (!opts.silent) { this.pranami.loading = true; this.pranami.error = ""; }
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami");
+                if (seq !== this._pranamiSeq) return;
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.pranami.data = await res.json();
+            } catch (err) {
+                if (seq !== this._pranamiSeq || opts.silent) return;
+                this.pranami.data = null;
+                this.pranami.error = err.message || "Failed to load your Pranami.";
+            } finally {
+                if (seq === this._pranamiSeq) this.pranami.loading = false;
+            }
+        },
+        // Financial years that have at least one contribution, newest first.
+        pranamiYears() {
+            const years = new Set(((this.pranami.data || {}).items || []).map((i) => i.year_code));
+            return [...years].sort().reverse();
+        },
+        pranamiFiltered() {
+            const items = (this.pranami.data || {}).items || [];
+            return this.pranami.year ? items.filter((i) => i.year_code === this.pranami.year) : items;
+        },
+        pranamiTotal() {
+            return this.pranamiFiltered().reduce((sum, i) => sum + Number(i.amount), 0);
+        },
+        pranamiLatestDate() {
+            const items = this.pranamiFiltered();
+            return items.length ? items[0].transaction_date : "";      // the API returns newest first
+        },
+
         // Computed
         adminTabs: [],
         adminStats: {},
@@ -1162,6 +1208,11 @@ function dashboardApp() {
             // the same way findOrg is covered above.
             if (this.tab === "personal") {
                 this.loadSessions();
+            }
+
+            // Same direct-load coverage for the Pranami tab.
+            if (this.tab === "pranami") {
+                this._loadPranami();
             }
 
             // Same direct-load coverage for the Advisory Board dashboard tab.
@@ -5241,6 +5292,8 @@ function dashboardApp() {
                     // request), so a normal tab revisit doesn't re-fetch
                     // data that's already there.
                     if (!this.person) this._fetchPersonalDetail();
+                } else if (tab === "pranami") {
+                    this._loadPranami();
                 } else if (tab === "advisoryBoard") {
                     this._loadAdvisoryBoardDashboard();
                 } else if (tab === "governance") {

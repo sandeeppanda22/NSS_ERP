@@ -44,9 +44,7 @@ not supersede either Bye-Law — where a conflict exists, the authoritative prov
 
 ## Backend/DDL reality
 
-No `backend/` app (the Django prototype was fully removed from the codebase) and no
-`database/ddl/` implementation — design only, same as every other module except Bootstrap RBAC,
-Foundation, and Organization.
+Implemented on `feature/tier12-finance` (uncommitted): DDL in `database/ddl/14_finance/` (7 tables, build Phase 11i), API in `api/routers/finance.py` (31 endpoints), admin UI group "Finance" (`frontend/assets/js/finance.js`) and a member-facing "Pranami" tab in `dashboard.html`, seeds in `database/seed/12_finance/` and `database/seed/00_bootstrap/08_finance_permissions_patch.sql`. Decisions the design left open (payment methods as `master_data`, `NUMERIC(14,2)` amounts, status CHECK lists, proposed RBAC grants, maker-checker) are listed in `CLAUDE.md` -> Open items and `database/ddl/14_finance/README.md`; none of them amends the frozen design documents. Only the DB-free tests have run.
 
 ## Not yet reconciled
 

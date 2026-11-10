@@ -24,6 +24,7 @@ tests/
 ├── aadhaar_support.py        # Shared fixtures for the Aadhaar modules (GDR-011; not a test file): random AES keys on `settings`, cast of NSS_ERP_ADMIN / scoped KENDRA_ADMIN in+out of scope / SAKHA_ADMIN / AUDITOR / subject member, `set_number()`/`db_row()` helpers
 ├── attendance_support.py     # Shared builders for the Attendance modules (not a test file; imports builders from tests/api/test_correspondence.py)
 ├── assets_property_support.py # Shared fixtures/builders for the Assets & Property modules (not a test file; builds on attendance_support.py: viewer_user/viewer_h (NSS_ERP_AUDITOR scoped to a Sakha), document_pks, make_property/make_asset/transition)
+├── finance_support.py         # Shared fixtures/builders for the Finance modules (not a test file; builds on attendance_support.py: kendra_admin (non-super global approver), viewer_user, make_year/make_scope/make_fund/make_txn/post_txn/make_world, years cycled 2090-2100)
 ├── change_request_support.py # Shared builders for test_membership_change_request*.py (not a test file)
 ├── forgot_password_support.py # Shared builders for the forgot-password tests (not a test file)
 ├── registration_support.py   # Shared builders for the registration tests (not a test file)
@@ -38,6 +39,7 @@ tests/
 │   ├── test_local_sakha_id.py     # Local Sakha ID always generated: allocator, shared creator, admin paths (14). NOT yet run
 │   ├── test_admin_scope.py        # ADMIN-BR-076/077 admin-scope subtree enforcement across admin/claim endpoints (85; 99)
 │   ├── test_assets_property.py    # Module #22 Assets & Property API: register/list/filters/PATCH/archive for properties and assets, SOL-AP-003 lifecycle + terminal states, custodianship assign/transfer/history (AP-017/018/042), property-only statutory records, maintenance, document links, scope + audit (90; 167; incl. custodian-must-be-physical on create/assign/transfer, every eligible type accepted, `include_sub_organizations` + scope intersection, Anchalika admin view-only, `TestBelongsTo`: set/clear/filter, inactive org 422, no scope widening, custodian rule unaffected). NOT yet run
+│   ├── test_finance.py            # Finance (Tier 12) API: years, scopes, funds, transactions + lifecycle, restricted money, maker-checker, receipts/payments (UPI), transfers, summary, member linking by Sangha Sevi ID and the member's own `GET /finance/my-pranami` (63). NOT yet run against the DB; every query was replayed in a throwaway PostgreSQL
 │   ├── test_attendance.py         # Tier 6 — Attendance API: pujas, bulk marking, corrections, exceptions, review trigger/workflow, stats, live endpoint + concurrent-marking conflicts (126; 172). NOT yet run
 │   ├── test_audit.py              # Tier 5 — field-change-log viewer (13; 23)
 │   ├── test_audit_events.py       # Audit diagnostics: /audit/events (+facets, detail) and /audit/live-change-markers — DB-free route/permission/source checks + integration filter/sort/paging/cap behaviour (27; 27). NOT yet run against a DB
@@ -76,6 +78,7 @@ tests/
 │
 ├── db/                  # Database integrity tests (direct SQL via write_conn) — 9 files
 │   ├── test_assets_property_schema.py # Module #22 — constraint/index/trigger presence, no financial columns, property-only statutory records, reference-data/permission seed, XOR + one-ACTIVE-custodian + history-preservation + lifecycle guards (43; 150; incl. `fn_is_asset_custodian_org_type()` and the custodian-eligibility trigger on INSERT/UPDATE, the post-2026-11-02 grant set, withdrawn grants never active, `belongs_to_organization_pk` column + FK). NOT yet run
+│   ├── test_finance_schema.py     # Finance schema + parity: DDL CHECK lists vs api/schemas/finance.py, lifecycle table sanity, seed-patch content, live-feed + build-script wiring + live-trigger build order (DB-free, ran); table/seed/permission/constraint tests (DB, NOT yet run) (37)
 │   ├── test_correspondence_schema.py # Tier 6 — Correspondence Register table invariants (32; 76)
 │   ├── test_credential_schema.py  # Credential-table schema invariants — document_number uniqueness, one-active-per-member, validity CHECK, counter uniqueness (6; 13)
 │   ├── test_data_integrity.py     # Cross-module entity smoke tests (23; 23)
@@ -87,6 +90,7 @@ tests/
 │
 ├── security/            # Cross-tier security assertions — 17 files
 │   ├── test_assets_property_security.py # Assets & Property: 401/403 matrix over all 34 (kind-expanded) route rows incl. Attendance Marker / Advisory Board admin / view-only role, custodian-scope refusals with exact messages, custodian-less records NSS-wide only, transfer needs both scopes (24; 292; incl. `include_sub_organizations` never widens scope, Mahila admin has no access, Anchalika/Zilla admins cannot write). NOT yet run
+│   ├── test_finance_security.py   # Finance: 31-route inventory guard + permission-dependency guard (DB-free, ran), 401 / 403 matrix, view-only cannot write, MANAGE-only cannot use approve routes, cross-Sakha isolation, login-only `my-pranami` (158). The matrix NOT yet run against the DB
 │   ├── test_admin_security.py         # Admin endpoint auth/RBAC gating (17; 17)
 │   ├── test_admin_surface_security.py # Admin-surface 401/403 matrix, parametrized over endpoints (7; 97)
 │   ├── test_audit_diagnostics_security.py # audit diagnostics endpoints: 401/403 on all four, no write verbs, not exposed under /foundation or /live, SQL metacharacters inert (40; 40). NOT yet run against a DB
@@ -133,6 +137,7 @@ tests/
     ├── test_ui_admin_users.py       # User list, search, filters, detail, INACTIVE styling (11; 11)
     ├── test_ui_advisory_board_dashboard.py # source-level: Advisory Board dashboard tab wiring (3; 3). NOT yet run
     ├── test_ui_assets_property.py   # source-level: Assets & Property admin UI (sidebar/panel/init-guard gating, write buttons only for ASSET_MANAGE, endpoint URLs, lifecycle tables mirror the router, labels/badges, stale-response guards, markup/JS parity) (60; 72; incl. custodian pickers restricted to physical organizations, hint, include-sub-organizations checkbox, "belongs to" picker/filter/body fields). NOT yet run under pytest
+    ├── test_ui_finance.py           # source-level (DB-free, browser-free, ran): finance.js / admin.html / dashboard.html agree (every fin* name defined, API paths are real routes, request fields match the schemas, status labels/badges/captions cover every status, live-refresh wiring, entry guard), the member "Pranami" tab, node-run formatMoney/status maps (29). NEVER opened in a browser
     ├── test_ui_audit_diagnostics.py # source-level Audit & Diagnostics tabs (nav, canViewAudit gating, endpoints, poll policy, no inline handlers) + node-run changedMarkers/relativeTime (18; 18; no browser)
     ├── test_ui_live_refresh.py      # source-level live-refresh wiring/policy + node-run pure logic (pollDelay, changedTabs) plus batch-2 wiring (every batch-2 tab mapped + reload hook + busy hook, silent loaders with stale-response guards, every whitelisted table mapped by a page) (45; 45; no browser)
     ├── test_ui_xshow_display.py     # source-level: no inline `display:` on any `x-show` element (Alpine removes it on show; use a flex/grid class) (1; 1)

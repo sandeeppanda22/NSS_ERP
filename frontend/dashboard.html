@@ -902,6 +902,13 @@
                 <span class="count-badge" x-show="myPendingActingApprovalsCount() > 0" x-text="myPendingActingApprovalsCount()"></span>
             </a>
 
+            <a class="nav-item" :class="{ active: tab === 'pranami' }" @click="switchTab('pranami')">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                </svg>
+                Pranami
+            </a>
+
             <a class="nav-item" :class="{ active: tab === 'documents' }" @click="switchTab('documents')">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
@@ -4470,6 +4477,83 @@
                     </div>
 
                     <!-- ═══ Documents Tab ═══ -->
+                    <!-- ── Pranami (Finance, Tier 12) ──
+                         The member's OWN contributions: GET /api/v1/finance/my-pranami (login only,
+                         no id parameter). Read-only. Logic: dashboard.js (_loadPranami). -->
+                    <div x-show="tab === 'pranami'">
+                        <div class="data-card">
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
+                                <h2 class="data-card-title" style="padding: 0;">Pranami</h2>
+                                <span class="badge badge-xs badge-muted" x-text="pranamiFiltered().length + ' contribution' + (pranamiFiltered().length !== 1 ? 's' : '')"></span>
+                            </div>
+                            <p style="padding: 0.4rem 1.25rem 0; font-size: 0.78rem; color: #6b7280;">
+                                Your Pranami contributions to the Sangha, once they have been recorded and posted by your Sakha or the Kendra.
+                            </p>
+                            <div style="padding: 0.85rem 1.25rem 1rem;">
+                                <div class="card-grid" style="gap: 0.75rem; align-items: end;">
+                                    <div>
+                                        <div style="font-size: 0.7rem; color: #6b7280;">Total contributed</div>
+                                        <div style="font-size: 1.25rem; font-weight: 700; color: #1B2A4A;" x-text="NSS.formatMoney(pranamiTotal())"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.7rem; color: #6b7280;">Last contribution</div>
+                                        <div style="font-size: 0.9rem; font-weight: 600; color: #374151;" x-text="pranamiLatestDate() ? formatDate(pranamiLatestDate()) : '—'"></div>
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 0.7rem; color: #6b7280;">Financial year</label>
+                                        <select class="nss-select" x-model="pranami.year">
+                                            <option value="">All years</option>
+                                            <template x-for="y in pranamiYears()" :key="y">
+                                                <option :value="y" x-text="y"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="pranami.loading"><div class="spinner"></div></div>
+                        <div class="alert-msg alert-error" x-show="pranami.error" x-text="pranami.error"></div>
+
+                        <div class="data-card" x-show="!pranami.loading && !pranami.error && pranamiFiltered().length === 0">
+                            <p style="padding: 1.25rem; color: #6b7280; font-size: 0.85rem;">
+                                No Pranami has been recorded against your membership yet.
+                                <span x-show="pranami.year">Try another financial year.</span>
+                            </p>
+                        </div>
+
+                        <template x-for="p in pranamiFiltered()" :key="p.financial_transaction_pk">
+                            <div class="data-card">
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; padding: 0.85rem 1.25rem 0;">
+                                    <div>
+                                        <span style="font-size: 0.9rem; font-weight: 600; color: #1B2A4A;" x-text="NSS.codeLabel(p.transaction_category)"></span>
+                                        <span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(p.status)" x-text="NSS.financeStatusLabel(p.status)"></span>
+                                    </div>
+                                    <span style="font-size: 1.05rem; font-weight: 700; color: #047857;" x-text="NSS.formatMoney(p.amount)"></span>
+                                </div>
+                                <div class="card-grid" style="padding: 0.4rem 1.25rem 0.75rem; gap: 0.5rem;">
+                                    <div style="font-size: 0.75rem; color: #6b7280;">Date: <span style="color: #374151;" x-text="formatDate(p.transaction_date)"></span></div>
+                                    <div style="font-size: 0.75rem; color: #6b7280;">Financial year: <span style="color: #374151;" x-text="p.year_code"></span></div>
+                                    <div style="font-size: 0.75rem; color: #6b7280;">Received by: <span style="color: #374151;" x-text="p.organization_name || p.scope_name"></span></div>
+                                    <div style="font-size: 0.75rem; color: #6b7280;">Reference: <span class="mono" style="color: #374151;" x-text="p.transaction_reference"></span></div>
+                                </div>
+                                <div x-show="p.receipts.length > 0" style="padding: 0 1.25rem 0.85rem;">
+                                    <div style="font-size: 0.7rem; color: #6b7280; margin-bottom: 0.25rem;">Receipts</div>
+                                    <template x-for="r in p.receipts" :key="r.receipt_number">
+                                        <div style="font-size: 0.78rem; color: #374151; padding: 0.2rem 0; border-top: 1px solid #f3f4f6;">
+                                            <span class="mono" x-text="r.receipt_number"></span>
+                                            · <span x-text="formatDate(r.receipt_date)"></span>
+                                            · <span x-text="NSS.formatMoney(r.amount)"></span>
+                                            <span x-show="r.payment_method_name" x-text="'· via ' + r.payment_method_name"></span>
+                                            <span class="mono" style="color: #6b7280;" x-show="r.instrument_reference" x-text="'· ' + r.instrument_reference"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                                <p x-show="p.receipts.length === 0" style="padding: 0 1.25rem 0.85rem; font-size: 0.75rem; color: #9ca3af;">No receipt issued yet.</p>
+                            </div>
+                        </template>
+                    </div>
+
                     <div x-show="tab === 'documents'">
                         <!-- Parichaya Patra -->
                         <div class="data-card">
