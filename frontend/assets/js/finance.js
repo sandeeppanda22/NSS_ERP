@@ -48,6 +48,9 @@
         ISSUED: "Issue receipt", INITIATED: "Initiate payment", COMPLETED: "Mark completed", EXECUTED: "Execute",
     };
 
+    // Route segment of an entity's collection when it is not simply "<entity>s".
+    const PLURAL = { year: "years", payment_request: "payment-requests" };
+
     const newTx = () => ({ show: false, saving: false, error: "", entity: "", pk: "", label: "", target: "", remarks: "", remarksRequired: false });
     const newYearForm = () => ({ show: false, saving: false, error: "", start_year: "" });
     const newScopeForm = () => ({
@@ -63,7 +66,7 @@
     const newTxnForm = () => ({
         show: false, mode: "create", pk: "", saving: false, error: "",
         financial_year_pk: "", financial_scope_pk: "", fund_master_pk: "", transaction_type: "INCOME",
-        transaction_category: "", amount: "", transaction_date: "", description: "", sangha_sevi_id: "",
+        finance_head_pk: "", amount: "", transaction_date: "", description: "", sangha_sevi_id: "",
     });
     const newReceiptForm = () => ({
         show: false, saving: false, error: "", receipt_date: "", amount: "", received_from: "",
@@ -117,6 +120,8 @@
             finBadge(status) { return NSS.financeStatusBadgeClass(status); },
             finMoney(v) { return NSS.formatMoney(v); },
             finCode(code) { return NSS.codeLabel(code); },
+            // A transaction's purpose: the finance head's name (customizable per Sangha), else the snapshot code of its head.
+            finHeadLabel(row) { return (row && (row.finance_head_name || NSS.codeLabel(row.transaction_category))) || ""; },
 
             // ── Small request helpers ─────────────────────────────────
             async _finGet(path, params) {
@@ -170,7 +175,7 @@
                 }
                 t.saving = true; t.error = "";
                 try {
-                    await this._finSend("POST", `/${t.entity === "year" ? "years" : t.entity + "s"}/${t.pk}/transition`,
+                    await this._finSend("POST", `/${PLURAL[t.entity] || t.entity + "s"}/${t.pk}/transition`,
                         { status: t.target, remarks: blank(t.remarks) });
                     const note = `${t.label}: ${NSS.financeStatusLabel(t.target)}.`;
                     this.finTx = newTx();
@@ -184,6 +189,8 @@
             },
 
             async _finReloadAfter(entity) {
+                if (entity === "head" || entity === "account") { await this.finSetupReload(); return; }
+                if (entity === "payment_request") { await this.finReqReload(); return; }
                 if (entity === "year") { await this.finLoadYears(); if (this.activeTab === "finOverview") await this.finLoadSummary(); return; }
                 if (entity === "scope" || entity === "fund") {
                     await this.finLoadScopes({ silent: true });
@@ -213,6 +220,10 @@
                 } else if (this.activeTab === "finTransfers") {
                     this.finTransfer = null; this.finTransferForm = newTransferForm();
                     await Promise.all([this.finLoadYears(), this.finLoadScopeOptions(), this.finLoadTransfers()]);
+                } else if (this.activeTab === "finSetup") {
+                    await this.finSetupEnter();                      // finance-setup.js
+                } else if (this.activeTab === "finCollections") {
+                    await this.finReqEnter();                        // finance-setup.js
                 }
             },
 
@@ -220,7 +231,8 @@
             finLiveBusy() {
                 return [this.finYearForm, this.finScopeForm, this.finScopeEdit, this.finFundForm, this.finTxnForm,
                     this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx]
-                    .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk;
+                    .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk
+                    || this.finSetupBusy() || this.finReqBusy();
             },
             async finLiveReload() {
                 const tab = this.activeTab;
@@ -232,6 +244,10 @@
                     if (this.finTxn) await this.finReloadTxn(); else await this.finLoadTxns({ silent: true });
                 } else if (tab === "finTransfers") {
                     if (this.finTransfer) await this.finReloadTransfer(); else await this.finLoadTransfers({ silent: true });
+                } else if (tab === "finSetup") {
+                    await this.finSetupReload();
+                } else if (tab === "finCollections") {
+                    await this.finReqReload();
                 }
             },
 
@@ -482,14 +498,13 @@
             finReceipts: [], finPayments: [], finEvidenceError: "",
             finReceiptForm: newReceiptForm(), finPaymentForm: newPaymentForm(),
             finTxnFormFunds: [],
+            finTxnFormHeads: [],     // ACTIVE heads the chosen scope's organization owns (GET /finance/heads?for_scope_pk=)
 
             get finTxnsTotalPages() { return Math.max(1, Math.ceil(this.finTxnsTotal / this.finTxnsPageSize)); },
-            get finCategoryChoices() {
-                if (!this.finRef) return [];
+            // Heads valid for the chosen type: an INCOME entry takes an income head, an EXPENSE an expense head, an ADJUSTMENT either.
+            get finHeadChoices() {
                 const t = this.finTxnForm.transaction_type;
-                return t === "INCOME" ? this.finRef.income_categories
-                    : t === "EXPENSE" ? this.finRef.expense_categories
-                        : [...this.finRef.income_categories, ...this.finRef.expense_categories];
+                return t === "ADJUSTMENT" ? this.finTxnFormHeads : this.finTxnFormHeads.filter((h) => h.direction === t);
             },
             // How much of the open transaction is not yet covered by receipts / payments.
             get finReceiptRemaining() {
@@ -548,7 +563,7 @@
                     Object.assign(f, {
                         mode: "edit", pk: txn.financial_transaction_pk, financial_year_pk: txn.financial_year_pk,
                         financial_scope_pk: txn.financial_scope_pk, fund_master_pk: txn.fund_master_pk || "",
-                        transaction_type: txn.transaction_type, transaction_category: txn.transaction_category,
+                        transaction_type: txn.transaction_type, finance_head_pk: txn.finance_head_pk || "",
                         amount: String(txn.amount), transaction_date: txn.transaction_date, description: txn.description || "",
                         sangha_sevi_id: txn.sangha_sevi_id || "",
                     });
@@ -568,16 +583,22 @@
                 if (y) this.finTxnForm.transaction_date = this._finClampDate(y);
             },
             async finTxnFormScopeChanged(keepFund) {
-                if (!keepFund) this.finTxnForm.fund_master_pk = "";
-                this.finTxnFormFunds = await this.finFundsFor(this.finTxnForm.financial_scope_pk);
+                if (!keepFund) { this.finTxnForm.fund_master_pk = ""; this.finTxnForm.finance_head_pk = ""; }
+                const scope = this.finTxnForm.financial_scope_pk;
+                this.finTxnFormFunds = await this.finFundsFor(scope);
+                this.finTxnFormHeads = [];
+                if (!scope) return;
+                try {
+                    this.finTxnFormHeads = (await this._finGet("/heads", { for_scope_pk: scope, page_size: 200 })).items;
+                } catch { /* the head list stays empty; the server explains on save */ }
             },
             finTxnFormTypeChanged() {
-                if (!this.finCategoryChoices.includes(this.finTxnForm.transaction_category)) this.finTxnForm.transaction_category = "";
+                if (!this.finHeadChoices.some((h) => h.finance_head_pk === this.finTxnForm.finance_head_pk)) this.finTxnForm.finance_head_pk = "";
             },
             async finSubmitTxn() {
                 const f = this.finTxnForm;
                 if (!f.financial_year_pk || !f.financial_scope_pk) { f.error = "Choose the financial year and scope."; return; }
-                if (!f.transaction_category) { f.error = "Choose a category."; return; }
+                if (!f.finance_head_pk) { f.error = "Choose the finance head (what this money is for)."; return; }
                 const bad = this._finMoneyOk(f.amount, "Amount");
                 if (bad) { f.error = bad; return; }
                 if (!f.transaction_date) { f.error = "Choose the transaction date."; return; }
@@ -586,7 +607,7 @@
                     const body = {
                         financial_year_pk: f.financial_year_pk, financial_scope_pk: f.financial_scope_pk,
                         fund_master_pk: f.fund_master_pk || null, transaction_type: f.transaction_type,
-                        transaction_category: f.transaction_category, amount: f.amount.trim(),
+                        finance_head_pk: f.finance_head_pk, amount: f.amount.trim(),
                         transaction_date: f.transaction_date, description: blank(f.description),
                         // The member this money is from; it shows up in that member's own Pranami tab.
                         sangha_sevi_id: blank(f.sangha_sevi_id),

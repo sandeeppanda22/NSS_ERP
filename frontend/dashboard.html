@@ -4512,6 +4512,56 @@
                             </div>
                         </div>
 
+                        <!-- Pay by UPI: starts a payment of the member's OWN Pranami; the gateway's signed callback books it -->
+                        <div class="data-card" x-show="pranamiPay.heads.length > 0">
+                            <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Pay Pranami by UPI</h2></div>
+                            <div style="padding: 0.6rem 1.25rem 1rem;">
+                                <div x-show="!pranamiPay.result">
+                                    <div class="card-grid" style="gap: 0.75rem; align-items: end;">
+                                        <div>
+                                            <label style="font-size: 0.7rem; color: #6b7280;">What are you paying?</label>
+                                            <select class="nss-select" x-model="pranamiPay.head">
+                                                <option value="">Select…</option>
+                                                <template x-for="h in pranamiPay.heads" :key="h.finance_head_pk">
+                                                    <option :value="h.finance_head_pk" x-text="h.head_name + ' — ' + h.organization_name"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 0.7rem; color: #6b7280;">Amount (₹)</label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="pranamiPay.amount" placeholder="0.00" autocomplete="off" @keydown.enter="pranamiPayStart()">
+                                        </div>
+                                        <div>
+                                            <button class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiPayStart()" x-text="pranamiPay.saving ? 'Starting…' : 'Pay by UPI'"></button>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top: 0.6rem;" x-show="pranamiPay.error" x-text="pranamiPay.error"></div>
+                                </div>
+                                <div x-show="pranamiPay.result">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                        <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiPay.result && (NSS.formatMoney(pranamiPay.result.amount) + ' — ' + pranamiPay.result.head_name)"></span>
+                                        <span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(pranamiPay.result && pranamiPay.result.status)" x-text="pranamiPay.result && NSS.financeStatusLabel(pranamiPay.result.status)"></span>
+                                    </div>
+                                    <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem;">
+                                        <p style="font-size: 0.8rem; color: #374151;">Complete the payment in your UPI app. This page will show it as paid once the bank confirms it.</p>
+                                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem;">
+                                            <template x-if="pranamiSafeUpi(pranamiPay.result && pranamiPay.result.upi_uri)"><a class="btn-action primary" :href="pranamiSafeUpi(pranamiPay.result.upi_uri)">Open UPI app</a></template>
+                                            <template x-if="pranamiSafeUrl(pranamiPay.result && pranamiPay.result.pay_url)"><a class="btn-action primary" :href="pranamiSafeUrl(pranamiPay.result.pay_url)" target="_blank" rel="noopener noreferrer">Open payment page</a></template>
+                                            <button class="btn-action" @click="pranamiPayClose()">Close</button>
+                                        </div>
+                                    </div>
+                                    <p x-show="pranamiPay.result && pranamiPay.result.status === 'PAID'" style="margin-top: 0.6rem; font-size: 0.85rem; color: #047857;">
+                                        Payment received. Thank you<span x-show="pranamiPay.result && pranamiPay.result.receipt_number">; your receipt number is <b x-text="pranamiPay.result && pranamiPay.result.receipt_number"></b></span>.
+                                        <button class="link-action" @click="pranamiPayClose()">Done</button>
+                                    </p>
+                                    <p x-show="pranamiPay.result && ['FAILED','EXPIRED','CANCELLED'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem; font-size: 0.85rem; color: #b91c1c;">
+                                        This payment did not go through. You have not been charged for it here; start a new one if you still wish to pay.
+                                        <button class="link-action" @click="pranamiPayClose()">Close</button>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="pranami.loading"><div class="spinner"></div></div>
                         <div class="alert-msg alert-error" x-show="pranami.error" x-text="pranami.error"></div>
 

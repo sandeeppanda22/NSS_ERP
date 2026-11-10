@@ -995,6 +995,7 @@ function dashboardApp() {
         async _loadPranami(opts = {}) {
             const seq = ++this._pranamiSeq;
             if (!opts.silent) { this.pranami.loading = true; this.pranami.error = ""; }
+            this._loadPranamiPayHeads();
             try {
                 const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami");
                 if (seq !== this._pranamiSeq) return;
@@ -1020,6 +1021,63 @@ function dashboardApp() {
         pranamiTotal() {
             return this.pranamiFiltered().reduce((sum, i) => sum + Number(i.amount), 0);
         },
+        // ── Pay Pranami by UPI (Finance, Tier 12) ────────────────────────────
+        // GET /finance/my-pranami/heads lists what the member's own Sakha can collect by UPI; POST /finance/my-pranami/pay
+        // starts a payment of THEIR OWN Pranami (the payer is the token). This page never marks anything paid: the gateway's
+        // signed webhook does, and the status poll below only reports it. Links are rendered only with the expected scheme.
+        pranamiPay: { heads: [], head: "", amount: "", saving: false, error: "", result: null },
+        _pranamiPayTimer: null,
+
+        pranamiSafeUrl(url) { return typeof url === "string" && /^https:\/\//i.test(url) ? url : ""; },
+        pranamiSafeUpi(uri) { return typeof uri === "string" && /^upi:\/\/pay\?/i.test(uri) ? uri : ""; },
+
+        async _loadPranamiPayHeads() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/heads");
+                this.pranamiPay.heads = res.ok ? await res.json() : [];
+            } catch { this.pranamiPay.heads = []; }
+            if (this.pranamiPay.heads.length === 1 && !this.pranamiPay.head) this.pranamiPay.head = this.pranamiPay.heads[0].finance_head_pk;
+        },
+        async pranamiPayStart() {
+            const p = this.pranamiPay;
+            if (!p.head) { p.error = "Choose what you are paying for."; return; }
+            if (!/^\d+(\.\d{1,2})?$/.test(String(p.amount || "").trim()) || Number(p.amount) <= 0) {
+                p.error = "Enter a positive amount with at most two decimals."; return;
+            }
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/pay", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ finance_head_pk: p.head, amount: String(p.amount).trim() }),
+                });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
+            } catch (err) {
+                p.error = err.message || "Could not start the payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+        // Report (never decide) the status: stops on a final status, when the member leaves the tab, or after ~20 minutes.
+        _pranamiPayPoll(pk, tries) {
+            clearTimeout(this._pranamiPayTimer);
+            this._pranamiPayTimer = setTimeout(async () => {
+                const p = this.pranamiPay;
+                if (!p.result || p.result.upi_payment_request_pk !== pk || this.tab !== "pranami") return;
+                if (!document.hidden) {
+                    try {
+                        const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${pk}`);
+                        if (res.ok && p.result && p.result.upi_payment_request_pk === pk) p.result = await res.json();
+                    } catch { /* keep polling; a transient error is not a status */ }
+                }
+                if (p.result.status === "PAID") { this._loadPranami({ silent: true }); return; }
+                if (["FAILED", "EXPIRED", "CANCELLED"].includes(p.result.status) || tries > 400) return;
+                this._pranamiPayPoll(pk, tries + 1);
+            }, 3000);
+        },
+        pranamiPayClose() { clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.amount = ""; this.pranamiPay.error = ""; },
+
         pranamiLatestDate() {
             const items = this.pranamiFiltered();
             return items.length ? items[0].transaction_date : "";      // the API returns newest first

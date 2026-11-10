@@ -482,6 +482,7 @@ const NSS = {
         PENDING_APPROVAL: "Pending approval", APPROVED: "Approved", POSTED: "Posted", SETTLED: "Settled",
         REJECTED: "Rejected", CANCELLED: "Cancelled",
         ISSUED: "Issued", INITIATED: "Initiated", COMPLETED: "Completed", EXECUTED: "Executed",
+        CREATED: "Created", PENDING: "Awaiting payment", PAID: "Paid", FAILED: "Failed", EXPIRED: "Expired",
     },
 
     FINANCE_STATUS_BADGE_MAP: {
@@ -492,6 +493,7 @@ const NSS = {
         POSTED: "badge-fin-done", SETTLED: "badge-fin-done", COMPLETED: "badge-fin-done",
         CLOSED: "badge-fin-closed", INACTIVE: "badge-fin-closed",
         REJECTED: "badge-fin-bad", CANCELLED: "badge-fin-bad",
+        CREATED: "badge-fin-neutral", PENDING: "badge-fin-pending", PAID: "badge-fin-done", FAILED: "badge-fin-bad", EXPIRED: "badge-fin-closed",
     },
 
     financeStatusLabel(status) {

@@ -81,7 +81,7 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
 // Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
-const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers"];
+const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers", "finSetup", "finCollections"];
 
 // LIVE_TABLE_TABS:begin
 const LIVE_TABLE_TABS = {
@@ -120,6 +120,10 @@ const LIVE_TABLE_TABS = {
     financial_receipt: ["finTransactions"],
     financial_payment: ["finTransactions"],
     financial_transfer: ["finOverview", "finTransfers"],
+    // Customization + UPI collection: heads and accounts shape the transaction forms; requests move the overview figures.
+    finance_head: ["finSetup", "finTransactions", "finCollections"],
+    financial_account: ["finSetup"],
+    upi_payment_request: ["finCollections", "finOverview"],
     // ── Batch 2 ──
     // Users tab + user detail. user_account's login churn (last_login_at, failed-login
     // counters, locked_until) never bumps its marker (ignored-column trigger), so a login
@@ -208,6 +212,8 @@ const LIVE_REFRESH_CONFIG = {
         finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finSetup: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finCollections: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
 
         // ── Batch 2 ──
         // Busy = a modal, inline editor or Profile Details editor of that tab is open.
@@ -279,6 +285,8 @@ function adminApp() {
     // NSSAssetsProperty.install() likewise adds the Assets & Property screens
     // (assets-property.js): permission getters, list/detail/forms/custody/
     // maintenance/statutory/documents for both the Properties and Assets tabs.
+    // NSSFinanceSetup.install() adds the Finance customization + UPI collection screens (finance-setup.js): Heads &
+    // Accounts and UPI Collections.
     // NSSFinance.install() adds the Finance screens (finance.js): permission getters and the
     // Overview / Years & Scopes / Transactions / Transfers tabs (FINANCE_VIEW / MANAGE / APPROVE).
     // NSSAuditDiagnostics.install() adds the AUDIT_VIEW-gated System Event Log explorer and
@@ -286,7 +294,7 @@ function adminApp() {
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -1761,6 +1769,8 @@ function adminApp() {
                     finStructure: () => { if (this.canViewFinance) this.finEnterTab("finStructure"); },
                     finTransactions: () => { if (this.canViewFinance) this.finEnterTab("finTransactions"); },
                     finTransfers: () => { if (this.canViewFinance) this.finEnterTab("finTransfers"); },
+                    finSetup: () => { if (this.canViewFinance) this.finEnterTab("finSetup"); },
+                    finCollections: () => { if (this.canViewFinance) this.finEnterTab("finCollections"); },
                     auditEvents: () => { if (this.canViewAudit) this.auditEventsEnter(); },
                     liveMarkers: () => { if (this.canViewAudit) this.liveMarkersEnter(); },
                 };
@@ -9221,5 +9231,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    })))), LIVE_REFRESH_CONFIG);
+    }))))), LIVE_REFRESH_CONFIG);
 }
