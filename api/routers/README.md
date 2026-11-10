@@ -1,7 +1,7 @@
 # api/routers/
 
 One FastAPI `APIRouter` per module, all included by `api/main.py`. **19 routers, 284 endpoints**
-(272 `@router.*` decorators + the 12 property/asset CRUD routes `assets_property.py::_register_entity_routes` adds with `add_api_route`; `governance.py`, `membership_change_request.py`, `correspondence.py` and `attendance.py` are Tier 6, merged into the local `develop`; `org_reparent.py` (Sakha re-parent approvals) is also Tier 6, merged the same way). Raw parameterized psycopg2 SQL, no ORM; response models live in
+(272 `@router.*` decorators + the 12 property/asset CRUD routes `assets_property.py::_register_entity_routes` adds with `add_api_route`; `governance.py`, `membership_change_request.py`, `correspondence.py` and `attendance.py` are Tier 6, merged into `develop`; `org_reparent.py` (Sakha re-parent approvals) is also Tier 6, merged the same way). Raw parameterized psycopg2 SQL, no ORM; response models live in
 `api/schemas/`. See `api/README.md` for the per-endpoint tables.
 
 | File | Prefix | Endpoints | Auth |

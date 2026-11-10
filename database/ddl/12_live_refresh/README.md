@@ -1,6 +1,6 @@
 # database/ddl/12_live_refresh/
 
-Live-refresh change markers (cross-cutting, owner decision 2026-11-03; merged into the local `develop`). Built as
+Live-refresh change markers (cross-cutting, owner decision 2026-11-03; merged into `develop`). Built as
 Phase 11h of `02_build.sh`/`.ps1` and `render_build.sh`. The API side is `api/routers/live.py`
 (`GET /api/v1/live/changes`); the page-side poller is `frontend/assets/js/live-refresh.js`.
 

@@ -515,7 +515,7 @@ gap list has been separately tracked for Tier 5 yet — see `tests/README.md`.
 See `docs/PROJECT_DOCUMENTATION.md` → Key Workflow #9 for the full registration → approval →
 login → RBAC flow this layer implements.
 
-## Endpoints (Tier 6 — Governance, merged into the local `develop`)
+## Endpoints (Tier 6 — Governance, merged into `develop`)
 
 All write endpoints use the auditing `api/dependencies/auth.py::get_write_connection`; reads use
 `get_connection`. "View" = `require_any_permission("GOVERNANCE_VIEW","GOVERNANCE_MANAGE")`,

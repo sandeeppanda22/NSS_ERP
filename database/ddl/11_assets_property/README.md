@@ -1,7 +1,7 @@
 # database/ddl/11_assets_property/
 
 Assets & Property DDL (Module #22, Tier 6) — 7 tables plus one idempotent trigger file. Written 2026-11-02,
-merged into the local `develop` (2026-11-09); the owner's later full DB run (after a rebuild) exercised it through the backend suites. Built as Phase 11g of `02_build.sh`/`.ps1` and `render_build.sh`
+merged into `develop` (2026-11-09); the owner's later full DB run (after a rebuild) exercised it through the backend suites. Built as Phase 11g of `02_build.sh`/`.ps1` and `render_build.sh`
 (after Governance/Correspondence/Attendance/re-parent approval, before the Phase 12 writer grant and Phase 14 audit
 trigger, so both cover these tables). Design authority: `docs/03_Solution/modules/assets_property/`
 (SOL-AP-001..005, rules AP-001..AP-074); implementation decisions on the PENDING items: GDR-010 (`Proposed`).
