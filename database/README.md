@@ -148,8 +148,8 @@ Depth/Seq# breakdown lives in their own module READMEs rather than being duplica
   `festival_master`/`festival_calendar_date`, and Phase 14's
   `system_event_log` (15th Foundation table) and `fn_audit_trigger()`
 
-**Total implemented: 86 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
-3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance + 7 Assets & Property + 1 Live refresh + 7 Finance (Tier 12, `ddl/14_finance/`, Phase 11i) (`live_change_marker`)
+**Total implemented: 90 tables** — 3 Bootstrap RBAC + 15 Foundation (12 reference/geography + 2 festival + `system_event_log`) +
+3 Organization (`organization` + `organization_reparent_request`/`organization_reparent_step`) + 2 Person + 6 Family + 16 Membership + 5 Authentication + 2 Administration + 10 Governance + 5 Correspondence + 4 Attendance + 7 Assets & Property + 1 Live refresh + 11 Finance (Tier 12, `ddl/14_finance/`, Phase 11i) (`live_change_marker`)
 (verified by counting `CREATE TABLE` across `database/ddl/**`). Of those, 11 are Tier 5 additions
 (see the banner above), 3 more Foundation tables arrived on the same branch, 16+1 are Tier 6 (10 Governance + 5 Correspondence incl. `correspondence_approval_step` + 2 Membership) 4 are Tier 6 (Attendance) 7 are Assets & Property (Module #22, Tier 6) and 1 is the live-refresh marker; the v0.10.4
 baseline was 34.

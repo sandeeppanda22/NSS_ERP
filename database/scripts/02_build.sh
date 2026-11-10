@@ -9,7 +9,7 @@
 #
 # Authority: SOL-ARCH-010 (DDL Creation Order),
 #            SOL-ARCH-011 (Bootstrap Architecture)
-# Version: 2.10 — Phase 11i Finance (7 tables, 86 total) + Phase 0 FINANCE_* permissions patch + Finance reference-data patch (2026-11-10).
+# Version: 2.10 — Phase 11i Finance (11 tables, 90 total) + Phase 0 FINANCE_* permissions patch + Finance reference-data patch (2026-11-10).
 # Version: 2.9  — Phase 11h live-refresh change marker (1 table, 79 total) (2026-11-03).
 # Version: 2.8  — Phase 11g Assets & Property (7 tables, 78 total) + Phase 0 ASSET_VIEW/ASSET_MANAGE patch (2026-11-02).
 # Version: 2.7  — header/phase audit (2026-11-01): 71 tables in 13 table-creating phases; every
@@ -84,8 +84,9 @@
 #              triggers + reference-data patch (GDR-010)
 #   Phase 11h— Live refresh DDL (1 table: live_change_marker + sequence live_change_seq;
 #              idempotent statement-level triggers on the watched tables)
-#   Phase 11i— Finance DDL (7 tables: financial_year, financial_scope, fund_master, financial_transaction,
-#              financial_receipt, financial_payment, financial_transfer — Module Finance, Tier 12)
+#   Phase 11i— Finance DDL (11 tables: financial_year, financial_scope, fund_master, financial_account,
+#              finance_head, financial_transaction, financial_receipt, financial_payment, financial_transfer,
+#              upi_payment_request, finance_gateway_event — Module Finance, Tier 12)
 #   Phase 12 — Grant nss_db_writer write access (Tier 5)
 #   Phase 13 — Admin bootstrap seed (NSS Admin superuser)
 #   Phase 13b— Geo attribution backfill (city_village/postal_code/
@@ -123,8 +124,10 @@
 #             ddl/11_assets_property/12_assets_property_terminal_custody_patch.sql
 #   Phase 0   seed/00_bootstrap/08_finance_permissions_patch.sql
 #   Phase 11i seed/12_finance/01_finance_reference_data_patch.sql
+#             seed/12_finance/02_finance_head_templates_patch.sql
+#             ddl/14_finance/12_finance_heads_patch.sql (AFTER the templates: maps existing transactions onto heads)
 #   Phase 13c ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql (FK on every *_by_sangha_sevi_pk, NOT VALID then VALIDATE)
-# Table count: 86 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+7+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,11i,14).
+# Table count: 90 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+11+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,11i,14).
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data — Person data lives in
@@ -740,22 +743,29 @@ run_ddl "live_change_marker" "live_change_marker" "${DDL_BASE}/12_live_refresh/0
 echo ""
 
 # -------------------------------------------------
-# Phase 11i: Finance DDL (7 tables, Tier 12) — DRAFT, owner approval pending
+# Phase 11i: Finance DDL (11 tables, Tier 12) — DRAFT, owner approval pending
 # financial_year (Depth 1) -> financial_scope (FK organization, financial_year)
 # -> fund_master -> financial_transaction (FK person, sangha_sevi)
 # -> financial_receipt / financial_payment; financial_transfer (FK scope, fund).
 # Placed before Phase 12/14 so the writer grant and audit trigger cover them.
 # -------------------------------------------------
-echo -e "${CYAN}[Phase 11i] Finance — DDL (7 tables)${NC}"
+echo -e "${CYAN}[Phase 11i] Finance — DDL (11 tables)${NC}"
 run_ddl "financial_year" "financial_year" "${DDL_BASE}/14_finance/01_financial_year.sql"
 run_ddl "financial_scope" "financial_scope" "${DDL_BASE}/14_finance/02_financial_scope.sql"
 run_ddl "fund_master" "fund_master" "${DDL_BASE}/14_finance/03_fund_master.sql"
-run_ddl "financial_transaction" "financial_transaction" "${DDL_BASE}/14_finance/04_financial_transaction.sql"
-run_ddl "financial_receipt" "financial_receipt" "${DDL_BASE}/14_finance/05_financial_receipt.sql"
-run_ddl "financial_payment" "financial_payment" "${DDL_BASE}/14_finance/06_financial_payment.sql"
-run_ddl "financial_transfer" "financial_transfer" "${DDL_BASE}/14_finance/07_financial_transfer.sql"
+run_ddl "financial_account" "financial_account" "${DDL_BASE}/14_finance/04_financial_account.sql"
+run_ddl "finance_head" "finance_head" "${DDL_BASE}/14_finance/05_finance_head.sql"
+run_ddl "financial_transaction" "financial_transaction" "${DDL_BASE}/14_finance/06_financial_transaction.sql"
+run_ddl "financial_receipt" "financial_receipt" "${DDL_BASE}/14_finance/07_financial_receipt.sql"
+run_ddl "financial_payment" "financial_payment" "${DDL_BASE}/14_finance/08_financial_payment.sql"
+run_ddl "financial_transfer" "financial_transfer" "${DDL_BASE}/14_finance/09_financial_transfer.sql"
+run_ddl "upi_payment_request" "upi_payment_request" "${DDL_BASE}/14_finance/10_upi_payment_request.sql"
+run_ddl "finance_gateway_event" "finance_gateway_event" "${DDL_BASE}/14_finance/11_finance_gateway_event.sql"
 # Idempotent reference data (PAYMENT_METHOD master_data, id sequences FTX/RCT/PAY/FTR, initial Financial Year 2026-27); must run after the tables above.
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
+# Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
+run_sql "finance head templates patch" "${SEED_BASE}/12_finance/02_finance_head_templates_patch.sql"
+run_sql "finance heads structure patch" "${DDL_BASE}/14_finance/12_finance_heads_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 run_sql "live_change_triggers" "${DDL_BASE}/12_live_refresh/02_live_change_triggers.sql"

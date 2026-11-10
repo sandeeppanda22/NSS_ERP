@@ -87,6 +87,7 @@ DECLARE
         -- Finance (Tier 12)
         'financial_year', 'financial_scope', 'fund_master', 'financial_transaction',
         'financial_receipt', 'financial_payment', 'financial_transfer',
+        'financial_account', 'finance_head', 'upi_payment_request',
         -- Member dashboard "Pending Items"
         'organization_reparent_request', 'organization_reparent_step',
         -- Batch 2 - Users tab + user detail (roles, admin scope). user_account: login churn ignored.

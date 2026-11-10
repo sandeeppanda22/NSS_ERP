@@ -1,7 +1,7 @@
 -- =====================================================
 -- NSS ERP
 -- Module: Finance (Tier 12)
--- File: 05_financial_receipt.sql
+-- File: 07_financial_receipt.sql
 -- Table: nss.financial_receipt
 -- Depth: 5 (depends on financial_transaction, person, master_data)
 -- Version: 1.0

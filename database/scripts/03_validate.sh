@@ -21,7 +21,7 @@
 #   DB_HOST  = localhost
 #   DB_PORT  = 5432
 #
-# Modules validated (86 tables in all):
+# Modules validated (90 tables in all):
 #   - Bootstrap RBAC (3 tables)
 #   - Foundation (12 tables)
 #   - Organization (1 table — type/status in Foundation master_data)
@@ -32,7 +32,7 @@
 #   - Governance (10 tables — existence only, no seed)
 #   - Correspondence (5), Attendance (4), Organization re-parent approval (2),
 #     Assets & Property (7 — existence, key columns, FK integrity, XOR / one-active-custodian invariants)
-#   - Finance (7 — existence, key columns, FK integrity, uniqueness; the PAYMENT_METHOD master data and the
+#   - Finance (11 — existence, key columns, FK integrity, uniqueness; the PAYMENT_METHOD master data and the
 #     FINANCE_* permissions are FAIL checks because they are delivered by idempotent patches)
 #   - Patch-delivered objects (a patch that did not run FAILs here): Advisory
 #     Board org + singleton trigger, fn_is_sakha_like_org_type, Sakha Asana
@@ -242,7 +242,7 @@ done
 echo "  Row counts:"
 check_row_count "master_category" 27
 check_row_count "master_data" 162
-check_row_count "id_sequence_master" 20
+check_row_count "id_sequence_master" 21
 check_row_count "country" 5
 check_row_count "state" 112
 check_row_count "district" 780
@@ -770,6 +770,10 @@ check_table_exists "financial_transaction"
 check_table_exists "financial_receipt"
 check_table_exists "financial_payment"
 check_table_exists "financial_transfer"
+check_table_exists "financial_account"
+check_table_exists "finance_head"
+check_table_exists "upi_payment_request"
+check_table_exists "finance_gateway_event"
 
 check_column_exists "financial_scope" "scope_code"
 check_column_exists "financial_scope" "organization_pk"
@@ -781,6 +785,18 @@ check_column_exists "financial_receipt" "payment_method_master_data_pk"
 check_column_exists "financial_payment" "payment_method_master_data_pk"
 check_column_exists "financial_transfer" "source_scope_pk"
 check_column_exists "financial_transfer" "destination_scope_pk"
+check_column_exists "financial_account" "organization_pk"
+check_column_exists "financial_account" "upi_vpa"
+check_column_exists "financial_account" "gateway_credential_ref"
+check_column_exists "finance_head" "organization_pk"
+check_column_exists "finance_head" "head_code"
+check_column_exists "finance_head" "direction"
+check_column_exists "finance_head" "collection_account_pk"
+check_column_exists "financial_transaction" "finance_head_pk"
+check_column_exists "upi_payment_request" "financial_account_pk"
+check_column_exists "upi_payment_request" "provider_order_id"
+check_column_exists "finance_gateway_event" "event_id"
+check_column_exists "finance_gateway_event" "signature_valid"
 
 check_fk_integrity "financial_scope -> financial_year" \
     "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
@@ -798,6 +814,26 @@ check_fk_integrity "financial_transfer -> financial_scope (source)" \
     "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.source_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
 check_fk_integrity "financial_transfer -> financial_scope (destination)" \
     "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.destination_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+check_fk_integrity "financial_account -> organization" \
+    "SELECT COUNT(*) FROM nss.financial_account c LEFT JOIN nss.organization p ON c.organization_pk = p.organization_pk WHERE c.organization_pk IS NOT NULL AND p.organization_pk IS NULL;"
+check_fk_integrity "finance_head -> financial_account (collection)" \
+    "SELECT COUNT(*) FROM nss.finance_head c LEFT JOIN nss.financial_account p ON c.collection_account_pk = p.financial_account_pk WHERE c.collection_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
+check_fk_integrity "financial_transaction -> finance_head" \
+    "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
+check_fk_integrity "upi_payment_request -> financial_account" \
+    "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.financial_account p ON c.financial_account_pk = p.financial_account_pk WHERE c.financial_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
+check_fk_integrity "upi_payment_request -> finance_head" \
+    "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
+check_fk_integrity "finance_gateway_event -> upi_payment_request" \
+    "SELECT COUNT(*) FROM nss.finance_gateway_event c LEFT JOIN nss.upi_payment_request p ON c.upi_payment_request_pk = p.upi_payment_request_pk WHERE c.upi_payment_request_pk IS NOT NULL AND p.upi_payment_request_pk IS NULL;"
+check_fk_integrity "every transaction has a finance head (heads structure patch ran)" \
+    "SELECT COUNT(*) FROM nss.financial_transaction WHERE finance_head_pk IS NULL;"
+check_fk_integrity "no UPI-enabled head without a collection scope and account" \
+    "SELECT COUNT(*) FROM nss.finance_head WHERE allow_upi AND (collection_scope_pk IS NULL OR collection_account_pk IS NULL);"
+check_fk_integrity "no PAID UPI request left unposted without a review reason" \
+    "SELECT COUNT(*) FROM nss.upi_payment_request WHERE status = 'PAID' AND financial_transaction_pk IS NULL AND review_reason IS NULL;"
+check_fk_integrity "Kendra template finance heads present (head templates patch ran)" \
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.finance_head WHERE organization_pk IS NULL) >= 12 THEN 0 ELSE 1 END;"
 check_fk_integrity "PAYMENT_METHOD master_data present (reference-data patch ran)" \
     "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'PAYMENT_METHOD' AND md.value_code = 'UPI') THEN 0 ELSE 1 END;"
 check_fk_integrity "FINANCE_* permissions present (permissions patch ran)" \

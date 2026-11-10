@@ -1,7 +1,7 @@
 -- =====================================================
 -- NSS ERP
 -- Module: Finance (Tier 12)
--- File: 07_financial_transfer.sql
+-- File: 09_financial_transfer.sql
 -- Table: nss.financial_transfer
 -- Depth: 7 (depends on financial_year, financial_scope, fund_master)
 -- Version: 1.0

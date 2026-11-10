@@ -7,8 +7,9 @@
 # run 02_build.ps1 first.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
+# Version: 1.8 - Finance now 11 tables (90 total): + financial_account, finance_head, upi_payment_request, finance_gateway_event, head/UPI checks (2026-11-10; desk-checked, never run on PowerShell).
 # Version: 1.7 - add Finance (7 tables, 86 total), FINANCE_* / PAYMENT_METHOD patch checks, raised minimums: permission_master 33,
-#                 role_permission 192, master_category 27, master_data 162, id_sequence_master 20 (2026-11-10; desk-checked, never run on PowerShell).
+#                 role_permission 192, master_category 27, master_data 162, id_sequence_master 21 (2026-11-10; desk-checked, never run on PowerShell).
 # Version: 1.6 - add Module 11 live_change_marker (1 table, 79 total) (2026-11-03; desk-checked, never run on PowerShell).
 # Version: 1.5 - minimums recomputed after ACQUISITION_METHOD + DISPOSED/RETIRED end reasons: master_category 26,
 #                 master_data 156 (2026-11-03; desk-checked, never run on PowerShell).
@@ -156,7 +157,7 @@ foreach ($t in $foundationTables) { Check-TableExists $t }
 Write-Host "  Row counts:"
 Check-RowCount "master_category" 27
 Check-RowCount "master_data" 162
-Check-RowCount "id_sequence_master" 20
+Check-RowCount "id_sequence_master" 21
 Check-RowCount "country" 5
 Check-RowCount "state" 112
 Check-RowCount "district" 780
@@ -564,6 +565,10 @@ Check-TableExists "financial_transaction"
 Check-TableExists "financial_receipt"
 Check-TableExists "financial_payment"
 Check-TableExists "financial_transfer"
+Check-TableExists "financial_account"
+Check-TableExists "finance_head"
+Check-TableExists "upi_payment_request"
+Check-TableExists "finance_gateway_event"
 
 Check-ColumnExists "financial_scope" "scope_code"
 Check-ColumnExists "financial_scope" "organization_pk"
@@ -575,6 +580,18 @@ Check-ColumnExists "financial_receipt" "payment_method_master_data_pk"
 Check-ColumnExists "financial_payment" "payment_method_master_data_pk"
 Check-ColumnExists "financial_transfer" "source_scope_pk"
 Check-ColumnExists "financial_transfer" "destination_scope_pk"
+Check-ColumnExists "financial_account" "organization_pk"
+Check-ColumnExists "financial_account" "upi_vpa"
+Check-ColumnExists "financial_account" "gateway_credential_ref"
+Check-ColumnExists "finance_head" "organization_pk"
+Check-ColumnExists "finance_head" "head_code"
+Check-ColumnExists "finance_head" "direction"
+Check-ColumnExists "finance_head" "collection_account_pk"
+Check-ColumnExists "financial_transaction" "finance_head_pk"
+Check-ColumnExists "upi_payment_request" "financial_account_pk"
+Check-ColumnExists "upi_payment_request" "provider_order_id"
+Check-ColumnExists "finance_gateway_event" "event_id"
+Check-ColumnExists "finance_gateway_event" "signature_valid"
 
 Write-Host "  FK integrity (no orphans - vacuously true until used):"
 Check-FkIntegrity "financial_scope -> financial_year" "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
@@ -585,6 +602,16 @@ Check-FkIntegrity "financial_receipt -> financial_transaction" "SELECT COUNT(*) 
 Check-FkIntegrity "financial_payment -> financial_transaction" "SELECT COUNT(*) FROM nss.financial_payment c LEFT JOIN nss.financial_transaction p ON c.financial_transaction_pk = p.financial_transaction_pk WHERE p.financial_transaction_pk IS NULL;"
 Check-FkIntegrity "financial_transfer -> financial_scope (source)" "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.source_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
 Check-FkIntegrity "financial_transfer -> financial_scope (destination)" "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.destination_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+Check-FkIntegrity "financial_account -> organization" "SELECT COUNT(*) FROM nss.financial_account c LEFT JOIN nss.organization p ON c.organization_pk = p.organization_pk WHERE c.organization_pk IS NOT NULL AND p.organization_pk IS NULL;"
+Check-FkIntegrity "finance_head -> financial_account (collection)" "SELECT COUNT(*) FROM nss.finance_head c LEFT JOIN nss.financial_account p ON c.collection_account_pk = p.financial_account_pk WHERE c.collection_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
+Check-FkIntegrity "financial_transaction -> finance_head" "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
+Check-FkIntegrity "upi_payment_request -> financial_account" "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.financial_account p ON c.financial_account_pk = p.financial_account_pk WHERE c.financial_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
+Check-FkIntegrity "upi_payment_request -> finance_head" "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
+Check-FkIntegrity "finance_gateway_event -> upi_payment_request" "SELECT COUNT(*) FROM nss.finance_gateway_event c LEFT JOIN nss.upi_payment_request p ON c.upi_payment_request_pk = p.upi_payment_request_pk WHERE c.upi_payment_request_pk IS NOT NULL AND p.upi_payment_request_pk IS NULL;"
+Check-FkIntegrity "every transaction has a finance head (heads structure patch ran)" "SELECT COUNT(*) FROM nss.financial_transaction WHERE finance_head_pk IS NULL;"
+Check-FkIntegrity "no UPI-enabled head without a collection scope and account" "SELECT COUNT(*) FROM nss.finance_head WHERE allow_upi AND (collection_scope_pk IS NULL OR collection_account_pk IS NULL);"
+Check-FkIntegrity "no PAID UPI request left unposted without a review reason" "SELECT COUNT(*) FROM nss.upi_payment_request WHERE status = 'PAID' AND financial_transaction_pk IS NULL AND review_reason IS NULL;"
+Check-FkIntegrity "Kendra template finance heads present (head templates patch ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.finance_head WHERE organization_pk IS NULL) >= 12 THEN 0 ELSE 1 END;"
 Check-FkIntegrity "PAYMENT_METHOD master_data present (reference-data patch ran)" "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'PAYMENT_METHOD' AND md.value_code = 'UPI') THEN 0 ELSE 1 END;"
 Check-FkIntegrity "FINANCE_* permissions present (permissions patch ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.permission_master WHERE permission_code LIKE 'FINANCE\_%') = 3 THEN 0 ELSE 1 END;"
 

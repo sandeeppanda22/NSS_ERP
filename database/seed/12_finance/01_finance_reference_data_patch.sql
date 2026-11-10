@@ -15,7 +15,7 @@
 --
 -- Adds:
 --   id_sequence_master   FINANCIAL_TRANSACTION (FTX), FINANCIAL_RECEIPT (RCT),
---                        FINANCIAL_PAYMENT (PAY), FINANCIAL_TRANSFER (FTR)
+--                        FINANCIAL_PAYMENT (PAY), FINANCIAL_TRANSFER (FTR), UPI_PAYMENT_REQUEST (PRQ)
 --                        -> FTX1, RCT1 ... Unpadded like P1 / SS1.
 --   master_category      PAYMENT_METHOD (value list PENDING in SOL-FIN-004 §19;
 --                        CANDIDATE set below, admin-extendable through
@@ -30,7 +30,8 @@ VALUES
     ('FINANCIAL_TRANSACTION', 'Financial Transaction Reference', 'FTX', 0, 0),
     ('FINANCIAL_RECEIPT',     'Financial Receipt Number',        'RCT', 0, 0),
     ('FINANCIAL_PAYMENT',     'Financial Payment Reference',     'PAY', 0, 0),
-    ('FINANCIAL_TRANSFER',    'Financial Transfer Reference',    'FTR', 0, 0)
+    ('FINANCIAL_TRANSFER',    'Financial Transfer Reference',    'FTR', 0, 0),
+    ('UPI_PAYMENT_REQUEST',   'UPI Payment Request Reference',   'PRQ', 0, 0)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO nss.master_category (category_code, category_name, description, display_order)

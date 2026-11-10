@@ -1,7 +1,7 @@
 -- =====================================================
 -- NSS ERP
 -- Module: Finance (Tier 12)
--- File: 06_financial_payment.sql
+-- File: 08_financial_payment.sql
 -- Table: nss.financial_payment
 -- Depth: 6 (depends on financial_transaction, person, master_data)
 -- Version: 1.0
