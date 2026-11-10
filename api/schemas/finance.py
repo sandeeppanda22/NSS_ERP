@@ -37,16 +37,15 @@ FUND_TYPES = (
 )
 TRANSACTION_TYPES = ("INCOME", "EXPENSE", "ADJUSTMENT")
 TRANSACTION_STATUSES = ("DRAFT", "PENDING_APPROVAL", "APPROVED", "POSTED", "SETTLED", "REJECTED", "CANCELLED")
-INCOME_CATEGORIES = (
-    "MEMBERSHIP_SUBSCRIPTION", "PRANAMI_ANNUAL", "PRANAMI_SPECIAL", "PRANAMI_SINKING_FUND",
-    "DONATION_GENERAL", "DONATION_SPECIFIC_PURPOSE", "GRANT", "PUBLICATION_INCOME",
-    "PROPERTY_INCOME", "MISCELLANEOUS_INCOME",
-)
-EXPENSE_CATEGORIES = ("EXPENSE_GENERAL", "EXPENSE_RESTRICTED")
-TRANSACTION_CATEGORIES = INCOME_CATEGORIES + EXPENSE_CATEGORIES
-# What a member sees as "Pranami" in their own dashboard (GET /finance/my-pranami): income of these
-# categories that is already counted (POSTED / SETTLED) and linked to them.
-PRANAMI_CATEGORIES = ("PRANAMI_ANNUAL", "PRANAMI_SPECIAL", "PRANAMI_SINKING_FUND")
+# The purpose a transaction is booked under is a FINANCE HEAD (finance_head), customizable per Sangha: there is
+# no fixed category list any more. A head's rules (direction, restricted, required fund type, Pranami, UPI) are data.
+HEAD_DIRECTIONS = ("INCOME", "EXPENSE")
+HEAD_STATUSES = ("ACTIVE", "INACTIVE")
+ACCOUNT_STATUSES = ("ACTIVE", "INACTIVE")
+ACCOUNT_TYPES = ("BANK", "POST_OFFICE")
+PAYMENT_REQUEST_STATUSES = ("CREATED", "PENDING", "PAID", "FAILED", "EXPIRED", "CANCELLED")
+GATEWAY_EVENT_OUTCOMES = ("POSTED", "PAID_NEEDS_REVIEW", "DUPLICATE", "IGNORED", "FAILED", "EXPIRED",
+                          "UNKNOWN_REQUEST", "REJECTED_SIGNATURE", "ERROR")
 RECEIPT_STATUSES = ("DRAFT", "ISSUED", "CANCELLED")
 PAYMENT_STATUSES = ("DRAFT", "APPROVED", "INITIATED", "COMPLETED", "CANCELLED")
 TRANSFER_STATUSES = ("DRAFT", "PENDING_APPROVAL", "APPROVED", "EXECUTED", "COMPLETED", "REJECTED", "CANCELLED")
@@ -87,8 +86,9 @@ class FinanceReference(BaseModel):
     fund_types: list[str]
     scope_types: list[str]
     transaction_types: list[str]
-    income_categories: list[str]
-    expense_categories: list[str]
+    head_directions: list[str]
+    account_types: list[str]
+    gateway_providers: list[str]            # adapters ENABLED on this server (empty = UPI collection is off)
     statuses: dict[str, list[str]]
     transitions: dict[str, list[dict]]
 
@@ -213,7 +213,7 @@ class TransactionCreate(BaseModel):
     financial_scope_pk: UUID
     fund_master_pk: UUID | None = None
     transaction_type: str = Field(..., description="INCOME / EXPENSE / ADJUSTMENT")
-    transaction_category: str
+    finance_head_pk: UUID = Field(..., description="The finance head (purpose) of this entry; must belong to the scope's organization")
     amount: Amount
     transaction_date: date
     description: str | None = Field(None, max_length=2000)
@@ -233,7 +233,7 @@ class TransactionUpdate(BaseModel):
     financial_scope_pk: UUID | None = None
     fund_master_pk: UUID | None = None
     transaction_type: str | None = None
-    transaction_category: str | None = None
+    finance_head_pk: UUID | None = None
     amount: Amount | None = None
     transaction_date: date | None = None
     description: str | None = Field(None, max_length=2000)
@@ -256,7 +256,9 @@ class TransactionResponse(BaseModel):
     fund_code: str | None
     fund_name: str | None
     transaction_type: str
-    transaction_category: str
+    finance_head_pk: UUID | None
+    finance_head_name: str | None
+    transaction_category: str               # immutable snapshot of the head's code
     amount: Decimal
     transaction_date: date
     description: str | None
@@ -395,6 +397,241 @@ class TransferListResponse(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Receiving accounts (per Sangha)
+# ═══════════════════════════════════════════════════════════════════════
+
+class AccountCreate(BaseModel):
+    organization_pk: UUID
+    account_label: str = Field(..., min_length=1, max_length=100)
+    account_type: str = Field("BANK", description="BANK / POST_OFFICE")
+    bank_name: str | None = Field(None, max_length=150)
+    branch_name: str | None = Field(None, max_length=150)
+    account_holder_name: str = Field(..., min_length=1, max_length=200)
+    account_number_last4: str | None = Field(None, description="Last four digits ONLY - the full number is never stored")
+    ifsc_code: str | None = Field(None, max_length=11)
+    upi_vpa: str | None = Field(None, max_length=100, description="The UPI id payments are made to, e.g. sakha@okbank")
+    gateway_provider: str | None = Field(None, max_length=30, description="MOCK / RAZORPAY - an adapter enabled on the server")
+    gateway_credential_ref: str | None = Field(None, max_length=40, description="NAME of a server-side credential set (never a key)")
+    gateway_merchant_ref: str | None = Field(None, max_length=100, description="Provider-side merchant / linked-account id (not a secret)")
+    is_default: bool = False
+
+
+class AccountUpdate(BaseModel):
+    """Organization is immutable. Omitted = unchanged; explicit null clears an optional field."""
+
+    account_label: str | None = Field(None, min_length=1, max_length=100)
+    account_type: str | None = None
+    bank_name: str | None = Field(None, max_length=150)
+    branch_name: str | None = Field(None, max_length=150)
+    account_holder_name: str | None = Field(None, min_length=1, max_length=200)
+    account_number_last4: str | None = None
+    ifsc_code: str | None = Field(None, max_length=11)
+    upi_vpa: str | None = Field(None, max_length=100)
+    gateway_provider: str | None = Field(None, max_length=30)
+    gateway_credential_ref: str | None = Field(None, max_length=40)
+    gateway_merchant_ref: str | None = Field(None, max_length=100)
+    is_default: bool | None = None
+
+
+class AccountResponse(BaseModel):
+    financial_account_pk: UUID
+    organization_pk: UUID
+    organization_name: str | None
+    account_label: str
+    account_type: str
+    bank_name: str | None
+    branch_name: str | None
+    account_holder_name: str
+    account_number_last4: str | None
+    ifsc_code: str | None
+    upi_vpa: str | None
+    gateway_provider: str | None
+    gateway_credential_ref: str | None
+    gateway_merchant_ref: str | None
+    gateway_ready: bool = False             # provider enabled on this server AND its credential set fully configured
+    is_default: bool
+    status: str
+    head_count: int = 0                     # heads whose UPI collection settles into this account
+
+
+class AccountListResponse(BaseModel):
+    items: list[AccountResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Finance heads (customizable per Sangha, Kendra templates)
+# ═══════════════════════════════════════════════════════════════════════
+
+class HeadCreate(BaseModel):
+    organization_pk: UUID | None = Field(None, description="Owning Sangha; omit for a Kendra TEMPLATE (global authority only)")
+    head_code: str = Field(..., min_length=2, max_length=50, description="UPPER_SNAKE_CASE, immutable once created")
+    head_name: str = Field(..., min_length=1, max_length=150)
+    description: str | None = Field(None, max_length=2000)
+    direction: str = Field(..., description="INCOME / EXPENSE")
+    is_restricted: bool = False
+    restriction_purpose: str | None = Field(None, max_length=2000)
+    required_fund_type: str | None = Field(None, description="e.g. SINKING_FUND: entries must go to a fund of this type")
+    is_pranami: bool = Field(False, description="Show these contributions in the member's own Pranami tab")
+    allow_upi: bool = Field(False, description="May be collected by UPI (needs a collection scope and account)")
+    collection_scope_pk: UUID | None = None
+    collection_fund_pk: UUID | None = None
+    collection_account_pk: UUID | None = None
+    display_order: int = Field(100, ge=0, le=10000)
+
+
+class HeadUpdate(BaseModel):
+    """
+    Code, organization, direction, restriction and required fund type never change once a transaction uses the head;
+    name, description, order, Pranami, UPI collection and the collection targets stay editable. Explicit null clears.
+    """
+
+    head_name: str | None = Field(None, min_length=1, max_length=150)
+    description: str | None = Field(None, max_length=2000)
+    restriction_purpose: str | None = Field(None, max_length=2000)
+    is_pranami: bool | None = None
+    allow_upi: bool | None = None
+    collection_scope_pk: UUID | None = None
+    collection_fund_pk: UUID | None = None
+    collection_account_pk: UUID | None = None
+    display_order: int | None = Field(None, ge=0, le=10000)
+
+
+class HeadResponse(BaseModel):
+    finance_head_pk: UUID
+    organization_pk: UUID | None
+    organization_name: str | None
+    is_template: bool
+    head_code: str
+    head_name: str
+    description: str | None
+    direction: str
+    is_restricted: bool
+    restriction_purpose: str | None
+    required_fund_type: str | None
+    is_pranami: bool
+    allow_upi: bool
+    collection_scope_pk: UUID | None
+    collection_scope_code: str | None
+    collection_fund_pk: UUID | None
+    collection_fund_code: str | None
+    collection_account_pk: UUID | None
+    collection_account_label: str | None
+    template_head_pk: UUID | None
+    display_order: int
+    status: str
+    transaction_count: int = 0
+
+
+class HeadListResponse(BaseModel):
+    items: list[HeadResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdoptTemplates(BaseModel):
+    organization_pk: UUID
+    template_pks: list[UUID] | None = Field(None, description="Only these templates; omit for every active template")
+
+
+class AdoptTemplatesResult(BaseModel):
+    created: int
+    skipped: int                              # heads with that code already exist in the Sangha
+    items: list[HeadResponse]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# UPI payment requests
+# ═══════════════════════════════════════════════════════════════════════
+
+class PaymentRequestCreate(BaseModel):
+    """A treasurer asks a payer to pay by UPI; the head decides the scope, fund and account."""
+
+    finance_head_pk: UUID
+    amount: Amount
+    sangha_sevi_id: str | None = Field(None, max_length=20, description="The paying member (e.g. SS12), if any")
+    payer_name: str | None = Field(None, max_length=200, description="For a payer who is not a member")
+    note: str | None = Field(None, max_length=500)
+
+
+class MyPayRequest(BaseModel):
+    """A signed-in member paying their OWN Pranami; the payer is the token, never a field."""
+
+    finance_head_pk: UUID
+    amount: Amount
+
+
+class PaymentRequestResponse(BaseModel):
+    upi_payment_request_pk: UUID
+    request_reference: str
+    finance_head_pk: UUID
+    head_name: str
+    financial_account_pk: UUID
+    account_label: str
+    upi_vpa: str | None
+    organization_name: str | None
+    financial_scope_pk: UUID
+    scope_code: str
+    amount: Decimal
+    payer_sangha_sevi_id: str | None
+    payer_name: str | None
+    note: str | None
+    provider: str
+    provider_order_id: str | None           # the gateway's own id for this order (for reconciliation; not a secret)
+    pay_url: str | None
+    upi_uri: str | None
+    expires_at: datetime
+    status: str
+    provider_payment_id: str | None
+    paid_amount: Decimal | None
+    paid_at: datetime | None
+    failure_reason: str | None
+    review_reason: str | None
+    transaction_reference: str | None
+    receipt_number: str | None
+    created_at: datetime
+
+
+class PaymentRequestListResponse(BaseModel):
+    items: list[PaymentRequestResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class MyPayableHead(BaseModel):
+    """What a member may pay by UPI: heads of their own Sangha that are Pranami + UPI-enabled + ready."""
+
+    finance_head_pk: UUID
+    head_name: str
+    description: str | None
+    organization_name: str | None
+    upi_vpa: str | None
+
+
+class MyPayment(BaseModel):
+    """The member-facing view of their own payment request (no internal review notes or ids)."""
+
+    upi_payment_request_pk: UUID
+    request_reference: str
+    head_name: str
+    amount: Decimal
+    status: str
+    pay_url: str | None
+    upi_uri: str | None
+    expires_at: datetime
+    paid_at: datetime | None
+    receipt_number: str | None
+
+
+class WebhookAck(BaseModel):
+    outcome: str
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Member-facing: "My Pranami"
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -412,6 +649,7 @@ class MyPranamiItem(BaseModel):
     transaction_date: date
     year_code: str
     transaction_category: str
+    finance_head_name: str
     amount: Decimal
     scope_name: str
     organization_name: str | None
@@ -450,6 +688,7 @@ class FundSummaryRow(BaseModel):
 class CategorySummaryRow(BaseModel):
     transaction_type: str
     transaction_category: str
+    finance_head_name: str | None = None
     total: Decimal
     count: int
 

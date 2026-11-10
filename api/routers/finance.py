@@ -67,6 +67,7 @@ from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_any_permission
 from api.helpers import SAKHA_LIKE_ORG_TYPES, get_master_data_pk, log_audit, next_id
 from api.schemas import finance as S
+from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope, require_person_in_scope
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
@@ -80,10 +81,13 @@ _MAX_PARENT_WALK = 20  # same depth cap as helpers.MAX_RECURSION_DEPTH, walked i
 
 _PERSON_NAME_SQL = "NULLIF(TRIM(CONCAT_WS(' ', {a}.first_name, {a}.middle_name, {a}.last_name)), '')"
 
-# Categories that must live in a restricted fund (FIN-BR-019/022).
-_RESTRICTED_INCOME_CATEGORIES = frozenset({"DONATION_SPECIFIC_PURPOSE", "PUBLICATION_INCOME"})
 _COUNTED_TXN_STATUSES = ("POSTED", "SETTLED")
 _COUNTED_TRANSFER_STATUSES = ("EXECUTED", "COMPLETED")
+
+
+def _in(values) -> str:
+    """('A', 'B') for an SQL IN list built from CODE constants (never user input). repr() of a 1-tuple has a trailing comma, which is invalid SQL."""
+    return "(" + ", ".join("'" + str(v).replace("'", "''") + "'" for v in values) + ")"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -135,6 +139,20 @@ _STEPS: dict[str, dict[tuple[str, str], _Step]] = {
         ("DRAFT", "CANCELLED"): _Step(_M, remarks=True),
         ("APPROVED", "CANCELLED"): _Step(_M, remarks=True),
         ("INITIATED", "CANCELLED"): _Step(_A, remarks=True),
+    },
+    # Configuration: a head / account is switched on and off, never deleted (history is kept).
+    "account": {
+        ("ACTIVE", "INACTIVE"): _Step(_A, remarks=True),
+        ("INACTIVE", "ACTIVE"): _Step(_A),
+    },
+    "head": {
+        ("ACTIVE", "INACTIVE"): _Step(_A),
+        ("INACTIVE", "ACTIVE"): _Step(_A),
+    },
+    # A UPI request can be cancelled while it is still unpaid; PAID / FAILED / EXPIRED are set only by the gateway.
+    "payment_request": {
+        ("CREATED", "CANCELLED"): _Step(_M, remarks=True),
+        ("PENDING", "CANCELLED"): _Step(_M, remarks=True),
     },
     "transfer": {
         ("DRAFT", "PENDING_APPROVAL"): _Step(_M),
@@ -192,7 +210,7 @@ def _not_found(label: str) -> HTTPException:
 
 
 def _invalid(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
 
 
 def _require_global(cur, user: UserContext, action: str) -> None:
@@ -307,14 +325,14 @@ def _fund_flows_sql(fund_ref: str) -> dict[str, str]:
         return (
             "COALESCE((SELECT SUM(ft.amount) FROM nss.financial_transaction ft "
             f"WHERE ft.fund_master_pk = {fund_ref} AND ft.is_active = TRUE "
-            f"AND ft.transaction_type = '{kind}' AND ft.status IN {_COUNTED_TXN_STATUSES!r}), 0)"
+            f"AND ft.transaction_type = '{kind}' AND ft.status IN {_in(_COUNTED_TXN_STATUSES)}), 0)"
         )
 
     def transfer(column: str) -> str:
         return (
             "COALESCE((SELECT SUM(tr.amount) FROM nss.financial_transfer tr "
             f"WHERE tr.{column} = {fund_ref} AND tr.is_active = TRUE "
-            f"AND tr.status IN {_COUNTED_TRANSFER_STATUSES!r}), 0)"
+            f"AND tr.status IN {_in(_COUNTED_TRANSFER_STATUSES)}), 0)"
         )
 
     return {"income": txn("INCOME"), "expense": txn("EXPENSE"),
@@ -356,12 +374,15 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
         "fund_types": list(S.FUND_TYPES),
         "scope_types": list(S.SCOPE_TYPES),
         "transaction_types": list(S.TRANSACTION_TYPES),
-        "income_categories": list(S.INCOME_CATEGORIES),
-        "expense_categories": list(S.EXPENSE_CATEGORIES),
+        "head_directions": list(S.HEAD_DIRECTIONS),
+        "account_types": list(S.ACCOUNT_TYPES),
+        "gateway_providers": sorted(upi_gateway.enabled_providers() & set(upi_gateway.PROVIDERS)),
         "statuses": {
             "year": list(S.YEAR_STATUSES), "scope": list(S.SCOPE_STATUSES), "fund": list(S.FUND_STATUSES),
             "transaction": list(S.TRANSACTION_STATUSES), "receipt": list(S.RECEIPT_STATUSES),
             "payment": list(S.PAYMENT_STATUSES), "transfer": list(S.TRANSFER_STATUSES),
+            "account": list(S.ACCOUNT_STATUSES), "head": list(S.HEAD_STATUSES),
+            "payment_request": list(S.PAYMENT_REQUEST_STATUSES),
         },
         "transitions": {
             entity: [{"from": f, "to": t, "permission": s.permission, "remarks": s.remarks, "maker_checker": s.maker_checker}
@@ -407,15 +428,17 @@ def summary(
 
         cur.execute(
             f"""
-            SELECT ft.transaction_type, ft.transaction_category, SUM(ft.amount), COUNT(*)
+            SELECT ft.transaction_type, ft.transaction_category, MIN(h.head_name), SUM(ft.amount), COUNT(*)
               {base}
-             WHERE {where_sql} AND ft.status IN {_COUNTED_TXN_STATUSES!r} AND ft.transaction_type IN ('INCOME','EXPENSE')
+              LEFT JOIN nss.finance_head h ON h.finance_head_pk = ft.finance_head_pk
+             WHERE {where_sql} AND ft.status IN {_in(_COUNTED_TXN_STATUSES)} AND ft.transaction_type IN ('INCOME','EXPENSE')
              GROUP BY ft.transaction_type, ft.transaction_category
              ORDER BY ft.transaction_type, SUM(ft.amount) DESC
             """,
             txn_params,
         )
-        by_category = [{"transaction_type": r[0], "transaction_category": r[1], "total": r[2], "count": r[3]} for r in cur.fetchall()]
+        by_category = [{"transaction_type": r[0], "transaction_category": r[1], "finance_head_name": r[2], "total": r[3], "count": r[4]}
+                       for r in cur.fetchall()]
         income = sum((c["total"] for c in by_category if c["transaction_type"] == "INCOME"), Decimal("0.00"))
         expense = sum((c["total"] for c in by_category if c["transaction_type"] == "EXPENSE"), Decimal("0.00"))
 
@@ -503,19 +526,20 @@ def my_pranami(user: UserContext = Depends(get_current_user), conn=Depends(get_c
         cur.execute(
             f"""
             SELECT t.financial_transaction_pk, t.transaction_reference, t.transaction_date, fy.year_code,
-                   t.transaction_category, t.amount, fs.scope_name, o.organization_name, t.status
+                   t.transaction_category, h.head_name AS finance_head_name, t.amount, fs.scope_name,
+                   o.organization_name, t.status
               FROM nss.financial_transaction t
+              JOIN nss.finance_head h ON h.finance_head_pk = t.finance_head_pk AND h.is_pranami = TRUE
               JOIN nss.financial_year fy ON fy.financial_year_pk = t.financial_year_pk
               JOIN nss.financial_scope fs ON fs.financial_scope_pk = t.financial_scope_pk
               LEFT JOIN nss.organization o ON o.organization_pk = fs.organization_pk
              WHERE t.is_active = TRUE AND t.transaction_type = 'INCOME'
-               AND t.transaction_category = ANY(%s) AND t.status IN {_COUNTED_TXN_STATUSES!r}
+               AND t.status IN {_in(_COUNTED_TXN_STATUSES)}
                AND (t.person_pk = %s OR (%s::uuid IS NOT NULL AND t.sangha_sevi_pk = %s::uuid))
              ORDER BY t.transaction_date DESC, t.created_at DESC
              LIMIT {_MY_PRANAMI_LIMIT}
             """,
-            (list(S.PRANAMI_CATEGORIES), str(user.person_pk),
-             user.actor_pk, user.actor_pk),
+            (str(user.person_pk), user.actor_pk, user.actor_pk),
         )
         items = _fetch_all(cur)
         receipts: dict = {}
@@ -960,6 +984,7 @@ _TXN_FROM = """
       JOIN nss.financial_scope fs ON fs.financial_scope_pk = t.financial_scope_pk
       LEFT JOIN nss.organization o ON o.organization_pk = fs.organization_pk
       LEFT JOIN nss.fund_master fm ON fm.fund_master_pk = t.fund_master_pk
+      LEFT JOIN nss.finance_head fh ON fh.finance_head_pk = t.finance_head_pk
       LEFT JOIN nss.person p ON p.person_pk = t.person_pk
       LEFT JOIN nss.sangha_sevi ss ON ss.sangha_sevi_pk = t.sangha_sevi_pk
 """
@@ -967,7 +992,8 @@ _TXN_SELECT = f"""
     SELECT t.financial_transaction_pk, t.transaction_reference, t.financial_year_pk, fy.year_code,
            t.financial_scope_pk, fs.scope_code, fs.scope_name, fs.organization_pk AS scope_organization_pk,
            o.organization_name AS scope_organization_name, t.fund_master_pk, fm.fund_code, fm.fund_name,
-           t.transaction_type, t.transaction_category, t.amount, t.transaction_date, t.description,
+           t.transaction_type, t.finance_head_pk, fh.head_name AS finance_head_name, t.transaction_category,
+           t.amount, t.transaction_date, t.description,
            t.person_pk, {_PERSON_NAME_SQL.format(a='p')} AS person_name, t.sangha_sevi_pk, ss.sangha_sevi_id,
            t.status, t.created_by_sangha_sevi_pk, t.created_at,
            COALESCE((SELECT SUM(r.amount) FROM nss.financial_receipt r
@@ -989,7 +1015,7 @@ def _txn_row(cur, user: UserContext, txn_pk, action: str, *, lock: bool = False)
     cur.execute(
         """
         SELECT t.financial_transaction_pk, t.transaction_reference, t.financial_year_pk, t.financial_scope_pk,
-               t.fund_master_pk, t.transaction_type, t.transaction_category, t.amount, t.transaction_date,
+               t.fund_master_pk, t.transaction_type, t.finance_head_pk, t.transaction_category, t.amount, t.transaction_date,
                t.description, t.person_pk, t.sangha_sevi_pk, t.status, t.created_by_sangha_sevi_pk,
                fs.organization_pk AS scope_organization_pk
           FROM nss.financial_transaction t
@@ -1005,21 +1031,67 @@ def _txn_row(cur, user: UserContext, txn_pk, action: str, *, lock: bool = False)
     return row
 
 
-def _check_transaction(cur, *, year_pk, scope_pk, fund_pk, txn_date, txn_type, category, amount) -> dict | None:
+def _head_row(cur, head_pk) -> dict:
+    cur.execute(
+        """
+        SELECT finance_head_pk, organization_pk, head_code, head_name, direction, is_restricted, restriction_purpose,
+               required_fund_type, is_pranami, allow_upi, collection_scope_pk, collection_fund_pk,
+               collection_account_pk, status
+          FROM nss.finance_head WHERE finance_head_pk = %s AND is_active = TRUE
+        """,
+        (str(head_pk),),
+    )
+    row = _fetch_one(cur)
+    if row is None:
+        raise _invalid("Finance head not found.")
+    return row
+
+
+def _same_org(a, b) -> bool:
+    return (a is None and b is None) or (a is not None and b is not None and str(a) == str(b))
+
+
+def _check_head(head: dict, *, scope: dict, txn_type: str, fund: dict | None) -> None:
     """
-    Every rule a transaction must satisfy to be recorded, submitted, approved or
-    posted: open year, active scope, date inside the year, fund of the same scope
-    and ACTIVE, category consistent with the type, restricted money kept restricted.
-    Returns the fund row (or None).
+    The rules a finance head imposes on an entry (pure: no database). A head is DATA, so every rule here comes from
+    its columns - there is no category list in the code:
+      - ACTIVE, and owned by the scope's organization (a scope with no organization uses the global templates);
+      - direction: INCOME needs an income head, EXPENSE an expense head (ADJUSTMENT may use either);
+      - restricted money stays restricted (FIN-BR-019..022): an income head that is restricted needs a restricted fund,
+        a restricted expense head must draw on a restricted fund and an expense from a restricted fund must use a
+        restricted head;
+      - required_fund_type (e.g. SINKING_FUND, which must also name its Sakha, FIN-BR-023/024).
+    """
+    code = head["head_code"]
+    if head["status"] != "ACTIVE":
+        raise _invalid(f"Finance head {code} is {head['status']}; only an ACTIVE head can take entries.")
+    if not _same_org(head["organization_pk"], scope["organization_pk"]):
+        raise _invalid(f"Finance head {code} belongs to a different organization than this financial scope.")
+    if txn_type in ("INCOME", "EXPENSE") and head["direction"] != txn_type:
+        raise _invalid(f"Finance head {code} is an {head['direction']} head; this entry is an {txn_type}.")
+    if txn_type == "INCOME" and head["is_restricted"] and (fund is None or not fund["is_restricted"]):
+        raise _invalid(f"{code} is a restricted head and must be recorded against a restricted fund (FIN-BR-019/022).")
+    if txn_type == "EXPENSE":
+        if fund is not None and fund["is_restricted"] and not head["is_restricted"]:
+            raise _invalid("An expense from a restricted fund must use a restricted finance head (FIN-BR-021).")
+        if head["is_restricted"] and (fund is None or not fund["is_restricted"]):
+            raise _invalid(f"{code} is a restricted head and must name a restricted fund (FIN-BR-020).")
+    wanted = head["required_fund_type"]
+    if wanted:
+        if fund is None or fund["fund_type"] != wanted:
+            raise _invalid(f"{code} must be recorded against a {wanted} fund.")
+        if wanted == "SINKING_FUND" and fund["organization_pk"] is None:
+            raise _invalid(f"{code} must be recorded against a SINKING_FUND that names its Sakha (FIN-BR-023/024).")
+
+
+def _check_transaction(cur, *, year_pk, scope_pk, fund_pk, txn_date, txn_type, head_pk, amount) -> tuple[dict | None, dict]:
+    """
+    Every rule a transaction must satisfy to be recorded, submitted, approved or posted: open year, active scope,
+    date inside the year, fund of the same scope and ACTIVE, and the finance head's own rules (_check_head).
+    Returns (fund row or None, head row).
     """
     if txn_type not in S.TRANSACTION_TYPES:
         raise _invalid(f"transaction_type must be one of: {', '.join(S.TRANSACTION_TYPES)}.")
-    if txn_type == "INCOME" and category not in S.INCOME_CATEGORIES:
-        raise _invalid(f"An INCOME transaction needs an income category: {', '.join(S.INCOME_CATEGORIES)}.")
-    if txn_type == "EXPENSE" and category not in S.EXPENSE_CATEGORIES:
-        raise _invalid(f"An EXPENSE transaction needs an expense category: {', '.join(S.EXPENSE_CATEGORIES)}.")
-    if txn_type == "ADJUSTMENT" and category not in S.TRANSACTION_CATEGORIES:
-        raise _invalid("Unknown transaction_category.")
 
     year = _year_row(cur, year_pk)
     if year["status"] != "OPEN":
@@ -1040,17 +1112,9 @@ def _check_transaction(cur, *, year_pk, scope_pk, fund_pk, txn_date, txn_type, c
         if fund["status"] != "ACTIVE":
             raise _invalid(f"Fund {fund['fund_code']} is {fund['status']}; only an ACTIVE fund can take transactions.")
 
-    if txn_type == "INCOME":
-        if category in _RESTRICTED_INCOME_CATEGORIES and (fund is None or not fund["is_restricted"]):
-            raise _invalid(f"{category} must be recorded against a restricted fund (FIN-BR-019/022).")
-        if category == "PRANAMI_SINKING_FUND" and (fund is None or fund["fund_type"] != "SINKING_FUND" or fund["organization_pk"] is None):
-            raise _invalid("PRANAMI_SINKING_FUND must be recorded against a SINKING_FUND that names its Sakha (FIN-BR-023/024).")
-    if txn_type == "EXPENSE":
-        if fund is not None and fund["is_restricted"] and category != "EXPENSE_RESTRICTED":
-            raise _invalid("An expense from a restricted fund must use the EXPENSE_RESTRICTED category (FIN-BR-021).")
-        if category == "EXPENSE_RESTRICTED" and (fund is None or not fund["is_restricted"]):
-            raise _invalid("EXPENSE_RESTRICTED must name a restricted fund (FIN-BR-020).")
-    return fund
+    head = _head_row(cur, head_pk)
+    _check_head(head, scope=scope, txn_type=txn_type, fund=fund)
+    return fund, head
 
 
 def _check_restricted_balance(cur, txn: dict, fund: dict | None) -> None:
@@ -1088,7 +1152,8 @@ def list_transactions(
     financial_scope_pk: UUID | None = Query(None),
     fund_master_pk: UUID | None = Query(None),
     transaction_type: str | None = Query(None),
-    transaction_category: str | None = Query(None),
+    transaction_category: str | None = Query(None, description="Head CODE (matches across Sanghas)"),
+    finance_head_pk: UUID | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
     person_pk: UUID | None = Query(None),
     date_from: date | None = Query(None),
@@ -1103,7 +1168,7 @@ def list_transactions(
         where = ["t.is_active = TRUE", vis]
         for column, value in (
             ("t.financial_year_pk", financial_year_pk), ("t.financial_scope_pk", financial_scope_pk),
-            ("t.fund_master_pk", fund_master_pk), ("t.person_pk", person_pk),
+            ("t.fund_master_pk", fund_master_pk), ("t.person_pk", person_pk), ("t.finance_head_pk", finance_head_pk),
         ):
             if value is not None:
                 where.append(f"{column} = %s"); params.append(str(value))
@@ -1132,9 +1197,9 @@ def create_transaction(body: S.TransactionCreate, user: UserContext = Depends(_M
     with conn.cursor() as cur:
         scope = _scope_row(cur, body.financial_scope_pk)
         _require_org_access(cur, user, scope["organization_pk"], "record a transaction in this financial scope")
-        _check_transaction(
+        _, head = _check_transaction(
             cur, year_pk=body.financial_year_pk, scope_pk=body.financial_scope_pk, fund_pk=body.fund_master_pk,
-            txn_date=body.transaction_date, txn_type=body.transaction_type, category=body.transaction_category,
+            txn_date=body.transaction_date, txn_type=body.transaction_type, head_pk=body.finance_head_pk,
             amount=body.amount,
         )
         person_pk, sevi_pk = body.person_pk, body.sangha_sevi_pk
@@ -1147,19 +1212,19 @@ def create_transaction(body: S.TransactionCreate, user: UserContext = Depends(_M
             """
             INSERT INTO nss.financial_transaction
                 (transaction_reference, financial_year_pk, financial_scope_pk, fund_master_pk, transaction_type,
-                 transaction_category, amount, transaction_date, description, person_pk, sangha_sevi_pk,
-                 created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING financial_transaction_pk
+                 finance_head_pk, transaction_category, amount, transaction_date, description, person_pk,
+                 sangha_sevi_pk, created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING financial_transaction_pk
             """,
             (reference, str(body.financial_year_pk), str(body.financial_scope_pk),
-             str(body.fund_master_pk) if body.fund_master_pk else None, body.transaction_type, body.transaction_category,
-             body.amount, body.transaction_date, _clean(body.description),
+             str(body.fund_master_pk) if body.fund_master_pk else None, body.transaction_type,
+             str(head["finance_head_pk"]), head["head_code"], body.amount, body.transaction_date, _clean(body.description),
              str(person_pk) if person_pk else None, str(sevi_pk) if sevi_pk else None,
              user.actor_pk),
         )
         pk = cur.fetchone()[0]
         _audit(cur, user, "CREATE", "financial_transaction", pk, f"Recorded {body.transaction_type} {reference}",
-               {"reference": reference, "amount": str(body.amount), "category": body.transaction_category})
+               {"reference": reference, "amount": str(body.amount), "head": head["head_code"]})
         return _txn_response(cur, pk)
 
 
@@ -1179,7 +1244,7 @@ def update_transaction(txn_pk: UUID, body: S.TransactionUpdate, user: UserContex
         if txn["status"] != "DRAFT":
             raise _invalid(f"Only a DRAFT transaction can be edited; this one is {txn['status']} (FIN-BR-051).")
         merged = {k: txn[k] for k in ("financial_year_pk", "financial_scope_pk", "fund_master_pk", "transaction_type",
-                                      "transaction_category", "amount", "transaction_date", "description",
+                                      "finance_head_pk", "amount", "transaction_date", "description",
                                       "person_pk", "sangha_sevi_pk")}
         explicit = set(body.model_fields_set) - {"sangha_sevi_id"}          # real columns the caller sent
         for field in explicit:
@@ -1197,13 +1262,15 @@ def update_transaction(txn_pk: UUID, body: S.TransactionUpdate, user: UserContex
         if "financial_scope_pk" in sent and str(merged["financial_scope_pk"]) != str(txn["financial_scope_pk"]):
             new_scope = _scope_row(cur, merged["financial_scope_pk"])
             _require_org_access(cur, user, new_scope["organization_pk"], "move a transaction into this financial scope")
-        _check_transaction(
+        _, head = _check_transaction(
             cur, year_pk=merged["financial_year_pk"], scope_pk=merged["financial_scope_pk"], fund_pk=merged["fund_master_pk"],
-            txn_date=merged["transaction_date"], txn_type=merged["transaction_type"], category=merged["transaction_category"],
+            txn_date=merged["transaction_date"], txn_type=merged["transaction_type"], head_pk=merged["finance_head_pk"],
             amount=merged["amount"],
         )
         _check_links(cur, merged["person_pk"], merged["sangha_sevi_pk"])
         values = {}
+        if "finance_head_pk" in sent:
+            values["transaction_category"] = head["head_code"]          # keep the immutable snapshot in step
         for field in sent:
             value = merged[field]
             if field == "description":
@@ -1225,9 +1292,9 @@ def transition_transaction(txn_pk: UUID, body: S.TransitionRequest, user: UserCo
         _, self_approved = _guard_transition(user, "transaction", txn["status"], body.status, body.remarks,
                                              txn["created_by_sangha_sevi_pk"])
         if body.status in ("PENDING_APPROVAL", "APPROVED", "POSTED"):
-            fund = _check_transaction(
+            fund, _ = _check_transaction(
                 cur, year_pk=txn["financial_year_pk"], scope_pk=txn["financial_scope_pk"], fund_pk=txn["fund_master_pk"],
-                txn_date=txn["transaction_date"], txn_type=txn["transaction_type"], category=txn["transaction_category"],
+                txn_date=txn["transaction_date"], txn_type=txn["transaction_type"], head_pk=txn["finance_head_pk"],
                 amount=txn["amount"],
             )
             if body.status in ("APPROVED", "POSTED"):
@@ -1249,12 +1316,13 @@ def _method_pk(cur, code: str | None):
 
 
 def _evidence_total(cur, table: str, txn_pk, live_statuses: tuple, exclude_pk=None, pk_col: str = "") -> Decimal:
-    cond, params = "", [str(txn_pk)]
+    cond, params = "", [str(txn_pk), list(live_statuses)]
     if exclude_pk is not None:
-        cond, params = f" AND {pk_col} <> %s", [str(txn_pk), str(exclude_pk)]
+        cond = f" AND {pk_col} <> %s"
+        params.append(str(exclude_pk))
     cur.execute(
         f"SELECT COALESCE(SUM(amount), 0) FROM nss.{table} WHERE financial_transaction_pk = %s AND is_active = TRUE "
-        f"AND status IN {live_statuses!r}{cond}",
+        f"AND status = ANY(%s){cond}",
         params,
     )
     return cur.fetchone()[0]

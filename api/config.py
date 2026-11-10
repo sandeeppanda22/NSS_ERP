@@ -80,6 +80,30 @@ class Settings:
     AADHAAR_HASH_PEPPER: str = os.environ.get("AADHAAR_HASH_PEPPER", "")
     AADHAAR_REVEAL_RATE_LIMIT: str = os.environ.get("AADHAAR_REVEAL_RATE_LIMIT", "10/minute")
 
+    # ── UPI collection through a payment gateway (Finance, Tier 12) ──────
+    # UPI_GATEWAY_ENABLED_PROVIDERS — comma-separated adapters this server may
+    #   use: MOCK (development / demo / tests: signs and "pays" its own
+    #   webhooks, no money moves) and/or RAZORPAY. EMPTY (the default) = UPI
+    #   collection is OFF: creating a payment request is a 503 and the webhook
+    #   endpoint answers 404, so a fresh deployment never exposes a payment
+    #   surface by accident. Never enable MOCK on a production database.
+    # The gateway SECRETS are not settings and are never in the database: each
+    #   financial_account names a credential set (gateway_credential_ref, e.g.
+    #   SAKHA_A) and the server reads UPI_<REF>_KEY_ID / UPI_<REF>_KEY_SECRET /
+    #   UPI_<REF>_WEBHOOK_SECRET from the environment (api/services/upi_gateway.py).
+    # UPI_REQUEST_EXPIRY_MINUTES — how long a payment request stays payable.
+    # UPI_PAY_RATE_LIMIT — per-USER limit on creating a payment request
+    #   (a member paying their own Pranami).
+    # UPI_WEBHOOK_RATE_LIMIT — per-IP limit on the (unauthenticated, signature-
+    #   verified) gateway webhook; UPI_WEBHOOK_MAX_BYTES — body size cap.
+    UPI_GATEWAY_ENABLED_PROVIDERS: str = os.environ.get("UPI_GATEWAY_ENABLED_PROVIDERS", "")
+    UPI_REQUEST_EXPIRY_MINUTES: int = int(os.environ.get("UPI_REQUEST_EXPIRY_MINUTES", "30"))
+    UPI_PAY_RATE_LIMIT: str = os.environ.get("UPI_PAY_RATE_LIMIT", "10/minute")
+    UPI_WEBHOOK_RATE_LIMIT: str = os.environ.get("UPI_WEBHOOK_RATE_LIMIT", "300/minute")
+    UPI_WEBHOOK_MAX_BYTES: int = int(os.environ.get("UPI_WEBHOOK_MAX_BYTES", "65536"))
+    # UPI_MAX_AMOUNT — sanity cap (rupees) on ONE UPI payment request; NPCI limits a single UPI payment to about this.
+    UPI_MAX_AMOUNT: str = os.environ.get("UPI_MAX_AMOUNT", "100000")
+
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).
     # CSP_REPORT_ONLY  — emit as Content-Security-Policy-Report-Only, which
