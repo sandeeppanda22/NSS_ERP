@@ -643,6 +643,14 @@ Treasurer disbursement
 
 The ERP shall not collapse these into a single generic approval.
 
+**Implementation (2026-11-10, uncommitted):** `finance_disbursement_authority` +
+`api/services/finance_authority.py`. For a payment, or a transfer out, of a
+Kendra scope the three steps are three recorded facts — the Governing Body
+resolution/scheme and permitted purpose, the President's written order, and
+the Treasurer's disbursement — never one approval. The resolution is a typed
+reference (no lookup against the Governance module yet). Other levels are not
+bound (FIN-BR-044).
+
 ---
 
 ## FIN-BR-041 — Kendra Annual Budget
@@ -711,6 +719,13 @@ Sangha, operated jointly by the Secretary and Treasurer.
 
 Source: F[b]
 
+**Implementation (2026-11-10):** joint operation is enforced as two signatures
+by the persons CURRENTLY seated as Treasurer and Secretary of the Kendra
+Governing Body (the Treasurer starts the disbursement, a different Secretary
+countersigns before it can be COMPLETED). The ERP does not model the bank
+mandate itself (FIN-BR-047 stays PENDING) and cannot verify that an account is
+a Post Office / nationalised-bank account in the Sangha's name.
+
 ---
 
 ## FIN-BR-046 — Mahila Fund Accounts
@@ -721,6 +736,11 @@ Mahila funds are to be maintained in the prescribed postal/state-bank
 arrangement and operated jointly by the Treasurer and Secretary.
 
 Source: MS-7(ii)
+
+**Implementation (2026-11-10):** same two-signature control for the central
+Mahila Sangha (`MAHILA_PARICHALANA_MANDALI` seats), plus the Governing Body
+resolution (MS-7(iii)(i)), a permitted purpose and the Parichalak consultation
+flag (MS-7(iii)(a)). No President's order is required for Mahila money.
 
 ---
 

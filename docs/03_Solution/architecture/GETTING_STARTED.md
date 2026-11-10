@@ -61,7 +61,7 @@ psql -U postgres -d nss_erp -f database/scripts/01_extensions.sql
 ./database/scripts/03_validate.sh
 ```
 
-What the build does that is new since Tier 6: it creates **86 tables** and, on *every* run, applies a
+What the build does that is new since Tier 6: it creates **91 tables** and, on *every* run, applies a
 set of **idempotent patch files** (`run_sql`, not existence-gated — Advisory Board organization and
 role-permission rows, the organization singleton trigger, the Sakha-like org-type function, the Local
 Sakha ID allocator, the home-affiliation guard, the `registration_claim` legacy-member columns, the
@@ -487,9 +487,23 @@ actually runs DDL/seed.
 
 ---
 
+# 7a-3. UPI Payments (Finance) — optional configuration
+
+UPI collection is **off by default**. To try it locally with no real money, add to `api/.env`:
+
+```
+UPI_GATEWAY_ENABLED_PROVIDERS=MOCK
+```
+
+Then in the admin console (Finance): add a receiving account for a Sangha (last 4 digits only; credential reference e.g. `SAKHA_A`), adopt the Kendra head templates, mark a head UPI-enabled with a collection scope + account, and create a payment request (or pay as a member from the dashboard "Pranami" tab). The MOCK provider's "mock-pay" action simulates the signed gateway callback.
+
+For a real gateway (`RAZORPAY`, adapter not yet verified against the real/sandbox API) put each Sangha's credentials in the **server environment only**, named after the account's credential reference: `UPI_<REF>_KEY_ID`, `UPI_<REF>_KEY_SECRET`, `UPI_<REF>_WEBHOOK_SECRET`; point the provider's webhook at `/api/v1/finance/gateway/webhook/razorpay`. Never store secrets in the database. Never enable MOCK in production. Variables are listed in `api/.env.example` and `deploy/*.env.example`.
+
+---
+
 ## Build Phases (execution order)
 
-The build script executes in this order (**86 tables**). All phases run within a
+The build script executes in this order (**91 tables**). All phases run within a
 single `02_build.sh` / `02_build.ps1` invocation; `render_build.sh` mirrors them for Render/Neon:
 
 | Phase | Module | What |
@@ -514,7 +528,7 @@ single `02_build.sh` / `02_build.ps1` invocation; `render_build.sh` mirrors them
 | 11f | Organization re-parent approval DDL | 2 tables (`organization_reparent_request`, `organization_reparent_step`) + step-role/step-order CHECK patch (Sakha President → leaving Anchalika/Zilla → destination Anchalika/Zilla → Kendra President) |
 | 11g | Assets & Property DDL | 7 tables (`property`, `asset`, `custodianship`, `property_statutory_record`, `maintenance_record`, `property_document`, `asset_document`) + idempotent guard triggers (`08_assets_property_guards.sql`) + idempotent custodian-must-be-physical function/trigger (`09_asset_custodian_org_type_function.sql`) + idempotent `10_assets_property_belongs_to_patch.sql` (nullable `belongs_to_organization_pk` + FK + index on `property`/`asset`, GDR-010 §2D) + idempotent `11_assets_property_acquisition_method_patch.sql` (nullable `acquisition_method_master_data_pk` + FK + index, GDR-010 §2E) + idempotent reference-data patch (`PROPERTY`/`ASSET` sequences, 7 master categories incl. `ACQUISITION_METHOD`, `DISPOSED`/`RETIRED` end reasons) + idempotent `12_assets_property_terminal_custody_patch.sql` (ENDs the ACTIVE custodianship of already DISPOSED/RETIRED records, GDR-010 §2F; after the reference data) and `trg_custodianship_terminal_guard` in `08_assets_property_guards.sql`; Phase 0 also runs the `ASSET_VIEW`/`ASSET_MANAGE` permissions patch (12 grants; Anchalika/Zilla view-only, Mahila none) and `06_assets_property_permissions_revoke_patch.sql` (soft-deletes the 4 grants the original 16-row patch created) (GDR-010) |
 | 11h | Live refresh DDL | 1 table (`live_change_marker` + sequence `live_change_seq`) + idempotent statement-level change-marker triggers on the watched tables (`12_live_refresh/02_live_change_triggers.sql`, every build; invoked at the END of Phase 11i so the Finance tables exist first) |
-| 11i | Finance DDL | 7 tables (`financial_year`, `financial_scope`, `fund_master`, `financial_transaction`, `financial_receipt`, `financial_payment`, `financial_transfer`; `ddl/14_finance/`) + idempotent reference-data patch (`seed/12_finance/01_finance_reference_data_patch.sql`: `PAYMENT_METHOD` master data incl. UPI, id sequences, initial Financial Year 2026-27). Runs after Phase 11h, so the live-refresh triggers file lists the Finance tables too |
+| 11i | Finance DDL | 12 tables (`financial_year`, `financial_scope`, `fund_master`, `financial_account`, `finance_head`, `financial_transaction`, `financial_receipt`, `financial_payment`, `financial_transfer`, `upi_payment_request`, `finance_gateway_event`, `finance_disbursement_authority`; `ddl/14_finance/`) + three idempotent patches in order: reference data (`01_finance_reference_data_patch.sql`: `PAYMENT_METHOD` master data incl. UPI, id sequences, initial Financial Year 2026-27), the 12 Kendra template heads (`02_finance_head_templates_patch.sql`), then `12_finance_heads_patch.sql` and the Bye-Law disbursement purposes (`03_finance_disbursement_purpose_patch.sql`) (maps an older database's transactions onto the heads). Runs after Phase 11h, so the live-refresh triggers file lists the Finance tables too |
 | 12 | Grant Writer | `SELECT`/`INSERT`/`UPDATE` for `nss_db_writer` on every `nss` table |
 | 13 | Admin Bootstrap | Seed NSSAdmin user account (runtime bootstrap via `bootstrap_admin.py`) |
 | 13b | Geo Attribution Backfill | `UPDATE`s `city_village`/`postal_code`/`post_office.submitted_by_person_pk` to NSS Admin's person_pk (`P1`) for every row where it's still `NULL` and `submitted_by_sangha_sevi_pk` is also `NULL` (i.e. the bulk-reference-seeded rows from Phase 2, which had no app-level submitter) — attribution consistency, 2026-10-21. Must run after Phase 13 since `P1`'s `person_pk` doesn't exist before it (Phase 2's bulk geo seed runs 11 phases earlier). Idempotent (only touches `NULL` rows); tolerates a missing `submitted_by_person_pk` column (un-rebuilt environment) as `[SKIP]`, not `[FAIL]` |

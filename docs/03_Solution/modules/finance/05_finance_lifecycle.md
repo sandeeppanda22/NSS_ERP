@@ -544,6 +544,12 @@ The receipt number shall not be silently reused.
 
 # 17. Payment Lifecycle
 
+> **Amendment note (2026-11-10):** for Kendra and central Mahila Sangha money the
+> step APPROVED → INITIATED (transfer: APPROVED → EXECUTED) is the Treasurer's
+> disbursement and INITIATED → COMPLETED additionally needs the Secretary's
+> countersignature (Bye-Law F[b], MS-7(ii)); both need the recorded
+> `finance_disbursement_authority`. The states themselves are unchanged.
+
 ## 17.1 States
 
 ```text

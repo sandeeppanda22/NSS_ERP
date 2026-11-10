@@ -736,7 +736,7 @@ Completed:
   values, shared across modules) — now consumed by the Tier 2 Organization API (see below). This
   diverges from the frozen 3-table module design — see `docs/PROJECT_DOCUMENTATION.md` →
   Gotchas. Combined with Foundation, Bootstrap RBAC, Person, Family, Membership, Authentication +
-  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6) and the live-refresh marker table and Finance (Tier 12, on `feature/tier12-finance`): **86 tables implemented** — see `database/README.md`)
+  Administration (Tier 5) and Governance + Correspondence (Tier 6) and Attendance and Sakha re-parent approvals (Tier 6) and Assets & Property (Module #22, Tier 6) and the live-refresh marker table and Finance (Tier 12, on `feature/tier12-finance`): **91 tables implemented** — see `database/README.md`)
 * Bootstrap RBAC DDL (`role_master`/`permission_master`/`role_permission`, `SOL-BOOT-001`/
   `SOL-ARCH-011` — DDL implemented and committed; `role_master` seeded with 11 roles
   (incl. `NSS_ERP_ADVISORY_BOARD_ADMIN` and `NSS_ERP_ATTENDANCE_MARKER`, Tier 6); `permission_master` (30 permissions, incl. `ASSET_VIEW`/`ASSET_MANAGE` from the idempotent `05_assets_property_permissions_patch.sql`, 12 grants - Anchalika/Zilla admins view-only, Mahila admin none, the 4 withdrawn grants soft-deleted by `06_assets_property_permissions_revoke_patch.sql`;

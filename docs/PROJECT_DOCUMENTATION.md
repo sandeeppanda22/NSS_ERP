@@ -20,8 +20,8 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 20 routers, 315 endpoints (registered routes in the working tree — 303 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
-| Database (`database/`) | Hand-written PostgreSQL DDL, 86 tables in schema `nss` (Finance, Tier 12: 7, on `feature/tier12-finance`), no migration tool. |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 23 routers, 344 endpoints (registered routes in the working tree — 332 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
+| Database (`database/`) | Hand-written PostgreSQL DDL, 91 tables in schema `nss` (Finance, Tier 12: 12, on `feature/tier12-finance`), no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
 | Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5189 items collected on 2026-11-10). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
@@ -58,7 +58,7 @@ Middleware: SlowAPI rate limit → CORS (only if configured) → security header
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
-  └─ /api/v1/<router>/...                           api/routers/*.py (20 routers)
+  └─ /api/v1/<router>/...                           api/routers/*.py (23 routers)
         │  Depends: get_current_user / require_permission / require_org_in_scope
         │  helpers: api/helpers.py   services: api/services/
         ▼
