@@ -24,6 +24,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     plain_member,
     plain_member_h,
     register_org_pk,
+    sakha_pks,
     sakha_admin,
     sakha_admin_h,
     viewer_h,

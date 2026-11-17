@@ -115,6 +115,13 @@ CREATE TABLE IF NOT EXISTS nss.finance_disbursement_authority
     CONSTRAINT chk_fda_basis
         CHECK (bye_law_basis IN ('KENDRA', 'MAHILA')),
 
+    CONSTRAINT chk_fda_soft_delete
+        CHECK (
+            (is_active = TRUE AND deleted_at IS NULL)
+            OR
+            (is_active = FALSE AND deleted_at IS NOT NULL)
+        ),
+
     CONSTRAINT chk_fda_text_not_blank
         CHECK (BTRIM(resolution_reference) <> '' AND BTRIM(scheme_description) <> ''),
 
