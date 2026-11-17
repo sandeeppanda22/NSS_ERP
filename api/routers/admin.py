@@ -100,7 +100,7 @@ from api.services.rbac_service import (
     require_account_in_scope as _require_account_in_scope,
     load_composite_grants as _load_composite_grants,
 )
-from api.services import org_reparent_service
+from api.services import finance_contribution, org_reparent_service
 from api.services.aadhaar_service import aadhaar_field_validator, set_person_aadhaar
 from api.services.person_scope import gate_aadhaar_fields
 from api.services.org_reparent_service import ALLOWED_PARENT_TYPES
@@ -3629,6 +3629,8 @@ def create_organization(
                           actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
                           module="governance",
                           summary=f"Auto-created Sakha Governing Body for {body.organization_name}")
+            # A new Sakha receives a copy of every Kendra contribution that applies to all Sakhas (audited, same transaction).
+            finance_contribution.sync_new_sakha(cur, user, new_org_pk)
 
     return {
         "organization_pk": str(new_org_pk),

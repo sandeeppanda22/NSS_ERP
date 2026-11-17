@@ -9025,6 +9025,90 @@
                                 </div>
                             </div>
 
+                            <!-- Simple contribution form: name, amount, how often. The server fills in the rest. -->
+                            <div class="data-card" x-show="finContribForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">Add a contribution</h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint">Members of the Sangha see it in their Pranami tab with the amount and whether it is paid or due. Money goes to the Sangha's own receiving account.</p>
+                                    <div class="form-grid-2">
+                                        <div class="typeahead-wrap">
+                                            <label class="form-label">Sangha</label>
+                                            <input type="text" class="form-input" x-model="finContribForm.organization.query"
+                                                   @input="corrOnOrgQueryInput(finContribForm.organization)" placeholder="Search by Sangha name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="finContribForm.organization.results.length > 0">
+                                                <template x-for="org in finContribForm.organization.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(finContribForm.organization, org); finContribOrgChanged()">
+                                                        <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                        <div x-show="finContribIsKendra">
+                                            <label class="form-label">Who pays into it</label>
+                                            <select class="nss-select" x-model="finContribForm.applies_to">
+                                                <option value="ORGANIZATION">Kendra members — money goes to the Kendra</option>
+                                                <option value="ALL_SAKHAS">Every Sakha — each Sakha gets its own copy, money goes to that Sakha</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Name</label>
+                                            <input type="text" class="form-input" maxlength="150" x-model="finContribForm.head_name" placeholder="e.g. Annual Pranami" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Amount <span class="optional">(leave empty for any amount)</span></label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finContribForm.fixed_amount" placeholder="e.g. 500" autocomplete="off">
+                                        </div>
+                                        <div x-show="finContribForm.fixed_amount.trim() !== ''">
+                                            <label class="form-label">How often</label>
+                                            <select class="nss-select" x-model="finContribForm.due_period">
+                                                <option value="YEARLY">Every financial year</option>
+                                                <option value="MONTHLY">Every month</option>
+                                                <option value="ONE_TIME">One time (for example an event)</option>
+                                            </select>
+                                        </div>
+                                        <div x-show="finContribForm.fixed_amount.trim() !== ''">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin-top:1.6rem;">
+                                                <input type="checkbox" x-model="finContribForm.allow_part_payment"> Members may pay in parts
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Note for members <span class="optional">(optional)</span></label>
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finContribForm.description" autocomplete="off">
+                                        </div>
+                                        <div x-show="finContribForm.applies_to !== 'ALL_SAKHAS'">
+                                            <label class="form-label">Receiving account <span class="optional">(default: the Sangha's default account)</span></label>
+                                            <select class="nss-select" x-model="finContribForm.collection_account_pk">
+                                                <option value="">Default account</option>
+                                                <template x-for="a in finContribAccounts" :key="a.financial_account_pk"><option :value="a.financial_account_pk" x-text="a.account_label + (a.gateway_provider ? '' : ' (no payment gateway)')"></option></template>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finContribForm.error" x-text="finContribForm.error"></div>
+                                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                                        <button class="btn-action primary" :disabled="finContribForm.saving" @click="finContribSubmit()" x-text="finContribForm.saving ? 'Saving…' : 'Add contribution'"></button>
+                                        <button class="btn-action" :disabled="finContribForm.saving" @click="finContribCancel()">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- A Sakha's copy of a Kendra contribution: only the receiving account is the Sakha's to choose -->
+                            <div class="data-card" x-show="finCopyForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">Receiving account</h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint">"<span x-text="finCopyForm.name"></span>" comes from the Kendra: its name, amount and schedule follow the Kendra. Choose which of your accounts the money goes to.</p>
+                                    <label class="form-label">Receiving account</label>
+                                    <select class="nss-select" x-model="finCopyForm.collection_account_pk">
+                                        <option value="">None yet (members cannot pay)</option>
+                                        <template x-for="a in finCopyAccounts" :key="a.financial_account_pk"><option :value="a.financial_account_pk" x-text="a.account_label + (a.gateway_provider ? '' : ' (no payment gateway)')"></option></template>
+                                    </select>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finCopyForm.error" x-text="finCopyForm.error"></div>
+                                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                                        <button class="btn-action primary" :disabled="finCopyForm.saving" @click="finCopySubmit()" x-text="finCopyForm.saving ? 'Saving…' : 'Save'"></button>
+                                        <button class="btn-action" :disabled="finCopyForm.saving" @click="finCopyCancel()">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Event form: a Sangha sets up what it collects for (e.g. Rasa) -->
                             <div class="data-card" x-show="finEventForm.show" x-cloak>
                                 <div class="data-card-header"><h2 class="data-card-title">New event</h2></div>
@@ -9125,6 +9209,17 @@
                                             <label class="form-label">Display order</label>
                                             <input type="number" min="0" max="10000" class="form-input" x-model="finHeadForm.display_order">
                                         </div>
+                                        <div x-show="finHeadForm.mode === 'edit' && finHeadForm.direction === 'INCOME'">
+                                            <label class="form-label">Fixed amount <span class="optional">(empty = any amount)</span></label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finHeadForm.fixed_amount" autocomplete="off">
+                                        </div>
+                                        <div x-show="finHeadForm.mode === 'edit' && finHeadForm.direction === 'INCOME' && finHeadForm.fixed_amount.trim() !== ''">
+                                            <label class="form-label">How often</label>
+                                            <select class="nss-select" x-model="finHeadForm.due_period">
+                                                <option value="YEARLY">Every financial year</option><option value="MONTHLY">Every month</option><option value="ONE_TIME">One time</option>
+                                            </select>
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.allow_part_payment"> Members may pay in parts</label>
+                                        </div>
                                         <div x-show="finHeadForm.direction === 'INCOME'">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
                                                 <input type="checkbox" x-model="finHeadForm.is_pranami"> Show these contributions in the member's own "Pranami" tab
@@ -9173,7 +9268,7 @@
                             </div>
 
                             <!-- Heads list -->
-                            <div class="data-card" x-show="!finHeadForm.show">
+                            <div class="data-card" x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show">
                                 <div class="data-card-header">
                                     <h2 class="data-card-title" x-text="finHeadsAreTemplates ? 'Kendra template heads' : 'Finance heads'"></h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
@@ -9183,7 +9278,8 @@
                                         <button class="btn-action" :class="{ primary: finHeadsAreTemplates }" @click="finHeadSetView('templates')">Kendra templates</button>
                                         <button class="btn-action" x-show="canApproveFinance && !finHeadsAreTemplates" @click="finHeadAdopt()" title="Copy the Kendra templates into the Sangha chosen above">Add Kendra templates</button>
                                         <button class="btn-action primary" x-show="canApproveFinance && finHeadsAreEvents" @click="finEventOpenCreate()">+ New event</button>
-                                        <button class="btn-action primary" x-show="canApproveFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : '+ New head'"></button>
+                                        <button class="btn-action primary" x-show="canApproveFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()">+ Add contribution</button>
+                                        <button class="btn-action" x-show="canApproveFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : 'Advanced head'" title="The full form: expense heads, restricted funds, funds and scopes"></button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -9226,7 +9322,9 @@
                                                                 <td style="font-size:0.8rem;" x-text="h.transaction_count"></td>
                                                                 <td><span class="badge badge-xs" :class="finBadge(h.status)" x-text="finLabel(h.status)"></span></td>
                                                                 <td>
-                                                                    <button class="link-action" x-show="canApproveFinance" @click="finHeadOpenEdit(h)">Edit</button>
+                                                                    <button class="link-action" x-show="canApproveFinance && !h.is_kendra_copy" @click="finHeadOpenEdit(h)">Edit</button>
+                                                                    <button class="link-action" x-show="canApproveFinance && h.is_kendra_copy" @click="finCopyOpen(h)">Account</button>
+                                                                    <button class="link-action" x-show="canApproveFinance && h.applies_to_all_sakhas" @click="finHeadSyncCopies(h)" title="Give every Sakha its copy and refresh the existing ones">Update Sakhas</button>
                                                                     <template x-for="a in finActions('head', h.status)" :key="a.to">
                                                                         <button class="link-action" @click="finAskTransition('head', h.finance_head_pk, 'Head ' + h.head_code, a)" x-text="a.label"></button>
                                                                     </template>

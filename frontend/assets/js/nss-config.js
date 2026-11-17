@@ -504,6 +504,18 @@ const NSS = {
         return this.FINANCE_STATUS_BADGE_MAP[status] || "badge-muted";
     },
 
+    // Member contribution cards (Pranami tab): paid / part paid / due / any amount. Reuses the badge-fin-* colours
+    // (green / amber / red / grey) and the matching card border class in badges.css (contrib-card-*).
+    CONTRIBUTION_STATE: {
+        PAID: { label: "Paid", badge: "badge-fin-live", card: "contrib-card-paid" },
+        PART: { label: "Part paid", badge: "badge-fin-pending", card: "contrib-card-part" },
+        DUE: { label: "Due", badge: "badge-fin-bad", card: "contrib-card-due" },
+        OPEN: { label: "Any amount", badge: "badge-fin-neutral", card: "contrib-card-open" },
+    },
+    contributionState(state) {
+        return this.CONTRIBUTION_STATE[state] || this.CONTRIBUTION_STATE.OPEN;
+    },
+
     /**
      * Indian-rupee display of a decimal string / number ("1234567.5" -> "₹12,34,567.50").
      * Money travels as decimal STRINGS from the API; this is display only.
@@ -1418,7 +1430,8 @@ NSS.aadhaar = (() => {
         [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
         [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
     ];
-    const MESSAGE = "Aadhaar number must be exactly 12 digits";
+    // Same wording as api/services/aadhaar_service.py MALFORMED_MESSAGE (a parity test compares them).
+    const MESSAGE = "Aadhaar number must be exactly 12 digits (spaces or hyphens allowed), must not start with 0 or 1 and must pass the Verhoeff checksum.";
 
     function verhoeffValid(digits) {
         if (!/^[0-9]+$/.test(digits || "")) return false;

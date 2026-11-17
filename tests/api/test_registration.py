@@ -1639,9 +1639,16 @@ class TestPublicRegistrationLookups:
     def test_postal_codes_narrowed_by_district(self, client, reg_address, write_conn):
         """district_pk lists only PINs linked to that district via an approved
         city_village; a PIN in the same state but no village there is excluded."""
-        pin_in = str(700000 + uuid4().int % 99999)
-        pin_out = str(600000 + uuid4().int % 99999)
         with write_conn.cursor() as cur:
+            def free_pin(base: int) -> str:
+                # A real database already holds many PINs: draw until one is unused (uq_postal_code_code_approved).
+                while True:
+                    pin = str(base + uuid4().int % 99999)
+                    cur.execute("SELECT 1 FROM nss.postal_code WHERE postal_code = %s", (pin,))
+                    if cur.fetchone() is None:
+                        return pin
+
+            pin_in, pin_out = free_pin(700000), free_pin(600000)
             pks = {}
             for key, pin in (("in", pin_in), ("out", pin_out)):
                 cur.execute("""

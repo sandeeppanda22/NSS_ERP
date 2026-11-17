@@ -880,9 +880,11 @@ Finance heads are the per-Sangha catalogue of what money is collected or spent f
 | POST | `/accounts/{pk}/transition` | Activate / deactivate |
 | GET / POST | `/heads` | List (filters organization, direction, template, status) / create a head (restricted needs a purpose; Pranami and UPI heads are income-only; UPI needs a collection scope + account) |
 | POST | `/events` | Set up an event a Sangha collects for (e.g. Rasa) in ONE call: an ACTIVE `EVENT` financial scope owned by the Sangha + a member-payable UPI head collecting into it (`FINANCE_APPROVE` + admin scope; all-or-nothing). Switch the head off (`/heads/{pk}/transition`) to stop collecting. `GET /heads?events_only=true` lists them |
+| POST | `/contributions` | The SIMPLE way to add a head (owner 2026-11-15): name, optional fixed amount + `due_period` (`YEARLY`/`MONTHLY`/`ONE_TIME`), `allow_part_payment`. The server sets code, INCOME, member-visible, UPI, the Sangha's scope and its default receiving account. `applies_to=ALL_SAKHAS` (Kendra only) makes the head a SOURCE that collects nothing; every active Sakha gets its own copy collecting into that Sakha's account. `FINANCE_APPROVE` + admin scope; every row written is audited |
 | POST | `/heads/adopt-templates` | Copy selected Kendra templates into a Sangha (idempotent; existing codes skipped) |
 | GET / PATCH | `/heads/{pk}` | Detail / edit the mutable fields |
 | POST | `/heads/{pk}/transition` | Activate / deactivate |
+| POST | `/heads/{pk}/sync-copies` | All-Sakhas source: give every Sakha its copy and refresh the existing ones (idempotent, audited; on a source, status changes also move every copy) |
 | GET / POST | `/payment-requests` | List / create a UPI request for a payer against a UPI-enabled head (creates a gateway order; max 5 open per payer) |
 | GET | `/payment-requests/{pk}` | Detail (with UPI deep link / QR payload while open) |
 | POST | `/payment-requests/{pk}/transition` | Cancel (reason required) |
@@ -890,7 +892,7 @@ Finance heads are the per-Sangha catalogue of what money is collected or spent f
 | POST | `/payment-requests/{pk}/post` | Book a PAID_NEEDS_REVIEW request as income of the amount actually received (`FINANCE_APPROVE`) |
 | POST | `/payment-requests/{pk}/mock-pay` | MOCK provider only: simulate a signed payment for demos |
 | POST | `/gateway/webhook/{provider}` | Provider callback: signature check, idempotent on `(provider, event_id)`, auto-books matching payments (system actor); amount mismatch / closed year / inactive scope / paid-after-cancel -> PAID_NEEDS_REVIEW, never auto-booked |
-| GET | `/my-pranami/heads` | Login only: what the caller may pay by UPI — the member-flagged UPI heads (Pranami, Parichaya/Anumati Patra, events) of their OWN Sakha and of the Kendra, own Sakha first, each with the destination Sangha (`organization_name`, `is_kendra`) and `event_name` for an event. No other Sakha is ever offered |
+| GET | `/my-pranami/heads` | Login only: the caller's contribution CARDS — the member-flagged heads (Pranami, Parichaya/Anumati Patra, events) of their OWN Sakha and of the Kendra, own Sakha first, each with the destination Sangha (`organization_name`, `is_kendra`) and `event_name` for an event. No other Sakha is ever offered |
 | POST | `/my-pranami/pay` | Login only: start a UPI payment (201) |
 | GET | `/my-pranami/requests/{pk}` | Login only: status of the caller's own request |
 

@@ -65,6 +65,20 @@ CREATE TABLE IF NOT EXISTS nss.finance_head
     display_order INTEGER NOT NULL
         DEFAULT 100,
 
+    -- Fixed contribution (owner decision 2026-11-15): the amount a Sangha asks of every member, how often it is due
+    -- and whether it may be paid in parts. NULL fixed_amount = a free-amount head (donation style).
+    fixed_amount NUMERIC(14, 2) NULL,
+
+    due_period VARCHAR(10) NULL,
+
+    allow_part_payment BOOLEAN NOT NULL
+        DEFAULT FALSE,
+
+    -- A Kendra head that every Sakha receives as its own copy (money goes to each Sakha's own account). The Kendra
+    -- row is the SOURCE: it never collects itself; its copies point back through template_head_pk.
+    applies_to_all_sakhas BOOLEAN NOT NULL
+        DEFAULT FALSE,
+
     status VARCHAR(20) NOT NULL
         DEFAULT 'ACTIVE',
 
@@ -140,6 +154,21 @@ CREATE TABLE IF NOT EXISTS nss.finance_head
         CHECK (organization_pk IS NOT NULL
                OR (allow_upi = FALSE AND collection_scope_pk IS NULL
                    AND collection_fund_pk IS NULL AND collection_account_pk IS NULL)),
+
+    CONSTRAINT chk_finance_head_fixed_amount
+        CHECK (fixed_amount IS NULL OR fixed_amount > 0),
+
+    CONSTRAINT chk_finance_head_due_period
+        CHECK (due_period IS NULL OR due_period IN ('YEARLY', 'MONTHLY', 'ONE_TIME')),
+
+    -- An amount is always "per something".
+    CONSTRAINT chk_finance_head_amount_period
+        CHECK (fixed_amount IS NULL OR due_period IS NOT NULL),
+
+    -- The source of an all-Sakha head is an owned INCOME head that collects nothing itself.
+    CONSTRAINT chk_finance_head_all_sakhas
+        CHECK (applies_to_all_sakhas = FALSE
+               OR (direction = 'INCOME' AND organization_pk IS NOT NULL AND allow_upi = FALSE)),
 
     CONSTRAINT chk_finance_head_soft_delete
         CHECK (

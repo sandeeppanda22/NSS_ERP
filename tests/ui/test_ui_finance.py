@@ -146,6 +146,9 @@ class TestApiUsage:
             path = re.sub(r"\$\{[^}]+\}", "{}", m.group(2))
             if path.endswith("{}{}"):          # _finReqAct(label, path): the action suffixes are checked below
                 continue
+            if path.startswith("/{}s/{}/"):      # `/${kind}s/${id}/authority|countersign`: kind is payment or transfer
+                called.update({f"/payments/{{}}/{path.rsplit('/', 1)[1]}", f"/transfers/{{}}/{path.rsplit('/', 1)[1]}"})
+                continue
             called.add(path)
         assert called, "no API calls found?"
         for path in called:
@@ -199,7 +202,7 @@ class TestApiUsage:
                 assert re.search(rf"\b{f}\b", ALL_JS), f"the Finance mixins never send {f}"
         # the member's own payment is sent from dashboard.js and carries exactly the head and the amount - no payer
         assert set(S.MyPayRequest.model_fields) == {"finance_head_pk", "amount"}
-        assert "finance_head_pk: p.head, amount: String(p.amount).trim()" in DASH_JS
+        assert "finance_head_pk: p.head, amount }" in DASH_JS
 
     def test_the_old_category_field_is_gone_from_the_ui(self):
         assert "transaction_category" not in re.sub(r"finHeadLabel\(row\)[^\n]*\n", "", ALL_JS).replace("row.transaction_category", "")
@@ -296,8 +299,9 @@ class TestMemberPranamiTab:
         panel = _pranami_panel()
         assert not re.search(r"\son[a-z]+\s*=", panel) and "<form" not in panel
         assert 'x-init="init()"' not in panel
-        # the only inputs are the year filter and the pay card's head + amount
-        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year", "pranamiPay.head", "pranamiPay.amount"}
+        # the only x-model is the year filter; each card's amount box reads :value / writes the amount map (no payer, no head field)
+        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year"}
+        assert "pranamiPay.amounts[h.finance_head_pk] = $event.target.value" in panel
         # a link coming from the server is only ever rendered through the scheme-checking helpers
         for href in re.findall(r':href="([^"]+)"', panel):
             assert href.startswith(("pranamiSafeUrl(", "pranamiSafeUpi(")), href
@@ -331,7 +335,8 @@ class TestCustomizationAndCollectionScreens:
         for needle in ("+ New account", "Add Kendra templates", "finHeadOpenEdit(h)", "finAcctOpenEdit(a)"):
             line = next(l for l in setup.splitlines() if needle in l)
             assert "canApproveFinance" in line, f"{needle} must be gated on canApproveFinance"
-        assert 'x-show="canApproveFinance" @click="finHeadOpenCreate()"' in setup
+        assert 'x-show="canApproveFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()"' in setup
+        assert 'x-show="canApproveFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()"' in setup
 
     def test_the_account_form_can_never_take_a_secret_or_a_full_account_number(self):
         form = _screen("finSetup")
@@ -347,11 +352,12 @@ class TestCustomizationAndCollectionScreens:
         assert not re.search(r"key_secret|webhook_secret|api_key", SETUP_JS + form, re.I)
 
     def test_the_head_form_only_binds_server_known_fields(self):
-        from api.schemas.finance import HeadCreate
+        from api.schemas.finance import HeadCreate, HeadUpdate
 
         form = _screen("finSetup")
         bound = {m.split(".")[1] for m in re.findall(r'x-model="(finHeadForm\.[a-z_0-9.]+)"', form)} - {"organization", "lockedShape"}
-        assert bound <= set(HeadCreate.model_fields), bound - set(HeadCreate.model_fields)
+        known = set(HeadCreate.model_fields) | set(HeadUpdate.model_fields)       # the amount fields exist on the edit form only
+        assert bound <= known, bound - known
 
     def test_links_from_the_server_are_only_rendered_through_scheme_checks(self):
         collections = _screen("finCollections")
@@ -391,10 +397,10 @@ class TestCustomizationAndCollectionScreens:
             assert '"PAID"' in body and "status =" not in body.replace("p.result.status ===", ""), "the page may only REPORT the status it was given"
 
     def test_the_member_pay_card_posts_only_the_head_and_amount(self):
-        pay = DASH_JS.split("async pranamiPayStart()")[1].split("_pranamiPayPoll(pk, tries) {")[0]
+        pay = DASH_JS.split("async pranamiPayStart(h)")[1].split("_pranamiPayPoll(pk, tries) {")[0]
         assert "/api/v1/finance/my-pranami/pay" in pay and "sangha_sevi" not in pay and "person" not in pay
         card = _pranami_panel()
-        assert "Pay by UPI" in card and 'x-show="pranamiPay.heads.length > 0"' in card
+        assert "Pay by UPI" in card and 'x-show="pranamiPay.heads.length > 0 && !pranamiPay.result"' in card
 
 
 NODE = shutil.which("node")
@@ -489,9 +495,9 @@ class TestByeLawAuthorityPanel:
 class TestMemberDestinationsAndEventsUi:
     def test_the_pay_card_groups_by_sangha_and_names_the_destination(self):
         card = _pranami_panel()
-        assert "pranamiPayGroups()" in card and "<optgroup" in card
+        assert "pranamiPayGroups()" in card and "g.name" in card              # one block per Sangha, named
         assert "organization_name" in card                                    # the result line says WHICH Sangha is being paid
-        assert "pranamiPayGroups()" in DASH_JS and "pranamiPayDescription()" in DASH_JS
+        assert "pranamiPayGroups()" in DASH_JS
         # every field read off a head / group is one the API really returns
         from api.schemas.finance import MyPayableHead
         for field in re.findall(r"\bh\.([a-z_]+)", card):

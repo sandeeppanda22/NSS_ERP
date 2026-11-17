@@ -9,9 +9,11 @@ catalogue of finance heads, seeded from Kendra-published templates.
   GET   /api/v1/finance/accounts/{pk} | PATCH      detail / edit
   POST  /api/v1/finance/accounts/{pk}/transition   ACTIVE <-> INACTIVE
   GET   /api/v1/finance/heads | POST               list (incl. templates) / create a head
+  POST  /api/v1/finance/contributions              the SIMPLE way to add a contribution (name, amount, how often)
   POST  /api/v1/finance/heads/adopt-templates      copy Kendra templates into a Sangha's catalogue
   GET   /api/v1/finance/heads/{pk} | PATCH         detail / edit
   POST  /api/v1/finance/heads/{pk}/transition      ACTIVE <-> INACTIVE
+  POST  /api/v1/finance/heads/{pk}/sync-copies     Kendra all-Sakhas head: give every Sakha its copy / refresh them
 
 Authorization: configuration is sensitive (a head decides what is restricted,
 what a member sees as Pranami and where UPI money lands; an account decides
@@ -44,6 +46,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.routers import finance as F
 from api.schemas import finance as S
+from api.services import finance_contribution as FC
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks
 
@@ -201,6 +204,7 @@ def create_account(body: S.AccountCreate, user: UserContext = Depends(_APPROVE),
         pk = cur.fetchone()[0]
         F._audit(cur, user, "CREATE", "financial_account", pk, f"Added receiving account {v['account_label']}",
                  {"organization_pk": str(body.organization_pk), "gateway_provider": v.get("gateway_provider")})
+        FC.link_account(cur, user, body.organization_pk)       # contributions waiting for an account start collecting into it
         return _account_response(cur, pk)
 
 
@@ -247,6 +251,7 @@ def update_account(account_pk: UUID, body: S.AccountUpdate, user: UserContext = 
         if values:
             F._update_row(cur, user, "financial_account", "financial_account_pk", account_pk, values)
             F._audit(cur, user, "UPDATE", "financial_account", account_pk, f"Updated receiving account {acct['account_label']}", {"fields": sorted(values)})
+            FC.link_account(cur, user, acct["organization_pk"])
         return _account_response(cur, account_pk)
 
 
@@ -280,6 +285,7 @@ _HEAD_FROM = """
       LEFT JOIN nss.financial_scope cs ON cs.financial_scope_pk = h.collection_scope_pk
       LEFT JOIN nss.fund_master cf ON cf.fund_master_pk = h.collection_fund_pk
       LEFT JOIN nss.financial_account ca ON ca.financial_account_pk = h.collection_account_pk
+      LEFT JOIN nss.finance_head src ON src.finance_head_pk = h.template_head_pk
 """
 _HEAD_SELECT = """
     SELECT h.finance_head_pk, h.organization_pk, o.organization_name, (h.organization_pk IS NULL) AS is_template,
@@ -287,7 +293,13 @@ _HEAD_SELECT = """
            h.required_fund_type, h.is_pranami, h.allow_upi, h.collection_scope_pk, cs.scope_code AS collection_scope_code,
            h.collection_fund_pk, cf.fund_code AS collection_fund_code, h.collection_account_pk,
            ca.account_label AS collection_account_label, h.template_head_pk, h.display_order, h.status,
-           (SELECT COUNT(*) FROM nss.financial_transaction t WHERE t.finance_head_pk = h.finance_head_pk AND t.is_active = TRUE) AS transaction_count
+           (SELECT COUNT(*) FROM nss.financial_transaction t WHERE t.finance_head_pk = h.finance_head_pk AND t.is_active = TRUE) AS transaction_count,
+           h.fixed_amount, h.due_period, h.allow_part_payment, h.applies_to_all_sakhas,
+           COALESCE(src.applies_to_all_sakhas, FALSE) AS is_kendra_copy,
+           (COALESCE(src.applies_to_all_sakhas, FALSE) AND h.collection_account_pk IS NULL) AS needs_account,
+           CASE WHEN h.applies_to_all_sakhas THEN
+                (SELECT COUNT(*) FROM nss.finance_head c WHERE c.template_head_pk = h.finance_head_pk AND c.is_active = TRUE)
+                ELSE 0 END AS copy_count
 """ + _HEAD_FROM
 
 
@@ -449,6 +461,75 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_APPROVE), conn=
         return _head_response(cur, pk)
 
 
+def _check_amount_fields(amount, period, part, *, direction="INCOME") -> None:
+    """The fixed-amount fields of a head (same rules on create and edit)."""
+    if period is not None and period not in S.DUE_PERIODS:
+        raise F._invalid(f"due_period must be one of: {', '.join(S.DUE_PERIODS)}.")
+    if amount is not None and period is None:
+        raise F._invalid("A fixed amount needs a due period (yearly, monthly or one time).")
+    if period is not None and amount is None:
+        raise F._invalid("A due period needs a fixed amount.")
+    if part and amount is None:
+        raise F._invalid("Part payment only applies to a contribution with a fixed amount.")
+    if (amount is not None or part) and direction != "INCOME":
+        raise F._invalid("A fixed amount applies to INCOME heads only.")
+
+
+@router.post("/contributions", response_model=S.ContributionResult, status_code=status.HTTP_201_CREATED)
+def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+    """
+    The simple way to add a contribution (owner 2026-11-15): name, optional fixed amount, how often, part payment. The server
+    sets the code, INCOME, member-visible, UPI collection, the Sangha's scope and its default receiving account. With
+    ``applies_to = ALL_SAKHAS`` (the Kendra only) the head is the SOURCE and every active Sakha receives its OWN copy that
+    collects into that Sakha's own account. FINANCE_APPROVE + admin scope on the Sangha. Every row written is audited.
+    """
+    if body.applies_to not in S.CONTRIBUTION_TARGETS:
+        raise F._invalid(f"applies_to must be one of: {', '.join(S.CONTRIBUTION_TARGETS)}.")
+    name = F._clean(body.head_name)
+    if not name:
+        raise F._invalid("head_name cannot be blank.")
+    _check_amount_fields(body.fixed_amount, body.due_period, body.allow_part_payment)
+    all_sakhas = body.applies_to == "ALL_SAKHAS"
+    with conn.cursor() as cur:
+        F._require_org_access(cur, user, body.organization_pk, "add a contribution for this organization")
+        F._require_active_organization(cur, body.organization_pk, "Organization")
+        if all_sakhas:
+            cur.execute("SELECT md.value_code FROM nss.organization o JOIN nss.master_data md "
+                        "ON md.master_data_pk = o.organization_type_master_data_pk WHERE o.organization_pk = %s", (str(body.organization_pk),))
+            if cur.fetchone()[0] != "KENDRA":
+                raise F._invalid("Only the Kendra can add a contribution that applies to all Sakhas.")
+        account_pk = scope_pk = None
+        if not all_sakhas:
+            if body.collection_account_pk is not None:
+                account_pk = str(body.collection_account_pk)
+            else:
+                default = FC.default_account(cur, body.organization_pk)
+                account_pk = default["financial_account_pk"] if default else None
+            if account_pk:
+                scope_pk = FC.ensure_org_scope(cur, user, body.organization_pk)
+                _validate_collection(cur, org_pk=body.organization_pk, direction="INCOME", is_restricted=False, required_fund_type=None,
+                                     allow_upi=True, scope_pk=scope_pk, fund_pk=None, account_pk=account_pk)
+        code = f"CONTRIB_{uuid4().hex[:8].upper()}"
+        cur.execute(
+            """
+            INSERT INTO nss.finance_head
+                (organization_pk, head_code, head_name, description, direction, is_pranami, allow_upi, collection_scope_pk,
+                 collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas, display_order,
+                 created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, 'INCOME', TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+            """,
+            (str(body.organization_pk), code, name, F._clean(body.description), account_pk is not None, scope_pk, account_pk,
+             body.fixed_amount, body.due_period, body.allow_part_payment, all_sakhas, body.display_order, user.actor_pk),
+        )
+        pk = cur.fetchone()[0]
+        F._audit(cur, user, "CREATE", "finance_head", pk, f"Added contribution {name}",
+                 {"organization_pk": str(body.organization_pk), "applies_to": body.applies_to,
+                  "fixed_amount": str(body.fixed_amount) if body.fixed_amount is not None else None,
+                  "due_period": body.due_period, "allow_part_payment": body.allow_part_payment})
+        created = FC.sync_copies(cur, user, pk)["created"] if all_sakhas else 0
+        return {"head": _head_response(cur, pk), "copies_created": created, "needs_account": (not all_sakhas) and account_pk is None}
+
+
 @router.post("/events", response_model=S.HeadResponse, status_code=status.HTTP_201_CREATED)
 def create_event(body: S.EventCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
     """
@@ -555,7 +636,37 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
         head = F._head_row(cur, head_pk)
         _head_access(cur, user, head, "change this finance head", write=True)
         sent = {k: getattr(body, k) for k in body.model_fields_set}
+        cur.execute("SELECT h.template_head_pk, h.applies_to_all_sakhas, h.fixed_amount, h.due_period, h.allow_part_payment, "
+                    "COALESCE(src.applies_to_all_sakhas, FALSE) FROM nss.finance_head h "
+                    "LEFT JOIN nss.finance_head src ON src.finance_head_pk = h.template_head_pk WHERE h.finance_head_pk = %s", (str(head_pk),))
+        _tpl, is_source, cur_amount, cur_period, cur_part, is_copy = cur.fetchone()
         values: dict = {}
+        if is_copy:
+            # A Sakha's copy of a Kendra head: name, amount, due period and part payment follow the Kendra; the Sakha only
+            # chooses which of its own receiving accounts collects (and may switch the copy off by a transition).
+            if set(sent) - {"collection_account_pk"}:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                    detail="This contribution comes from the Kendra: only its receiving account can be changed here.")
+            account_pk = sent.get("collection_account_pk")
+            if account_pk is not None:
+                scope_pk = FC.ensure_org_scope(cur, user, head["organization_pk"])
+                _validate_collection(cur, org_pk=head["organization_pk"], direction="INCOME", is_restricted=False, required_fund_type=None,
+                                     allow_upi=True, scope_pk=scope_pk, fund_pk=None, account_pk=account_pk)
+                values.update(collection_scope_pk=scope_pk, collection_account_pk=str(account_pk), allow_upi=True)
+            elif "collection_account_pk" in sent:
+                values.update(collection_account_pk=None, allow_upi=False)
+            if values:
+                F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, values)
+                F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Changed the receiving account of {head['head_code']}", {"fields": sorted(values)})
+            return _head_response(cur, head_pk)
+        if is_source and {"allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk"} & set(sent):
+            raise F._invalid("A contribution for all Sakhas collects through each Sakha's own copy, not itself.")
+        if {"fixed_amount", "due_period", "allow_part_payment"} & set(sent):
+            amount = sent["fixed_amount"] if "fixed_amount" in sent else cur_amount
+            period = sent["due_period"] if "due_period" in sent else cur_period
+            part = sent["allow_part_payment"] if sent.get("allow_part_payment") is not None else cur_part
+            _check_amount_fields(amount, period, part, direction=head["direction"])
+            values.update(fixed_amount=amount, due_period=period, allow_part_payment=part)
         if "head_name" in sent:
             if not F._clean(sent["head_name"]):
                 raise F._invalid("head_name cannot be blank.")
@@ -587,7 +698,23 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
         if values:
             F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, values)
             F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Updated finance head {head['head_code']}", {"fields": sorted(values)})
+            if is_source:
+                FC.sync_copies(cur, user, head_pk)
         return _head_response(cur, head_pk)
+
+
+@router.post("/heads/{head_pk}/sync-copies", response_model=S.SyncCopiesResult)
+def sync_head_copies(head_pk: UUID, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+    """Bring every Sakha's copy of an all-Sakhas Kendra head up to date (new Sakhas get a copy). Idempotent; audited per copy."""
+    with conn.cursor() as cur:
+        head = F._head_row(cur, head_pk)
+        _head_access(cur, user, head, "update the copies of this finance head", write=True)
+        cur.execute("SELECT applies_to_all_sakhas FROM nss.finance_head WHERE finance_head_pk = %s", (str(head_pk),))
+        if not cur.fetchone()[0]:
+            raise F._invalid("Only a contribution that applies to all Sakhas has copies to update.")
+        result = FC.sync_copies(cur, user, head_pk)
+        F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Updated the Sakha copies of {head['head_code']}", result)
+        return result
 
 
 @router.post("/heads/{head_pk}/transition", response_model=S.HeadResponse)
@@ -599,4 +726,7 @@ def transition_head(head_pk: UUID, body: S.TransitionRequest, user: UserContext 
         F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, {"status": body.status})
         F._audit(cur, user, "STATUS_CHANGE", "finance_head", head_pk, f"Finance head {head['head_code']} {head['status']} -> {body.status}",
                  {"from": head["status"], "to": body.status, "remarks": F._clean(body.remarks)})
+        cur.execute("SELECT applies_to_all_sakhas FROM nss.finance_head WHERE finance_head_pk = %s", (str(head_pk),))
+        if cur.fetchone()[0]:
+            FC.set_copies_status(cur, user, head_pk, body.status)      # every Sakha copy follows the Kendra's on / off
         return _head_response(cur, head_pk)

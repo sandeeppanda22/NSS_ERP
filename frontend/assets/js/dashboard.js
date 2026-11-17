@@ -1025,10 +1025,10 @@ function dashboardApp() {
         // GET /finance/my-pranami/heads lists what the member's own Sakha and the Kendra can collect by UPI; POST /finance/my-pranami/pay
         // starts a payment of THEIR OWN Pranami (the payer is the token). This page never marks anything paid: the gateway's
         // signed webhook does, and the status poll below only reports it. Links are rendered only with the expected scheme.
-        pranamiPay: { heads: [], head: "", amount: "", saving: false, error: "", result: null },
+        pranamiPay: { heads: [], amounts: {}, head: "", saving: false, error: "", result: null },
         _pranamiPayTimer: null,
 
-        // The heads grouped by the Sangha they pay: the member's own Sakha first, then the Kendra (the server sorts them so).
+        // The contribution cards grouped by the Sangha they pay: the member's own Sakha first, then the Kendra (the server sorts them so).
         pranamiPayGroups() {
             const groups = [];
             for (const h of this.pranamiPay.heads) {
@@ -1038,9 +1038,24 @@ function dashboardApp() {
             }
             return groups;
         },
-        pranamiPayDescription() {
-            const h = this.pranamiPay.heads.find((x) => x.finance_head_pk === this.pranamiPay.head);
-            return h && h.description ? h.description : "";
+        // "₹500 per financial year" / "₹100 per month" / "₹250, one time"; empty for a head with no fixed amount.
+        pranamiCardAmountLabel(h) {
+            if (h.fixed_amount == null) return "";
+            const per = { YEARLY: " per financial year", MONTHLY: " per month", ONE_TIME: ", one time" }[h.due_period] || "";
+            return NSS.formatMoney(h.fixed_amount) + per;
+        },
+        // A card can take a payment when its Sangha is set up, something is due (or the head has no fixed amount) and
+        // nothing is already waiting for the bank on a head that must be paid in full.
+        pranamiCardCanPay(h) {
+            if (!h.payable || h.state === "PAID") return false;
+            return !(h.fixed_amount != null && !h.allow_part_payment && Number(h.pending_amount) > 0);
+        },
+        // The amount box is only for a head that takes a part payment or any amount; a fixed head is paid in full.
+        pranamiCardAsksAmount(h) { return h.fixed_amount == null || h.allow_part_payment; },
+        pranamiCardAmount(h) {
+            if (h.fixed_amount != null && !h.allow_part_payment) return String(h.due_amount);
+            const typed = this.pranamiPay.amounts[h.finance_head_pk];
+            return typed == null || typed === "" ? (h.due_amount != null ? String(h.due_amount) : "") : String(typed);
         },
         pranamiSafeUrl(url) { return typeof url === "string" && /^https:\/\//i.test(url) ? url : ""; },
         pranamiSafeUpi(uri) { return typeof uri === "string" && /^upi:\/\/pay\?/i.test(uri) ? uri : ""; },
@@ -1050,19 +1065,19 @@ function dashboardApp() {
                 const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/heads");
                 this.pranamiPay.heads = res.ok ? await res.json() : [];
             } catch { this.pranamiPay.heads = []; }
-            if (this.pranamiPay.heads.length === 1 && !this.pranamiPay.head) this.pranamiPay.head = this.pranamiPay.heads[0].finance_head_pk;
         },
-        async pranamiPayStart() {
+        async pranamiPayStart(h) {
             const p = this.pranamiPay;
-            if (!p.head) { p.error = "Choose what you are paying for."; return; }
-            if (!/^\d+(\.\d{1,2})?$/.test(String(p.amount || "").trim()) || Number(p.amount) <= 0) {
+            const amount = this.pranamiCardAmount(h).trim();
+            if (!/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
                 p.error = "Enter a positive amount with at most two decimals."; return;
             }
+            p.head = h.finance_head_pk;
             p.saving = true; p.error = "";
             try {
                 const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/pay", {
                     method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ finance_head_pk: p.head, amount: String(p.amount).trim() }),
+                    body: JSON.stringify({ finance_head_pk: p.head, amount }),
                 });
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 p.result = await res.json();
@@ -1090,7 +1105,7 @@ function dashboardApp() {
                 this._pranamiPayPoll(pk, tries + 1);
             }, 3000);
         },
-        pranamiPayClose() { clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.amount = ""; this.pranamiPay.error = ""; },
+        pranamiPayClose() { clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.head = ""; this.pranamiPay.error = ""; this._loadPranamiPayHeads(); },
 
         pranamiLatestDate() {
             const items = this.pranamiFiltered();

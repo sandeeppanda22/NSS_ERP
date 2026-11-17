@@ -647,6 +647,8 @@ Invoke-Sql "finance reference data patch" "$SeedBase\12_finance\01_finance_refer
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 Invoke-Sql "finance head templates patch" "$SeedBase\12_finance\02_finance_head_templates_patch.sql"
 Invoke-Sql "finance heads structure patch" "$DdlBase\14_finance\12_finance_heads_patch.sql"
+# Fixed amount / due period / part payment / applies-to-all-Sakhas columns on finance_head (owner decision 2026-11-15).
+Invoke-Sql "finance head fixed amount patch" "$DdlBase\14_finance\14_finance_head_fixed_amount_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
 Invoke-Sql "finance disbursement purpose patch" "$SeedBase\12_finance\03_finance_disbursement_purpose_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips

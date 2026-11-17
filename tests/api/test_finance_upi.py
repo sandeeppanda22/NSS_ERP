@@ -533,20 +533,25 @@ class TestVisibilityAndSecrets:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestMemberSelfService:
-    def test_the_member_sees_only_the_payable_pranami_heads_of_their_own_sakha(self, client, admin_h, register_org_pk, other_org_pk, mock_gateway, plain_member_h):
+    def test_the_member_sees_the_contribution_cards_of_their_own_sakha_only(self, client, admin_h, register_org_pk, other_org_pk, mock_gateway, plain_member_h):
         mine = upi_world(client, admin_h, register_org_pk, mock_gateway)
         theirs = upi_world(client, admin_h, other_org_pk, mock_gateway)                                       # another Sakha
         no_upi = make_head(client, admin_h, register_org_pk, is_pranami=True)                                  # Pranami but not UPI
         not_pranami = make_head(client, admin_h, register_org_pk, allow_upi=True, collection_scope_pk=mine["world"]["scope"]["financial_scope_pk"],
                                 collection_account_pk=mine["account"]["financial_account_pk"])                 # UPI but not Pranami
-        got = {h["finance_head_pk"] for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
-        assert mine["head"]["finance_head_pk"] in got
-        assert not got & {theirs["head"]["finance_head_pk"], no_upi["finance_head_pk"], not_pranami["finance_head_pk"]}
+        cards = {h["finance_head_pk"]: h for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
+        assert cards[mine["head"]["finance_head_pk"]]["payable"] is True
+        # a Pranami head whose Sangha has not set up payment still shows - as a card that cannot be paid yet
+        assert cards[no_upi["finance_head_pk"]]["payable"] is False and cards[no_upi["finance_head_pk"]]["unavailable_reason"]
+        assert not set(cards) & {theirs["head"]["finance_head_pk"], not_pranami["finance_head_pk"]}
 
-    def test_nothing_is_offered_while_the_gateway_is_not_ready(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h, monkeypatch):
-        upi_world(client, admin_h, register_org_pk, mock_gateway)
+    def test_a_card_cannot_be_paid_while_the_gateway_is_not_ready(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h, monkeypatch):
+        u = upi_world(client, admin_h, register_org_pk, mock_gateway)
         monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "")
-        assert client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json() == []
+        card = next(h for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json() if h["finance_head_pk"] == u["head"]["finance_head_pk"])
+        assert card["payable"] is False and card["unavailable_reason"]
+        r = client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": u["head"]["finance_head_pk"], "amount": "10.00"}, headers=plain_member_h)
+        assert r.status_code == 422
 
     def test_a_member_pays_and_the_payment_shows_up_booked(self, client, admin_h, register_org_pk, mock_gateway, plain_member, plain_member_h, write_conn):
         u = upi_world(client, admin_h, register_org_pk, mock_gateway)
@@ -554,7 +559,7 @@ class TestMemberSelfService:
         assert r.status_code == 201, r.text
         mine = r.json()
         # the member's view carries no internals
-        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number"}
+        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number"}
         assert mine["status"] == "PENDING" and mine["upi_uri"].startswith("upi://pay?") and mine["receipt_number"] is None
         # the treasurer sees who is paying - the token, not a field the member could choose
         full = fetch(client, admin_h, mine["upi_payment_request_pk"])

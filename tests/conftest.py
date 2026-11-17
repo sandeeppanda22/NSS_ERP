@@ -61,6 +61,41 @@ def _db_conn():
         pass
 
 
+# ── Every Sakha has a short code (test transaction only) ───────────────
+
+@pytest.fixture(scope="session", autouse=True)
+def _every_sakha_has_a_short_code(_db_conn):
+    """
+    A real database can hold Sakhas that were never given a short code (an admin sets it later). Member enrolment and the
+    correspondence register refuse such a Sakha ("does not have a short_code assigned yet"), which would fail every test that
+    happens to pick one. Give each of them a throw-away code ZZ001, ZZ002 ... inside the session transaction: it is rolled
+    back when the session ends, so nothing persists. Tests about a Sakha WITHOUT a code create their own organization.
+    """
+    cur = _db_conn.cursor()
+    cur.execute("SAVEPOINT test_short_codes")
+    try:
+        cur.execute(
+            """
+            WITH missing AS (
+                SELECT o.organization_pk, row_number() OVER (ORDER BY o.organization_pk) AS n
+                  FROM nss.organization o
+                  JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk
+                 WHERE md.value_code IN ('SAKHA_SANGHA', 'SAKHA_ASANA') AND o.is_active = TRUE AND o.short_code IS NULL
+            )
+            UPDATE nss.organization o
+               SET short_code = 'ZZ' || lpad(m.n::text, 3, '0')
+              FROM missing m
+             WHERE o.organization_pk = m.organization_pk
+               AND NOT EXISTS (SELECT 1 FROM nss.organization x WHERE x.short_code = 'ZZ' || lpad(m.n::text, 3, '0'))
+            """
+        )
+        cur.execute("RELEASE SAVEPOINT test_short_codes")
+    except Exception:                       # a trigger or constraint refused: carry on, those tests will say why
+        cur.execute("ROLLBACK TO SAVEPOINT test_short_codes")
+        cur.execute("RELEASE SAVEPOINT test_short_codes")
+    yield
+
+
 # ── Module-scoped SAVEPOINT ────────────────────────────────────────────
 
 @pytest.fixture(scope="module", autouse=True)

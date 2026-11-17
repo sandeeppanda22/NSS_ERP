@@ -361,6 +361,13 @@
 .badge-fin-closed    { background-color: #6b7280 !important; color: #fff !important; }  /* gray-500   */
 .badge-fin-bad       { background-color: #dc2626 !important; color: #fff !important; }  /* red-600    */
 
+/* ── Member contribution cards (dashboard Pranami tab, NSS.contributionState) ──
+ *   contrib-card-paid / -part / -due / -open — left border colour matching badge-fin-live / -pending / -bad / -neutral */
+.contrib-card-paid { border-left: 4px solid #16a34a; }  /* green-600 */
+.contrib-card-part { border-left: 4px solid #d97706; }  /* amber-600 */
+.contrib-card-due  { border-left: 4px solid #dc2626; }  /* red-600   */
+.contrib-card-open { border-left: 4px solid #9ca3af; }  /* gray-400  */
+
 /* ── Audit & Diagnostics (audit-diagnostics.js) ─────────────────────────
  *   badge-audit-success  — event succeeded / table is on the live whitelist
  *   badge-audit-failed   — event failed / table is not on the live whitelist

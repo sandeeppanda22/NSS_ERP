@@ -511,6 +511,9 @@ class HeadUpdate(BaseModel):
     collection_fund_pk: UUID | None = None
     collection_account_pk: UUID | None = None
     display_order: int | None = Field(None, ge=0, le=10000)
+    fixed_amount: Amount | None = None
+    due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; needed with a fixed amount")
+    allow_part_payment: bool | None = None
 
 
 class HeadResponse(BaseModel):
@@ -537,6 +540,13 @@ class HeadResponse(BaseModel):
     display_order: int
     status: str
     transaction_count: int = 0
+    fixed_amount: Decimal | None = None
+    due_period: str | None = None
+    allow_part_payment: bool = False
+    applies_to_all_sakhas: bool = False
+    is_kendra_copy: bool = False             # a Sakha's own copy of a Kendra all-Sakhas head (amount / name follow the Kendra)
+    needs_account: bool = False              # a copy with no receiving account yet: members cannot pay it
+    copy_count: int = 0                      # on an all-Sakhas source: how many Sakhas hold a copy
 
 
 class HeadListResponse(BaseModel):
@@ -544,6 +554,38 @@ class HeadListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+DUE_PERIODS = ("YEARLY", "MONTHLY", "ONE_TIME")
+CONTRIBUTION_TARGETS = ("ORGANIZATION", "ALL_SAKHAS")
+
+
+class ContributionCreate(BaseModel):
+    """
+    The SIMPLE way to add a contribution (owner 2026-11-15): name, amount, how often, part payment. The server fills in the code,
+    INCOME direction, member-visible, UPI collection, the Sangha's scope and (when omitted) its default receiving account.
+    """
+
+    organization_pk: UUID = Field(..., description="The Sangha that collects; for ALL_SAKHAS the Kendra")
+    applies_to: str = Field("ORGANIZATION", description="ORGANIZATION = this Sangha only; ALL_SAKHAS = Kendra only: every Sakha gets its own copy")
+    head_name: str = Field(..., min_length=1, max_length=150)
+    description: str | None = Field(None, max_length=2000)
+    fixed_amount: Amount | None = Field(None, description="Leave out for a free-amount contribution (donation style)")
+    due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; required with an amount")
+    allow_part_payment: bool = False
+    collection_account_pk: UUID | None = Field(None, description="Omit to use the Sangha's default receiving account; ignored for ALL_SAKHAS")
+    display_order: int = Field(100, ge=0, le=10000)
+
+
+class ContributionResult(BaseModel):
+    head: HeadResponse
+    copies_created: int = 0                   # ALL_SAKHAS: Sakhas that received a copy now
+    needs_account: bool = False               # the head cannot be paid yet: add a receiving account with a payment gateway
+
+
+class SyncCopiesResult(BaseModel):
+    created: int                              # Sakhas that had no copy of the Kendra head yet
+    updated: int                              # copies brought in line with the Kendra's name / amount / schedule
 
 
 class AdoptTemplates(BaseModel):
@@ -617,7 +659,10 @@ class PaymentRequestListResponse(BaseModel):
 
 
 class MyPayableHead(BaseModel):
-    """What a member may pay by UPI: member-payable heads of their OWN Sakha and of the Kendra whose gateway is ready."""
+    """
+    One contribution card of the member's own Pranami tab: a head of their OWN Sakha or the Kendra, with its fixed amount and
+    what they have paid / still owe in the current period. ``payable`` is false while the Sangha has no ready receiving account.
+    """
 
     finance_head_pk: UUID
     head_name: str
@@ -627,6 +672,16 @@ class MyPayableHead(BaseModel):
     is_kendra: bool
     event_name: str | None                  # set when the head collects for an event (e.g. Rasa)
     upi_vpa: str | None
+    fixed_amount: Decimal | None = None
+    due_period: str | None = None
+    allow_part_payment: bool = False
+    state: str = "OPEN"                     # PAID / PART / DUE / OPEN (no fixed amount)
+    paid_amount: Decimal = Decimal("0")
+    due_amount: Decimal | None = None
+    pending_amount: Decimal = Decimal("0")  # in an unexpired UPI request, not booked yet - never counted as paid
+    period_label: str | None = None         # e.g. "2026-27", "Nov 2026" or "one time"
+    payable: bool = True
+    unavailable_reason: str | None = None
 
 
 class MyPayment(BaseModel):

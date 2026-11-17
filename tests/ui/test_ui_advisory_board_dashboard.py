@@ -27,7 +27,8 @@ def test_tab_is_offered_to_the_advisory_board_admin_and_nss_wide_admins():
 def test_loader_reads_the_single_dashboard_endpoint_and_is_wired_to_tab_switches():
     assert "/api/v1/governance/advisory-board/dashboard" in DASHBOARD_JS
     assert 'tab === "advisoryBoard"' in DASHBOARD_JS
-    assert DASHBOARD_JS.count("_loadAdvisoryBoardDashboard()") >= 3  # definition + refresh + direct load
+    # definition + the live-refresh reload (takes { silent: true }) + the direct loads on tab switch / init
+    assert DASHBOARD_JS.count("_loadAdvisoryBoardDashboard(") >= 3
 
 
 def test_panel_shows_roster_vacancies_office_bearers_acting_cover_and_links():

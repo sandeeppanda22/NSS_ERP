@@ -4512,37 +4512,59 @@
                             </div>
                         </div>
 
-                        <!-- Pay by UPI: starts a payment of the member's OWN Pranami; the gateway's signed callback books it -->
-                        <div class="data-card" x-show="pranamiPay.heads.length > 0">
-                            <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Pay by UPI</h2>
-                                <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Pranami, cards and events — to your own Sakha or to the Kendra. The money goes straight to that Sangha's account.</p></div>
-                            <div style="padding: 0.6rem 1.25rem 1rem;">
-                                <div x-show="!pranamiPay.result">
-                                    <div class="card-grid" style="gap: 0.75rem; align-items: end;">
-                                        <div>
-                                            <label style="font-size: 0.7rem; color: #6b7280;">What are you paying?</label>
-                                            <select class="nss-select" x-model="pranamiPay.head">
-                                                <option value="">Select…</option>
-                                                <template x-for="g in pranamiPayGroups()" :key="g.organization_pk">
-                                                    <optgroup :label="g.name">
-                                                        <template x-for="h in g.heads" :key="h.finance_head_pk">
-                                                            <option :value="h.finance_head_pk" x-text="h.event_name ? h.head_name + ' (event)' : h.head_name"></option>
-                                                        </template>
-                                                    </optgroup>
-                                                </template>
-                                            </select>
-                                            <div style="font-size: 0.72rem; color: #6b7280; margin-top: 0.25rem;" x-show="pranamiPayDescription()" x-text="pranamiPayDescription()"></div>
-                                        </div>
-                                        <div>
-                                            <label style="font-size: 0.7rem; color: #6b7280;">Amount (₹)</label>
-                                            <input type="text" inputmode="decimal" class="form-input" x-model="pranamiPay.amount" placeholder="0.00" autocomplete="off" @keydown.enter="pranamiPayStart()">
-                                        </div>
-                                        <div>
-                                            <button class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiPayStart()" x-text="pranamiPay.saving ? 'Starting…' : 'Pay by UPI'"></button>
-                                        </div>
+                        <!-- Your contributions: one card per head of the member's own Sakha and the Kendra, with the amount and what is
+                             paid / due now (green paid, amber part paid, red due). Paying starts a UPI payment of the member's OWN
+                             contribution; the gateway's signed callback books it, never this page. -->
+                        <div x-show="pranamiPay.heads.length > 0 && !pranamiPay.result">
+                            <template x-for="g in pranamiPayGroups()" :key="g.organization_pk">
+                                <div class="data-card">
+                                    <div style="padding: 0.85rem 1.25rem 0;">
+                                        <h2 class="data-card-title" style="padding: 0;" x-text="g.name || 'Contributions'"></h2>
+                                        <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Money paid here goes straight to this Sangha's account.</p>
                                     </div>
-                                    <div class="alert-msg alert-error" style="margin-top: 0.6rem;" x-show="pranamiPay.error" x-text="pranamiPay.error"></div>
+                                    <div class="card-grid" style="padding: 0.75rem 1.25rem 1rem; gap: 0.75rem;">
+                                        <template x-for="h in g.heads" :key="h.finance_head_pk">
+                                            <div class="data-card" :class="NSS.contributionState(h.state).card" style="margin: 0; padding: 0.85rem 1rem;">
+                                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                                                    <span style="font-size: 0.9rem; font-weight: 600; color: #1B2A4A;" x-text="h.head_name"></span>
+                                                    <span class="badge badge-xs" :class="NSS.contributionState(h.state).badge" x-text="NSS.contributionState(h.state).label"></span>
+                                                </div>
+                                                <div style="font-size: 0.72rem; color: #6b7280; margin-top: 0.15rem;" x-show="h.event_name" x-text="'Event: ' + h.event_name"></div>
+                                                <div style="font-size: 0.72rem; color: #6b7280; margin-top: 0.15rem;" x-show="h.description" x-text="h.description"></div>
+                                                <div style="font-size: 1.05rem; font-weight: 700; color: #1B2A4A; margin-top: 0.4rem;" x-show="h.fixed_amount != null" x-text="pranamiCardAmountLabel(h)"></div>
+                                                <div style="font-size: 0.78rem; color: #374151; margin-top: 0.3rem;" x-show="h.fixed_amount != null">
+                                                    Paid <b x-text="NSS.formatMoney(h.paid_amount)"></b>
+                                                    <span x-show="h.period_label" style="color: #6b7280;" x-text="'(' + h.period_label + ')'"></span>
+                                                    · Due <b x-text="NSS.formatMoney(h.due_amount)"></b>
+                                                </div>
+                                                <div style="font-size: 0.78rem; color: #374151; margin-top: 0.3rem;" x-show="h.fixed_amount == null && Number(h.paid_amount) > 0">
+                                                    Paid so far <b x-text="NSS.formatMoney(h.paid_amount)"></b>
+                                                </div>
+                                                <div style="font-size: 0.72rem; color: #b45309; margin-top: 0.3rem;" x-show="Number(h.pending_amount) > 0"
+                                                     x-text="NSS.formatMoney(h.pending_amount) + ' is waiting for the bank to confirm.'"></div>
+                                                <div style="margin-top: 0.6rem;" x-show="pranamiCardCanPay(h)">
+                                                    <div x-show="pranamiCardAsksAmount(h)" style="margin-bottom: 0.4rem;">
+                                                        <label style="font-size: 0.7rem; color: #6b7280;">Amount (₹)</label>
+                                                        <input type="text" inputmode="decimal" class="form-input" :value="pranamiCardAmount(h)"
+                                                               @input="pranamiPay.amounts[h.finance_head_pk] = $event.target.value" placeholder="0.00" autocomplete="off"
+                                                               @keydown.enter="pranamiPayStart(h)">
+                                                    </div>
+                                                    <button class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiPayStart(h)"
+                                                            x-text="pranamiPay.saving ? 'Starting…' : (pranamiCardAsksAmount(h) ? 'Pay by UPI' : 'Pay ' + NSS.formatMoney(h.due_amount))"></button>
+                                                </div>
+                                                <p style="font-size: 0.72rem; color: #9ca3af; margin-top: 0.5rem;" x-show="!h.payable" x-text="h.unavailable_reason"></p>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin: 0 1.25rem 1rem;" x-show="pranamiPay.error" x-text="pranamiPay.error"></div>
                                 </div>
+                            </template>
+                        </div>
+
+                        <!-- The payment in progress / its outcome -->
+                        <div class="data-card" x-show="pranamiPay.result">
+                            <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Your payment</h2></div>
+                            <div style="padding: 0.6rem 1.25rem 1rem;">
                                 <div x-show="pranamiPay.result">
                                     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                         <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiPay.result && (NSS.formatMoney(pranamiPay.result.amount) + ' — ' + pranamiPay.result.head_name + (pranamiPay.result.organization_name ? ' (' + pranamiPay.result.organization_name + ')' : ''))"></span>

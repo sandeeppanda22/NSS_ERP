@@ -33,7 +33,16 @@
         head_code: "", head_name: "", description: "", direction: "INCOME", is_restricted: false, restriction_purpose: "",
         required_fund_type: "", is_pranami: false, allow_upi: false, collection_scope_pk: "", collection_fund_pk: "",
         collection_account_pk: "", display_order: 100, lockedShape: false,
+        fixed_amount: "", due_period: "", allow_part_payment: false,
     });
+    // The SIMPLE contribution form (owner 2026-11-15): name, optional fixed amount, how often, part payment. Everything else
+    // (code, income, member-visible, UPI, scope, default account) is filled in by the server.
+    const newContribForm = () => ({
+        show: false, saving: false, error: "", organization: emptyPicker(), applies_to: "ORGANIZATION", head_name: "", description: "",
+        fixed_amount: "", due_period: "YEARLY", allow_part_payment: false, collection_account_pk: "",
+    });
+    // A Sakha's copy of a Kendra head: only the receiving account is the Sakha's to choose.
+    const newCopyForm = () => ({ show: false, saving: false, error: "", pk: "", name: "", organization_pk: "", collection_account_pk: "" });
     // An event a Sangha collects for (e.g. Rasa): one step creates its EVENT scope and a member-payable UPI head.
     const newEventForm = () => ({
         show: false, saving: false, error: "", organization: emptyPicker(), event_name: "", description: "", collection_account_pk: "",
@@ -52,12 +61,13 @@
             // ═════════════════════════════════════════════════════════
             async finSetupEnter() {
                 this.finHeadForm = newHeadForm(); this.finAcctForm = newAcctForm(); this.finEventForm = newEventForm();
+                this.finContribForm = newContribForm(); this.finCopyForm = newCopyForm();
                 await Promise.all([this.finHeadsLoad(), this.finAcctsLoad()]);
             },
             async finSetupReload() {
                 await Promise.all([this.finHeadsLoad({ silent: true }), this.finAcctsLoad({ silent: true })]);
             },
-            finSetupBusy() { return !!(this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
+            finSetupBusy() { return !!(this.finContribForm.show || this.finCopyForm.show || this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
 
             async finReqEnter() {
                 this.finReq = null; this.finReqForm = newReqForm();
@@ -127,6 +137,7 @@
                     is_restricted: h.is_restricted, restriction_purpose: h.restriction_purpose || "", required_fund_type: h.required_fund_type || "",
                     is_pranami: h.is_pranami, allow_upi: h.allow_upi, collection_scope_pk: h.collection_scope_pk || "",
                     collection_fund_pk: h.collection_fund_pk || "", collection_account_pk: h.collection_account_pk || "", display_order: h.display_order,
+                    fixed_amount: h.fixed_amount == null ? "" : String(h.fixed_amount), due_period: h.due_period || "", allow_part_payment: !!h.allow_part_payment,
                 };
                 await this.finHeadFormOrgChanged(true);
             },
@@ -168,8 +179,14 @@
                 }
                 if (f.is_restricted && !blank(f.restriction_purpose)) { f.error = "A restricted head must state what it is restricted to."; return; }
                 if (f.allow_upi && (!f.collection_scope_pk || !f.collection_account_pk)) { f.error = "UPI collection needs a collection scope and a receiving account."; return; }
+                const amount = blank(f.fixed_amount);
+                if (edit && amount && !MONEY_RE.test(amount)) { f.error = "The amount must be a number with at most two decimals."; return; }
+                if (edit && amount && !f.due_period) { f.error = "Choose how often the amount is due."; return; }
                 f.saving = true; f.error = "";
                 try {
+                    const fixed = f.direction === "INCOME"
+                        ? { fixed_amount: amount, due_period: amount ? f.due_period : null, allow_part_payment: amount ? f.allow_part_payment : false }
+                        : {};
                     const targets = {
                         is_pranami: f.is_pranami, allow_upi: f.allow_upi, collection_scope_pk: f.collection_scope_pk || null,
                         collection_fund_pk: f.collection_fund_pk || null, collection_account_pk: f.collection_account_pk || null,
@@ -177,7 +194,7 @@
                     if (edit) {
                         await this._finSend("PATCH", `/heads/${f.pk}`, {
                             head_name: f.head_name.trim(), description: blank(f.description), display_order: Number(f.display_order) || 0,
-                            ...(f.is_restricted ? { restriction_purpose: f.restriction_purpose.trim() } : {}), ...targets,
+                            ...(f.is_restricted ? { restriction_purpose: f.restriction_purpose.trim() } : {}), ...targets, ...fixed,
                         });
                     } else {
                         await this._finSend("POST", "/heads", {
@@ -193,6 +210,96 @@
                     await this.finHeadsLoad({ silent: true });
                 } catch (err) {
                     f.error = err.message || "Could not save the finance head.";
+                } finally {
+                    f.saving = false;
+                }
+            },
+
+            // ── Contributions: the simple way to add a head ───────────────────────
+            finContribForm: newContribForm(), finContribAccounts: [],
+            finContribOpenCreate() {
+                this.finContribForm = { ...newContribForm(), show: true };
+                this.finContribAccounts = [];
+                if (this.finSetupOrg.selected) {
+                    this.finContribForm.organization = { ...emptyPicker(), selected: this.finSetupOrg.selected, query: this.finSetupOrg.selected.organization_name };
+                    return this.finContribOrgChanged();
+                }
+            },
+            finContribCancel() { this.finContribForm = { ...this.finContribForm, show: false }; },
+            get finContribIsKendra() { const o = this.finContribForm.organization.selected; return !!o && o.type_code === "KENDRA"; },
+            // The receiving account is chosen from the Sangha's own ACTIVE accounts; blank = its default account.
+            async finContribOrgChanged() {
+                const f = this.finContribForm;
+                const org = f.organization.selected ? f.organization.selected.organization_pk : "";
+                f.collection_account_pk = ""; this.finContribAccounts = [];
+                if (!this.finContribIsKendra) f.applies_to = "ORGANIZATION";
+                if (!org) return;
+                try {
+                    this.finContribAccounts = (await this._finGet("/accounts", { organization_pk: org, status: "ACTIVE", page_size: 100 })).items;
+                } catch { /* the list stays empty; the default account is used */ }
+            },
+            async finContribSubmit() {
+                const f = this.finContribForm;
+                if (!f.organization.selected) { f.error = "Choose the Sangha that collects this contribution."; return; }
+                if (!blank(f.head_name)) { f.error = "The contribution needs a name."; return; }
+                const amount = blank(f.fixed_amount);
+                if (amount && (!MONEY_RE.test(amount) || Number(amount) <= 0)) { f.error = "Enter a positive amount with at most two decimals, or leave it empty for any amount."; return; }
+                if (amount && !f.due_period) { f.error = "Choose how often the amount is due."; return; }
+                f.saving = true; f.error = "";
+                try {
+                    const allSakhas = f.applies_to === "ALL_SAKHAS";
+                    const r = await this._finSend("POST", "/contributions", {
+                        organization_pk: f.organization.selected.organization_pk, applies_to: f.applies_to, head_name: f.head_name.trim(),
+                        description: blank(f.description), fixed_amount: amount, due_period: amount ? f.due_period : null,
+                        allow_part_payment: amount ? f.allow_part_payment : false,
+                        collection_account_pk: allSakhas ? null : (f.collection_account_pk || null),
+                    });
+                    this.finContribForm = newContribForm();
+                    this._finNote(allSakhas
+                        ? `Contribution added. ${r.copies_created} Sakha(s) received it; each collects into its own account (a Sakha with no account yet shows "needs an account").`
+                        : (r.needs_account ? "Contribution added, but members cannot pay it until this Sangha has a receiving account with a payment gateway."
+                                           : "Contribution added. Members of this Sangha can see and pay it now."));
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    f.error = err.message || "Could not add the contribution.";
+                } finally {
+                    f.saving = false;
+                }
+            },
+
+            // The Kendra brings every Sakha's copy up to date (new Sakhas get one).
+            async finHeadSyncCopies(h) {
+                this.finHeadsError = "";
+                try {
+                    const r = await this._finSend("POST", `/heads/${h.finance_head_pk}/sync-copies`, {});
+                    this._finNote(`Sakhas updated: ${r.created} new copy(ies), ${r.updated} refreshed.`);
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    this.finHeadsError = err.message || "Could not update the Sakhas.";
+                }
+            },
+
+            // A Sakha's copy of a Kendra contribution: the Sakha chooses which of its own accounts collects.
+            finCopyForm: newCopyForm(), finCopyAccounts: [],
+            async finCopyOpen(h) {
+                this.finCopyForm = { ...newCopyForm(), show: true, pk: h.finance_head_pk, name: h.head_name, organization_pk: h.organization_pk,
+                                     collection_account_pk: h.collection_account_pk || "" };
+                this.finCopyAccounts = [];
+                try {
+                    this.finCopyAccounts = (await this._finGet("/accounts", { organization_pk: h.organization_pk, status: "ACTIVE", page_size: 100 })).items;
+                } catch { /* the server explains on save */ }
+            },
+            finCopyCancel() { this.finCopyForm = { ...this.finCopyForm, show: false }; },
+            async finCopySubmit() {
+                const f = this.finCopyForm;
+                f.saving = true; f.error = "";
+                try {
+                    await this._finSend("PATCH", `/heads/${f.pk}`, { collection_account_pk: f.collection_account_pk || null });
+                    this.finCopyForm = newCopyForm();
+                    this._finNote("Receiving account saved.");
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    f.error = err.message || "Could not save the receiving account.";
                 } finally {
                     f.saving = false;
                 }
@@ -259,6 +366,13 @@
                 const bits = [];
                 if (h.is_restricted) bits.push("Restricted");
                 if (h.required_fund_type) bits.push(NSS.codeLabel(h.required_fund_type) + " fund");
+                if (h.fixed_amount != null) {
+                    const per = { YEARLY: "yearly", MONTHLY: "monthly", ONE_TIME: "one time" }[h.due_period] || "";
+                    bits.push(NSS.formatMoney(h.fixed_amount) + (per ? " " + per : ""));
+                    if (h.allow_part_payment) bits.push("Part payment");
+                }
+                if (h.applies_to_all_sakhas) bits.push(`All Sakhas (${h.copy_count})`);
+                if (h.is_kendra_copy) bits.push(h.needs_account ? "Needs an account" : "From the Kendra");
                 if (h.is_pranami) bits.push("Pranami");
                 if (h.allow_upi) bits.push("UPI");
                 return bits;

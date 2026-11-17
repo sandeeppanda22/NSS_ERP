@@ -152,7 +152,7 @@ def test_no_finance_table_can_hold_a_secret_or_a_full_account_number():
     bad_fragments = ("secret", "password", "passwd", "token", "api_key", "apikey", "private_key", "cvv", "pan_number", "aadhaar")
     for file, table in TABLE_FILES:
         for col in re.findall(r"^\s{4}([a-z_0-9]+)\s+(?:UUID|VARCHAR|TEXT|BOOLEAN|NUMERIC|INTEGER|DATE|TIMESTAMPTZ|JSONB|CHAR)\b", _code_only(_ddl(file)), re.M):
-            assert not any(f in col for f in bad_fragments), f"{table}.{col} looks like a secret column"
+            assert not any(f in col.replace("secretary", "") for f in bad_fragments), f"{table}.{col} looks like a secret column"  # 'secretary' is an office, not a secret
             assert col != "account_number", f"{table}.{col}: the full account number must never be stored"
     acct = _code_only(_ddl("04_financial_account.sql"))
     assert "account_number_last4" in acct
@@ -246,7 +246,8 @@ def _template_rows() -> dict[str, str]:
 
 def test_head_templates_are_exactly_the_former_categories():
     rows = _template_rows()
-    assert set(rows) == OLD_CATEGORY_CODES, "the templates must carry the old category codes verbatim (the heads patch maps old rows onto them)"
+    assert OLD_CATEGORY_CODES <= set(rows), "the templates must carry the old category codes verbatim (the heads patch maps old rows onto them)"
+    assert set(rows) - OLD_CATEGORY_CODES == {"PARICHAYA_PATRA", "ANUMATI_PATRA"}, "only the two member-payable card heads were added since"
 
 
 def test_head_templates_carry_the_right_rules():
@@ -254,7 +255,7 @@ def test_head_templates_carry_the_right_rules():
     assert all("'INCOME'" in rows[c] for c in OLD_CATEGORY_CODES if not c.startswith("EXPENSE"))
     assert all("'EXPENSE'" in rows[c] for c in ("EXPENSE_GENERAL", "EXPENSE_RESTRICTED"))
     pranami = {c for c, r in rows.items() if re.search(r"'INCOME', (?:FALSE|TRUE), (?:NULL|'[^']*'), (?:NULL|'[A-Z_]+'), TRUE,", r)}
-    assert pranami == {"PRANAMI_ANNUAL", "PRANAMI_SPECIAL", "PRANAMI_SINKING_FUND"}
+    assert pranami == {"PRANAMI_ANNUAL", "PRANAMI_SPECIAL", "PRANAMI_SINKING_FUND", "PARICHAYA_PATRA", "ANUMATI_PATRA"}
     assert "'SINKING_FUND'" in rows["PRANAMI_SINKING_FUND"]
     for code in ("DONATION_SPECIFIC_PURPOSE", "PUBLICATION_INCOME", "EXPENSE_RESTRICTED"):
         assert "TRUE, '" in rows[code], f"{code} must be restricted and say what it is restricted to"
@@ -313,7 +314,8 @@ def test_build_scripts_run_every_finance_file_in_dependency_order(rel):
         assert m, f"{rel} does not build {table} from {file}"
         positions.append(m.start())
     assert positions == sorted(positions), f"{rel}: Finance tables are not built in dependency order"
-    for patch in ("01_finance_reference_data_patch", "02_finance_head_templates_patch", "12_finance_heads_patch"):
+    for patch in ("01_finance_reference_data_patch", "02_finance_head_templates_patch", "12_finance_heads_patch",
+                  "14_finance_head_fixed_amount_patch"):
         assert re.search(rf"^(?:run_sql|Invoke-Sql) .*{patch}", text, re.M), f"{rel} does not run {patch}"
 
 
@@ -323,7 +325,7 @@ def test_patches_run_in_the_order_they_depend_on(rel):
     idx = lambda needle: re.search(rf"^(?:run_sql|Invoke-Sql|run_ddl|Invoke-Ddl) .*{needle}", text, re.M).start()
     # reference data (PAYMENT_METHOD, id sequences) and the table it needs, then the templates, THEN the patch that maps old rows onto them
     assert idx('"finance_gateway_event"') < idx("01_finance_reference_data_patch") < idx("02_finance_head_templates_patch") < idx("12_finance_heads_patch")
-    assert idx("12_finance_heads_patch") < idx('"live_change_triggers"')
+    assert idx("12_finance_heads_patch") < idx("14_finance_head_fixed_amount_patch") < idx('"live_change_triggers"')
     assert idx("08_finance_permissions_patch") < idx('"financial_year"')            # permissions are Phase 0
 
 
@@ -356,7 +358,7 @@ def test_validate_scripts_check_every_finance_table_and_the_patches(rel):
 def test_ddl_folder_has_no_orphan_file():
     """Every .sql in the folder is a table file or a known patch, and all of them are named in the build scripts."""
     files = {p.name for p in DDL.glob("*.sql")}
-    assert files == {f for f, _ in TABLE_FILES} | {"12_finance_heads_patch.sql"}
+    assert files == {f for f, _ in TABLE_FILES} | {"12_finance_heads_patch.sql", "14_finance_head_fixed_amount_patch.sql"}
     for rel in BUILD_SCRIPTS:
         text = _script(rel)
         for f in files:
@@ -600,6 +602,19 @@ class TestHeadConstraints:
             _expect(cur, psycopg2.errors.CheckViolation, self._sql(", allow_upi", ", TRUE"), (org, "NOTARGET", "INCOME"))    # no scope / account
             _expect(cur, psycopg2.errors.CheckViolation, self._sql(", allow_upi", ", TRUE"), (None, "TMPLUPI", "INCOME"))      # a template cannot collect
 
+    def test_fixed_amount_rules(self, write_conn):
+        with _savepoint(write_conn) as cur:
+            org = _org(cur)
+            for cols, vals in ((", fixed_amount, due_period", ", 0, 'YEARLY'"),          # strictly positive
+                               (", fixed_amount, due_period", ", 10, 'WEEKLY'"),         # known periods only
+                               (", fixed_amount", ", 10"),                               # an amount is always per something
+                               (", applies_to_all_sakhas, allow_upi", ", TRUE, TRUE")):  # the source never collects itself
+                _expect(cur, psycopg2.errors.CheckViolation, self._sql(cols, vals), (org, "AMT_BAD", "INCOME"))
+            _expect(cur, psycopg2.errors.CheckViolation, self._sql(", applies_to_all_sakhas", ", TRUE"), (None, "SRC_NOORG", "INCOME"))
+            _expect(cur, psycopg2.errors.CheckViolation, self._sql(", applies_to_all_sakhas", ", TRUE"), (org, "SRC_EXP", "EXPENSE"))
+            cur.execute(self._sql(", fixed_amount, due_period, allow_part_payment", ", 500, 'YEARLY', TRUE"), (org, "AMT_OK", "INCOME"))
+            cur.execute(self._sql(", applies_to_all_sakhas", ", TRUE"), (org, "SRC_OK", "INCOME"))
+
     def test_codes_are_unique_per_organization_and_among_templates(self, write_conn):
         with _savepoint(write_conn) as cur:
             org = _org(cur)
@@ -607,6 +622,19 @@ class TestHeadConstraints:
             _expect(cur, psycopg2.errors.UniqueViolation, self._sql(), (org, "ORGCODE", "INCOME"))
             cur.execute(self._sql(), (None, "TMPLCODE_X", "INCOME"))
             _expect(cur, psycopg2.errors.UniqueViolation, self._sql(), (None, "TMPLCODE_X", "INCOME"))   # NULL organizations are still unique among templates
+
+
+def test_head_fixed_amount_columns_are_in_the_table_and_the_patch():
+    table, patch = _code_only(_ddl("05_finance_head.sql")), _code_only(_ddl("14_finance_head_fixed_amount_patch.sql"))
+    for column in ("fixed_amount", "due_period", "allow_part_payment", "applies_to_all_sakhas"):
+        assert re.search(rf"^\s+{column} ", table, re.M), f"{column} missing from the CREATE TABLE (fresh builds)"
+        assert f"ADD COLUMN IF NOT EXISTS {column}" in patch, f"{column} missing from the patch (existing databases)"
+    for constraint in ("chk_finance_head_fixed_amount", "chk_finance_head_due_period", "chk_finance_head_amount_period",
+                       "chk_finance_head_all_sakhas"):
+        assert constraint in table and constraint in patch, constraint
+    for period in S.DUE_PERIODS:                                  # one list of periods: the CHECK carries exactly the schema's
+        assert f"'{period}'" in table
+    assert "WHERE conname =" in patch and "IF NOT EXISTS" in patch  # idempotent: safe on every build
 
 
 @db
@@ -702,4 +730,4 @@ class TestDisbursementAuthorityParity:
             src = _script(rel)
             assert "13_finance_disbursement_authority.sql" in src and "03_finance_disbursement_purpose_patch.sql" in src, rel
             assert src.index("13_finance_disbursement_authority.sql") < src.index("03_finance_disbursement_purpose_patch.sql"), rel
-            assert src.index("03_finance_disbursement_purpose_patch.sql") < src.index("02_live_change_triggers.sql"), rel
+            assert src.index("03_finance_disbursement_purpose_patch.sql") < src.rindex("02_live_change_triggers.sql"), rel     # (the name also appears in an earlier comment)

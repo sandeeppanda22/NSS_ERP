@@ -41,3 +41,11 @@ trigger on all 11, writer role INSERT/UPDATE but no DELETE, backend SELECT only;
 second `02_build` run skipped 114 scripts and duplicated nothing; an OLD-shape database holding rows was upgraded by the
 patch with every existing transaction mapped to its head; `tests/db/test_finance_schema.py` 103/103 (55 DB-free + 48
 against that database). Not verified: anything on the project database, PowerShell scripts, Render/Neon.
+
+**Fixed-amount contributions (2026-11-15).** `finance_head` gained `fixed_amount NUMERIC(14,2)`, `due_period`
+(`YEARLY`/`MONTHLY`/`ONE_TIME`), `allow_part_payment` and `applies_to_all_sakhas` (CHECKs `chk_finance_head_fixed_amount`,
+`_due_period`, `_amount_period`, `_all_sakhas`: an all-Sakhas source is an owned INCOME head that never collects itself). They
+are in the `CREATE TABLE` for fresh builds and in `14_finance_head_fixed_amount_patch.sql` (idempotent `run_sql`, after
+`12_finance_heads_patch.sql`, wired in `02_build.sh`/`.ps1`/`render_build.sh`) for existing databases. A Sakha's copy of a
+Kendra head points back through `template_head_pk`. Checked only in a throwaway single-user PostgreSQL 18 (fresh table and
+patched old-shape table behave the same, patch twice is a no-op); not run on the project database.

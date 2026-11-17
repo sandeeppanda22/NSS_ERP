@@ -126,6 +126,7 @@
 #   Phase 11i seed/12_finance/01_finance_reference_data_patch.sql
 #             seed/12_finance/02_finance_head_templates_patch.sql
 #             ddl/14_finance/12_finance_heads_patch.sql (AFTER the templates: maps existing transactions onto heads)
+#             ddl/14_finance/14_finance_head_fixed_amount_patch.sql (fixed amount / due period / part payment / all-Sakhas columns)
 #   Phase 13c ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql (FK on every *_by_sangha_sevi_pk, NOT VALID then VALIDATE)
 # Table count: 90 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+11+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,11i,14).
 #
@@ -767,6 +768,8 @@ run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_refer
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 run_sql "finance head templates patch" "${SEED_BASE}/12_finance/02_finance_head_templates_patch.sql"
 run_sql "finance heads structure patch" "${DDL_BASE}/14_finance/12_finance_heads_patch.sql"
+# Fixed amount / due period / part payment / applies-to-all-Sakhas columns on finance_head (owner decision 2026-11-15).
+run_sql "finance head fixed amount patch" "${DDL_BASE}/14_finance/14_finance_head_fixed_amount_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
 run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips

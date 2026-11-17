@@ -52,6 +52,7 @@ from api.rate_limit import limiter, user_or_ip_key
 from api.routers import finance as F
 from api.routers.finance_setup import account_ready
 from api.schemas import finance as S
+from api.services import finance_contribution as FC
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext
 
@@ -570,36 +571,88 @@ def _member_destinations(cur, user: UserContext) -> list[str]:
     return [home] + [str(r[0]) for r in cur.fetchall() if str(r[0]) != home]
 
 
-# A head a member can pay: INCOME, flagged for the member's own Pranami tab, UPI-enabled, with a ready account, and - when it
-# collects into a financial scope (an EVENT such as Rasa) - an ACTIVE scope. Closing the event or switching the head off hides it.
-_PAYABLE_SQL = """
+# The member's contribution cards: every ACTIVE member-visible INCOME head of their OWN Sakha and of the Kendra (the source of an
+# all-Sakhas head collects nothing and is never shown - the member sees their own Sakha's copy). Accounts / scopes are LEFT joined
+# so a head whose Sangha has not set up payment still shows (as "not available yet") with what the member has already paid.
+_CARDS_SQL = """
     SELECT h.finance_head_pk, h.head_name, h.description, h.organization_pk, o.organization_name,
            (mdo.value_code = 'KENDRA') AS is_kendra,
            CASE WHEN cs.scope_type = 'EVENT' THEN cs.scope_name END AS event_name,
-           a.upi_vpa, a.gateway_provider, a.gateway_credential_ref
+           h.fixed_amount, h.due_period, h.allow_part_payment, h.allow_upi,
+           (cs.financial_scope_pk IS NOT NULL) AS scope_active,
+           a.financial_account_pk, a.upi_vpa, a.gateway_provider, a.gateway_credential_ref
       FROM nss.finance_head h
-      JOIN nss.financial_account a ON a.financial_account_pk = h.collection_account_pk
-                                  AND a.is_active = TRUE AND a.status = 'ACTIVE'
-      JOIN nss.financial_scope cs ON cs.financial_scope_pk = h.collection_scope_pk
-                                 AND cs.is_active = TRUE AND cs.status = 'ACTIVE'
       JOIN nss.organization o ON o.organization_pk = h.organization_pk
       JOIN nss.master_data mdo ON mdo.master_data_pk = o.organization_type_master_data_pk
-     WHERE h.is_active = TRUE AND h.status = 'ACTIVE' AND h.is_pranami = TRUE AND h.allow_upi = TRUE
-       AND h.direction = 'INCOME' AND h.organization_pk = ANY(%s::uuid[])
+      LEFT JOIN nss.financial_account a ON a.financial_account_pk = h.collection_account_pk
+                                       AND a.is_active = TRUE AND a.status = 'ACTIVE'
+      LEFT JOIN nss.financial_scope cs ON cs.financial_scope_pk = h.collection_scope_pk
+                                      AND cs.is_active = TRUE AND cs.status = 'ACTIVE'
+     WHERE h.is_active = TRUE AND h.status = 'ACTIVE' AND h.is_pranami = TRUE AND h.direction = 'INCOME'
+       AND h.applies_to_all_sakhas = FALSE AND h.organization_pk = ANY(%s::uuid[])
+       AND (h.collection_scope_pk IS NULL OR cs.financial_scope_pk IS NOT NULL)      -- a closed event / scope is hidden, not shown as unavailable
+     ORDER BY (h.organization_pk = %s::uuid) DESC, o.organization_name, h.display_order, h.head_name
 """
-_MEMBER_HEAD_FIELDS = ("finance_head_pk", "head_name", "description", "organization_pk", "organization_name", "is_kendra",
-                       "event_name", "upi_vpa")
+_CARD_FIELDS = ("finance_head_pk", "head_name", "description", "organization_pk", "organization_name", "is_kendra", "event_name",
+                "upi_vpa", "fixed_amount", "due_period", "allow_part_payment")
+
+
+def _member_cards(cur, user: UserContext) -> list[dict]:
+    """
+    The single source for what a member sees AND may pay: one dict per contribution with its fixed amount, what they paid in the
+    current period (POSTED / SETTLED income linked to them), what is waiting in an unexpired UPI request, the paid / due state
+    and whether it can be paid right now. The pay endpoint validates against this same list.
+    """
+    destinations = _member_destinations(cur, user)
+    cur.execute(_CARDS_SQL, (destinations, destinations[0]))
+    heads = F._fetch_all(cur)
+    cur.execute("SELECT (NOW() AT TIME ZONE 'Asia/Kolkata')::date")
+    today = cur.fetchone()[0]
+    paid: dict = {}
+    pending: dict = {}
+    if heads:
+        pks = [str(h["finance_head_pk"]) for h in heads]
+        cur.execute(
+            f"""
+            SELECT t.finance_head_pk, t.transaction_date, t.amount FROM nss.financial_transaction t
+             WHERE t.finance_head_pk = ANY(%s::uuid[]) AND t.is_active = TRUE AND t.transaction_type = 'INCOME'
+               AND t.status IN {F._in(F._COUNTED_TXN_STATUSES)}
+               AND (t.person_pk = %s OR (%s::uuid IS NOT NULL AND t.sangha_sevi_pk = %s::uuid))
+            """,
+            (pks, str(user.person_pk), user.actor_pk, user.actor_pk),
+        )
+        txns = cur.fetchall()
+        cur.execute(
+            "SELECT finance_head_pk, SUM(amount) FROM nss.upi_payment_request WHERE finance_head_pk = ANY(%s::uuid[]) "
+            "AND payer_person_pk = %s AND status IN ('CREATED', 'PENDING') AND expires_at > NOW() AND is_active = TRUE GROUP BY 1",
+            (pks, str(user.person_pk)),
+        )
+        pending = {str(r[0]): r[1] for r in cur.fetchall()}
+        for head in heads:
+            window = FC.period_window(head["due_period"], today)
+            total = sum((amt for pk, d, amt in txns if str(pk) == str(head["finance_head_pk"])
+                         and (window is None or window[0] <= d <= window[1])), Decimal("0"))
+            paid[str(head["finance_head_pk"])] = total
+    cards = []
+    for h in heads:
+        key = str(h["finance_head_pk"])
+        card = {k: h[k] for k in _CARD_FIELDS}
+        card.update(FC.card_state(h["fixed_amount"], paid.get(key, Decimal("0")), pending.get(key, Decimal("0"))))
+        card["period_label"] = FC.period_label(h["due_period"], today)
+        ready = bool(h["allow_upi"] and h["scope_active"] and h["financial_account_pk"] and account_ready(h))
+        card["payable"] = ready
+        card["unavailable_reason"] = None if ready else (
+            "Online payment is not set up for this contribution yet." if not (h["allow_upi"] and h["financial_account_pk"])
+            else "Online payment is temporarily unavailable.")
+        cards.append(card)
+    return cards
 
 
 @router.get("/my-pranami/heads", response_model=list[S.MyPayableHead])
 def my_payable_heads(user: UserContext = Depends(get_current_user), conn=Depends(get_connection)):
-    """What the signed-in member can pay by UPI right now: the Pranami / event heads of their OWN Sakha and of the Kendra (gateway ready)."""
+    """The signed-in member's contribution cards: the heads of their OWN Sakha and of the Kendra, each with amount and paid / due."""
     with conn.cursor() as cur:
-        destinations = _member_destinations(cur, user)
-        cur.execute(_PAYABLE_SQL + " ORDER BY (h.organization_pk = %s::uuid) DESC, o.organization_name, h.display_order, h.head_name",
-                    (destinations, destinations[0]))
-        rows = F._fetch_all(cur)
-    return [{k: r[k] for k in _MEMBER_HEAD_FIELDS} for r in rows if account_ready(r)]
+        return _member_cards(cur, user)
 
 
 @router.post("/my-pranami/pay", response_model=S.MyPayment, status_code=status.HTTP_201_CREATED)
@@ -608,15 +661,28 @@ def pay_my_pranami(request: Request, body: S.MyPayRequest, user: UserContext = D
                    conn=Depends(get_write_connection)):
     """
     A member starts a UPI payment to their OWN Sakha or to the Kendra (a Pranami, a card, an event contribution...). The payer
-    is the token, never a field, and only member-payable UPI heads of those two Sangha are accepted. The money is booked only
-    when the gateway's signed webhook says it was paid - never because the member's browser says so.
+    is the token, never a field, and only member-visible UPI heads of those two Sangha are accepted. A head with a fixed amount
+    is checked against what is still due (exact amount, or any part up to it when part payment is allowed). The money is booked
+    only when the gateway's signed webhook says it was paid - never because the member's browser says so. The request, and the
+    booking that follows, are audited.
     """
     with conn.cursor() as cur:
-        destinations = _member_destinations(cur, user)
-        cur.execute(_PAYABLE_SQL + " AND h.finance_head_pk = %s", (destinations, str(body.finance_head_pk)))
-        head = F._fetch_one(cur)
-        if head is None or not account_ready(head):
+        # One payment decision per member and head at a time, so two quick taps cannot both pass the "still due" check.
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"upi-pay:{user.person_pk}:{body.finance_head_pk}",))
+        card = next((c for c in _member_cards(cur, user) if str(c["finance_head_pk"]) == str(body.finance_head_pk)), None)
+        if card is None or not card["payable"]:
             raise F._invalid("This payment is not available for UPI.")
+        if card["fixed_amount"] is not None:
+            if card["pending_amount"] > 0 and not card["allow_part_payment"]:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                    detail="You already have an unpaid request for this contribution. Pay it or wait for it to expire.")
+            remaining = (card["due_amount"] or Decimal("0")) - (card["pending_amount"] if card["allow_part_payment"] else Decimal("0"))
+            if card["allow_part_payment"] and card["due_amount"] and remaining <= 0:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                    detail="Your pending payments already cover what is due. Wait for the bank to confirm them.")
+            problem = FC.amount_problem(card, body.amount, remaining)
+            if problem:
+                raise F._invalid(problem)
         cur.execute("SELECT COUNT(*) FROM nss.upi_payment_request WHERE payer_person_pk = %s AND status IN ('CREATED','PENDING') "
                     "AND expires_at > NOW() AND is_active = TRUE", (str(user.person_pk),))
         if cur.fetchone()[0] >= _MAX_OPEN_REQUESTS_PER_MEMBER:
@@ -626,7 +692,9 @@ def pay_my_pranami(request: Request, body: S.MyPayRequest, user: UserContext = D
                              payer_sevi_pk=user.sangha_sevi_pk, payer_name=None, note=None, actor_pk=user.actor_pk)
         log_audit(cur, action="CREATE", table_name="upi_payment_request", record_pk=str(pk), actor_pk=user.actor_pk,
                   actor_user_account_pk=str(user.user_account_pk), module="finance",
-                  summary=f"Member started a UPI payment of {body.amount}", detail={"amount": str(body.amount), "self_service": True})
+                  summary=f"Member started a UPI payment of {body.amount}",
+                  detail={"amount": str(body.amount), "self_service": True, "finance_head_pk": str(body.finance_head_pk),
+                          "fixed_amount": str(card["fixed_amount"]) if card["fixed_amount"] is not None else None})
         return _member_view(_request_response(cur, pk))
 
 
