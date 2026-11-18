@@ -71,7 +71,7 @@ DO $$
 DECLARE
     watched TEXT[] := ARRAY[
         -- Registration / claim approvals + change requests
-        'registration_claim', 'membership_change_request',
+        'registration_claim', 'membership_change_request', 'membership_status_change_request',
         -- Correspondence (list, detail, approval chain)
         'correspondence', 'correspondence_document', 'correspondence_finance_reference',
         'correspondence_approval_step',

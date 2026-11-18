@@ -482,6 +482,7 @@ the last column (`any of`).
 | 95 | POST | `/sangha-sevi` | Provision a Sangha Sevi ID for a person | `ADMIN_USER_MANAGE`, `PERSON_MANAGE` |
 | 96 | GET | `/sangha-sevi/check/{person_pk}` | Does the person already hold an SS ID | view set above |
 | 97 | POST | `/sangha-sevi/check-batch` | Batch form of the above | view set above |
+| 97a | POST | `/sangha-sevi/{person_pk}/restore` | Reactivate a deactivated Sangha Sevi (same ID) and reopen the affiliations its deactivation closed; the login is not restored. 404 none / 409 already active or nothing to reopen | `ADMIN_USER_MANAGE`, `PERSON_MANAGE` + scope |
 | 98 | GET | `/sangha-sevi/without-account` | Paginated list of Sangha Sevis who can't log in yet | view set above |
 | 99 | GET | `/organizations` | Org list for admin screens | view set above |
 | 100 | POST | `/organizations` | Create an organization (ORG-BR-099/101-103 rules) | `ADMIN_USER_MANAGE`, `PERSON_MANAGE` |

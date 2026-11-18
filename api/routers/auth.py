@@ -55,7 +55,7 @@ from api.services.auth_service import (
     verify_password,
 )
 from api.helpers import apply_person_profile_update, check_duplicate_contact, derive_device_label, log_audit, record_password_history, validate_and_hash_password, validate_mobile, validate_email
-from api.services.rbac_service import UserContext, actor_scope_org_pks
+from api.services.rbac_service import UserContext, actor_scope_org_pks, member_login_barred_status
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -225,6 +225,21 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials.",
+        )
+
+    # A suspended or expelled member may not log in (owner 2026-11-18). Checked only after the
+    # password is right, so the response never reveals a member's status to a stranger.
+    with conn.cursor() as cur:
+        barred = member_login_barred_status(cur, person_pk)
+        if barred:
+            log_audit(cur, action="LOGIN_FAILED", table_name="user_account", record_pk=str(user_account_pk),
+                      actor_user_account_pk=str(user_account_pk), module="auth",
+                      summary=f"Login refused: membership {barred.lower()}", is_success=False)
+    if barred:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Your membership is {barred.lower()}, so you cannot log in. "
+                   "Please contact your Sakha administrator.",
         )
 
     # Step 4: Successful login — reset failed attempts, update last_login_at

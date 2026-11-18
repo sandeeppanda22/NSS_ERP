@@ -181,6 +181,8 @@ def test_matrix_covers_every_endpoint():
         if getattr(r, "methods", None) and r.path.startswith(prefixes)
         # membership_change_request.py shares the /membership prefix.
         and not r.path.startswith(f"{M}/change-requests")
+        # membership_status.py (/membership-status) shares the string prefix too.
+        and not r.path.startswith("/api/v1/membership-status")
         for m in r.methods
         if m != "HEAD"
     }

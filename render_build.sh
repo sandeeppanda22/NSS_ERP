@@ -564,6 +564,8 @@ run_ddl "organization_reparent_request" "organization_reparent_request" "${DDL_B
 run_ddl "organization_reparent_step"    "organization_reparent_step"    "${DDL_BASE}/02_organization/07_organization_reparent_step.sql"
 # Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
 run_sql "organization_reparent_step source-role patch" "${DDL_BASE}/02_organization/09_organization_reparent_step_source_role_patch.sql"
+# membership_status_change_request (Membership module) FKs user_account (Phase 10), so it is built here, after authentication, not in the Phase 7 membership block.
+run_ddl "membership_status_change_request" "membership_status_change_request" "${DDL_BASE}/05_membership/21_membership_status_change_request.sql"
 
 echo ""
 echo "--- Phase 11g: Assets & Property — DDL (7 tables, Module #22, Tier 6: property, asset, custodianship, property_statutory_record, maintenance_record, property_document, asset_document) ---"

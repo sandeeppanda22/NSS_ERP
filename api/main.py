@@ -74,6 +74,7 @@ from api.routers import bootstrap, foundation, organization, person, family, mem
 from api.routers import auth, admin, registration, claim_approval, audit, geo_approval
 from api.routers import governance
 from api.routers import membership_change_request
+from api.routers import membership_status
 from api.routers import correspondence
 from api.routers import attendance
 from api.routers import org_reparent
@@ -334,6 +335,7 @@ app.include_router(audit.router)
 app.include_router(geo_approval.router)
 app.include_router(governance.router)
 app.include_router(membership_change_request.router)
+app.include_router(membership_status.router)
 app.include_router(correspondence.router)
 app.include_router(attendance.router)
 app.include_router(org_reparent.router)

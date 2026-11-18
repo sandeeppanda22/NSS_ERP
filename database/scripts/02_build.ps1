@@ -573,6 +573,8 @@ Invoke-Ddl "organization_reparent_request" "organization_reparent_request" "$Ddl
 Invoke-Ddl "organization_reparent_step"    "organization_reparent_step"    "$DdlBase\02_organization\07_organization_reparent_step.sql"
 # Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
 Invoke-Sql "organization_reparent_step source-role patch" "$DdlBase\02_organization\09_organization_reparent_step_source_role_patch.sql"
+# membership_status_change_request (Membership module) FKs user_account (Phase 10), so it is built here, after authentication, not in the Phase 7 membership block.
+Invoke-Ddl "membership_status_change_request" "membership_status_change_request" "$DdlBase\05_membership\21_membership_status_change_request.sql"
 Write-Host ""
 
 # -------------------------------------------------

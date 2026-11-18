@@ -1673,6 +1673,7 @@
                                     <div style="display: flex; gap: 0.5rem;">
                                         <input type="text" class="form-input" x-model="personSearchQuery"
                                                placeholder="Name, Person ID, mobile, or email (min 2 chars)"
+                                               @input.debounce.300ms="typePersonSearch()"
                                                @keyup.enter="searchPersons()"
                                                style="flex: 1;">
                                         <button class="btn-action primary" @click="searchPersons()"
@@ -1724,26 +1725,25 @@
 
                                 <!-- Selected Person Display -->
                                 <template x-if="createForm.person_pk">
-                                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 0.75rem; margin-bottom: 1rem;">
-                                        <div style="display: flex; justify-content: space-between; align-items: start;">
-                                            <div>
-                                                <div style="font-weight: 600; font-size: 0.85rem;" x-text="selectedPersonDisplay.person_name"></div>
-                                                <div style="font-size: 0.75rem; color: #6b7280;">
-                                                    <span x-text="selectedPersonDisplay.person_id"></span>
-                                                    <span x-show="selectedPersonDisplay.mobile_number"> · <span x-text="selectedPersonDisplay.mobile_number"></span></span>
-                                                    <span x-show="selectedPersonDisplay.email"> · <span x-text="selectedPersonDisplay.email"></span></span>
-                                                </div>
-                                                <div x-show="selectedPersonDisplay.has_account && !selectedPersonDisplay.has_deleted_account"
-                                                     style="font-size: 0.75rem; color: #dc2626; font-weight: 500; margin-top: 0.25rem;">
-                                                    ⚠ This person already has a user account.
-                                                </div>
-                                                <div x-show="selectedPersonDisplay.has_deleted_account"
-                                                     style="font-size: 0.75rem; color: #92400e; font-weight: 500; margin-top: 0.25rem;">
-                                                    ⚠ This person has a deactivated account — submitting Step 3 will restore it with the new password, not create a second one.
-                                                </div>
+                                    <div class="sel-person" :class="selectedPersonDisplay.has_account && !selectedPersonDisplay.has_deleted_account ? 'sel-person--warn' : ''">
+                                        <div class="sel-person__avatar" aria-hidden="true" x-text="NSS.initials(selectedPersonDisplay.person_name)"></div>
+                                        <div class="sel-person__body">
+                                            <div class="sel-person__label">Selected person</div>
+                                            <div class="sel-person__name" x-text="selectedPersonDisplay.person_name"></div>
+                                            <div class="sel-person__meta">
+                                                <span class="sel-person__id" x-text="selectedPersonDisplay.person_id"></span>
+                                                <span x-show="selectedPersonDisplay.mobile_number" x-text="selectedPersonDisplay.mobile_number"></span>
+                                                <span x-show="selectedPersonDisplay.email" x-text="selectedPersonDisplay.email"></span>
                                             </div>
-                                            <button class="btn-action" style="font-size: 0.7rem;" @click="clearSelectedPerson()">Clear</button>
+                                            <div class="sel-person__note sel-person__note--error"
+                                                 x-show="selectedPersonDisplay.has_account && !selectedPersonDisplay.has_deleted_account">
+                                                ⚠ This person already has a user account.
+                                            </div>
+                                            <div class="sel-person__note sel-person__note--warn" x-show="selectedPersonDisplay.has_deleted_account">
+                                                ⚠ This person has a deactivated account — submitting Step 3 will restore it with the new password, not create a second one.
+                                            </div>
                                         </div>
+                                        <button type="button" class="btn-action" @click="clearSelectedPerson()">Change</button>
                                     </div>
                                 </template>
 
@@ -2000,6 +2000,7 @@
                                     <div style="display: flex; gap: 0.5rem;">
                                         <input type="text" class="form-input" x-model="ssPersonSearchQuery"
                                                placeholder="Min 2 characters"
+                                               @input.debounce.300ms="typeSsPersonSearch()"
                                                @keyup.enter="searchPersonsForSS()"
                                                style="flex: 1;">
                                         <button class="btn-action primary" @click="searchPersonsForSS()"
@@ -2023,6 +2024,7 @@
                                                 <th class="sortable" @click="sortSsPersonSearch('person_name')" :aria-sort="NSS.sortAria(ssPersonSearchSortBy, ssPersonSearchSortDir, 'person_name')">Name<span class="sort-ind" x-text="NSS.sortIcon(ssPersonSearchSortBy, ssPersonSearchSortDir, 'person_name')"></span></th>
                                                 <th class="sortable" @click="sortSsPersonSearch('mobile_number')" :aria-sort="NSS.sortAria(ssPersonSearchSortBy, ssPersonSearchSortDir, 'mobile_number')">Mobile<span class="sort-ind" x-text="NSS.sortIcon(ssPersonSearchSortBy, ssPersonSearchSortDir, 'mobile_number')"></span></th>
                                                 <th class="sortable" @click="sortSsPersonSearch('email')" :aria-sort="NSS.sortAria(ssPersonSearchSortBy, ssPersonSearchSortDir, 'email')">Email<span class="sort-ind" x-text="NSS.sortIcon(ssPersonSearchSortBy, ssPersonSearchSortDir, 'email')"></span></th>
+                                                <th class="sortable" @click="sortSsPersonSearch('_sakha_name')" :aria-sort="NSS.sortAria(ssPersonSearchSortBy, ssPersonSearchSortDir, '_sakha_name')">Sakha<span class="sort-ind" x-text="NSS.sortIcon(ssPersonSearchSortBy, ssPersonSearchSortDir, '_sakha_name')"></span></th>
                                                 <th></th>
                                             </tr></thead>
                                             <tbody>
@@ -2044,6 +2046,7 @@
                                                         </td>
                                                         <td x-text="p.mobile_number || '—'"></td>
                                                         <td x-text="p.email || '—'"></td>
+                                                        <td x-text="p._sakha_name || '—'"></td>
                                                         <td>
                                                             <!-- Normal: Select button -->
                                                             <template x-if="!p._already_ss && !p._pending_claim">
@@ -2052,7 +2055,11 @@
                                                             </template>
                                                             <!-- Already SS -->
                                                             <template x-if="p._already_ss">
-                                                                <span style="font-size: 0.7rem; color: #6b7280;">Already SS</span>
+                                                                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                                                    <span style="font-size: 0.7rem; color: #6b7280;" x-text="p._ss_deactivated ? 'Deactivated SS' : 'Already SS'"></span>
+                                                                    <button type="button" class="btn-action primary" style="font-size: 0.7rem;"
+                                                                            x-show="p._ss_deactivated" @click.stop="restoreSanghaSevi(p)">Activate</button>
+                                                                </div>
                                                             </template>
                                                             <!-- Pending claim: show "View Claim" if user can approve -->
                                                             <template x-if="p._pending_claim && !p._already_ss && canApproveClaims">
@@ -2079,19 +2086,19 @@
 
                                 <!-- Selected Person -->
                                 <template x-if="ssForm.person_pk">
-                                    <div :style="ssSelectedPerson.already_ss ? 'background: #fef2f2; border: 1px solid #fecaca;' : 'background: #f0fdf4; border: 1px solid #86efac;'"
-                                         style="border-radius: 6px; padding: 0.75rem; margin-bottom: 1rem;">
-                                        <div style="display: flex; justify-content: space-between; align-items: start;">
-                                            <div>
-                                                <div style="font-weight: 600; font-size: 0.85rem;" x-text="ssSelectedPerson.person_name"></div>
-                                                <div style="font-size: 0.75rem; color: #6b7280;" x-text="ssSelectedPerson.person_id"></div>
-                                                <div x-show="ssSelectedPerson.already_ss"
-                                                     style="font-size: 0.8rem; color: #dc2626; font-weight: 600; margin-top: 0.35rem;">
-                                                    ⚠ Already a Sangha Sevi — ID: <span x-text="ssSelectedPerson.existing_ss_id"></span>
-                                                </div>
+                                    <div class="sel-person" :class="ssSelectedPerson.already_ss ? 'sel-person--warn' : ''">
+                                        <div class="sel-person__avatar" aria-hidden="true" x-text="NSS.initials(ssSelectedPerson.person_name)"></div>
+                                        <div class="sel-person__body">
+                                            <div class="sel-person__label">Selected person</div>
+                                            <div class="sel-person__name" x-text="ssSelectedPerson.person_name"></div>
+                                            <div class="sel-person__meta">
+                                                <span class="sel-person__id" x-text="ssSelectedPerson.person_id"></span>
                                             </div>
-                                            <button class="btn-action" style="font-size: 0.7rem;" @click="ssForm.person_pk = ''; ssSelectedPerson = {}; ssError = '';">Clear</button>
+                                            <div class="sel-person__note sel-person__note--error" x-show="ssSelectedPerson.already_ss">
+                                                ⚠ Already a Sangha Sevi — ID: <span x-text="ssSelectedPerson.existing_ss_id"></span>
+                                            </div>
                                         </div>
+                                        <button type="button" class="btn-action" @click="clearSsPerson()">Change</button>
                                     </div>
                                 </template>
 
@@ -3568,7 +3575,14 @@
                                 <span style="font-size: 0.75rem; color: #6b7280;" x-text="pdPersons.length + (pdTotal > pdPersons.length ? ' of ' + pdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
-                                <div class="search-bar" style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+                                <div class="search-bar dir-toolbar">
+                                    <div class="form-group dir-search">
+                                        <label class="form-label">Search</label>
+                                        <input type="search" class="form-input" x-model="pdSearch"
+                                               placeholder="Name, Person ID, mobile or email (min 2 chars)"
+                                               @input.debounce.300ms="pdSearchChanged()"
+                                               @keyup.enter="fetchPersonDirectory()" autocomplete="off">
+                                    </div>
                                     <div class="form-group" style="margin: 0; min-width: 160px;">
                                         <label class="form-label">Gender</label>
                                         <select class="nss-select" x-model="pdGenderFilter" @change="fetchPersonDirectory()">
@@ -3608,15 +3622,13 @@
                                 <!-- Sorting is server-side. The response is capped at 500 rows, so
                                      reordering in the browser would only reorder whichever 500 came
                                      back; asking the server returns the top 500 of the chosen order. -->
-                                <div class="nss-dir-sortbar">
-                                    <span class="sortbar-label">Sort by</span>
-                                    <span class="sortable" @click="sortPersonDir('person_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'person_name')">Name<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'person_name')"></span></span>
-                                    <span class="sortable" @click="sortPersonDir('person_id')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'person_id')">Person ID<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'person_id')"></span></span>
-                                    <span class="sortable" @click="sortPersonDir('gender_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'gender_name')">Gender<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'gender_name')"></span></span>
-                                    <span class="sortable" @click="sortPersonDir('marital_status_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'marital_status_name')">Marital<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'marital_status_name')"></span></span>
-                                    <span class="sortable" @click="sortPersonDir('blood_group_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'blood_group_name')">Blood<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'blood_group_name')"></span></span>
-                                    <span class="sortable" @click="sortPersonDir('mobile_number')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'mobile_number')">Mobile<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'mobile_number')"></span></span>
-                                    <span class="sortable" @click="sortPersonDir('email')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'email')">Email<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'email')"></span></span>
+                                <div class="dir-head" role="row">
+                                    <span class="sortable dir-c dir-c-main" role="columnheader" @click="sortPersonDir('person_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'person_name')">Person<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'person_name')"></span><span class="sortable dir-id-sort" title="Sort by ID" @click.stop="sortPersonDir('person_id')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'person_id')">ID<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'person_id')"></span></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortPersonDir('gender_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'gender_name')">Gender<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'gender_name')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortPersonDir('marital_status_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'marital_status_name')">Marital<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'marital_status_name')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortPersonDir('blood_group_name')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'blood_group_name')">Blood<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'blood_group_name')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortPersonDir('mobile_number')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'mobile_number')">Mobile<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'mobile_number')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortPersonDir('email')" :aria-sort="NSS.sortAria(pdSortBy, pdSortDir, 'email')">Email<span class="sort-ind" x-text="NSS.sortIcon(pdSortBy, pdSortDir, 'email')"></span></span>
                                 </div>
 
                                 <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="pdLoading">
@@ -3625,27 +3637,25 @@
                                 <div class="alert-msg alert-error" x-show="pdError" x-text="pdError"></div>
 
                                 <template x-if="!pdLoading && !pdError">
-                                    <div style="margin-top: 1rem;">
-                                        <div x-show="pdPersons.length === 0" style="padding: 1.5rem; color: #6b7280;">No persons found.</div>
+                                    <div class="dir-list">
+                                        <div class="dir-empty" x-show="pdPersons.length === 0">No persons found.</div>
                                         <template x-for="p in pdPersons" :key="p.person_pk">
                                             <div>
-                                                <div class="nss-dir-row"
+                                                <div class="nss-dir-row dir-row" role="row"
                                                      :class="pdSelected && pdSelected.person_pk === p.person_pk ? 'is-selected' : ''"
                                                      @click="viewPerson(p)">
-                                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
-                                                        <div style="min-width: 0;">
-                                                            <div style="font-weight: 600; color: #1e293b;" x-text="pdFullName(p)"></div>
-                                                            <div class="mono" style="font-size: 0.72rem; color: #94a3b8; margin-top: 0.1rem;" x-text="p.person_id"></div>
-                                                        </div>
-                                                        <span class="badge badge-xs" :class="p.is_active ? 'badge-status-active' : 'badge-status-inactive'" x-text="p.is_active ? 'Active' : 'Inactive'"></span>
+                                                    <div class="dir-c dir-c-main">
+                                                        <span class="dir-avatar" aria-hidden="true" x-text="NSS.initials(pdFullName(p))"></span>
+                                                        <span class="dir-id">
+                                                            <span class="dir-name" x-text="pdFullName(p)"></span>
+                                                            <span class="dir-sub mono" x-text="p.person_id"></span>
+                                                        </span>
                                                     </div>
-                                                    <div class="nss-dir-meta">
-                                                        <span x-show="p.gender_name"><span class="lbl">Gender</span><span class="val" x-text="p.gender_name"></span></span>
-                                                        <span x-show="p.marital_status_name"><span class="lbl">Marital</span><span class="val" x-text="p.marital_status_name"></span></span>
-                                                        <span x-show="p.blood_group_name"><span class="lbl">Blood</span><span class="val" x-text="p.blood_group_name"></span></span>
-                                                        <span x-show="p.mobile_number"><span class="lbl">Mobile</span><span class="val mono" x-text="(p.country_phone_code || '') + ' ' + (p.mobile_number || '')"></span></span>
-                                                        <span x-show="p.email"><span class="lbl">Email</span><span class="val" x-text="p.email"></span></span>
-                                                    </div>
+                                                    <div class="dir-c" data-label="Gender" x-text="p.gender_name || '—'"></div>
+                                                    <div class="dir-c" data-label="Marital" x-text="p.marital_status_name || '—'"></div>
+                                                    <div class="dir-c" data-label="Blood" x-text="p.blood_group_name || '—'"></div>
+                                                    <div class="dir-c mono" data-label="Mobile" x-text="p.mobile_number ? ((p.country_phone_code || '') + ' ' + p.mobile_number) : '—'"></div>
+                                                    <div class="dir-c" data-label="Email" x-text="p.email || '—'"></div>
                                                 </div>
 
                                                 <!-- Detail — opens directly below the selected row, not at the end of the list -->
@@ -3708,7 +3718,14 @@
                                 <span style="font-size: 0.75rem; color: #6b7280;" x-text="mdMembers.length + (mdTotal > mdMembers.length ? ' of ' + mdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
-                                <div class="search-bar" style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+                                <div class="search-bar dir-toolbar">
+                                    <div class="form-group dir-search">
+                                        <label class="form-label">Search</label>
+                                        <input type="search" class="form-input" x-model="mdSearch"
+                                               placeholder="Name, SS / Person / Sakha ID, mobile, email, Sakha or Kendra No. (min 2 chars)"
+                                               @input.debounce.300ms="mdSearchChanged()"
+                                               @keyup.enter="fetchMemberDirectory()" autocomplete="off">
+                                    </div>
                                     <div class="form-group" style="margin: 0; min-width: 200px;">
                                         <label class="form-label">Membership Type</label>
                                         <select class="nss-select" x-model="mdTypeFilter" @change="fetchMemberDirectory()">
@@ -3719,7 +3736,7 @@
                                         </select>
                                     </div>
                                     <div class="form-group" style="margin: 0; min-width: 200px;">
-                                        <label class="form-label">Status</label>
+                                        <label class="form-label">Membership Status</label>
                                         <select class="nss-select" x-model="mdStatusFilter" @change="fetchMemberDirectory()">
                                             <option value="">All</option>
                                             <template x-for="o in mdStatusOptions" :key="o.value_code">
@@ -3767,16 +3784,14 @@
 
                                 <!-- Sorting is server-side — see the Person Directory note; the
                                      same 500-row cap applies here. -->
-                                <div class="nss-dir-sortbar">
-                                    <span class="sortbar-label">Sort by</span>
-                                    <span class="sortable" @click="sortMemberDir('person_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'person_name')">Name<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'person_name')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('sangha_sevi_id')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'sangha_sevi_id')">Sangha Sevi ID<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'sangha_sevi_id')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('membership_type_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'membership_type_name')">Type<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'membership_type_name')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('status_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'status_name')">Status<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'status_name')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('organization_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'organization_name')">Sakha<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'organization_name')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('local_sakha_erp_id')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'local_sakha_erp_id')">Sakha No.<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'local_sakha_erp_id')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('mobile_number')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'mobile_number')">Mobile<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'mobile_number')"></span></span>
-                                    <span class="sortable" @click="sortMemberDir('joining_date')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'joining_date')">Joined<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'joining_date')"></span></span>
+                                <div class="dir-head" role="row">
+                                    <span class="sortable dir-c dir-c-main" role="columnheader" @click="sortMemberDir('person_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'person_name')">Member<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'person_name')"></span><span class="sortable dir-id-sort" title="Sort by ID" @click.stop="sortMemberDir('sangha_sevi_id')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'sangha_sevi_id')">ID<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'sangha_sevi_id')"></span></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortMemberDir('membership_type_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'membership_type_name')">Type<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'membership_type_name')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortMemberDir('status_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'status_name')">Membership Status<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'status_name')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortMemberDir('organization_name')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'organization_name')">Sakha<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'organization_name')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortMemberDir('local_sakha_erp_id')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'local_sakha_erp_id')">Sakha No.<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'local_sakha_erp_id')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortMemberDir('mobile_number')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'mobile_number')">Mobile<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'mobile_number')"></span></span>
+                                    <span class="sortable dir-c " role="columnheader" @click="sortMemberDir('joining_date')" :aria-sort="NSS.sortAria(mdSortBy, mdSortDir, 'joining_date')">Joined<span class="sort-ind" x-text="NSS.sortIcon(mdSortBy, mdSortDir, 'joining_date')"></span></span>
                                 </div>
 
                                 <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="mdLoading">
@@ -3785,26 +3800,26 @@
                                 <div class="alert-msg alert-error" x-show="mdError" x-text="mdError"></div>
 
                                 <template x-if="!mdLoading && !mdError">
-                                    <div style="margin-top: 1rem;">
-                                        <div x-show="mdMembers.length === 0" style="padding: 1.5rem; color: #6b7280;">No members found.</div>
+                                    <div class="dir-list">
+                                        <div class="dir-empty" x-show="mdMembers.length === 0">No members found.</div>
                                         <template x-for="m in mdMembers" :key="m.sangha_sevi_pk">
                                             <div>
-                                                <div class="nss-dir-row"
+                                                <div class="nss-dir-row dir-row" role="row"
                                                      :class="mdSelected && mdSelected.sangha_sevi_pk === m.sangha_sevi_pk ? 'is-selected' : ''"
                                                      @click="viewMember(m)">
-                                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
-                                                        <div style="min-width: 0;">
-                                                            <div style="font-weight: 600; color: #1e293b;" x-text="mdMemberName(m)"></div>
-                                                            <div class="mono" style="font-size: 0.72rem; color: #94a3b8; margin-top: 0.1rem;" x-text="m.sangha_sevi_id"></div>
-                                                        </div>
-                                                        <span class="badge badge-xs" :class="NSS.statusBadgeClass(m.status_code)" x-text="m.status_name"></span>
+                                                    <div class="dir-c dir-c-main">
+                                                        <span class="dir-avatar" aria-hidden="true" x-text="NSS.initials(mdMemberName(m))"></span>
+                                                        <span class="dir-id">
+                                                            <span class="dir-name" x-text="mdMemberName(m)"></span>
+                                                            <span class="dir-sub mono" x-text="m.sangha_sevi_id"></span>
+                                                        </span>
                                                     </div>
-                                                    <div class="nss-dir-meta">
-                                                        <span x-show="m.membership_type_name"><span class="lbl">Type</span><span class="val" x-text="m.membership_type_name"></span></span>
-                                                        <span x-show="m.organization_name"><span class="lbl">Sakha</span><span class="val" x-text="m.organization_name"></span></span>
-                                                        <span x-show="m.local_sakha_erp_id"><span class="lbl">Sakha No.</span><span class="val mono" x-text="m.local_sakha_erp_id"></span></span>
-                                                        <span x-show="m.mobile_number"><span class="lbl">Mobile</span><span class="val mono" x-text="(m.country_phone_code || '') + ' ' + (m.mobile_number || '')"></span></span>
-                                                    </div>
+                                                    <div class="dir-c" data-label="Type" x-text="m.membership_type_name || '—'"></div>
+                                                    <div class="dir-c" data-label="Membership Status"><span class="badge badge-xs" :class="NSS.statusBadgeClass(m.status_code)" x-text="m.status_name"></span></div>
+                                                    <div class="dir-c" data-label="Sakha" x-text="m.organization_name || '—'"></div>
+                                                    <div class="dir-c mono" data-label="Sakha No." x-text="m.local_sakha_erp_id || '—'"></div>
+                                                    <div class="dir-c mono" data-label="Mobile" x-text="m.mobile_number ? ((m.country_phone_code || '') + ' ' + m.mobile_number) : '—'"></div>
+                                                    <div class="dir-c" data-label="Joined" x-text="m.joining_date ? (NSS.formatDate ? NSS.formatDate(m.joining_date) : m.joining_date) : '—'"></div>
                                                 </div>
 
                                                 <!-- Detail — opens directly below the selected row, not at the end of the list -->
@@ -3819,7 +3834,7 @@
                                                                 <div class="data-row"><span class="data-label">Sangha Sevi ID</span><span class="data-value mono" x-text="mdSelected && mdSelected.sangha_sevi_id"></span></div>
                                                                 <div class="data-row"><span class="data-label">Person ID</span><span class="data-value mono" x-text="mdSelected && mdSelected.person_id"></span></div>
                                                                 <div class="data-row"><span class="data-label">Type</span><span class="data-value" x-text="mdSelected && mdSelected.membership_type_name"></span></div>
-                                                                <div class="data-row"><span class="data-label">Status</span><span class="data-value" x-text="mdSelected && mdSelected.status_name"></span></div>
+                                                                <div class="data-row"><span class="data-label">Membership Status</span><span class="data-value" x-text="mdSelected && mdSelected.status_name"></span></div>
                                                                 <div class="data-row" x-show="mdSelected && mdSelected.organization_name"><span class="data-label">Organization</span><span class="data-value" x-text="mdSelected && mdSelected.organization_name"></span></div>
                                                                 <div class="data-row" x-show="mdSelected && mdSelected.local_sakha_erp_id"><span class="data-label">Local Sakha No.</span><span class="data-value mono" x-text="mdSelected && mdSelected.local_sakha_erp_id"></span></div>
                                                                 <div class="data-row" x-show="mdSelected && mdSelected.mobile_number"><span class="data-label">Mobile</span><span class="data-value mono" x-text="mdSelected ? ((mdSelected.country_phone_code || '') + ' ' + (mdSelected.mobile_number || '')) : ''"></span></div>
@@ -3835,6 +3850,75 @@
                                                             <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;">
                                                                 <button class="btn-action" @click="requestSakhaTransfer(mdSelected)">Sakha Transfer</button>
                                                                 <button class="btn-action" @click="applyDarshak(mdSelected)">Apply for Darshak</button>
+                                                            </div>
+
+                                                            <!-- Membership Status: request -> Parichalak / Kendra President approval -->
+                                                            <div class="ms-panel" x-show="msOverview" x-cloak>
+                                                                <div class="ms-panel__head">
+                                                                    <div>
+                                                                        <div class="nav-section-label" style="padding-left: 0;">Membership Status</div>
+                                                                        <span class="badge badge-xs" :class="NSS.statusBadgeClass(msOverview && msOverview.current_status_code)"
+                                                                              x-text="msOverview && msOverview.current_status_name"></span>
+                                                                    </div>
+                                                                    <button type="button" class="btn-action" x-show="msOverview && msOverview.can_request && !msForm.show"
+                                                                            @click="msOpenForm()">Change status</button>
+                                                                </div>
+
+                                                                <!-- Request in progress -->
+                                                                <div class="ms-pending" x-show="msOverview && msOverview.pending_request">
+                                                                    <div>
+                                                                        <strong x-text="msOverview && msOverview.pending_request ? (msOverview.pending_request.from_status_name + ' → ' + msOverview.pending_request.to_status_name) : ''"></strong>
+                                                                        <span class="ms-muted" x-text="msOverview && msOverview.pending_request ? ' · effective ' + msOverview.pending_request.effective_date : ''"></span>
+                                                                    </div>
+                                                                    <div class="ms-muted" x-text="msOverview && msOverview.pending_request ? msOverview.pending_request.reason : ''"></div>
+                                                                    <div class="ms-muted" x-text="msOverview && msOverview.pending_request ? 'Waiting for the Parichalak / Kendra President. Requested by ' + (msOverview.pending_request.requested_by_name || 'an administrator') : ''"></div>
+                                                                    <div class="ms-actions" x-show="msOverview && msOverview.can_decide">
+                                                                        <input type="text" class="form-input" placeholder="Remarks (required to reject)" maxlength="500" x-model="msDecisionRemarks">
+                                                                        <button type="button" class="btn-action primary" :disabled="msBusy" @click="msDecide('approve')">Approve</button>
+                                                                        <button type="button" class="btn-action" :disabled="msBusy" @click="msDecide('reject')">Reject</button>
+                                                                    </div>
+                                                                    <div class="ms-actions" x-show="msOverview && !msOverview.can_decide">
+                                                                        <button type="button" class="btn-action" :disabled="msBusy" @click="msDecide('cancel')">Cancel request</button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <!-- New request -->
+                                                                <div class="ms-form" x-show="msForm.show">
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">New status *</label>
+                                                                        <select class="nss-select" x-model="msForm.to_status_code">
+                                                                            <option value="">Select...</option>
+                                                                            <template x-for="c in (msOverview ? msOverview.allowed_status_codes : [])" :key="c">
+                                                                                <option :value="c" x-text="msStatusName(c)"></option>
+                                                                            </template>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="form-group">
+                                                                        <label class="form-label">Effective date *</label>
+                                                                        <input type="date" class="form-input" x-model="msForm.effective_date" :max="new Date().toISOString().slice(0, 10)">
+                                                                    </div>
+                                                                    <div class="form-group" style="grid-column: 1 / -1;">
+                                                                        <label class="form-label">Reason *</label>
+                                                                        <input type="text" class="form-input" maxlength="500" x-model="msForm.reason"
+                                                                               placeholder="Why the status is changing (kept in the history)">
+                                                                    </div>
+                                                                    <p class="form-hint" style="grid-column: 1 / -1;">Nothing changes until the Parichalak (or the delegate acting for the seat) or the Kendra President approves.</p>
+                                                                    <p class="form-hint" style="color: #dc2626; grid-column: 1 / -1;" x-show="msForm.error" x-text="msForm.error"></p>
+                                                                    <div class="ms-actions" style="grid-column: 1 / -1;">
+                                                                        <button type="button" class="btn-action primary" :disabled="msForm.saving" @click="msSubmitRequest()">
+                                                                            <span x-text="msForm.saving ? 'Sending...' : 'Send for approval'"></span></button>
+                                                                        <button type="button" class="btn-action" :disabled="msForm.saving" @click="msForm.show = false">Cancel</button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <!-- History -->
+                                                                <template x-for="h in (msOverview ? msOverview.history : [])" :key="h.effective_from + h.status_code">
+                                                                    <div class="ms-history">
+                                                                        <span class="badge badge-xs" :class="NSS.statusBadgeClass(h.status_code)" x-text="h.status_name"></span>
+                                                                        <span class="mono ms-muted" x-text="h.effective_from.slice(0, 10) + (h.effective_to ? ' → ' + h.effective_to.slice(0, 10) : ' → now')"></span>
+                                                                        <span class="ms-muted" x-show="h.reason" x-text="h.reason"></span>
+                                                                    </div>
+                                                                </template>
                                                             </div>
 
                                                             <!-- Affiliations -->
@@ -4567,9 +4651,9 @@
                                 <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="ssSettingsLoading">
                                     <div class="spinner"></div>
                                 </div>
-                                <div class="alert-msg alert-error" x-show="ssError" x-text="ssError"></div>
+                                <div class="alert-msg alert-error" x-show="settingsError" x-text="settingsError"></div>
 
-                                <template x-if="!ssSettingsLoading && !ssError">
+                                <template x-if="!ssSettingsLoading && !settingsError">
                                     <div>
                                         <div class="nav-section-label" style="padding-left: 0;">Settings</div>
                                         <div x-show="ssSettings.length === 0" style="padding: 1rem; color: #6b7280;">No settings found.</div>
@@ -11225,7 +11309,7 @@
             <div class="modal-card">
                 <div class="modal-card-header">
                     <h3 x-text="ssModalMode === 'add' ? 'Add Setting' : 'Edit Setting'"></h3>
-                    <p x-show="ssModalMode === 'edit'">Editing <strong class="mono" x-text="ssForm.setting_key"></strong></p>
+                    <p x-show="ssModalMode === 'edit'">Editing <strong class="mono" x-text="settingForm.setting_key"></strong></p>
                 </div>
                 <div class="modal-card-body">
                     <template x-if="ssModalError">
@@ -11234,14 +11318,14 @@
 
                     <div class="form-group" x-show="ssModalMode === 'add'">
                         <label class="form-label">Key</label>
-                        <input type="text" class="form-input mono" x-model="ssForm.setting_key"
+                        <input type="text" class="form-input mono" x-model="settingForm.setting_key"
                                placeholder="e.g. CURRENT_MEMBERSHIP_YEAR">
                         <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 0.25rem;">Stored in upper case. Consumed by code using this exact key.</div>
                     </div>
 
                     <div class="form-group" x-show="ssModalMode === 'add'">
                         <label class="form-label">Data Type</label>
-                        <select class="nss-select" x-model="ssForm.data_type">
+                        <select class="nss-select" x-model="settingForm.data_type">
                             <option value="STRING">STRING</option>
                             <option value="INTEGER">INTEGER</option>
                             <option value="BOOLEAN">BOOLEAN</option>
@@ -11253,21 +11337,21 @@
                     <div class="form-group">
                         <label class="form-label">
                             Value
-                            <span class="badge badge-xs badge-muted" style="margin-left: 0.35rem;" x-show="ssModalMode === 'edit'" x-text="ssForm.data_type"></span>
+                            <span class="badge badge-xs badge-muted" style="margin-left: 0.35rem;" x-show="ssModalMode === 'edit'" x-text="settingForm.data_type"></span>
                         </label>
-                        <input type="text" class="form-input" x-model="ssForm.setting_value"
-                               :placeholder="ssForm.data_type === 'BOOLEAN' ? 'true or false' : (ssForm.data_type === 'DATE' ? 'DD/MM/YYYY' : (ssForm.data_type === 'INTEGER' ? 'whole number' : 'value'))">
+                        <input type="text" class="form-input" x-model="settingForm.setting_value"
+                               :placeholder="settingForm.data_type === 'BOOLEAN' ? 'true or false' : (settingForm.data_type === 'DATE' ? 'DD/MM/YYYY' : (settingForm.data_type === 'INTEGER' ? 'whole number' : 'value'))">
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Description <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
-                        <input type="text" class="form-input" x-model="ssForm.description" placeholder="What this setting controls">
+                        <input type="text" class="form-input" x-model="settingForm.description" placeholder="What this setting controls">
                     </div>
                 </div>
                 <div class="modal-card-footer">
                     <button class="btn-action" @click="closeSettingModal()">Cancel</button>
                     <button class="btn-action primary" @click="saveSetting()"
-                            :disabled="ssModalSaving || !ssForm.setting_value || (ssModalMode === 'add' && !ssForm.setting_key)">
+                            :disabled="ssModalSaving || !settingForm.setting_value || (ssModalMode === 'add' && !settingForm.setting_key)">
                         <div class="spinner-sm" x-show="ssModalSaving"></div>
                         <span x-text="ssModalMode === 'add' ? 'Add' : 'Save'"></span>
                     </button>
