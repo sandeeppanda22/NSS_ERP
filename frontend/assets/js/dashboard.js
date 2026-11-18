@@ -326,8 +326,11 @@ const LIVE_TABLE_TABS = {
     family_link: ["family"],
     family_transition_history: ["family"],
     // Finance (Tier 12): the member's own Pranami contributions and their receipts
-    financial_transaction: ["pranami"],
+    financial_transaction: ["pranami", "finApprovals"],
     financial_receipt: ["pranami"],
+    // Finance approvals (owner 2026-11-17): the Treasurer / President's own list of entries waiting for them
+    finance_approval_step: ["finApprovals"],
+    finance_transaction_bill: ["finApprovals"],
 };
 // LIVE_TABLE_TABS:end
 
@@ -363,6 +366,8 @@ const LIVE_REFRESH_CONFIG = {
 
         // Finance: the member's own Pranami (read-only, nothing to protect from a reload).
         pranami: { reload: (h) => h._loadPranami({ silent: true }), busy: () => false },
+        // Finance approvals: not reloaded while a decision is being sent.
+        finApprovals: { reload: (h) => h._loadFinApprovals({ silent: true }), busy: (h) => !!h.finApprovals.acting },
 
         // ── Batch 2 ──
         // Personal: person, addresses, own membership record and family. Busy while the
@@ -989,7 +994,7 @@ function dashboardApp() {
         // GET /api/v1/finance/my-pranami - login only, no id parameter, so it can
         // only ever return the signed-in member's rows (posted / settled Pranami
         // income linked to them, with its issued receipts).
-        pranami: { loading: false, error: "", data: null, year: "" },
+        pranami: { loading: false, error: "", data: null, year: "", receiptError: "", view: "pay" },
         _pranamiSeq: 0,
 
         async _loadPranami(opts = {}) {
@@ -1025,7 +1030,7 @@ function dashboardApp() {
         // GET /finance/my-pranami/heads lists what the member's own Sakha and the Kendra can collect by UPI; POST /finance/my-pranami/pay
         // starts a payment of THEIR OWN Pranami (the payer is the token). This page never marks anything paid: the gateway's
         // signed webhook does, and the status poll below only reports it. Links are rendered only with the expected scheme.
-        pranamiPay: { heads: [], amounts: {}, head: "", saving: false, error: "", result: null },
+        pranamiPay: { heads: [], amounts: {}, selected: {}, head: "", saving: false, error: "", result: null },
         _pranamiPayTimer: null,
 
         // The contribution cards grouped by the Sangha they pay: the member's own Sakha first, then the Kendra (the server sorts them so).
@@ -1066,6 +1071,63 @@ function dashboardApp() {
                 this.pranamiPay.heads = res.ok ? await res.json() : [];
             } catch { this.pranamiPay.heads = []; }
         },
+        // ── Pay several contributions in ONE UPI payment (owner request 2026-11-17) ──────────────────────
+        // The member ticks cards of ONE Sangha (a payment goes to one account, so the Sakha and the Kendra are paid separately);
+        // POST /finance/my-pranami/pay-multiple takes the head and amount of each and the server re-checks every one.
+        pranamiSelectedHeads() {
+            return this.pranamiPay.heads.filter((h) => this.pranamiPay.selected[h.finance_head_pk] && this.pranamiCardCanPay(h));
+        },
+        pranamiSelectedOrg() {
+            const first = this.pranamiSelectedHeads()[0];
+            return first ? first.organization_pk : "";
+        },
+        pranamiSelectDisabled(h) {
+            const org = this.pranamiSelectedOrg();
+            return !this.pranamiCardCanPay(h) || (org !== "" && org !== h.organization_pk);
+        },
+        pranamiToggle(h) {
+            if (this.pranamiSelectDisabled(h)) return;
+            this.pranamiPay.selected[h.finance_head_pk] = !this.pranamiPay.selected[h.finance_head_pk];
+        },
+        pranamiGroupPayableCount(g) { return g.heads.filter((h) => this.pranamiCardCanPay(h)).length; },
+        pranamiSelectGroup(g) {
+            this.pranamiPay.selected = {};
+            for (const h of g.heads) if (this.pranamiCardCanPay(h)) this.pranamiPay.selected[h.finance_head_pk] = true;
+        },
+        pranamiClearSelection() { this.pranamiPay.selected = {}; },
+        // The total in paise (integers: no floating-point drift), of the amounts the cards currently hold.
+        pranamiSelectedPaise() {
+            return this.pranamiSelectedHeads().reduce((sum, h) => sum + Math.round(Number(this.pranamiCardAmount(h)) * 100), 0);
+        },
+        pranamiSelectedTotal() { return NSS.formatMoney(this.pranamiSelectedPaise() / 100); },
+        async pranamiPayMultiple() {
+            const p = this.pranamiPay;
+            const heads = this.pranamiSelectedHeads();
+            if (heads.length < 2) { p.error = "Tick at least two contributions of the same Sangha to pay them together."; return; }
+            const items = [];
+            for (const h of heads) {
+                const amount = this.pranamiCardAmount(h).trim();
+                if (!/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
+                    p.error = `${h.head_name}: enter a positive amount with at most two decimals.`; return;
+                }
+                items.push({ finance_head_pk: h.finance_head_pk, amount });
+            }
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/pay-multiple", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
+                });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                p.selected = {};
+                this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
+            } catch (err) {
+                p.error = err.message || "Could not start the payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+
         async pranamiPayStart(h) {
             const p = this.pranamiPay;
             const amount = this.pranamiCardAmount(h).trim();
@@ -1105,7 +1167,74 @@ function dashboardApp() {
                 this._pranamiPayPoll(pk, tries + 1);
             }, 3000);
         },
-        pranamiPayClose() { clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.head = ""; this.pranamiPay.error = ""; this._loadPranamiPayHeads(); },
+        pranamiPayClose() { clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.head = ""; this.pranamiPay.error = ""; this.pranamiPay.selected = {}; this._loadPranamiPayHeads(); },
+
+        // ── Finance approvals (Sakha chain, owner 2026-11-17) ─────────────────
+        // GET /finance/my-approvals lists the entries waiting for THIS member to act now (their seat is the one the next step needs);
+        // POST /finance/transactions/{pk}/approve | /reject decide. The server checks the seat on every call: this page decides nothing.
+        finApprovals: { loading: false, error: "", items: [], notice: "", acting: "", remarks: {} },
+        _finApprovalsSeq: 0,
+
+        async _loadFinApprovals(opts = {}) {
+            const seq = ++this._finApprovalsSeq;
+            const a = this.finApprovals;
+            if (!opts.silent) { a.loading = true; a.error = ""; }
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-approvals");
+                if (seq !== this._finApprovalsSeq) return;
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                a.items = (await res.json()).items || [];
+            } catch (err) {
+                if (seq !== this._finApprovalsSeq || opts.silent) return;
+                a.items = [];
+                a.error = err.message || "Failed to load your approvals.";
+            } finally {
+                if (seq === this._finApprovalsSeq) a.loading = false;
+            }
+        },
+        finApprovalsCount() { return this.finApprovals.items.length; },
+        finApprovalOffice(item) {
+            return { TREASURER: "Treasurer", PRESIDENT: "President", SECRETARY: "Secretary" }[item.position_code] || item.position_code;
+        },
+        finApprovalRuleText(item) {
+            if (item.requires === "TREASURER") return `Within the Treasurer's limit (${NSS.formatMoney(item.limit)}): your approval is the only one needed.`;
+            if (item.stage === 1) return "Step 1 of 2: after you approve, the President (or the Secretary when no President is seated) approves too.";
+            return item.cover_reason === "PRESIDENT_SEAT_VACANT"
+                ? "Step 2 of 2: no President is seated, so you approve as Secretary. Your approval posts the entry."
+                : "Step 2 of 2: the Treasurer has approved. Your approval posts the entry.";
+        },
+        async finApprovalDecide(item, decision) {
+            const a = this.finApprovals;
+            const pk = item.financial_transaction_pk;
+            const remarks = String(a.remarks[pk] || "").trim();
+            if (decision === "REJECTED" && !remarks) { a.error = "Give a reason when you reject an entry."; return; }
+            a.acting = pk; a.error = ""; a.notice = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/transactions/${pk}/${decision === "APPROVED" ? "approve" : "reject"}`, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remarks: remarks || null }),
+                });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const r = await res.json();
+                a.notice = `${r.transaction_reference}: ${r.message}`;
+                delete a.remarks[pk];
+            } catch (err) {
+                a.error = err.message || "Could not record your decision.";
+            } finally {
+                a.acting = "";
+                await this._loadFinApprovals({ silent: true });
+            }
+        },
+
+        // Download a receipt of the member's OWN as a PDF, any time (GET /finance/my-pranami/receipts/{pk}/pdf).
+        async pranamiDownloadReceipt(receiptPk, receiptNumber) {
+            if (!receiptPk) return;
+            this.pranami.receiptError = "";
+            try {
+                await NSS.downloadFile(`/api/v1/finance/my-pranami/receipts/${receiptPk}/pdf`, `NSS-Receipt-${receiptNumber || "receipt"}.pdf`);
+            } catch (err) {
+                this.pranami.receiptError = err.message || "Could not download the receipt.";
+            }
+        },
 
         pranamiLatestDate() {
             const items = this.pranamiFiltered();
@@ -1301,6 +1430,10 @@ function dashboardApp() {
             if (this.tab === "pranami") {
                 this._loadPranami();
             }
+
+            // The Treasurer / President / Secretary's list of entries waiting for them: loaded for everyone (login only, an empty
+            // answer for anyone who holds no such seat) so the sidebar item and its count are right on login.
+            this._loadFinApprovals({ silent: true });
 
             // Same direct-load coverage for the Advisory Board dashboard tab.
             if (this.tab === "advisoryBoard") {
@@ -5381,6 +5514,8 @@ function dashboardApp() {
                     if (!this.person) this._fetchPersonalDetail();
                 } else if (tab === "pranami") {
                     this._loadPranami();
+                } else if (tab === "finApprovals") {
+                    this._loadFinApprovals();
                 } else if (tab === "advisoryBoard") {
                     this._loadAdvisoryBoardDashboard();
                 } else if (tab === "governance") {

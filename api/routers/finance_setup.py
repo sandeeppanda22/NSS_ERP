@@ -17,7 +17,7 @@ catalogue of finance heads, seeded from Kendra-published templates.
 
 Authorization: configuration is sensitive (a head decides what is restricted,
 what a member sees as Pranami and where UPI money lands; an account decides
-where it is paid), so WRITES need FINANCE_APPROVE; reads need any FINANCE_*
+where it is paid), so WRITES need FINANCE_CONFIGURE (owner 2026-11-17; it approves nothing); reads need any FINANCE_*
 permission. Both are bounded by admin scope on the OWNING organization
 (``require_org_in_scope``). A Kendra TEMPLATE head (no organization) is
 global-authority only for writes and readable by every finance user, because it
@@ -52,7 +52,7 @@ from api.services.rbac_service import UserContext, actor_scope_org_pks
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
-_VIEW, _MANAGE, _APPROVE = F._VIEW, F._MANAGE, F._APPROVE
+_VIEW, _MANAGE, _CONFIGURE = F._VIEW, F._MANAGE, F._CONFIGURE
 
 _LAST4_RE = re.compile(r"^[0-9]{4}$")
 _IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
@@ -179,8 +179,8 @@ def list_accounts(
 
 
 @router.post("/accounts", response_model=S.AccountResponse, status_code=status.HTTP_201_CREATED)
-def create_account(body: S.AccountCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
-    """Register a receiving account for a Sangha. FINANCE_APPROVE + admin scope on the Sangha."""
+def create_account(body: S.AccountCreate, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
+    """Register a receiving account for a Sangha. FINANCE_CONFIGURE + admin scope on the Sangha."""
     with conn.cursor() as cur:
         F._require_org_access(cur, user, body.organization_pk, "add a receiving account for this organization")
         F._require_active_organization(cur, body.organization_pk, "Organization")
@@ -217,7 +217,7 @@ def get_account(account_pk: UUID, user: UserContext = Depends(_VIEW), conn=Depen
 
 
 @router.patch("/accounts/{account_pk}", response_model=S.AccountResponse)
-def update_account(account_pk: UUID, body: S.AccountUpdate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def update_account(account_pk: UUID, body: S.AccountUpdate, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         acct = _account_row(cur, account_pk, lock=True)
         F._require_org_access(cur, user, acct["organization_pk"], "change this receiving account")
@@ -256,7 +256,7 @@ def update_account(account_pk: UUID, body: S.AccountUpdate, user: UserContext = 
 
 
 @router.post("/accounts/{account_pk}/transition", response_model=S.AccountResponse)
-def transition_account(account_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def transition_account(account_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         acct = _account_row(cur, account_pk, lock=True)
         F._require_org_access(cur, user, acct["organization_pk"], "change this receiving account")
@@ -295,6 +295,7 @@ _HEAD_SELECT = """
            ca.account_label AS collection_account_label, h.template_head_pk, h.display_order, h.status,
            (SELECT COUNT(*) FROM nss.financial_transaction t WHERE t.finance_head_pk = h.finance_head_pk AND t.is_active = TRUE) AS transaction_count,
            h.fixed_amount, h.due_period, h.allow_part_payment, h.applies_to_all_sakhas,
+           h.skips_approval, h.treasurer_limit, h.requires_member,
            COALESCE(src.applies_to_all_sakhas, FALSE) AS is_kendra_copy,
            (COALESCE(src.applies_to_all_sakhas, FALSE) AND h.collection_account_pk IS NULL) AS needs_account,
            CASE WHEN h.applies_to_all_sakhas THEN
@@ -414,7 +415,7 @@ def list_heads(
 
 
 @router.post("/heads", response_model=S.HeadResponse, status_code=status.HTTP_201_CREATED)
-def create_head(body: S.HeadCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def create_head(body: S.HeadCreate, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     """Create a finance head for a Sangha (or, for global authority only, a Kendra template)."""
     code = body.head_code.strip().upper()
     if not _HEAD_CODE_RE.match(code):
@@ -430,6 +431,10 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_APPROVE), conn=
         raise F._invalid(f"required_fund_type must be one of: {', '.join(S.FUND_TYPES)}.")
     if body.direction == "EXPENSE" and (body.is_pranami or body.allow_upi):
         raise F._invalid("Pranami and UPI collection apply to INCOME heads only.")
+    if body.direction == "EXPENSE" and body.skips_approval:
+        raise F._invalid("Only an INCOME head can skip approval.")
+    if body.direction == "INCOME" and (body.treasurer_limit is not None or body.requires_member):
+        raise F._invalid("The Treasurer's limit and the reimbursement flag apply to EXPENSE heads only.")
     with conn.cursor() as cur:
         _head_access(cur, user, {"organization_pk": body.organization_pk}, "create a finance head for this organization", write=True)
         if body.organization_pk is not None:
@@ -446,14 +451,15 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_APPROVE), conn=
             INSERT INTO nss.finance_head
                 (organization_pk, head_code, head_name, description, direction, is_restricted, restriction_purpose,
                  required_fund_type, is_pranami, allow_upi, collection_scope_pk, collection_fund_pk,
-                 collection_account_pk, display_order, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+                 collection_account_pk, display_order, skips_approval, treasurer_limit, requires_member, created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
             """,
             (str(body.organization_pk) if body.organization_pk else None, code, name, F._clean(body.description), body.direction,
              body.is_restricted, purpose, body.required_fund_type, body.is_pranami, body.allow_upi,
              str(body.collection_scope_pk) if body.collection_scope_pk else None,
              str(body.collection_fund_pk) if body.collection_fund_pk else None,
-             str(body.collection_account_pk) if body.collection_account_pk else None, body.display_order, user.actor_pk),
+             str(body.collection_account_pk) if body.collection_account_pk else None, body.display_order,
+             body.skips_approval, body.treasurer_limit, body.requires_member, user.actor_pk),
         )
         pk = cur.fetchone()[0]
         F._audit(cur, user, "CREATE", "finance_head", pk, f"Created finance head {code}",
@@ -476,12 +482,12 @@ def _check_amount_fields(amount, period, part, *, direction="INCOME") -> None:
 
 
 @router.post("/contributions", response_model=S.ContributionResult, status_code=status.HTTP_201_CREATED)
-def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     """
     The simple way to add a contribution (owner 2026-11-15): name, optional fixed amount, how often, part payment. The server
     sets the code, INCOME, member-visible, UPI collection, the Sangha's scope and its default receiving account. With
     ``applies_to = ALL_SAKHAS`` (the Kendra only) the head is the SOURCE and every active Sakha receives its OWN copy that
-    collects into that Sakha's own account. FINANCE_APPROVE + admin scope on the Sangha. Every row written is audited.
+    collects into that Sakha's own account. FINANCE_CONFIGURE + admin scope on the Sangha. Every row written is audited.
     """
     if body.applies_to not in S.CONTRIBUTION_TARGETS:
         raise F._invalid(f"applies_to must be one of: {', '.join(S.CONTRIBUTION_TARGETS)}.")
@@ -513,10 +519,10 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
         cur.execute(
             """
             INSERT INTO nss.finance_head
-                (organization_pk, head_code, head_name, description, direction, is_pranami, allow_upi, collection_scope_pk,
-                 collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas, display_order,
-                 created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, 'INCOME', TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+                (organization_pk, head_code, head_name, description, direction, is_pranami, skips_approval, allow_upi,
+                 collection_scope_pk, collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas,
+                 display_order, created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, 'INCOME', TRUE, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
             """,
             (str(body.organization_pk), code, name, F._clean(body.description), account_pk is not None, scope_pk, account_pk,
              body.fixed_amount, body.due_period, body.allow_part_payment, all_sakhas, body.display_order, user.actor_pk),
@@ -531,11 +537,11 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
 
 
 @router.post("/events", response_model=S.HeadResponse, status_code=status.HTTP_201_CREATED)
-def create_event(body: S.EventCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def create_event(body: S.EventCreate, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     """
     Set up an event a Sangha collects for (e.g. Rasa) in one step, configured by the concerned Sangha: an ACTIVE financial
     scope of type EVENT owned by it (FIN-BR-062/063: events use the common Finance module through a scope) and a member-payable
-    UPI head collecting into that scope. Returns the head. Same authority as any configuration (FINANCE_APPROVE + admin scope on
+    UPI head collecting into that scope. Returns the head. Same authority as any configuration (FINANCE_CONFIGURE + admin scope on
     the Sangha); the scope is created ACTIVE because the approver is the one switching it on.
     """
     name = F._clean(body.event_name)
@@ -564,9 +570,9 @@ def create_event(body: S.EventCreate, user: UserContext = Depends(_APPROVE), con
             cur.execute(
                 """
                 INSERT INTO nss.finance_head
-                    (organization_pk, head_code, head_name, description, direction, is_restricted, is_pranami, allow_upi,
-                     collection_scope_pk, collection_account_pk, display_order, created_by_sangha_sevi_pk)
-                VALUES (%s, %s, %s, %s, 'INCOME', FALSE, TRUE, TRUE, %s, %s, %s, %s) RETURNING finance_head_pk
+                    (organization_pk, head_code, head_name, description, direction, is_restricted, is_pranami, skips_approval,
+                     allow_upi, collection_scope_pk, collection_account_pk, display_order, created_by_sangha_sevi_pk)
+                VALUES (%s, %s, %s, %s, 'INCOME', FALSE, TRUE, TRUE, TRUE, %s, %s, %s, %s) RETURNING finance_head_pk
                 """,
                 (str(body.organization_pk), head_code, name, F._clean(body.description), str(scope_pk),
                  str(body.collection_account_pk), body.display_order, user.actor_pk),
@@ -581,7 +587,7 @@ def create_event(body: S.EventCreate, user: UserContext = Depends(_APPROVE), con
 
 
 @router.post("/heads/adopt-templates", response_model=S.AdoptTemplatesResult)
-def adopt_templates(body: S.AdoptTemplates, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def adopt_templates(body: S.AdoptTemplates, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     """
     Copy Kendra templates into a Sangha's own catalogue (a copy, not a link: the Sangha may then rename or switch
     them off without touching anyone else). Templates the Sangha already has (same code) are skipped, so it is safe
@@ -594,7 +600,7 @@ def adopt_templates(body: S.AdoptTemplates, user: UserContext = Depends(_APPROVE
         if body.template_pks is not None:
             where += " AND finance_head_pk = ANY(%s::uuid[])"; params.append([str(t) for t in body.template_pks])
         cur.execute(f"SELECT finance_head_pk, head_code, head_name, description, direction, is_restricted, restriction_purpose, "
-                    f"required_fund_type, is_pranami, display_order FROM nss.finance_head WHERE {where} ORDER BY display_order, head_code", params)
+                    f"required_fund_type, is_pranami, skips_approval, requires_member, display_order FROM nss.finance_head WHERE {where} ORDER BY display_order, head_code", params)
         templates = F._fetch_all(cur)
         if body.template_pks is not None and len(templates) != len(set(body.template_pks)):
             raise F._invalid("Some of the chosen templates do not exist or are not active templates.")
@@ -608,11 +614,13 @@ def adopt_templates(body: S.AdoptTemplates, user: UserContext = Depends(_APPROVE
                 """
                 INSERT INTO nss.finance_head
                     (organization_pk, head_code, head_name, description, direction, is_restricted, restriction_purpose,
-                     required_fund_type, is_pranami, template_head_pk, display_order, created_by_sangha_sevi_pk)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+                     required_fund_type, is_pranami, skips_approval, requires_member, template_head_pk, display_order,
+                     created_by_sangha_sevi_pk)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
                 """,
                 (str(body.organization_pk), t["head_code"], t["head_name"], t["description"], t["direction"], t["is_restricted"],
-                 t["restriction_purpose"], t["required_fund_type"], t["is_pranami"], str(t["finance_head_pk"]), t["display_order"], user.actor_pk),
+                 t["restriction_purpose"], t["required_fund_type"], t["is_pranami"], t["skips_approval"], t["requires_member"],
+                 str(t["finance_head_pk"]), t["display_order"], user.actor_pk),
             )
             new_pk = cur.fetchone()[0]
             created += 1
@@ -631,7 +639,7 @@ def get_head(head_pk: UUID, user: UserContext = Depends(_VIEW), conn=Depends(get
 
 
 @router.patch("/heads/{head_pk}", response_model=S.HeadResponse)
-def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         head = F._head_row(cur, head_pk)
         _head_access(cur, user, head, "change this finance head", write=True)
@@ -680,6 +688,18 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
             values["restriction_purpose"] = purpose
         if "display_order" in sent and sent["display_order"] is not None:
             values["display_order"] = sent["display_order"]
+        if sent.get("skips_approval") is not None:
+            if sent["skips_approval"] and head["direction"] != "INCOME":
+                raise F._invalid("Only an INCOME head can skip approval.")
+            values["skips_approval"] = sent["skips_approval"]
+        if "treasurer_limit" in sent:
+            if sent["treasurer_limit"] is not None and head["direction"] != "EXPENSE":
+                raise F._invalid("The Treasurer's limit applies to EXPENSE heads only.")
+            values["treasurer_limit"] = sent["treasurer_limit"]
+        if sent.get("requires_member") is not None:
+            if sent["requires_member"] and head["direction"] != "EXPENSE":
+                raise F._invalid("The reimbursement flag applies to EXPENSE heads only.")
+            values["requires_member"] = sent["requires_member"]
         if "is_pranami" in sent and sent["is_pranami"] is not None:
             if sent["is_pranami"] and head["direction"] != "INCOME":
                 raise F._invalid("Only an INCOME head can be a Pranami head.")
@@ -704,7 +724,7 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
 
 
 @router.post("/heads/{head_pk}/sync-copies", response_model=S.SyncCopiesResult)
-def sync_head_copies(head_pk: UUID, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def sync_head_copies(head_pk: UUID, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     """Bring every Sakha's copy of an all-Sakhas Kendra head up to date (new Sakhas get a copy). Idempotent; audited per copy."""
     with conn.cursor() as cur:
         head = F._head_row(cur, head_pk)
@@ -718,7 +738,7 @@ def sync_head_copies(head_pk: UUID, user: UserContext = Depends(_APPROVE), conn=
 
 
 @router.post("/heads/{head_pk}/transition", response_model=S.HeadResponse)
-def transition_head(head_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
+def transition_head(head_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         head = F._head_row(cur, head_pk)
         _head_access(cur, user, head, "change this finance head", write=True)

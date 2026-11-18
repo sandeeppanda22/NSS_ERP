@@ -9,6 +9,7 @@ head templates, PAYMENT_METHOD, the FINANCE_* permissions). Everything rolls bac
 import pytest
 
 from tests.finance_support import (  # noqa: F401  (fixtures)
+    single_approval_levels,
     BASE,
     FAKE_UUID,
     adopt_templates,
@@ -50,6 +51,9 @@ TEMPLATE_CODES = {
     "EXPENSE_GENERAL", "EXPENSE_RESTRICTED",
 }
 
+
+
+pytestmark = pytest.mark.usefixtures("single_approval_levels")
 
 def heads_of(client, headers, **params):
     r = client.get(f"{BASE}/heads", params={"page_size": 200, **params}, headers=headers)
@@ -199,10 +203,11 @@ class TestHeads:
 
 
 class TestHeadVisibilityAndScope:
-    def test_configuration_needs_the_approve_permission(self, client, sakha_admin_h, viewer_h, register_org_pk):
+    def test_configuration_needs_the_configure_permission_and_scope(self, client, sakha_admin_h, other_admin_h, viewer_h, register_org_pk):
         body = {"organization_pk": str(register_org_pk), "head_code": new_code(), "head_name": "x", "direction": "INCOME"}
-        assert client.post(f"{BASE}/heads", json=body, headers=sakha_admin_h).status_code == 403     # MANAGE alone is not enough
-        assert client.post(f"{BASE}/heads", json=body, headers=viewer_h).status_code == 403
+        assert client.post(f"{BASE}/heads", json=body, headers=viewer_h).status_code == 403          # FINANCE_VIEW alone is not enough
+        assert client.post(f"{BASE}/heads", json=body, headers=other_admin_h).status_code == 403     # has the permission, not for this Sakha
+        assert client.post(f"{BASE}/heads", json=body, headers=sakha_admin_h).status_code == 201     # the Sakha admin configures ITS Sakha (owner 2026-11-17)
 
     def test_a_scoped_admin_sees_templates_and_only_their_own_sanghas_heads(self, client, admin_h, other_admin_h, register_org_pk, other_org_pk):
         mine = make_head(client, admin_h, register_org_pk, head_name="Private to S1")
@@ -537,8 +542,9 @@ class TestAccounts:
 
     def test_scope_and_permissions(self, client, admin_h, sakha_admin_h, other_admin_h, viewer_h, register_org_pk):
         body = {"organization_pk": str(register_org_pk), "account_label": new_code("A"), "account_holder_name": "H"}
-        assert client.post(f"{BASE}/accounts", json=body, headers=sakha_admin_h).status_code == 403        # MANAGE is not enough
         assert client.post(f"{BASE}/accounts", json=body, headers=viewer_h).status_code == 403
+        assert client.post(f"{BASE}/accounts", json=body, headers=other_admin_h).status_code == 403        # a foreign Sakha's admin
+        assert client.post(f"{BASE}/accounts", json=body, headers=sakha_admin_h).status_code == 201        # FINANCE_CONFIGURE for its own Sakha
         a = make_account(client, admin_h, register_org_pk)
         pk = a["financial_account_pk"]
         assert client.get(f"{BASE}/accounts/{pk}", headers=sakha_admin_h).status_code == 200                # own Sakha may read

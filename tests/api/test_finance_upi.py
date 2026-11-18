@@ -17,6 +17,7 @@ import pytest
 from api.config import settings
 from api.services import upi_gateway
 from tests.finance_support import (  # noqa: F401  (fixtures)
+    single_approval_levels,
     BASE,
     FAKE_UUID,
     _login_headers,
@@ -51,6 +52,9 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     webhook,
 )
 
+
+
+pytestmark = pytest.mark.usefixtures("single_approval_levels")
 
 @pytest.fixture
 def plain_member(write_conn, register_org_pk):
@@ -152,7 +156,7 @@ class TestCreateRequest:
         req = a_request(client, admin_h, u)
         assert req["financial_scope_pk"] == u["world"]["scope"]["financial_scope_pk"]
 
-    @pytest.mark.parametrize("amount", ["0", "-5", "1.234", "abc"])
+    @pytest.mark.parametrize("amount", ["0", "-5", "1.234", "abc", "0.99"])
     def test_bad_amounts_are_422(self, client, admin_h, register_org_pk, mock_gateway, amount):
         u = upi_world(client, admin_h, register_org_pk, mock_gateway)
         assert create_request(client, admin_h, u["head"], amount).status_code == 422
@@ -559,7 +563,7 @@ class TestMemberSelfService:
         assert r.status_code == 201, r.text
         mine = r.json()
         # the member's view carries no internals
-        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number"}
+        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk"}
         assert mine["status"] == "PENDING" and mine["upi_uri"].startswith("upi://pay?") and mine["receipt_number"] is None
         # the treasurer sees who is paying - the token, not a field the member could choose
         full = fetch(client, admin_h, mine["upi_payment_request_pk"])
@@ -613,7 +617,7 @@ class TestMemberSelfService:
         codes = [client.post(f"{BASE}/my-pranami/pay", json=body, headers=plain_member_h).status_code for _ in range(6)]
         assert codes == [201] * 5 + [429]
 
-    @pytest.mark.parametrize("amount", ["0", "-1", "1.234", "100000.01", "abc"])
+    @pytest.mark.parametrize("amount", ["0", "-1", "1.234", "100000.01", "abc", "0.99", "0.01"])
     def test_amount_rules(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h, amount):
         u = upi_world(client, admin_h, register_org_pk, mock_gateway)
         assert client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": u["head"]["finance_head_pk"], "amount": amount}, headers=plain_member_h).status_code == 422

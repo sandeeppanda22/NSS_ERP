@@ -22,6 +22,7 @@ import pytest
 
 from tests.attendance_support import marker_h, marker_user  # noqa: F401  (fixtures)
 from tests.finance_support import (  # noqa: F401  (fixtures)
+    single_approval_levels,
     BASE,
     FAKE_UUID,
     admin_h,
@@ -43,7 +44,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     viewer_user,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("single_approval_levels")]
 
 _DATE = "2090-05-15"
 

@@ -53,6 +53,10 @@ TABLE_FILES = [
     ("10_upi_payment_request.sql", "upi_payment_request"),
     ("11_finance_gateway_event.sql", "finance_gateway_event"),
     ("13_finance_disbursement_authority.sql", "finance_disbursement_authority"),
+    ("16_finance_transaction_bill.sql", "finance_transaction_bill"),
+    ("17_finance_approval_step.sql", "finance_approval_step"),
+    ("18_finance_approval_policy.sql", "finance_approval_policy"),
+    ("19_upi_payment_request_line.sql", "upi_payment_request_line"),
 ]
 TABLES = [t for _, t in TABLE_FILES]
 APPEND_ONLY = {"finance_gateway_event"}                  # an event log: no soft delete, no audit-actor columns
@@ -188,7 +192,7 @@ def test_lifecycle_table_only_uses_known_statuses():
     for entity, steps in router._STEPS.items():
         for (src, dst), step in steps.items():
             assert src in status_sets[entity] and dst in status_sets[entity], (entity, src, dst)
-            assert step.permission in ("FINANCE_MANAGE", "FINANCE_APPROVE")
+            assert step.permission in ("FINANCE_MANAGE", "FINANCE_APPROVE", "FINANCE_CONFIGURE")
 
 
 def test_every_status_is_reachable_and_terminals_have_no_exit():
@@ -219,10 +223,11 @@ def test_approving_is_maker_checked_everywhere_money_moves():
         assert router._STEPS[entity][pair].permission == "FINANCE_APPROVE"
 
 
-def test_configuration_changes_need_the_approve_permission():
-    """A head decides what is restricted and where UPI lands; an account decides where it is paid."""
+def test_configuration_changes_need_the_configure_permission():
+    """A head decides what is restricted and where UPI lands; an account decides where it is paid. Owner 2026-11-17: that is its own
+    permission (FINANCE_CONFIGURE) - a Sakha admin can set its Sakha up without being able to approve anything."""
     for entity in ("account", "head"):
-        assert all(step.permission == "FINANCE_APPROVE" for step in router._STEPS[entity].values()), entity
+        assert all(step.permission == "FINANCE_CONFIGURE" for step in router._STEPS[entity].values()), entity
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -358,7 +363,8 @@ def test_validate_scripts_check_every_finance_table_and_the_patches(rel):
 def test_ddl_folder_has_no_orphan_file():
     """Every .sql in the folder is a table file or a known patch, and all of them are named in the build scripts."""
     files = {p.name for p in DDL.glob("*.sql")}
-    assert files == {f for f, _ in TABLE_FILES} | {"12_finance_heads_patch.sql", "14_finance_head_fixed_amount_patch.sql"}
+    assert files == {f for f, _ in TABLE_FILES} | {"12_finance_heads_patch.sql", "14_finance_head_fixed_amount_patch.sql",
+                                                   "15_finance_head_approval_patch.sql"}
     for rel in BUILD_SCRIPTS:
         text = _script(rel)
         for f in files:

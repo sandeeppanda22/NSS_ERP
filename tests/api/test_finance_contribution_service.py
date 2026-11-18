@@ -192,7 +192,8 @@ class TestWiring:
         from api.routers import finance_upi as upi
 
         src = self._src(upi.pay_my_pranami)
-        assert "_member_cards(cur, user)" in src and "FC.amount_problem" in src and "pg_advisory_xact_lock" in src
+        assert "_member_cards(cur, user)" in src and "_check_card_amount(card, body.amount)" in src and "pg_advisory_xact_lock" in src
+        assert "FC.amount_problem" in self._src(upi._check_card_amount)                    # one amount rule, shared with the multi-item payment
         assert "log_audit(" in src                                                      # the request is audited
         assert "payer_person_pk=user.person_pk" in src and "payer_sevi_pk=user.sangha_sevi_pk" in src   # the payer is the token
 
@@ -210,12 +211,13 @@ class TestWiring:
         assert "F._audit(" in src and "FC.sync_copies" in src and "FC.ensure_org_scope" in src and "FC.default_account" in src
         assert '"KENDRA"' in src                                                         # all-Sakhas is the Kendra's alone
 
-    def test_the_contribution_route_needs_finance_approve(self):
+    def test_the_configuration_routes_need_finance_configure_not_approve(self):
         from api.routers import finance_setup as setup
 
-        for fn in (setup.create_contribution, setup.sync_head_copies):
-            params = inspect.signature(fn).parameters
-            assert "_APPROVE" in repr(params["user"].default.dependency) or params["user"].default.dependency is setup._APPROVE, fn.__name__
+        for fn in (setup.create_contribution, setup.sync_head_copies, setup.create_head, setup.update_head, setup.create_account,
+                   setup.update_account, setup.transition_head, setup.transition_account, setup.create_event, setup.adopt_templates):
+            default = inspect.signature(fn).parameters["user"].default
+            assert default.dependency is setup._CONFIGURE, fn.__name__
 
     def test_status_changes_of_a_source_move_the_copies(self):
         from api.routers import finance_setup as setup

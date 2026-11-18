@@ -74,6 +74,18 @@ CREATE TABLE IF NOT EXISTS nss.finance_head
     allow_part_payment BOOLEAN NOT NULL
         DEFAULT FALSE,
 
+    -- Sakha approval rules (owner decision 2026-11-17): an INCOME head flagged skips_approval (Pranami, Parichaya Patra...) is
+    -- posted without the Treasurer / President chain; an EXPENSE head may carry the amount the Treasurer may approve ALONE
+    -- (treasurer_limit; NULL = the Sakha default applies, and without one the President approves too); requires_member marks a
+    -- reimbursement head (the member who paid on the Sangha's behalf must be named on the entry).
+    skips_approval BOOLEAN NOT NULL
+        DEFAULT FALSE,
+
+    treasurer_limit NUMERIC(14, 2) NULL,
+
+    requires_member BOOLEAN NOT NULL
+        DEFAULT FALSE,
+
     -- A Kendra head that every Sakha receives as its own copy (money goes to each Sakha's own account). The Kendra
     -- row is the SOURCE: it never collects itself; its copies point back through template_head_pk.
     applies_to_all_sakhas BOOLEAN NOT NULL
@@ -169,6 +181,15 @@ CREATE TABLE IF NOT EXISTS nss.finance_head
     CONSTRAINT chk_finance_head_all_sakhas
         CHECK (applies_to_all_sakhas = FALSE
                OR (direction = 'INCOME' AND organization_pk IS NOT NULL AND allow_upi = FALSE)),
+
+    CONSTRAINT chk_finance_head_skips_approval
+        CHECK (skips_approval = FALSE OR direction = 'INCOME'),
+
+    CONSTRAINT chk_finance_head_treasurer_limit
+        CHECK (treasurer_limit IS NULL OR (direction = 'EXPENSE' AND treasurer_limit > 0)),
+
+    CONSTRAINT chk_finance_head_requires_member
+        CHECK (requires_member = FALSE OR direction = 'EXPENSE'),
 
     CONSTRAINT chk_finance_head_soft_delete
         CHECK (

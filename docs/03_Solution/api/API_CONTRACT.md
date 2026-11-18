@@ -871,7 +871,7 @@ Creating or editing a transaction accepts `sangha_sevi_id` (e.g. `SS12`), which 
 
 Finance heads are the per-Sangha catalogue of what money is collected or spent for (`finance_head`; `organization` NULL = Kendra template, a Sangha adopts copies). A head's code, direction, restriction and organization are immutable once created; `financial_transaction.transaction_category` is a snapshot of the head code. Receiving accounts hold only the last 4 digits; `gateway_credential_ref` is the NAME of a server-side credential set (`UPI_<REF>_KEY_ID/_KEY_SECRET/_WEBHOOK_SECRET` in the environment) — no secret is stored or returned.
 
-**Auth:** config (accounts, heads, posting a held payment) = `FINANCE_APPROVE`; creating / refreshing / mock-paying payment requests = `FINANCE_MANAGE`; reads = any FINANCE permission; all with admin scope on the owning organization. `/gateway/webhook/{provider}` is unauthenticated but verifies an HMAC-SHA256 signature (constant time) and is rate-limited (`UPI_WEBHOOK_RATE_LIMIT`). `/my-pranami/*` are login-only and act only on the caller.
+**Auth:** config (accounts, heads, contributions, events, the Treasurer's limit) = `FINANCE_CONFIGURE` (owner 2026-11-17: it approves nothing; granted to the admin, Kendra admin and Sakha admin); posting a held payment = `FINANCE_APPROVE`; creating / refreshing / mock-paying payment requests = `FINANCE_MANAGE`; reads = any FINANCE permission; all with admin scope on the owning organization. `/gateway/webhook/{provider}` is unauthenticated but verifies an HMAC-SHA256 signature (constant time) and is rate-limited (`UPI_WEBHOOK_RATE_LIMIT`). `/my-pranami/*` are login-only and act only on the caller.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -879,12 +879,25 @@ Finance heads are the per-Sangha catalogue of what money is collected or spent f
 | GET / PATCH | `/accounts/{pk}` | Detail / edit |
 | POST | `/accounts/{pk}/transition` | Activate / deactivate |
 | GET / POST | `/heads` | List (filters organization, direction, template, status) / create a head (restricted needs a purpose; Pranami and UPI heads are income-only; UPI needs a collection scope + account) |
-| POST | `/events` | Set up an event a Sangha collects for (e.g. Rasa) in ONE call: an ACTIVE `EVENT` financial scope owned by the Sangha + a member-payable UPI head collecting into it (`FINANCE_APPROVE` + admin scope; all-or-nothing). Switch the head off (`/heads/{pk}/transition`) to stop collecting. `GET /heads?events_only=true` lists them |
-| POST | `/contributions` | The SIMPLE way to add a head (owner 2026-11-15): name, optional fixed amount + `due_period` (`YEARLY`/`MONTHLY`/`ONE_TIME`), `allow_part_payment`. The server sets code, INCOME, member-visible, UPI, the Sangha's scope and its default receiving account. `applies_to=ALL_SAKHAS` (Kendra only) makes the head a SOURCE that collects nothing; every active Sakha gets its own copy collecting into that Sakha's account. `FINANCE_APPROVE` + admin scope; every row written is audited |
+| POST | `/events` | Set up an event a Sangha collects for (e.g. Rasa) in ONE call: an ACTIVE `EVENT` financial scope owned by the Sangha + a member-payable UPI head collecting into it (`FINANCE_CONFIGURE` + admin scope; all-or-nothing). Switch the head off (`/heads/{pk}/transition`) to stop collecting. `GET /heads?events_only=true` lists them |
+| POST | `/contributions` | The SIMPLE way to add a head (owner 2026-11-15): name, optional fixed amount + `due_period` (`YEARLY`/`MONTHLY`/`ONE_TIME`), `allow_part_payment`. The server sets code, INCOME, member-visible, UPI, the Sangha's scope and its default receiving account. `applies_to=ALL_SAKHAS` (Kendra only) makes the head a SOURCE that collects nothing; every active Sakha gets its own copy collecting into that Sakha's account. `FINANCE_CONFIGURE` + admin scope; every row written is audited |
 | POST | `/heads/adopt-templates` | Copy selected Kendra templates into a Sangha (idempotent; existing codes skipped) |
 | GET / PATCH | `/heads/{pk}` | Detail / edit the mutable fields |
 | POST | `/heads/{pk}/transition` | Activate / deactivate |
 | POST | `/heads/{pk}/sync-copies` | All-Sakhas source: give every Sakha its copy and refresh the existing ones (idempotent, audited; on a source, status changes also move every copy) |
+
+**Sakha approval chain (owner decision 2026-11-17; `api/routers/finance_approval.py`, rules in `api/services/finance_approval.py`).** For a Sakha / Sakha Asana only (the Kendra and central Mahila keep the Bye-Law controls; other levels have no rule, FIN-BR-044): income on a head flagged `skips_approval` posts when submitted; any other entry is approved by the **seated Treasurer first, then the seated President (the Secretary when no President is seated or covering)**; the Treasurer alone approves a spend within the head's `treasurer_limit` (else the Sakha's default); every spend needs bills that add up to its amount; the authority is the SEAT, never a permission or the super administrator.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET / PUT | `/approval-policy` | The Sakha's default Treasurer limit (`FINANCE_VIEW` + scope / `FINANCE_CONFIGURE` + scope; Sakha only, 422 otherwise; audited with old and new value) |
+| GET / POST | `/transactions/{pk}/bills` | List / add a bill (vendor, number, date, amount, optional `https` link; no file upload yet). Add needs `FINANCE_MANAGE` + scope and the entry still a DRAFT spend |
+| DELETE | `/transactions/{pk}/bills/{bill_pk}` | Remove a bill (soft delete, DRAFT only, audited) |
+| GET | `/transactions/{pk}/approval` | Where the entry stands: what it needs, the steps taken, who must act next, what blocks it, what still stops submission |
+| GET | `/my-approvals` | **Login only.** The entries waiting for the caller NOW (their seat is the one the next step needs), with the bills and the steps so far |
+| POST | `/transactions/{pk}/approve` · `/reject` | **Login only; the seat is checked.** Approve or reject the next step (a rejection needs remarks). The last approval approves AND posts the entry; the ordinary `/transition` to `APPROVED` is refused (422) for a Sakha entry |
+
+Submitting a Sakha spend (`/transition` DRAFT -> PENDING_APPROVAL) needs the bills and, for a reimbursement head (`requires_member`), the member named; income on a `skips_approval` head goes straight to POSTED with `approval_not_required` in the audit detail.
 | GET / POST | `/payment-requests` | List / create a UPI request for a payer against a UPI-enabled head (creates a gateway order; max 5 open per payer) |
 | GET | `/payment-requests/{pk}` | Detail (with UPI deep link / QR payload while open) |
 | POST | `/payment-requests/{pk}/transition` | Cancel (reason required) |
@@ -893,6 +906,9 @@ Finance heads are the per-Sangha catalogue of what money is collected or spent f
 | POST | `/payment-requests/{pk}/mock-pay` | MOCK provider only: simulate a signed payment for demos |
 | POST | `/gateway/webhook/{provider}` | Provider callback: signature check, idempotent on `(provider, event_id)`, auto-books matching payments (system actor); amount mismatch / closed year / inactive scope / paid-after-cancel -> PAID_NEEDS_REVIEW, never auto-booked |
 | GET | `/my-pranami/heads` | Login only: the caller's contribution CARDS — the member-flagged heads (Pranami, Parichaya/Anumati Patra, events) of their OWN Sakha and of the Kendra, own Sakha first, each with the destination Sangha (`organization_name`, `is_kendra`) and `event_name` for an event. No other Sakha is ever offered |
+| POST | `/my-pranami/pay-multiple` | **Login only.** Pay SEVERAL of the caller's own contributions in ONE UPI payment: body `{items: [{finance_head_pk, amount}, ...]}` (1-12). Every item passes the single-payment rules; all items must collect into the same receiving account (own Sakha or the Kendra, not both); one gateway order for the total; one line per item. The signed webhook books each item as its own transaction + ISSUED receipt, all or nothing, only for exactly the amount asked. Response is the member payment view with `items` (head, amount, own receipt) |
+| GET | `/my-pranami/receipts/{receipt_pk}/pdf` | **Login only.** The caller's OWN receipt as a PDF (`application/pdf`, `Content-Disposition: attachment; filename="NSS-Receipt-<number>.pdf"`, `no-store`), whenever they want it: NSS logo, Sangha name and registration, receipt number and date, who paid (name, Sangha Sevi ID, member Sakha), what for (finance head, financial year), mode and reference, who received it, the amount in figures and in words (Indian numbering), a PAID stamp. Only an ISSUED receipt of a counted (POSTED/SETTLED) entry linked to the caller; anything else (someone else's, a draft, a cancelled one, an unknown id) is the same plain 404 |
+| GET | `/receipts/{receipt_pk}/pdf` | The same PDF for any receipt inside the caller's admin scope (`FINANCE_VIEW` + scope). An ISSUED or CANCELLED receipt (a cancelled one is stamped CANCELLED with its reason); a DRAFT is 422 |
 | POST | `/my-pranami/pay` | Login only: start a UPI payment (201) |
 | GET | `/my-pranami/requests/{pk}` | Login only: status of the caller's own request |
 

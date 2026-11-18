@@ -504,6 +504,26 @@ const NSS = {
         return this.FINANCE_STATUS_BADGE_MAP[status] || "badge-muted";
     },
 
+    /**
+     * Download a file the API serves behind a login (a PDF receipt): fetch it with the session's token, then hand the bytes to the
+     * browser as a saved file. A plain link cannot work because the token travels in a header. Throws the server's own message
+     * (NSS.extractError) when it refuses. The file name is the one the server names in Content-Disposition.
+     */
+    async downloadFile(url, fallbackName) {
+        const res = await NSSAuth.apiFetch(url);
+        if (!res.ok) throw new Error(await this.extractError(res));
+        const blob = await res.blob();
+        const named = /filename="?([^";]+)"?/i.exec(res.headers.get("Content-Disposition") || "");
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = (named && named[1]) || fallbackName || "download";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+    },
+
     // Member contribution cards (Pranami tab): paid / part paid / due / any amount. Reuses the badge-fin-* colours
     // (green / amber / red / grey) and the matching card border class in badges.css (contrib-card-*).
     CONTRIBUTION_STATE: {

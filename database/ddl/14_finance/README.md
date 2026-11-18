@@ -49,3 +49,21 @@ are in the `CREATE TABLE` for fresh builds and in `14_finance_head_fixed_amount_
 `12_finance_heads_patch.sql`, wired in `02_build.sh`/`.ps1`/`render_build.sh`) for existing databases. A Sakha's copy of a
 Kendra head points back through `template_head_pk`. Checked only in a throwaway single-user PostgreSQL 18 (fresh table and
 patched old-shape table behave the same, patch twice is a no-op); not run on the project database.
+
+**Several contributions in one payment (2026-11-17).** `19_upi_payment_request_line.sql` (existence-gated table): one row per
+contribution of a multi-item UPI payment (head, scope, fund, amount, and once booked its own transaction and receipt). The request's
+head / scope / fund are the first line's (NOT NULL on the request) and its amount is the sum; a request with no lines is an ordinary
+single-head payment. On the live-refresh list; checked by `03_validate`. The DDL was run (twice, idempotent) in a throwaway
+single-user PostgreSQL 18 only.
+
+**Sakha approval chain (2026-11-17).** `finance_head` gained `skips_approval`, `treasurer_limit`, `requires_member` (CHECKs
+`chk_finance_head_skips_approval` / `_treasurer_limit` / `_requires_member`: income-only / expense-only) in the `CREATE TABLE` and in
+`15_finance_head_approval_patch.sql` (idempotent `run_sql`, after the fixed-amount patch). Three new tables (existence-gated):
+`16_finance_transaction_bill.sql` (a spend's bills: vendor, number, date, amount, optional `https` link; soft delete),
+`17_finance_approval_step.sql` (one row per Treasurer / President / Secretary decision, keyed `(transaction, step_no)`, the
+Secretary only as `cover_reason = PRESIDENT_SEAT_VACANT`) and `18_finance_approval_policy.sql` (the Sakha's default Treasurer
+limit). `seed/12_finance/04_finance_head_approval_patch.sql` flags the pre-defined income templates (Parichaya Patra, Anumati
+Patra, the Pranami heads, subscription) `skips_approval` and adds the `MEMBER_REIMBURSEMENT` template;
+`seed/00_bootstrap/09_finance_configure_permission_patch.sql` adds `FINANCE_CONFIGURE` (admin, Kendra admin, Sakha admin). The three
+tables are on the live-refresh list; `03_validate` checks them and expects four `FINANCE_*` permissions. Verified only in a throwaway
+single-user PostgreSQL 18 (fresh vs patched old-shape table, constraints, idempotent patches); never run against the project database.

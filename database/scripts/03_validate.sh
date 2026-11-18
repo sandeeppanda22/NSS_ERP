@@ -775,6 +775,10 @@ check_table_exists "finance_head"
 check_table_exists "upi_payment_request"
 check_table_exists "finance_gateway_event"
 check_table_exists "finance_disbursement_authority"
+check_table_exists "finance_transaction_bill"
+check_table_exists "finance_approval_step"
+check_table_exists "finance_approval_policy"
+check_table_exists "upi_payment_request_line"
 
 check_column_exists "financial_scope" "scope_code"
 check_column_exists "financial_scope" "organization_pk"
@@ -801,6 +805,13 @@ check_column_exists "finance_gateway_event" "signature_valid"
 check_column_exists "finance_disbursement_authority" "resolution_reference"
 check_column_exists "finance_disbursement_authority" "treasurer_person_pk"
 check_column_exists "finance_disbursement_authority" "secretary_person_pk"
+check_column_exists "finance_head" "skips_approval"
+check_column_exists "finance_head" "treasurer_limit"
+check_column_exists "finance_head" "requires_member"
+check_column_exists "finance_transaction_bill" "financial_transaction_pk"
+check_column_exists "finance_approval_step" "decided_by_person_pk"
+check_column_exists "finance_approval_policy" "default_treasurer_limit"
+check_column_exists "upi_payment_request_line" "upi_payment_request_pk"
 
 check_fk_integrity "financial_scope -> financial_year" \
     "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
@@ -849,7 +860,11 @@ check_fk_integrity "Kendra template finance heads present (head templates patch 
 check_fk_integrity "PAYMENT_METHOD master_data present (reference-data patch ran)" \
     "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'PAYMENT_METHOD' AND md.value_code = 'UPI') THEN 0 ELSE 1 END;"
 check_fk_integrity "FINANCE_* permissions present (permissions patch ran)" \
-    "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.permission_master WHERE permission_code LIKE 'FINANCE\_%') = 3 THEN 0 ELSE 1 END;"
+    "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.permission_master WHERE permission_code LIKE 'FINANCE\_%') = 4 THEN 0 ELSE 1 END;"
+check_fk_integrity "finance_transaction_bill -> financial_transaction" \
+    "SELECT COUNT(*) FROM nss.finance_transaction_bill b LEFT JOIN nss.financial_transaction t ON b.financial_transaction_pk = t.financial_transaction_pk WHERE t.financial_transaction_pk IS NULL;"
+check_fk_integrity "finance_approval_step -> financial_transaction" \
+    "SELECT COUNT(*) FROM nss.finance_approval_step s LEFT JOIN nss.financial_transaction t ON s.financial_transaction_pk = t.financial_transaction_pk WHERE t.financial_transaction_pk IS NULL;"
 echo "  Seed (initial Financial Year from the reference-data patch):"
 check_row_count "financial_year" 1
 echo "  Unique constraints:"

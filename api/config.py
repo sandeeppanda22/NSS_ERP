@@ -103,6 +103,9 @@ class Settings:
     UPI_WEBHOOK_MAX_BYTES: int = int(os.environ.get("UPI_WEBHOOK_MAX_BYTES", "65536"))
     # UPI_MAX_AMOUNT — sanity cap (rupees) on ONE UPI payment request; NPCI limits a single UPI payment to about this.
     UPI_MAX_AMOUNT: str = os.environ.get("UPI_MAX_AMOUNT", "100000")
+    # UPI_MIN_AMOUNT — the smallest UPI payment (rupees). Razorpay's payment links start at Rs. 1, so a smaller one would only be refused by
+    # the gateway; refusing it here gives the member a clear message first. The same limit applies to the TOTAL of a multi-item payment.
+    UPI_MIN_AMOUNT: str = os.environ.get("UPI_MIN_AMOUNT", "1")
 
     # ── Content-Security-Policy (Tier 5 — advisory A2) ───────────────────
     # CSP_ENABLED      — emit the header at all (default on).

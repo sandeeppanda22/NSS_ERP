@@ -34,6 +34,7 @@
         required_fund_type: "", is_pranami: false, allow_upi: false, collection_scope_pk: "", collection_fund_pk: "",
         collection_account_pk: "", display_order: 100, lockedShape: false,
         fixed_amount: "", due_period: "", allow_part_payment: false,
+        skips_approval: false, treasurer_limit: "", requires_member: false,
     });
     // The SIMPLE contribution form (owner 2026-11-15): name, optional fixed amount, how often, part payment. Everything else
     // (code, income, member-visible, UPI, scope, default account) is filled in by the server.
@@ -41,6 +42,7 @@
         show: false, saving: false, error: "", organization: emptyPicker(), applies_to: "ORGANIZATION", head_name: "", description: "",
         fixed_amount: "", due_period: "YEARLY", allow_part_payment: false, collection_account_pk: "",
     });
+    const newPolicy = () => ({ loaded: false, saving: false, error: "", current: null, input: "" });
     // A Sakha's copy of a Kendra head: only the receiving account is the Sakha's to choose.
     const newCopyForm = () => ({ show: false, saving: false, error: "", pk: "", name: "", organization_pk: "", collection_account_pk: "" });
     // An event a Sangha collects for (e.g. Rasa): one step creates its EVENT scope and a member-payable UPI head.
@@ -67,7 +69,7 @@
             async finSetupReload() {
                 await Promise.all([this.finHeadsLoad({ silent: true }), this.finAcctsLoad({ silent: true })]);
             },
-            finSetupBusy() { return !!(this.finContribForm.show || this.finCopyForm.show || this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
+            finSetupBusy() { return !!(this.finPolicy.saving || this.finContribForm.show || this.finCopyForm.show || this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
 
             async finReqEnter() {
                 this.finReq = null; this.finReqForm = newReqForm();
@@ -84,8 +86,36 @@
             // ═════════════════════════════════════════════════════════
             finSetupOrg: emptyPicker(),            // optional filter: one Sangha's heads / accounts
             get finSetupOrgPk() { return this.finSetupOrg.selected ? this.finSetupOrg.selected.organization_pk : ""; },
-            finSetupOrgChanged() { return this.finSetupReload(); },
-            finSetupClearOrg() { this.corrClearPicker(this.finSetupOrg); return this.finSetupReload(); },
+            finSetupOrgChanged() { return Promise.all([this.finSetupReload(), this.finPolicyLoad()]); },
+            finSetupClearOrg() { this.corrClearPicker(this.finSetupOrg); this.finPolicy = newPolicy(); return this.finSetupReload(); },
+
+            // The Treasurer's default approval limit of the chosen Sakha (owner 2026-11-17): what the Treasurer may approve alone on
+            // an expense head with no limit of its own. Setting it widens the Treasurer's power, so it needs FINANCE_CONFIGURE.
+            finPolicy: newPolicy(),
+            get finPolicyApplies() {
+                const o = this.finSetupOrg.selected;
+                return !!o && (NSS.SAKHA_LIKE_ORG_TYPES || []).includes(o.type_code);
+            },
+            async finPolicyLoad() {
+                this.finPolicy = newPolicy();
+                if (!this.finPolicyApplies) return;
+                try {
+                    const r = await this._finGet("/approval-policy", { organization_pk: this.finSetupOrgPk });
+                    this.finPolicy = { ...newPolicy(), loaded: true, current: r.default_treasurer_limit, input: r.default_treasurer_limit == null ? "" : String(r.default_treasurer_limit) };
+                } catch (err) { this.finPolicy = { ...newPolicy(), error: err.message || "Could not load the approval limit." }; }
+            },
+            async finPolicySave() {
+                const p = this.finPolicy;
+                const v = blank(p.input);
+                if (v && (!MONEY_RE.test(v) || Number(v) <= 0)) { p.error = "Enter a positive amount with at most two decimals, or leave it empty for no default."; return; }
+                p.saving = true; p.error = "";
+                try {
+                    const r = await this._finSend("PUT", "/approval-policy", { organization_pk: this.finSetupOrgPk, default_treasurer_limit: v });
+                    this.finPolicy = { ...newPolicy(), loaded: true, current: r.default_treasurer_limit, input: r.default_treasurer_limit == null ? "" : String(r.default_treasurer_limit) };
+                    this._finNote(r.default_treasurer_limit == null ? "The Treasurer no longer has a default limit: every spend needs the President too unless its head has its own limit."
+                        : `The Treasurer may now approve up to ${NSS.formatMoney(r.default_treasurer_limit)} alone on a head with no limit of its own.`);
+                } catch (err) { p.error = err.message || "Could not save the approval limit."; p.saving = false; }
+            },
 
             // ═════════════════════════════════════════════════════════
             // Finance heads
@@ -138,6 +168,8 @@
                     is_pranami: h.is_pranami, allow_upi: h.allow_upi, collection_scope_pk: h.collection_scope_pk || "",
                     collection_fund_pk: h.collection_fund_pk || "", collection_account_pk: h.collection_account_pk || "", display_order: h.display_order,
                     fixed_amount: h.fixed_amount == null ? "" : String(h.fixed_amount), due_period: h.due_period || "", allow_part_payment: !!h.allow_part_payment,
+                    skips_approval: !!h.skips_approval, treasurer_limit: h.treasurer_limit == null ? "" : String(h.treasurer_limit),
+                    requires_member: !!h.requires_member,
                 };
                 await this.finHeadFormOrgChanged(true);
             },
@@ -182,12 +214,19 @@
                 const amount = blank(f.fixed_amount);
                 if (edit && amount && !MONEY_RE.test(amount)) { f.error = "The amount must be a number with at most two decimals."; return; }
                 if (edit && amount && !f.due_period) { f.error = "Choose how often the amount is due."; return; }
+                const limit = blank(f.treasurer_limit);
+                if (f.direction === "EXPENSE" && limit && (!MONEY_RE.test(limit) || Number(limit) <= 0)) { f.error = "The Treasurer's limit must be a positive amount with at most two decimals."; return; }
                 f.saving = true; f.error = "";
                 try {
+                    // Sakha approval rules (owner 2026-11-17): income can skip approval; a spend can carry the Treasurer's own limit.
+                    const approval = f.direction === "INCOME"
+                        ? { skips_approval: f.skips_approval }
+                        : { treasurer_limit: limit, requires_member: f.requires_member };
                     const fixed = f.direction === "INCOME"
                         ? { fixed_amount: amount, due_period: amount ? f.due_period : null, allow_part_payment: amount ? f.allow_part_payment : false }
                         : {};
                     const targets = {
+                        ...approval,
                         is_pranami: f.is_pranami, allow_upi: f.allow_upi, collection_scope_pk: f.collection_scope_pk || null,
                         collection_fund_pk: f.collection_fund_pk || null, collection_account_pk: f.collection_account_pk || null,
                     };
@@ -371,6 +410,9 @@
                     bits.push(NSS.formatMoney(h.fixed_amount) + (per ? " " + per : ""));
                     if (h.allow_part_payment) bits.push("Part payment");
                 }
+                if (h.skips_approval) bits.push("No approval needed");
+                if (h.treasurer_limit != null) bits.push("Treasurer up to " + NSS.formatMoney(h.treasurer_limit));
+                if (h.requires_member) bits.push("Names the member");
                 if (h.applies_to_all_sakhas) bits.push(`All Sakhas (${h.copy_count})`);
                 if (h.is_kendra_copy) bits.push(h.needs_account ? "Needs an account" : "From the Kendra");
                 if (h.is_pranami) bits.push("Pranami");

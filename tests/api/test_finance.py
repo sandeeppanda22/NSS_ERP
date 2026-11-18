@@ -16,6 +16,7 @@ from datetime import date
 import pytest
 
 from tests.finance_support import (  # noqa: F401  (fixtures)
+    single_approval_levels,
     BASE,
     adopt_templates,
     head_pk,
@@ -48,6 +49,9 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     viewer_user,
 )
 
+
+
+pytestmark = pytest.mark.usefixtures("single_approval_levels")
 
 # ═══════════════════════════════════════════════════════════════════════
 # Reference

@@ -80,11 +80,15 @@ _REQ_FROM = """
       LEFT JOIN nss.financial_receipt rc ON rc.financial_receipt_pk = r.financial_receipt_pk
 """
 _REQ_SELECT = f"""
-    SELECT r.upi_payment_request_pk, r.request_reference, r.finance_head_pk, h.head_name, r.financial_account_pk,
+    SELECT r.upi_payment_request_pk, r.request_reference, r.finance_head_pk,
+           CASE WHEN (SELECT COUNT(*) FROM nss.upi_payment_request_line l WHERE l.upi_payment_request_pk = r.upi_payment_request_pk AND l.is_active = TRUE) > 0
+                THEN 'Several contributions' ELSE h.head_name END AS head_name,
+           (SELECT COUNT(*) FROM nss.upi_payment_request_line l WHERE l.upi_payment_request_pk = r.upi_payment_request_pk AND l.is_active = TRUE) AS line_count,
+           r.financial_account_pk,
            a.account_label, a.upi_vpa, o.organization_name, r.financial_scope_pk, fs.scope_code, r.amount,
            ss.sangha_sevi_id AS payer_sangha_sevi_id, r.payer_name, r.note, r.provider, r.provider_order_id, r.pay_url, r.upi_uri,
            r.expires_at, {_EFFECTIVE_STATUS} AS status, r.provider_payment_id, r.paid_amount, r.paid_at,
-           r.failure_reason, r.review_reason, t.transaction_reference, rc.receipt_number, r.created_at
+           r.failure_reason, r.review_reason, t.transaction_reference, rc.receipt_number, r.financial_receipt_pk, r.created_at
 """ + _REQ_FROM
 
 
@@ -112,9 +116,30 @@ def _load_request(cur, pk, *, lock: bool = False) -> dict:
     return row
 
 
-def _member_view(row: dict) -> dict:
+def _member_items(cur, request_pk) -> list[dict]:
+    """The contributions a multi-item payment covers (empty for an ordinary single-head payment), each with its own receipt once booked."""
+    cur.execute(
+        """
+        SELECT h.head_name, l.amount, rc.receipt_number, l.financial_receipt_pk
+          FROM nss.upi_payment_request_line l
+          JOIN nss.finance_head h ON h.finance_head_pk = l.finance_head_pk
+          LEFT JOIN nss.financial_receipt rc ON rc.financial_receipt_pk = l.financial_receipt_pk
+         WHERE l.upi_payment_request_pk = %s AND l.is_active = TRUE ORDER BY l.line_no
+        """,
+        (str(request_pk),),
+    )
+    return F._fetch_all(cur)
+
+
+def _member_view(cur, row: dict) -> dict:
+    out = _member_view_fields(row)
+    out["items"] = _member_items(cur, row["upi_payment_request_pk"])
+    return out
+
+
+def _member_view_fields(row: dict) -> dict:
     return {k: row[k] for k in ("upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status",
-                                "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number")}
+                                "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk")}
 
 
 @router.get("/payment-requests", response_model=S.PaymentRequestListResponse)
@@ -164,14 +189,24 @@ def _max_amount() -> Decimal:
     return Decimal(settings.UPI_MAX_AMOUNT)
 
 
-def _create_request(cur, *, head_pk, amount: Decimal, payer_person_pk, payer_sevi_pk, payer_name, note, actor_pk) -> str:
-    """
-    Validate the head's collection set-up, ask the gateway for an order, store the request. Every failure is an
-    HTTPException: 422 for a mis-configured head, 503 when UPI collection is off / not configured for the account,
-    502 when the gateway itself failed. Returns the request pk.
-    """
+def _min_amount() -> Decimal:
+    return Decimal(settings.UPI_MIN_AMOUNT)
+
+
+def _check_amount_limits(amount: Decimal) -> None:
+    """One UPI payment (the TOTAL, for a multi-item payment) must be between the configured minimum and maximum."""
+    if amount < _min_amount():
+        raise F._invalid(f"A UPI payment must be at least Rs. {_min_amount():,.2f}.")
     if amount > _max_amount():
         raise F._invalid(f"A single UPI payment is limited to {_max_amount():,.2f}.")
+
+
+def _prepare_collection(cur, head_pk) -> tuple[dict, dict, dict | None, dict]:
+    """
+    Validate that a head can be collected by UPI right now and return (head, scope, fund, account): an ACTIVE INCOME head of a Sangha
+    with an active collection scope / fund and an active receiving account of the same Sangha, obeying its own rules. Every failure is
+    a 422 (a mis-configured head).
+    """
     head = F._head_row(cur, head_pk)
     if head["status"] != "ACTIVE" or head["direction"] != "INCOME" or not head["allow_upi"] or head["organization_pk"] is None:
         raise F._invalid("This finance head cannot be collected by UPI.")
@@ -184,7 +219,6 @@ def _create_request(cur, *, head_pk, amount: Decimal, payer_person_pk, payer_sev
     if fund is not None and (fund["status"] != "ACTIVE" or str(fund["financial_scope_pk"]) != str(scope["financial_scope_pk"])):
         raise F._invalid("The head's collection fund is not active in its collection scope.")
     F._check_head(head, scope=scope, txn_type="INCOME", fund=fund)           # the head's own rules, at request time
-
     cur.execute(
         "SELECT financial_account_pk, organization_pk, account_label, upi_vpa, gateway_provider, gateway_credential_ref, "
         "gateway_merchant_ref, status FROM nss.financial_account WHERE financial_account_pk = %s AND is_active = TRUE",
@@ -193,19 +227,25 @@ def _create_request(cur, *, head_pk, amount: Decimal, payer_person_pk, payer_sev
     account = F._fetch_one(cur)
     if account is None or account["status"] != "ACTIVE" or not F._same_org(account["organization_pk"], head["organization_pk"]):
         raise F._invalid("The head's receiving account is not active for this organization.")
+    return head, scope, fund, account
+
+
+def _open_order_and_store(cur, *, account: dict, head: dict, scope: dict, fund: dict | None, amount: Decimal, description: str,
+                          payer_person_pk, payer_sevi_pk, payer_name, note, actor_pk) -> str:
+    """Ask the gateway for ONE order of *amount* into *account* and store the request (head / scope / fund = the first head's). Returns its pk."""
+    _check_amount_limits(amount)                       # the last line of defence: every way of creating a request ends here
     try:
         provider = upi_gateway.get_provider(account["gateway_provider"])
         creds = upi_gateway.credentials_for(account["gateway_credential_ref"])
     except upi_gateway.GatewayUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"UPI collection is not available: {exc}")
-
     cur.execute("SELECT organization_name FROM nss.organization WHERE organization_pk = %s", (str(head["organization_pk"]),))
     org_name = cur.fetchone()[0]
     reference = next_id(cur, "UPI_PAYMENT_REQUEST")
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.UPI_REQUEST_EXPIRY_MINUTES)
     try:
         order = provider.create_order(
-            creds=creds, reference=reference, amount=amount, description=f"{head['head_name']} - {org_name}"[:200],
+            creds=creds, reference=reference, amount=amount, description=f"{description} - {org_name}"[:200],
             payer_name=payer_name, expires_at=expires_at, vpa=account["upi_vpa"], payee_name=org_name[:60],
             merchant_ref=account["gateway_merchant_ref"],
         )
@@ -227,6 +267,50 @@ def _create_request(cur, *, head_pk, amount: Decimal, payer_person_pk, payer_sev
          order.expires_at, actor_pk),
     )
     return cur.fetchone()[0]
+
+
+def _create_request(cur, *, head_pk, amount: Decimal, payer_person_pk, payer_sevi_pk, payer_name, note, actor_pk) -> str:
+    """
+    Validate the head's collection set-up, ask the gateway for an order, store the request. Every failure is an
+    HTTPException: 422 for a mis-configured head, 503 when UPI collection is off / not configured for the account,
+    502 when the gateway itself failed. Returns the request pk.
+    """
+    _check_amount_limits(amount)
+    head, scope, fund, account = _prepare_collection(cur, head_pk)
+    return _open_order_and_store(cur, account=account, head=head, scope=scope, fund=fund, amount=amount, description=head["head_name"],
+                                 payer_person_pk=payer_person_pk, payer_sevi_pk=payer_sevi_pk, payer_name=payer_name, note=note,
+                                 actor_pk=actor_pk)
+
+
+def _create_multi_request(cur, *, items: list[tuple], payer_person_pk, payer_sevi_pk, payer_name, actor_pk) -> str:
+    """
+    One UPI payment for SEVERAL contributions: ``items`` is [(head_pk, amount), ...]. Every head must collect into the SAME receiving
+    account (one payment goes to one account, so one Sangha), each is validated exactly like a single payment, and the request is one
+    gateway order for the total with one line per contribution. Returns the request pk.
+    """
+    if len({str(h) for h, _ in items}) != len(items):
+        raise F._invalid("Each contribution can be paid once in a single payment.")
+    total = sum((a for _, a in items), Decimal("0"))
+    if total > _max_amount():
+        raise F._invalid(f"A single UPI payment is limited to {_max_amount():,.2f}; pay fewer items together.")
+    _check_amount_limits(total)
+    prepared = [_prepare_collection(cur, h) for h, _ in items]
+    accounts = {str(p[3]["financial_account_pk"]) for p in prepared}
+    if len(accounts) != 1:
+        raise F._invalid("These contributions are collected into different accounts (different Sangha): pay each Sangha's contributions separately.")
+    head, scope, fund, account = prepared[0]
+    request_pk = _open_order_and_store(
+        cur, account=account, head=head, scope=scope, fund=fund, amount=total, description=f"{len(items)} contributions",
+        payer_person_pk=payer_person_pk, payer_sevi_pk=payer_sevi_pk, payer_name=payer_name,
+        note="; ".join(p[0]["head_name"] for p in prepared)[:500], actor_pk=actor_pk)
+    for n, ((h, amount), (hd, sc, fd, _acc)) in enumerate(zip(items, prepared), start=1):
+        cur.execute(
+            "INSERT INTO nss.upi_payment_request_line (upi_payment_request_pk, line_no, finance_head_pk, financial_scope_pk, "
+            "fund_master_pk, amount, created_by_sangha_sevi_pk) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (str(request_pk), n, str(hd["finance_head_pk"]), str(sc["financial_scope_pk"]),
+             str(fd["fund_master_pk"]) if fd else None, amount, actor_pk),
+        )
+    return request_pk
 
 
 @router.post("/payment-requests", response_model=S.PaymentRequestResponse, status_code=status.HTTP_201_CREATED)
@@ -267,10 +351,62 @@ def transition_payment_request(request_pk: UUID, body: S.TransitionRequest, user
 # Turning a paid request into a posted transaction + receipt
 # ═══════════════════════════════════════════════════════════════════════
 
+def _book_one(cur, req: dict, year_pk, txn_date, *, head_pk, scope_pk, fund_pk, amount: Decimal, actor_pk, label: str = "") -> tuple:
+    """
+    Book ONE amount of a paid request: the books' own rules (open year, active scope, the head's rules), the POSTED transaction and its
+    ISSUED receipt. Returns (txn_pk, receipt_pk, transaction_reference, receipt_number). Raises HTTPException when the rules refuse it.
+    """
+    _, head = F._check_transaction(
+        cur, year_pk=year_pk, scope_pk=scope_pk, fund_pk=fund_pk, txn_date=txn_date, txn_type="INCOME", head_pk=head_pk, amount=amount,
+    )
+    reference = next_id(cur, "FINANCIAL_TRANSACTION")
+    description = f"UPI {req['request_reference']}{label}" + (f" - {req['note']}" if req["note"] else "")
+    cur.execute(
+        """
+        INSERT INTO nss.financial_transaction
+            (transaction_reference, financial_year_pk, financial_scope_pk, fund_master_pk, transaction_type,
+             finance_head_pk, transaction_category, amount, transaction_date, description, person_pk, sangha_sevi_pk,
+             status, created_by_sangha_sevi_pk)
+        VALUES (%s, %s, %s, %s, 'INCOME', %s, %s, %s, %s, %s, %s, %s, 'POSTED', %s) RETURNING financial_transaction_pk
+        """,
+        (reference, str(year_pk), str(scope_pk), str(fund_pk) if fund_pk else None,
+         str(head["finance_head_pk"]), head["head_code"], amount, txn_date, description[:2000],
+         str(req["payer_person_pk"]) if req["payer_person_pk"] else None,
+         str(req["payer_sangha_sevi_pk"]) if req["payer_sangha_sevi_pk"] else None, actor_pk),
+    )
+    txn_pk = cur.fetchone()[0]
+    receipt_number = next_id(cur, "FINANCIAL_RECEIPT")
+    cur.execute(
+        """
+        INSERT INTO nss.financial_receipt
+            (receipt_number, financial_transaction_pk, receipt_date, amount, received_from,
+             payment_method_master_data_pk, instrument_reference, person_pk, status, created_by_sangha_sevi_pk)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'ISSUED', %s) RETURNING financial_receipt_pk
+        """,
+        (receipt_number, str(txn_pk), txn_date, amount, req["payer_name"], get_master_data_pk(cur, "PAYMENT_METHOD", "UPI"),
+         req["provider_payment_id"], str(req["payer_person_pk"]) if req["payer_person_pk"] else None, actor_pk),
+    )
+    receipt_pk = cur.fetchone()[0]
+    log_audit(cur, action="UPI_PAYMENT_POSTED", table_name="financial_transaction", record_pk=str(txn_pk), actor_pk=actor_pk,
+              module="finance", summary=f"UPI payment {req['request_reference']}{label} booked as {reference} / {receipt_number}",
+              detail={"request": req["request_reference"], "amount": str(amount), "system": actor_pk is None})
+    return txn_pk, receipt_pk, reference, receipt_number
+
+
+def _request_lines(cur, request_pk) -> list[dict]:
+    cur.execute(
+        "SELECT upi_payment_request_line_pk, line_no, finance_head_pk, financial_scope_pk, fund_master_pk, amount, financial_transaction_pk, "
+        "financial_receipt_pk FROM nss.upi_payment_request_line WHERE upi_payment_request_pk = %s AND is_active = TRUE ORDER BY line_no",
+        (str(request_pk),),
+    )
+    return F._fetch_all(cur)
+
+
 def _post_paid_request(cur, request_pk, *, actor_pk) -> str | None:
     """
-    Book a PAID request: the transaction (POSTED) and the ISSUED receipt, for the amount that was ACTUALLY received.
-    Returns None on success (or if already booked) and the reason text when the books' rules refuse it - the caller
+    Book a PAID request: the transaction (POSTED) and the ISSUED receipt, for the amount that was ACTUALLY received. A request that
+    pays several contributions books one transaction + receipt per line, all or nothing (a savepoint), and only for exactly the
+    amount asked. Returns None on success (or if already booked) and the reason text when the books' rules refuse it - the caller
     then keeps the request PAID with that review_reason. Genuine defects (a missing PAYMENT_METHOD seed) still raise.
     """
     req = _load_request(cur, request_pk, lock=True)
@@ -288,46 +424,34 @@ def _post_paid_request(cur, request_pk, *, actor_pk) -> str | None:
     if year is None:
         return f"No OPEN financial year covers the payment date {txn_date}."
     amount = req["paid_amount"]
-    try:
-        _, head = F._check_transaction(
-            cur, year_pk=year[0], scope_pk=req["financial_scope_pk"], fund_pk=req["fund_master_pk"], txn_date=txn_date,
-            txn_type="INCOME", head_pk=req["finance_head_pk"], amount=amount,
-        )
-    except HTTPException as exc:
-        return str(exc.detail)[:300]
-    reference = next_id(cur, "FINANCIAL_TRANSACTION")
-    description = f"UPI {req['request_reference']}" + (f" - {req['note']}" if req["note"] else "")
-    cur.execute(
-        """
-        INSERT INTO nss.financial_transaction
-            (transaction_reference, financial_year_pk, financial_scope_pk, fund_master_pk, transaction_type,
-             finance_head_pk, transaction_category, amount, transaction_date, description, person_pk, sangha_sevi_pk,
-             status, created_by_sangha_sevi_pk)
-        VALUES (%s, %s, %s, %s, 'INCOME', %s, %s, %s, %s, %s, %s, %s, 'POSTED', %s) RETURNING financial_transaction_pk
-        """,
-        (reference, str(year[0]), str(req["financial_scope_pk"]), str(req["fund_master_pk"]) if req["fund_master_pk"] else None,
-         str(head["finance_head_pk"]), head["head_code"], amount, txn_date, description,
-         str(req["payer_person_pk"]) if req["payer_person_pk"] else None,
-         str(req["payer_sangha_sevi_pk"]) if req["payer_sangha_sevi_pk"] else None, actor_pk),
-    )
-    txn_pk = cur.fetchone()[0]
-    receipt_number = next_id(cur, "FINANCIAL_RECEIPT")
-    cur.execute(
-        """
-        INSERT INTO nss.financial_receipt
-            (receipt_number, financial_transaction_pk, receipt_date, amount, received_from,
-             payment_method_master_data_pk, instrument_reference, person_pk, status, created_by_sangha_sevi_pk)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'ISSUED', %s) RETURNING financial_receipt_pk
-        """,
-        (receipt_number, str(txn_pk), txn_date, amount, req["payer_name"], get_master_data_pk(cur, "PAYMENT_METHOD", "UPI"),
-         req["provider_payment_id"], str(req["payer_person_pk"]) if req["payer_person_pk"] else None, actor_pk),
-    )
-    receipt_pk = cur.fetchone()[0]
+    lines = _request_lines(cur, request_pk)
+    if not lines:
+        try:
+            txn_pk, receipt_pk, _ref, _num = _book_one(cur, req, year[0], txn_date, head_pk=req["finance_head_pk"], scope_pk=req["financial_scope_pk"],
+                                                    fund_pk=req["fund_master_pk"], amount=amount, actor_pk=actor_pk)
+        except HTTPException as exc:
+            return str(exc.detail)[:300]
+    else:
+        if amount != sum((l["amount"] for l in lines), Decimal("0")):
+            return ("AMOUNT_MISMATCH: this payment covers several contributions and can only be booked for exactly the amount asked; "
+                    "the difference has to be settled with the payer outside the app.")
+        cur.execute("SAVEPOINT upi_multi_post")
+        booked = []
+        try:
+            for l in lines:
+                booked.append(_book_one(cur, req, year[0], txn_date, head_pk=l["finance_head_pk"], scope_pk=l["financial_scope_pk"],
+                                        fund_pk=l["fund_master_pk"], amount=l["amount"], actor_pk=actor_pk,
+                                        label=f" ({l['line_no']} of {len(lines)})"))
+        except HTTPException as exc:
+            cur.execute("ROLLBACK TO SAVEPOINT upi_multi_post")
+            return str(exc.detail)[:300]
+        cur.execute("RELEASE SAVEPOINT upi_multi_post")
+        for l, (t_pk, r_pk, _ref, _num) in zip(lines, booked):
+            cur.execute("UPDATE nss.upi_payment_request_line SET financial_transaction_pk = %s, financial_receipt_pk = %s, updated_at = NOW() "
+                        "WHERE upi_payment_request_line_pk = %s", (str(t_pk), str(r_pk), str(l["upi_payment_request_line_pk"])))
+        txn_pk, receipt_pk = booked[0][0], booked[0][1]
     cur.execute("UPDATE nss.upi_payment_request SET financial_transaction_pk = %s, financial_receipt_pk = %s, review_reason = NULL, "
                 "updated_at = NOW() WHERE upi_payment_request_pk = %s", (str(txn_pk), str(receipt_pk), str(request_pk)))
-    log_audit(cur, action="UPI_PAYMENT_POSTED", table_name="financial_transaction", record_pk=str(txn_pk), actor_pk=actor_pk,
-              module="finance", summary=f"UPI payment {req['request_reference']} booked as {reference} / {receipt_number}",
-              detail={"request": req["request_reference"], "amount": str(amount), "system": actor_pk is None})
     return None
 
 
@@ -623,9 +747,20 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
         )
         txns = cur.fetchall()
         cur.execute(
-            "SELECT finance_head_pk, SUM(amount) FROM nss.upi_payment_request WHERE finance_head_pk = ANY(%s::uuid[]) "
-            "AND payer_person_pk = %s AND status IN ('CREATED', 'PENDING') AND expires_at > NOW() AND is_active = TRUE GROUP BY 1",
-            (pks, str(user.person_pk)),
+            """
+            SELECT head_pk, SUM(amt) FROM (
+                SELECT r.finance_head_pk AS head_pk, r.amount AS amt FROM nss.upi_payment_request r
+                 WHERE r.finance_head_pk = ANY(%s::uuid[]) AND r.payer_person_pk = %s AND r.status IN ('CREATED', 'PENDING')
+                   AND r.expires_at > NOW() AND r.is_active = TRUE
+                   AND NOT EXISTS (SELECT 1 FROM nss.upi_payment_request_line x WHERE x.upi_payment_request_pk = r.upi_payment_request_pk AND x.is_active = TRUE)
+                UNION ALL
+                SELECT l.finance_head_pk, l.amount FROM nss.upi_payment_request_line l
+                  JOIN nss.upi_payment_request r ON r.upi_payment_request_pk = l.upi_payment_request_pk
+                 WHERE l.finance_head_pk = ANY(%s::uuid[]) AND l.is_active = TRUE AND r.payer_person_pk = %s
+                   AND r.status IN ('CREATED', 'PENDING') AND r.expires_at > NOW() AND r.is_active = TRUE
+            ) pending GROUP BY 1
+            """,
+            (pks, str(user.person_pk), pks, str(user.person_pk)),
         )
         pending = {str(r[0]): r[1] for r in cur.fetchall()}
         for head in heads:
@@ -655,6 +790,32 @@ def my_payable_heads(user: UserContext = Depends(get_current_user), conn=Depends
         return _member_cards(cur, user)
 
 
+def _check_card_amount(card: dict | None, amount: Decimal) -> None:
+    """The rules a member's payment of *amount* towards one contribution card must pass (shared by a single and a multi-item payment)."""
+    if card is None or not card["payable"]:
+        raise F._invalid("This payment is not available for UPI.")
+    if card["fixed_amount"] is None:
+        return
+    if card["pending_amount"] > 0 and not card["allow_part_payment"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"You already have an unpaid request for {card['head_name']}. Pay it or wait for it to expire.")
+    remaining = (card["due_amount"] or Decimal("0")) - (card["pending_amount"] if card["allow_part_payment"] else Decimal("0"))
+    if card["allow_part_payment"] and card["due_amount"] and remaining <= 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Your pending payments already cover what is due for {card['head_name']}. Wait for the bank to confirm them.")
+    problem = FC.amount_problem(card, amount, remaining)
+    if problem:
+        raise F._invalid(f"{card['head_name']}: {problem}" if card.get("head_name") else problem)
+
+
+def _check_open_request_cap(cur, user: UserContext) -> None:
+    cur.execute("SELECT COUNT(*) FROM nss.upi_payment_request WHERE payer_person_pk = %s AND status IN ('CREATED','PENDING') "
+                "AND expires_at > NOW() AND is_active = TRUE", (str(user.person_pk),))
+    if cur.fetchone()[0] >= _MAX_OPEN_REQUESTS_PER_MEMBER:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="You already have several unpaid UPI requests. Pay or wait for them to expire first.")
+
+
 @router.post("/my-pranami/pay", response_model=S.MyPayment, status_code=status.HTTP_201_CREATED)
 @limiter.limit(settings.UPI_PAY_RATE_LIMIT, key_func=user_or_ip_key)
 def pay_my_pranami(request: Request, body: S.MyPayRequest, user: UserContext = Depends(get_current_user),
@@ -670,24 +831,8 @@ def pay_my_pranami(request: Request, body: S.MyPayRequest, user: UserContext = D
         # One payment decision per member and head at a time, so two quick taps cannot both pass the "still due" check.
         cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"upi-pay:{user.person_pk}:{body.finance_head_pk}",))
         card = next((c for c in _member_cards(cur, user) if str(c["finance_head_pk"]) == str(body.finance_head_pk)), None)
-        if card is None or not card["payable"]:
-            raise F._invalid("This payment is not available for UPI.")
-        if card["fixed_amount"] is not None:
-            if card["pending_amount"] > 0 and not card["allow_part_payment"]:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                                    detail="You already have an unpaid request for this contribution. Pay it or wait for it to expire.")
-            remaining = (card["due_amount"] or Decimal("0")) - (card["pending_amount"] if card["allow_part_payment"] else Decimal("0"))
-            if card["allow_part_payment"] and card["due_amount"] and remaining <= 0:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                                    detail="Your pending payments already cover what is due. Wait for the bank to confirm them.")
-            problem = FC.amount_problem(card, body.amount, remaining)
-            if problem:
-                raise F._invalid(problem)
-        cur.execute("SELECT COUNT(*) FROM nss.upi_payment_request WHERE payer_person_pk = %s AND status IN ('CREATED','PENDING') "
-                    "AND expires_at > NOW() AND is_active = TRUE", (str(user.person_pk),))
-        if cur.fetchone()[0] >= _MAX_OPEN_REQUESTS_PER_MEMBER:
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                                detail="You already have several unpaid UPI requests. Pay or wait for them to expire first.")
+        _check_card_amount(card, body.amount)
+        _check_open_request_cap(cur, user)
         pk = _create_request(cur, head_pk=body.finance_head_pk, amount=body.amount, payer_person_pk=user.person_pk,
                              payer_sevi_pk=user.sangha_sevi_pk, payer_name=None, note=None, actor_pk=user.actor_pk)
         log_audit(cur, action="CREATE", table_name="upi_payment_request", record_pk=str(pk), actor_pk=user.actor_pk,
@@ -695,7 +840,39 @@ def pay_my_pranami(request: Request, body: S.MyPayRequest, user: UserContext = D
                   summary=f"Member started a UPI payment of {body.amount}",
                   detail={"amount": str(body.amount), "self_service": True, "finance_head_pk": str(body.finance_head_pk),
                           "fixed_amount": str(card["fixed_amount"]) if card["fixed_amount"] is not None else None})
-        return _member_view(_request_response(cur, pk))
+        return _member_view(cur, _request_response(cur, pk))
+
+
+@router.post("/my-pranami/pay-multiple", response_model=S.MyPayment, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.UPI_PAY_RATE_LIMIT, key_func=user_or_ip_key)
+def pay_my_pranami_multiple(request: Request, body: S.MyPayMultipleRequest, user: UserContext = Depends(get_current_user),
+                            conn=Depends(get_write_connection)):
+    """
+    A member pays SEVERAL of their own contributions in ONE UPI payment (owner request 2026-11-17). Each item passes exactly the
+    checks of a single payment (visible, payable, amount against what is due), the items must all collect into the same receiving
+    account (one Sangha: the member's own Sakha, or the Kendra, never both in one payment), and the gateway gets one order for the
+    total. When the signed webhook says it is paid, every item is booked as its own transaction with its own ISSUED receipt - all or
+    nothing - and the member can download each receipt. The payer is the token, never a field.
+    """
+    heads = [str(i.finance_head_pk) for i in body.items]
+    if len(set(heads)) != len(heads):
+        raise F._invalid("Each contribution can be paid once in a single payment.")
+    with conn.cursor() as cur:
+        for head in sorted(heads):                                    # sorted: two overlapping payments can never lock in opposite order
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"upi-pay:{user.person_pk}:{head}",))
+        cards = {str(c["finance_head_pk"]): c for c in _member_cards(cur, user)}
+        for item in body.items:
+            _check_card_amount(cards.get(str(item.finance_head_pk)), item.amount)
+        _check_open_request_cap(cur, user)
+        total = sum((i.amount for i in body.items), Decimal("0"))
+        pk = _create_multi_request(cur, items=[(i.finance_head_pk, i.amount) for i in body.items], payer_person_pk=user.person_pk,
+                                   payer_sevi_pk=user.sangha_sevi_pk, payer_name=None, actor_pk=user.actor_pk)
+        log_audit(cur, action="CREATE", table_name="upi_payment_request", record_pk=str(pk), actor_pk=user.actor_pk,
+                  actor_user_account_pk=str(user.user_account_pk), module="finance",
+                  summary=f"Member started one UPI payment of {total} for {len(body.items)} contributions",
+                  detail={"amount": str(total), "self_service": True, "multiple": True,
+                          "items": [{"finance_head_pk": str(i.finance_head_pk), "amount": str(i.amount)} for i in body.items]})
+        return _member_view(cur, _request_response(cur, pk))
 
 
 @router.get("/my-pranami/requests/{request_pk}", response_model=S.MyPayment)
@@ -705,4 +882,4 @@ def my_payment_status(request_pk: UUID, user: UserContext = Depends(get_current_
         req = _load_request(cur, request_pk)
         if str(req["payer_person_pk"] or "") != str(user.person_pk):
             raise F._not_found("Payment request")
-        return _member_view(_request_response(cur, request_pk))
+        return _member_view(cur, _request_response(cur, request_pk))

@@ -67,16 +67,19 @@ from api.dependencies.auth import get_current_user
 from api.dependencies.rbac import require_any_permission
 from api.helpers import SAKHA_LIKE_ORG_TYPES, get_master_data_pk, log_audit, next_id
 from api.schemas import finance as S
+from api.services import finance_approval as approval_service
 from api.services import finance_authority as authority_service
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope, require_person_in_scope
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
-_VIEW_PERMISSIONS = ("FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_APPROVE")
+_VIEW_PERMISSIONS = ("FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_APPROVE", "FINANCE_CONFIGURE")
 _VIEW = require_any_permission(*_VIEW_PERMISSIONS)
 _MANAGE = require_any_permission("FINANCE_MANAGE", "FINANCE_APPROVE")
 _APPROVE = require_any_permission("FINANCE_APPROVE")
+# Heads, contributions, events, receiving accounts and the Treasurer's limits (owner 2026-11-17): configuring approves nothing.
+_CONFIGURE = require_any_permission("FINANCE_CONFIGURE")
 
 _MAX_PARENT_WALK = 20  # same depth cap as helpers.MAX_RECURSION_DEPTH, walked in Python
 
@@ -102,7 +105,7 @@ class _Step:
     maker_checker: bool = False    # the record's creator may not take this step
 
 
-_M, _A = "FINANCE_MANAGE", "FINANCE_APPROVE"
+_M, _A, _C = "FINANCE_MANAGE", "FINANCE_APPROVE", "FINANCE_CONFIGURE"
 
 _STEPS: dict[str, dict[tuple[str, str], _Step]] = {
     "year": {
@@ -143,12 +146,12 @@ _STEPS: dict[str, dict[tuple[str, str], _Step]] = {
     },
     # Configuration: a head / account is switched on and off, never deleted (history is kept).
     "account": {
-        ("ACTIVE", "INACTIVE"): _Step(_A, remarks=True),
-        ("INACTIVE", "ACTIVE"): _Step(_A),
+        ("ACTIVE", "INACTIVE"): _Step(_C, remarks=True),
+        ("INACTIVE", "ACTIVE"): _Step(_C),
     },
     "head": {
-        ("ACTIVE", "INACTIVE"): _Step(_A),
-        ("INACTIVE", "ACTIVE"): _Step(_A),
+        ("ACTIVE", "INACTIVE"): _Step(_C),
+        ("INACTIVE", "ACTIVE"): _Step(_C),
     },
     # A UPI request can be cancelled while it is still unpaid; PAID / FAILED / EXPIRED are set only by the gateway.
     "payment_request": {
@@ -549,7 +552,7 @@ def my_pranami(user: UserContext = Depends(get_current_user), conn=Depends(get_c
         if items:
             cur.execute(
                 """
-                SELECT r.financial_transaction_pk, r.receipt_number, r.receipt_date, r.amount,
+                SELECT r.financial_transaction_pk, r.financial_receipt_pk, r.receipt_number, r.receipt_date, r.amount,
                        md.value_name AS payment_method_name, r.instrument_reference
                   FROM nss.financial_receipt r
                   LEFT JOIN nss.master_data md ON md.master_data_pk = r.payment_method_master_data_pk
@@ -1287,26 +1290,51 @@ def update_transaction(txn_pk: UUID, body: S.TransactionUpdate, user: UserContex
         return _txn_response(cur, txn_pk)
 
 
+def _move_transaction(cur, user: UserContext, txn: dict, target: str, *, remarks: str | None = None, extra: dict | None = None) -> None:
+    """
+    Apply one status change to a transaction: the books' own rules for the target (open year, active scope, head rules,
+    restricted balance), the UPDATE and the audit event. ONE implementation for the ordinary /transition and for the Sakha
+    approval chain (which moves an entry the Treasurer / President approved), so the checks can never drift apart.
+    """
+    if target in ("PENDING_APPROVAL", "APPROVED", "POSTED"):
+        fund, _ = _check_transaction(
+            cur, year_pk=txn["financial_year_pk"], scope_pk=txn["financial_scope_pk"], fund_pk=txn["fund_master_pk"],
+            txn_date=txn["transaction_date"], txn_type=txn["transaction_type"], head_pk=txn["finance_head_pk"],
+            amount=txn["amount"],
+        )
+        if target in ("APPROVED", "POSTED"):
+            _check_restricted_balance(cur, txn, fund)
+    _update_row(cur, user, "financial_transaction", "financial_transaction_pk", txn["financial_transaction_pk"], {"status": target})
+    _audit(cur, user, "STATUS_CHANGE", "financial_transaction", txn["financial_transaction_pk"],
+           f"Transaction {txn['transaction_reference']} {txn['status']} -> {target}",
+           {"from": txn["status"], "to": target, "remarks": _clean(remarks), **(extra or {})})
+    txn["status"] = target
+
+
 @router.post("/transactions/{txn_pk}/transition", response_model=S.TransactionResponse)
 def transition_transaction(txn_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_MANAGE),
                            conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         txn = _txn_row(cur, user, txn_pk, "act on this transaction", lock=True)
+        org = txn["scope_organization_pk"]
+        chain = approval_service.is_chain_org(cur, org)
+        if chain and body.status == "APPROVED":
+            # A Sakha's entries are approved by the seat holders, never by a permission (owner decision 2026-11-17).
+            raise _invalid("A Sakha's entries are approved by its Treasurer, then its President (or Secretary), from their own "
+                           "Finance approvals page - not through this screen.")
         _, self_approved = _guard_transition(user, "transaction", txn["status"], body.status, body.remarks,
                                              txn["created_by_sangha_sevi_pk"])
-        if body.status in ("PENDING_APPROVAL", "APPROVED", "POSTED"):
-            fund, _ = _check_transaction(
-                cur, year_pk=txn["financial_year_pk"], scope_pk=txn["financial_scope_pk"], fund_pk=txn["fund_master_pk"],
-                txn_date=txn["transaction_date"], txn_type=txn["transaction_type"], head_pk=txn["finance_head_pk"],
-                amount=txn["amount"],
-            )
-            if body.status in ("APPROVED", "POSTED"):
-                _check_restricted_balance(cur, txn, fund)
-        _update_row(cur, user, "financial_transaction", "financial_transaction_pk", txn_pk, {"status": body.status})
-        _audit(cur, user, "STATUS_CHANGE", "financial_transaction", txn_pk,
-               f"Transaction {txn['transaction_reference']} {txn['status']} -> {body.status}",
-               {"from": txn["status"], "to": body.status, "remarks": _clean(body.remarks),
-                **({"self_approved": True} if self_approved else {})})
+        extra = {"self_approved": True} if self_approved else {}
+        if chain and (txn["status"], body.status) == ("DRAFT", "PENDING_APPROVAL"):
+            problem = approval_service.submit_problems(cur, txn, org)
+            if problem:
+                raise _invalid(problem)
+            if approval_service.state(cur, txn, org)["requires"] == approval_service.REQUIRES_NONE:
+                # Income on a pre-defined head (Pranami, Parichaya Patra ...) needs no approval: it posts on submission.
+                _move_transaction(cur, user, txn, "PENDING_APPROVAL", remarks=body.remarks, extra=extra)
+                _move_transaction(cur, user, txn, "POSTED", extra={"approval_not_required": True, "reason": "head skips approval"})
+                return _txn_response(cur, txn_pk)
+        _move_transaction(cur, user, txn, body.status, remarks=body.remarks, extra=extra)
         return _txn_response(cur, txn_pk)
 
 

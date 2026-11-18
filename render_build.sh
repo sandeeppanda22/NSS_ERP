@@ -348,6 +348,7 @@ run_sql "assets_property permissions revoke patch" "${SEED_BASE}/00_bootstrap/06
 # Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
 run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql"
 run_sql "finance permissions patch" "${SEED_BASE}/00_bootstrap/08_finance_permissions_patch.sql"
+run_sql "finance configure permission patch" "${SEED_BASE}/00_bootstrap/09_finance_configure_permission_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -603,12 +604,19 @@ run_ddl "financial_transfer" "financial_transfer" "${DDL_BASE}/14_finance/09_fin
 run_ddl "upi_payment_request" "upi_payment_request" "${DDL_BASE}/14_finance/10_upi_payment_request.sql"
 run_ddl "finance_gateway_event" "finance_gateway_event" "${DDL_BASE}/14_finance/11_finance_gateway_event.sql"
 run_ddl "finance_disbursement_authority" "finance_disbursement_authority" "${DDL_BASE}/14_finance/13_finance_disbursement_authority.sql"
+run_ddl "finance_transaction_bill" "finance_transaction_bill" "${DDL_BASE}/14_finance/16_finance_transaction_bill.sql"
+run_ddl "finance_approval_step" "finance_approval_step" "${DDL_BASE}/14_finance/17_finance_approval_step.sql"
+run_ddl "finance_approval_policy" "finance_approval_policy" "${DDL_BASE}/14_finance/18_finance_approval_policy.sql"
+run_ddl "upi_payment_request_line" "upi_payment_request_line" "${DDL_BASE}/14_finance/19_upi_payment_request_line.sql"
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 run_sql "finance head templates patch" "${SEED_BASE}/12_finance/02_finance_head_templates_patch.sql"
 run_sql "finance heads structure patch" "${DDL_BASE}/14_finance/12_finance_heads_patch.sql"
 # Fixed amount / due period / part payment / applies-to-all-Sakhas columns on finance_head (owner decision 2026-11-15).
 run_sql "finance head fixed amount patch" "${DDL_BASE}/14_finance/14_finance_head_fixed_amount_patch.sql"
+run_sql "finance head approval patch" "${DDL_BASE}/14_finance/15_finance_head_approval_patch.sql"
+# Head flags AFTER the columns: pre-defined income heads skip approval; the member-reimbursement template.
+run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_head_approval_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
 run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips

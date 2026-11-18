@@ -8697,6 +8697,71 @@
                                         </div>
                                     </div>
 
+                                    <!-- Sakha approval chain (owner 2026-11-17): Treasurer first, then the President (Secretary if none is seated) -->
+                                    <div class="data-card" x-show="finApproval && finApproval.applies">
+                                        <div class="data-card-header"><h2 class="data-card-title">Approval</h2></div>
+                                        <div class="data-card-body">
+                                            <p class="form-hint" x-text="finApprovalRule()"></p>
+                                            <template x-for="st in (finApproval ? finApproval.steps : [])" :key="st.step_no">
+                                                <div style="font-size:0.82rem; padding:0.2rem 0;">
+                                                    <span class="badge badge-xs" :class="st.decision === 'APPROVED' ? 'badge-fin-live' : 'badge-fin-bad'" x-text="'Step ' + st.step_no"></span>
+                                                    <span x-text="finApprovalStepText(st)"></span>
+                                                    <span style="color:#6b7280;" x-show="st.remarks" x-text="'— ' + st.remarks"></span>
+                                                </div>
+                                            </template>
+                                            <p style="font-size:0.82rem; color:#374151; margin-top:0.4rem;" x-show="finTxn.status === 'PENDING_APPROVAL' && finApproval && !finApproval.complete && finApproval.next_position"
+                                               x-text="'Waiting for the ' + ({ TREASURER: 'Treasurer', PRESIDENT: 'President', SECRETARY: 'Secretary' }[finApproval.next_position] || '') + (finApproval.next_cover_reason === 'PRESIDENT_SEAT_VACANT' ? ' (no President is seated)' : '') + ' — on their Finance approvals page.'"></p>
+                                            <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finApproval && finApproval.blocked_reason && finTxn.status === 'PENDING_APPROVAL'" x-text="finApproval && finApproval.blocked_reason"></div>
+                                            <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finApproval && finApproval.submit_problem" x-text="finApproval && finApproval.submit_problem"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Bills (a spend): records of the bills that support it; they must add up to the amount -->
+                                    <div class="data-card" x-show="finTxn.transaction_type === 'EXPENSE'">
+                                        <div class="data-card-header">
+                                            <h2 class="data-card-title">Bills</h2>
+                                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                                <span style="font-size:0.78rem; color:#6b7280;" x-text="finMoney(finBills.total_amount) + ' of ' + finMoney(finTxn.amount)"></span>
+                                                <button class="btn-action primary" x-show="finBillsEditable && !finBillForm.show" @click="finOpenBillForm()">+ Add bill</button>
+                                            </div>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <p class="form-hint">Record each bill or receipt: who issued it, its number and date, the amount and, if you have one, a link to the photo. The paper stays with the Treasurer. A Sakha spend can be submitted only when the bills add up to its amount.</p>
+                                            <div x-show="finBillForm.show">
+                                                <div class="form-grid-3">
+                                                    <div><label class="form-label">Issued by</label><input type="text" class="form-input" maxlength="200" x-model="finBillForm.vendor_name" placeholder="e.g. Electricity company, or the member" autocomplete="off"></div>
+                                                    <div><label class="form-label">Bill number <span class="optional">(optional)</span></label><input type="text" class="form-input" maxlength="100" x-model="finBillForm.bill_number" autocomplete="off"></div>
+                                                    <div><label class="form-label">Bill date</label><input type="date" class="form-input" x-model="finBillForm.bill_date"></div>
+                                                    <div><label class="form-label">Amount (₹)</label><input type="text" inputmode="decimal" class="form-input" x-model="finBillForm.amount" autocomplete="off"></div>
+                                                    <div style="grid-column:span 2;"><label class="form-label">Link to the bill <span class="optional">(optional, https)</span></label><input type="text" class="form-input" maxlength="500" x-model="finBillForm.document_url" placeholder="https://…" autocomplete="off"></div>
+                                                </div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finBillForm.error" x-text="finBillForm.error"></div>
+                                                <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finBillForm.saving" @click="finSubmitBill()" x-text="finBillForm.saving ? 'Saving…' : 'Add bill'"></button>
+                                                    <button class="btn-action" :disabled="finBillForm.saving" @click="finCancelBillForm()">Cancel</button>
+                                                </div>
+                                            </div>
+                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finBills.count === 0">No bills yet.</div>
+                                            <div style="overflow-x:auto;" x-show="finBills.count > 0">
+                                                <table class="admin-table">
+                                                    <thead><tr><th>Issued by</th><th>Number</th><th>Date</th><th>Amount</th><th>Link</th><th></th></tr></thead>
+                                                    <tbody>
+                                                        <template x-for="b in finBills.items" :key="b.finance_transaction_bill_pk">
+                                                            <tr>
+                                                                <td style="font-size:0.82rem;" x-text="b.vendor_name"></td>
+                                                                <td style="font-size:0.78rem;" x-text="b.bill_number || '—'"></td>
+                                                                <td style="font-size:0.78rem;" x-text="NSS.formatDate(b.bill_date)"></td>
+                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(b.amount)"></td>
+                                                                <td style="font-size:0.78rem;"><template x-if="finBillSafeUrl(b.document_url)"><a :href="finBillSafeUrl(b.document_url)" target="_blank" rel="noopener noreferrer">Open</a></template><span x-show="!finBillSafeUrl(b.document_url)">—</span></td>
+                                                                <td><button class="link-action" x-show="finBillsEditable" @click="finRemoveBill(b)">Remove</button></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="alert-msg alert-error" x-show="finEvidenceError" x-text="finEvidenceError"></div>
 
                                     <!-- Receipts (income) -->
@@ -8750,6 +8815,7 @@
                                                                     <div style="font-size:0.7rem; color:#6b7280;" x-show="r.cancellation_reason" x-text="r.cancellation_reason"></div>
                                                                 </td>
                                                                 <td>
+                                                                    <button class="link-action" x-show="['ISSUED','CANCELLED'].includes(r.status)" @click="finDownloadReceipt(r)">Download PDF</button>
                                                                     <template x-for="a in finActions('receipt', r.status)" :key="a.to">
                                                                         <button class="link-action" @click="finAskTransition('receipt', r.financial_receipt_pk, 'Receipt ' + r.receipt_number, a)" x-text="a.label"></button>
                                                                     </template>
@@ -9025,6 +9091,24 @@
                                 </div>
                             </div>
 
+                            <!-- The Treasurer's default approval limit of the chosen Sakha -->
+                            <div class="data-card" x-show="finPolicyApplies" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">Treasurer's approval limit</h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint">The Treasurer approves a spend alone up to this amount on any expense head that has no limit of its own. Above it (or with no limit at all) the President, or the Secretary when no President is seated, must approve as well. Every spend needs bills that add up to its amount.</p>
+                                    <div class="form-grid-3" style="align-items:end;">
+                                        <div>
+                                            <label class="form-label">Default limit (₹) <span class="optional">(empty = none)</span></label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finPolicy.input" :disabled="!canConfigureFinance" placeholder="e.g. 5000" autocomplete="off">
+                                        </div>
+                                        <div x-show="canConfigureFinance">
+                                            <button class="btn-action primary" :disabled="finPolicy.saving" @click="finPolicySave()" x-text="finPolicy.saving ? 'Saving…' : 'Save limit'"></button>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finPolicy.error" x-text="finPolicy.error"></div>
+                                </div>
+                            </div>
+
                             <!-- Simple contribution form: name, amount, how often. The server fills in the rest. -->
                             <div class="data-card" x-show="finContribForm.show" x-cloak>
                                 <div class="data-card-header"><h2 class="data-card-title">Add a contribution</h2></div>
@@ -9220,6 +9304,16 @@
                                             </select>
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.allow_part_payment"> Members may pay in parts</label>
                                         </div>
+                                        <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
+                                                <input type="checkbox" x-model="finHeadForm.skips_approval"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)
+                                            </label>
+                                        </div>
+                                        <div x-show="finHeadForm.direction === 'EXPENSE'">
+                                            <label class="form-label">Treasurer's limit (₹) <span class="optional">(empty = the Sakha default)</span></label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finHeadForm.treasurer_limit" autocomplete="off">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.requires_member"> Repays a member (the member who paid must be named)</label>
+                                        </div>
                                         <div x-show="finHeadForm.direction === 'INCOME'">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
                                                 <input type="checkbox" x-model="finHeadForm.is_pranami"> Show these contributions in the member's own "Pranami" tab
@@ -9276,10 +9370,10 @@
                                         <button class="btn-action" :class="{ primary: finHeadView === 'sangha' }" @click="finHeadSetView('sangha')">Sangha heads</button>
                                         <button class="btn-action" :class="{ primary: finHeadsAreEvents }" @click="finHeadSetView('events')">Events</button>
                                         <button class="btn-action" :class="{ primary: finHeadsAreTemplates }" @click="finHeadSetView('templates')">Kendra templates</button>
-                                        <button class="btn-action" x-show="canApproveFinance && !finHeadsAreTemplates" @click="finHeadAdopt()" title="Copy the Kendra templates into the Sangha chosen above">Add Kendra templates</button>
-                                        <button class="btn-action primary" x-show="canApproveFinance && finHeadsAreEvents" @click="finEventOpenCreate()">+ New event</button>
-                                        <button class="btn-action primary" x-show="canApproveFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()">+ Add contribution</button>
-                                        <button class="btn-action" x-show="canApproveFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : 'Advanced head'" title="The full form: expense heads, restricted funds, funds and scopes"></button>
+                                        <button class="btn-action" x-show="canConfigureFinance && !finHeadsAreTemplates" @click="finHeadAdopt()" title="Copy the Kendra templates into the Sangha chosen above">Add Kendra templates</button>
+                                        <button class="btn-action primary" x-show="canConfigureFinance && finHeadsAreEvents" @click="finEventOpenCreate()">+ New event</button>
+                                        <button class="btn-action primary" x-show="canConfigureFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()">+ Add contribution</button>
+                                        <button class="btn-action" x-show="canConfigureFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : 'Advanced head'" title="The full form: expense heads, restricted funds, funds and scopes"></button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -9322,9 +9416,9 @@
                                                                 <td style="font-size:0.8rem;" x-text="h.transaction_count"></td>
                                                                 <td><span class="badge badge-xs" :class="finBadge(h.status)" x-text="finLabel(h.status)"></span></td>
                                                                 <td>
-                                                                    <button class="link-action" x-show="canApproveFinance && !h.is_kendra_copy" @click="finHeadOpenEdit(h)">Edit</button>
-                                                                    <button class="link-action" x-show="canApproveFinance && h.is_kendra_copy" @click="finCopyOpen(h)">Account</button>
-                                                                    <button class="link-action" x-show="canApproveFinance && h.applies_to_all_sakhas" @click="finHeadSyncCopies(h)" title="Give every Sakha its copy and refresh the existing ones">Update Sakhas</button>
+                                                                    <button class="link-action" x-show="canConfigureFinance && !h.is_kendra_copy" @click="finHeadOpenEdit(h)">Edit</button>
+                                                                    <button class="link-action" x-show="canConfigureFinance && h.is_kendra_copy" @click="finCopyOpen(h)">Account</button>
+                                                                    <button class="link-action" x-show="canConfigureFinance && h.applies_to_all_sakhas" @click="finHeadSyncCopies(h)" title="Give every Sakha its copy and refresh the existing ones">Update Sakhas</button>
                                                                     <template x-for="a in finActions('head', h.status)" :key="a.to">
                                                                         <button class="link-action" @click="finAskTransition('head', h.finance_head_pk, 'Head ' + h.head_code, a)" x-text="a.label"></button>
                                                                     </template>
@@ -9407,7 +9501,7 @@
                                     <h2 class="data-card-title">Receiving accounts</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
                                         <span style="font-size:0.75rem; color:#6b7280;" x-text="finAccountsTotal + ' total'"></span>
-                                        <button class="btn-action primary" x-show="canApproveFinance" @click="finAcctOpenCreate()">+ New account</button>
+                                        <button class="btn-action primary" x-show="canConfigureFinance" @click="finAcctOpenCreate()">+ New account</button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -9435,7 +9529,7 @@
                                                         <td style="font-size:0.8rem;" x-text="a.head_count"></td>
                                                         <td><span class="badge badge-xs" :class="finBadge(a.status)" x-text="finLabel(a.status)"></span></td>
                                                         <td>
-                                                            <button class="link-action" x-show="canApproveFinance && a.status === 'ACTIVE'" @click="finAcctOpenEdit(a)">Edit</button>
+                                                            <button class="link-action" x-show="canConfigureFinance && a.status === 'ACTIVE'" @click="finAcctOpenEdit(a)">Edit</button>
                                                             <template x-for="act in finActions('account', a.status)" :key="act.to">
                                                                 <button class="link-action" @click="finAskTransition('account', a.financial_account_pk, 'Account ' + a.account_label, act)" x-text="act.label"></button>
                                                             </template>

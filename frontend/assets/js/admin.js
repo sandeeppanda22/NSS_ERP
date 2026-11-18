@@ -125,6 +125,10 @@ const LIVE_TABLE_TABS = {
     financial_account: ["finSetup"],
     upi_payment_request: ["finCollections", "finOverview"],
     finance_disbursement_authority: ["finTransactions", "finTransfers"],
+    finance_transaction_bill: ["finTransactions"],
+    finance_approval_step: ["finTransactions"],
+    finance_approval_policy: ["finSetup"],
+    upi_payment_request_line: ["finCollections"],
     // ── Batch 2 ──
     // Users tab + user detail. user_account's login churn (last_login_at, failed-login
     // counters, locked_until) never bumps its marker (ignored-column trigger), so a login

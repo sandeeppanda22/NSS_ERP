@@ -78,7 +78,7 @@ from api.routers import correspondence
 from api.routers import attendance
 from api.routers import org_reparent
 from api.routers import assets_property
-from api.routers import finance, finance_authority, finance_setup, finance_upi
+from api.routers import finance, finance_approval, finance_authority, finance_receipt_pdf, finance_setup, finance_upi
 from api.routers import live
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -342,6 +342,8 @@ app.include_router(finance.router)
 app.include_router(finance_setup.router)
 app.include_router(finance_upi.router)
 app.include_router(finance_authority.router)
+app.include_router(finance_approval.router)
+app.include_router(finance_receipt_pdf.router)
 app.include_router(live.router)
 
 # ── Frontend ─────────────────────────────────────────────────────────────

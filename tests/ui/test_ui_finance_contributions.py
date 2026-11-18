@@ -86,11 +86,11 @@ class TestAdminContributionForm:
         assert "finContribForm.applies_to !== 'ALL_SAKHAS'" in form
         assert 'collection_account_pk: allSakhas ? null' in SETUP_JS
 
-    def test_the_buttons_are_for_approvers_only(self):
-        assert re.search(r'x-show="canApproveFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate\(\)"', ADMIN_HTML)
-        assert re.search(r'x-show="canApproveFinance && !h\.is_kendra_copy" @click="finHeadOpenEdit\(h\)"', ADMIN_HTML)
-        assert re.search(r'x-show="canApproveFinance && h\.is_kendra_copy" @click="finCopyOpen\(h\)"', ADMIN_HTML)
-        assert re.search(r'x-show="canApproveFinance && h\.applies_to_all_sakhas" @click="finHeadSyncCopies\(h\)"', ADMIN_HTML)
+    def test_the_buttons_are_for_configurers_only(self):
+        assert re.search(r'x-show="canConfigureFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate\(\)"', ADMIN_HTML)
+        assert re.search(r'x-show="canConfigureFinance && !h\.is_kendra_copy" @click="finHeadOpenEdit\(h\)"', ADMIN_HTML)
+        assert re.search(r'x-show="canConfigureFinance && h\.is_kendra_copy" @click="finCopyOpen\(h\)"', ADMIN_HTML)
+        assert re.search(r'x-show="canConfigureFinance && h\.applies_to_all_sakhas" @click="finHeadSyncCopies\(h\)"', ADMIN_HTML)
 
     def test_the_old_full_form_is_still_reachable_as_advanced(self):
         assert "'Advanced head'" in ADMIN_HTML and "finHeadOpenCreate()" in ADMIN_HTML
@@ -204,7 +204,7 @@ class TestMemberCardsMarkup:
         assert "waiting for the bank to confirm" in cards and "pending_amount" in cards
 
     def test_cards_hide_while_a_payment_is_in_progress(self):
-        assert 'x-show="pranamiPay.heads.length > 0 && !pranamiPay.result"' in _cards()
+        assert "x-show=\"pranami.view === 'pay' && pranamiPay.heads.length > 0 && !pranamiPay.result\"" in _cards()
 
 
 class TestStateMap:

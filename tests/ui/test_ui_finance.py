@@ -275,7 +275,9 @@ class TestMemberPranamiTab:
 
     def test_live_refresh_covers_the_tab(self):
         block = DASH_JS.split("// LIVE_TABLE_TABS:begin")[1].split("// LIVE_TABLE_TABS:end")[0]
-        assert 'financial_transaction: ["pranami"]' in block and 'financial_receipt: ["pranami"]' in block
+        assert 'financial_transaction: ["pranami", "finApprovals"]' in block and 'financial_receipt: ["pranami"]' in block
+        assert 'finance_approval_step: ["finApprovals"]' in block and 'finance_transaction_bill: ["finApprovals"]' in block
+        assert re.search(r"finApprovals: \{ reload: \(h\) => h\._loadFinApprovals\(\{ silent: true \}\)", DASH_JS)
         assert re.search(r"pranami: \{ reload: \(h\) => h\._loadPranami\(\{ silent: true \}\)", DASH_JS)
 
     def test_endpoint_is_login_only_and_has_no_id_parameter(self):
@@ -330,13 +332,14 @@ class TestCustomizationAndCollectionScreens:
             assert f"activeTab === '{tab}'" in _panel()
         assert "'finSetup','finCollections'" in ADMIN_HTML
 
-    def test_configuration_controls_are_hidden_without_the_approve_permission(self):
+    def test_configuration_controls_are_hidden_without_the_configure_permission(self):
         setup = _screen("finSetup")
         for needle in ("+ New account", "Add Kendra templates", "finHeadOpenEdit(h)", "finAcctOpenEdit(a)"):
             line = next(l for l in setup.splitlines() if needle in l)
-            assert "canApproveFinance" in line, f"{needle} must be gated on canApproveFinance"
-        assert 'x-show="canApproveFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()"' in setup
-        assert 'x-show="canApproveFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()"' in setup
+            assert "canConfigureFinance" in line and "canApproveFinance" not in line, f"{needle} must be gated on canConfigureFinance"
+        assert 'x-show="canConfigureFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()"' in setup
+        assert 'x-show="canConfigureFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()"' in setup
+        assert "canApproveFinance" not in setup, "configuring is its own permission; approving is not needed to set a Sangha up"
 
     def test_the_account_form_can_never_take_a_secret_or_a_full_account_number(self):
         form = _screen("finSetup")
@@ -400,7 +403,7 @@ class TestCustomizationAndCollectionScreens:
         pay = DASH_JS.split("async pranamiPayStart(h)")[1].split("_pranamiPayPoll(pk, tries) {")[0]
         assert "/api/v1/finance/my-pranami/pay" in pay and "sangha_sevi" not in pay and "person" not in pay
         card = _pranami_panel()
-        assert "Pay by UPI" in card and 'x-show="pranamiPay.heads.length > 0 && !pranamiPay.result"' in card
+        assert "Pay by UPI" in card and "x-show=\"pranami.view === 'pay' && pranamiPay.heads.length > 0 && !pranamiPay.result\"" in card
 
 
 NODE = shutil.which("node")
@@ -485,10 +488,12 @@ class TestByeLawAuthorityPanel:
 
     def test_signing_is_not_a_client_side_decision(self):
         # the UI only offers the buttons; the Treasurer/Secretary seat is checked by the server
-        assert "countersign" in FIN_JS and "TREASURER" not in FIN_JS and "SECRETARY" not in FIN_JS
+        # Office names appear in this file only as LABELS for what the server reports; nothing here decides who may act.
+        assert "countersign" in FIN_JS and "isTreasurer" not in FIN_JS and "isSecretary" not in FIN_JS and "isPresident" not in FIN_JS
+        assert not re.search(r"(person_pk|currentUser)[^\n]*(TREASURER|SECRETARY|PRESIDENT)", FIN_JS)
 
     def test_panel_is_live_refresh_aware(self):
-        assert "this.finAuth]" in FIN_JS                                  # an open panel counts as busy for the live feed
+        assert re.search(r"this\.finAuth[,\]]", FIN_JS)                    # an open panel counts as busy for the live feed
         assert "finance_disbursement_authority" in ADMIN_JS
 
 
@@ -512,4 +517,4 @@ class TestMemberDestinationsAndEventsUi:
 
     def test_events_are_configured_by_an_approver_only(self):
         p = _panel()
-        assert 'x-show="canApproveFinance && finHeadsAreEvents"' in p and "finEventOpenCreate()" in p
+        assert 'x-show="canConfigureFinance && finHeadsAreEvents"' in p and "finEventOpenCreate()" in p

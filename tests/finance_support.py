@@ -324,3 +324,20 @@ def pay_request(client, gw, request, **over):
     """Simulate the payer paying a request in full (a signed 'paid' webhook for its order)."""
     amount = over.pop("amount", request["amount"])
     return webhook(client, gw, request["provider_order_id"], amount=Decimal(str(amount)) if amount is not None else None, **over)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# The Sakha approval chain (owner decision 2026-11-17)
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def single_approval_levels(monkeypatch):
+    """
+    Switch the Sakha approval chain OFF for one test. The older Finance suites exercise the generic permission-based lifecycle
+    (submit -> approve -> post by a FINANCE_APPROVE holder) on a Sakha scope because that is the organization the shared cast owns;
+    that machinery is still what every other level uses. The chain itself is tested in test_finance_approval.py /
+    test_finance_approval_security.py, which do NOT use this fixture.
+    """
+    from api.services import finance_approval
+
+    monkeypatch.setattr(finance_approval, "is_chain_org", lambda cur, organization_pk: False)

@@ -17,12 +17,13 @@ Conventions:
     the ``/transition`` endpoints.
 """
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 
 # ── Controlled values (mirror the DDL CHECK constraints) ─────────────────
 
@@ -481,6 +482,9 @@ class HeadCreate(BaseModel):
     collection_fund_pk: UUID | None = None
     collection_account_pk: UUID | None = None
     display_order: int = Field(100, ge=0, le=10000)
+    skips_approval: bool = Field(False, description="INCOME only: a Sakha posts income on this head without the Treasurer / President approval")
+    treasurer_limit: Amount | None = Field(None, description="EXPENSE only: what a Sakha's Treasurer may approve alone on this head")
+    requires_member: bool = Field(False, description="EXPENSE only: a reimbursement head - the member who paid must be named on the entry")
 
 
 class EventCreate(BaseModel):
@@ -514,6 +518,9 @@ class HeadUpdate(BaseModel):
     fixed_amount: Amount | None = None
     due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; needed with a fixed amount")
     allow_part_payment: bool | None = None
+    skips_approval: bool | None = None
+    treasurer_limit: Amount | None = None
+    requires_member: bool | None = None
 
 
 class HeadResponse(BaseModel):
@@ -544,6 +551,9 @@ class HeadResponse(BaseModel):
     due_period: str | None = None
     allow_part_payment: bool = False
     applies_to_all_sakhas: bool = False
+    skips_approval: bool = False
+    treasurer_limit: Decimal | None = None
+    requires_member: bool = False
     is_kendra_copy: bool = False             # a Sakha's own copy of a Kendra all-Sakhas head (amount / name follow the Kendra)
     needs_account: bool = False              # a copy with no receiving account yet: members cannot pay it
     copy_count: int = 0                      # on an all-Sakhas source: how many Sakhas hold a copy
@@ -648,6 +658,7 @@ class PaymentRequestResponse(BaseModel):
     review_reason: str | None
     transaction_reference: str | None
     receipt_number: str | None
+    line_count: int = 0                      # >0: one payment for several contributions (see /payment-requests/{pk})
     created_at: datetime
 
 
@@ -698,6 +709,29 @@ class MyPayment(BaseModel):
     expires_at: datetime
     paid_at: datetime | None
     receipt_number: str | None
+    financial_receipt_pk: UUID | None = None   # the member's own receipt: GET /finance/my-pranami/receipts/{pk}/pdf
+    items: list["MyPaymentItem"] = []          # a payment for several contributions: what it covers, with each one's own receipt
+
+
+class MyPaymentItem(BaseModel):
+    head_name: str
+    amount: Decimal
+    receipt_number: str | None = None
+    financial_receipt_pk: UUID | None = None
+
+
+class MyPayItem(BaseModel):
+    finance_head_pk: UUID
+    amount: Amount
+
+
+class MyPayMultipleRequest(BaseModel):
+    """A signed-in member paying SEVERAL of their own contributions in one UPI payment; the payer is the token, never a field."""
+
+    items: list[MyPayItem] = Field(..., min_length=1, max_length=12)
+
+
+MyPayment.model_rebuild()
 
 
 class WebhookAck(BaseModel):
@@ -709,6 +743,7 @@ class WebhookAck(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MyPranamiReceipt(BaseModel):
+    financial_receipt_pk: UUID               # the member's own receipt: GET /finance/my-pranami/receipts/{pk}/pdf
     receipt_number: str
     receipt_date: date
     amount: Decimal
@@ -739,6 +774,128 @@ class MyPranami(BaseModel):
 
     sangha_sevi_id: str | None
     items: list[MyPranamiItem]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Sakha approval chain: bills, the Treasurer's default limit, decisions (owner decision 2026-11-17)
+# ═══════════════════════════════════════════════════════════════════════
+
+class BillCreate(BaseModel):
+    """One bill / receipt / invoice supporting a spend. The app stores the record (and an optional https link), not the file."""
+
+    vendor_name: str = Field(..., min_length=1, max_length=200, description="Who issued it, or the member being reimbursed")
+    bill_number: str | None = Field(None, max_length=100)
+    bill_date: date
+    amount: Amount
+    document_url: str | None = Field(None, max_length=500, description="Optional https link to a photo / scan (for example a Drive file)")
+    description: str | None = Field(None, max_length=2000)
+
+    @field_validator("document_url")
+    @classmethod
+    def _https_only(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not re.match(r"^https://[^\s]+$", v, re.IGNORECASE):
+            raise ValueError("The bill link must start with https://")
+        return v
+
+
+class BillResponse(BaseModel):
+    finance_transaction_bill_pk: UUID
+    vendor_name: str
+    bill_number: str | None
+    bill_date: date
+    amount: Decimal
+    document_url: str | None
+    description: str | None
+    created_at: datetime
+
+
+class BillListResponse(BaseModel):
+    items: list[BillResponse]
+    total_amount: Decimal                    # what the live bills add up to; a Sakha spend needs it equal to the amount
+    count: int
+
+
+class ApprovalPolicyWrite(BaseModel):
+    organization_pk: UUID
+    default_treasurer_limit: Amount | None = Field(None, description="What the Treasurer may approve alone on a head with no limit of its own; null = none")
+
+
+class ApprovalPolicyResponse(BaseModel):
+    organization_pk: UUID
+    organization_name: str | None
+    default_treasurer_limit: Decimal | None
+
+
+class ApprovalStepResponse(BaseModel):
+    step_no: int
+    position_code: str                       # TREASURER / PRESIDENT / SECRETARY (Secretary = President seat vacant)
+    decision: str
+    decided_at: datetime
+    decided_by_name: str | None
+    remarks: str | None
+    cover_reason: str | None
+
+
+class ApprovalState(BaseModel):
+    """Where one entry stands in the Sakha chain."""
+
+    applies: bool                            # false: not a Sakha entry, the ordinary single approval applies
+    requires: str | None                     # NONE / TREASURER / TREASURER_THEN_PRESIDENT
+    limit: Decimal | None                    # the Treasurer's limit that applied (expense only)
+    steps: list[ApprovalStepResponse] = []
+    next_stage: int | None = None
+    next_position: str | None = None
+    next_cover_reason: str | None = None
+    complete: bool = False
+    blocked_reason: str | None = None
+    bills_total: Decimal = Decimal("0")
+    bill_count: int = 0
+    submit_problem: str | None = None        # what still stops the entry being submitted (bills / reimbursed member)
+
+
+class ApprovalDecision(BaseModel):
+    remarks: str | None = Field(None, max_length=2000)
+
+
+class ApprovalResult(BaseModel):
+    financial_transaction_pk: UUID
+    transaction_reference: str
+    status: str                              # the entry's status after this decision (PENDING_APPROVAL while a second step is due)
+    final: str | None                        # APPROVED (the entry is now posted) / REJECTED / null = waiting for the next step
+    message: str
+
+
+class MyApprovalItem(BaseModel):
+    """An entry waiting for the CALLER's approval, with what they need to judge it. Names, never ids of other people."""
+
+    financial_transaction_pk: UUID
+    transaction_reference: str
+    transaction_type: str
+    transaction_date: date
+    head_name: str
+    amount: Decimal
+    description: str | None
+    organization_name: str | None
+    recorded_by_name: str | None
+    member_name: str | None                  # the member being reimbursed, when named
+    stage: int
+    position_code: str                       # the office the caller acts in for this step
+    cover_reason: str | None
+    requires: str
+    limit: Decimal | None
+    steps: list[ApprovalStepResponse] = []
+    bills: list[BillResponse] = []
+    bills_total: Decimal = Decimal("0")
+
+
+class MyApprovals(BaseModel):
+    items: list[MyApprovalItem]
+    total: int
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -12,6 +12,7 @@ import pytest
 
 from api.schemas import finance as S
 from tests.finance_support import (  # noqa: F401  (fixtures)
+    single_approval_levels,
     BASE,
     FAKE_UUID,
     _login_headers,
@@ -36,7 +37,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     viewer_user,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("single_approval_levels")]
 
 
 @pytest.fixture
@@ -86,17 +87,21 @@ class TestWhoMayConfigure:
         assert client.post(f"{BASE}/contributions", json={"organization_pk": str(register_org_pk), "head_name": "x"}).status_code == 401
         assert client.post(f"{BASE}/heads/{FAKE_UUID}/sync-copies").status_code == 401
 
-    @pytest.mark.parametrize("who", ["sakha_admin_h", "other_admin_h", "viewer_h", "plain_member_h"])
-    def test_without_finance_approve_nobody_adds_a_contribution(self, request, client, register_org_pk, who):
+    @pytest.mark.parametrize("who", ["other_admin_h", "viewer_h", "plain_member_h"])
+    def test_without_finance_configure_for_this_sakha_nobody_adds_a_contribution(self, request, client, register_org_pk, who):
         r = _post(client, request.getfixturevalue(who), register_org_pk)
-        assert r.status_code == 403, (who, r.text)
+        assert r.status_code == 403, (who, r.text)          # a foreign Sakha's admin, a viewer, a plain member
+
+    def test_a_sakha_admin_configures_its_own_sakha_only(self, client, sakha_admin_h, register_org_pk, other_org_pk):
+        assert _post(client, sakha_admin_h, register_org_pk).status_code == 201     # FINANCE_CONFIGURE, owner 2026-11-17
+        assert _post(client, sakha_admin_h, other_org_pk).status_code == 403
 
     @pytest.mark.parametrize("who", ["sakha_admin_h", "other_admin_h", "viewer_h", "plain_member_h"])
-    def test_without_finance_approve_nobody_refreshes_the_copies(self, request, client, write_conn, admin_h, who):
+    def test_nobody_outside_the_kendra_refreshes_the_copies(self, request, client, write_conn, admin_h, who):
         source = _all_sakhas(client, admin_h, write_conn)
         assert client.post(f"{BASE}/heads/{source['finance_head_pk']}/sync-copies", headers=request.getfixturevalue(who)).status_code == 403
 
-    def test_the_approver_may(self, client, kendra_h, register_org_pk):
+    def test_the_kendra_admin_may(self, client, kendra_h, register_org_pk):
         assert _post(client, kendra_h, register_org_pk).status_code == 201
 
     def test_all_sakhas_cannot_be_used_by_a_sakha(self, client, admin_h, register_org_pk):

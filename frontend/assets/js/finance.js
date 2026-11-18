@@ -63,6 +63,8 @@
         is_restricted: false, restriction_purpose: "", organization: emptyPicker({ typeCodes: NSS.SAKHA_LIKE_ORG_TYPES }),
     });
     const newFundEdit = () => ({ pk: "", saving: false, error: "", name: "", purpose: "" });
+    // One bill supporting a spend (owner 2026-11-17): the record, plus an optional https link; no file upload yet.
+    const newBillForm = () => ({ show: false, saving: false, error: "", vendor_name: "", bill_number: "", bill_date: "", amount: "", document_url: "", description: "" });
     const newTxnForm = () => ({
         show: false, mode: "create", pk: "", saving: false, error: "",
         financial_year_pk: "", financial_scope_pk: "", fund_master_pk: "", transaction_type: "INCOME",
@@ -95,7 +97,11 @@
             },
             get canViewFinance() {
                 const p = this._finPerms();
-                return p.includes("FINANCE_VIEW") || p.includes("FINANCE_MANAGE") || p.includes("FINANCE_APPROVE");
+                return p.includes("FINANCE_VIEW") || p.includes("FINANCE_MANAGE") || p.includes("FINANCE_APPROVE") || p.includes("FINANCE_CONFIGURE");
+            },
+            // Heads, contributions, events, receiving accounts and the Treasurer's limits (it approves nothing).
+            get canConfigureFinance() {
+                return this._finPerms().includes("FINANCE_CONFIGURE");
             },
             get canManageFinance() {
                 const p = this._finPerms();
@@ -158,7 +164,7 @@
                     method, headers: JSON_HEADERS, body: body === undefined ? undefined : JSON.stringify(body),
                 });
                 if (!res.ok) throw new Error(await NSS.extractError(res));
-                return res.json();
+                return res.status === 204 ? null : res.json();
             },
             _finNote(text) {
                 this.finNotice = text;
@@ -178,7 +184,10 @@
                 if (!this.finRef) return [];
                 return (this.finRef.transitions[entity] || [])
                     .filter((t) => t.from === status)
-                    .filter((t) => (t.permission === "FINANCE_APPROVE" ? this.canApproveFinance : this.canManageFinance))
+                    .filter((t) => (t.permission === "FINANCE_APPROVE" ? this.canApproveFinance
+                        : (t.permission === "FINANCE_CONFIGURE" ? this.canConfigureFinance : this.canManageFinance)))
+                    // A Sakha's entries are approved by its Treasurer / President from their own page, never from this button.
+                    .filter((t) => !(entity === "transaction" && t.to === "APPROVED" && this.finApproval && this.finApproval.applies))
                     .map((t) => ({ to: t.to, label: STEP_VERBS[t.to] || NSS.codeLabel(t.to), remarks: t.remarks, danger: ["REJECTED", "CANCELLED", "CLOSED", "INACTIVE"].includes(t.to) }));
             },
 
@@ -315,7 +324,7 @@
             // Live refresh hooks (LIVE_REFRESH_CONFIG in admin.js)
             finLiveBusy() {
                 return [this.finYearForm, this.finScopeForm, this.finScopeEdit, this.finFundForm, this.finTxnForm,
-                    this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx, this.finAuth]
+                    this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx, this.finAuth, this.finBillForm]
                     .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk
                     || this.finSetupBusy() || this.finReqBusy();
             },
@@ -580,6 +589,8 @@
             finTxnQ: "", finTxnYear: "", finTxnScope: "", finTxnTypeFilter: "", finTxnStatusFilter: "", finTxnFrom: "", finTxnTo: "",
             finTxnsLoading: false, finTxnsError: "", _finTxnSeq: 0,
             finTxnForm: newTxnForm(), finTxn: null, finTxnDetailError: "",
+            // Sakha approval chain + bills of the open entry (GET /transactions/{pk}/approval and /bills)
+            finApproval: null, finBills: { items: [], total_amount: "0", count: 0 }, finBillForm: newBillForm(),
             finReceipts: [], finPayments: [], finEvidenceError: "",
             finReceiptForm: newReceiptForm(), finPaymentForm: newPaymentForm(),
             finTxnFormFunds: [],
@@ -713,7 +724,7 @@
 
             // Detail
             async finOpenTxn(pk) {
-                this.finTxnDetailError = ""; this.finReceiptForm = newReceiptForm(); this.finPaymentForm = newPaymentForm();
+                this.finTxnDetailError = ""; this.finReceiptForm = newReceiptForm(); this.finPaymentForm = newPaymentForm(); this.finBillForm = newBillForm();
                 try {
                     this.finTxn = await this._finGet(`/transactions/${pk}`);
                     await this._finLoadEvidence();
@@ -748,8 +759,77 @@
                 } catch (err) {
                     this.finEvidenceError = err.message || "Failed to load receipts / payments.";
                 }
+                try {
+                    this.finApproval = await this._finGet(`/transactions/${pk}/approval`);
+                    this.finBills = this.finTxn.transaction_type === "EXPENSE"
+                        ? await this._finGet(`/transactions/${pk}/bills`) : { items: [], total_amount: "0", count: 0 };
+                } catch { this.finApproval = null; this.finBills = { items: [], total_amount: "0", count: 0 }; }
             },
+
+            // ── Approval status + bills (Sakha chain, owner 2026-11-17) ───────────
+            get finBillsEditable() {
+                return !!this.finTxn && this.canManageFinance && this.finTxn.transaction_type === "EXPENSE" && this.finTxn.status === "DRAFT";
+            },
+            // "Treasurer approves alone up to ₹5,000" / "Treasurer, then President" / "No approval needed".
+            finApprovalRule() {
+                const a = this.finApproval;
+                if (!a || !a.applies) return "";
+                if (a.requires === "NONE") return "No approval needed: income on this head posts when it is submitted.";
+                if (a.requires === "TREASURER") return `The Treasurer approves this alone (it is within the limit of ${NSS.formatMoney(a.limit)}).`;
+                return a.limit != null
+                    ? `Above the Treasurer's limit of ${NSS.formatMoney(a.limit)}: the Treasurer approves first, then the President (the Secretary if no President is seated).`
+                    : "The Treasurer approves first, then the President (the Secretary if no President is seated).";
+            },
+            finApprovalStepText(st) {
+                const who = { TREASURER: "Treasurer", PRESIDENT: "President", SECRETARY: "Secretary" }[st.position_code] || st.position_code;
+                const cover = st.cover_reason === "PRESIDENT_SEAT_VACANT" ? " (President seat vacant)" : (st.cover_reason === "ACTING_COVER" ? " (acting)" : "");
+                return `${who}${cover} ${st.decision === "APPROVED" ? "approved" : "rejected"} — ${st.decided_by_name || ""}`;
+            },
+            finOpenBillForm() { this.finBillForm = { ...newBillForm(), show: true, bill_date: this.finTxn.transaction_date }; },
+            finCancelBillForm() { this.finBillForm = newBillForm(); },
+            async finSubmitBill() {
+                const f = this.finBillForm;
+                if (!blank(f.vendor_name)) { f.error = "Who issued the bill?"; return; }
+                const bad = this._finMoneyOk(f.amount, "Bill amount");
+                if (bad) { f.error = bad; return; }
+                if (!f.bill_date) { f.error = "Choose the bill date."; return; }
+                if (blank(f.document_url) && !/^https:\/\//i.test(f.document_url.trim())) { f.error = "The link must start with https://"; return; }
+                f.saving = true; f.error = "";
+                try {
+                    await this._finSend("POST", `/transactions/${this.finTxn.financial_transaction_pk}/bills`, {
+                        vendor_name: f.vendor_name.trim(), bill_number: blank(f.bill_number), bill_date: f.bill_date,
+                        amount: f.amount.trim(), document_url: blank(f.document_url), description: blank(f.description),
+                    });
+                    this.finBillForm = newBillForm();
+                    this._finNote("Bill added.");
+                    await this.finReloadTxn();
+                } catch (err) {
+                    f.error = err.message || "Could not add the bill.";
+                } finally {
+                    f.saving = false;
+                }
+            },
+            async finRemoveBill(b) {
+                try {
+                    await this._finSend("DELETE", `/transactions/${this.finTxn.financial_transaction_pk}/bills/${b.finance_transaction_bill_pk}`);
+                    this._finNote("Bill removed.");
+                    await this.finReloadTxn();
+                } catch (err) {
+                    this.finEvidenceError = err.message || "Could not remove the bill.";
+                }
+            },
+            finBillSafeUrl(url) { return typeof url === "string" && /^https:\/\//i.test(url) ? url : ""; },
             finBackToTxns() { this.finTxn = null; return this.finLoadTxns({ silent: true }); },
+
+            // A receipt as a PDF with the NSS logo (GET /finance/receipts/{pk}/pdf): an issued receipt, or a cancelled one (stamped).
+            async finDownloadReceipt(r) {
+                this.finEvidenceError = "";
+                try {
+                    await NSS.downloadFile(`${BASE}/receipts/${r.financial_receipt_pk}/pdf`, `NSS-Receipt-${r.receipt_number}.pdf`);
+                } catch (err) {
+                    this.finEvidenceError = err.message || "Could not download the receipt.";
+                }
+            },
 
             // Receipts
             finOpenReceiptForm() {

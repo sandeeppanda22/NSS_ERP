@@ -909,6 +909,14 @@
                 Pranami
             </a>
 
+            <a class="nav-item" :class="{ active: tab === 'finApprovals' }" x-show="finApprovalsCount() > 0 || tab === 'finApprovals'" @click="switchTab('finApprovals')">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                Finance approvals
+                <span class="count-badge" x-show="finApprovalsCount() > 0" x-text="finApprovalsCount()"></span>
+            </a>
+
             <a class="nav-item" :class="{ active: tab === 'documents' }" @click="switchTab('documents')">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
@@ -4481,7 +4489,17 @@
                          The member's OWN contributions: GET /api/v1/finance/my-pranami (login only,
                          no id parameter). Read-only. Logic: dashboard.js (_loadPranami). -->
                     <div x-show="tab === 'pranami'">
+                        <!-- Two views: what to pay now, and the history of past payments with their PDF receipts -->
                         <div class="data-card">
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.75rem 1.25rem;">
+                                <button class="btn-action" :class="{ primary: pranami.view === 'pay' }" @click="pranami.view = 'pay'">Pay &amp; contributions</button>
+                                <button class="btn-action" :class="{ primary: pranami.view === 'history' }" @click="pranami.view = 'history'">
+                                    History <span class="badge badge-xs badge-muted" style="margin-left: 0.25rem;" x-text="pranamiFiltered().length"></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="data-card" x-show="pranami.view === 'history'">
                             <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
                                 <h2 class="data-card-title" style="padding: 0;">Pranami</h2>
                                 <span class="badge badge-xs badge-muted" x-text="pranamiFiltered().length + ' contribution' + (pranamiFiltered().length !== 1 ? 's' : '')"></span>
@@ -4515,12 +4533,15 @@
                         <!-- Your contributions: one card per head of the member's own Sakha and the Kendra, with the amount and what is
                              paid / due now (green paid, amber part paid, red due). Paying starts a UPI payment of the member's OWN
                              contribution; the gateway's signed callback books it, never this page. -->
-                        <div x-show="pranamiPay.heads.length > 0 && !pranamiPay.result">
+                        <div x-show="pranami.view === 'pay' && pranamiPay.heads.length > 0 && !pranamiPay.result">
                             <template x-for="g in pranamiPayGroups()" :key="g.organization_pk">
                                 <div class="data-card">
                                     <div style="padding: 0.85rem 1.25rem 0;">
-                                        <h2 class="data-card-title" style="padding: 0;" x-text="g.name || 'Contributions'"></h2>
-                                        <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Money paid here goes straight to this Sangha's account.</p>
+                                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                                            <h2 class="data-card-title" style="padding: 0;" x-text="g.name || 'Contributions'"></h2>
+                                            <button class="link-action" x-show="pranamiGroupPayableCount(g) >= 2" @click="pranamiSelectGroup(g)">Select all to pay together</button>
+                                        </div>
+                                        <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Money paid here goes straight to this Sangha's account. Tick several to pay them in one UPI payment.</p>
                                     </div>
                                     <div class="card-grid" style="padding: 0.75rem 1.25rem 1rem; gap: 0.75rem;">
                                         <template x-for="h in g.heads" :key="h.finance_head_pk">
@@ -4542,6 +4563,10 @@
                                                 </div>
                                                 <div style="font-size: 0.72rem; color: #b45309; margin-top: 0.3rem;" x-show="Number(h.pending_amount) > 0"
                                                      x-text="NSS.formatMoney(h.pending_amount) + ' is waiting for the bank to confirm.'"></div>
+                                                <label class="flex items-center gap-2" style="font-size: 0.75rem; color: #374151; margin-top: 0.5rem;" x-show="pranamiCardCanPay(h)">
+                                                    <input type="checkbox" :checked="!!pranamiPay.selected[h.finance_head_pk]" :disabled="pranamiSelectDisabled(h)" @change="pranamiToggle(h)">
+                                                    <span>Pay together with others</span>
+                                                </label>
                                                 <div style="margin-top: 0.6rem;" x-show="pranamiCardCanPay(h)">
                                                     <div x-show="pranamiCardAsksAmount(h)" style="margin-bottom: 0.4rem;">
                                                         <label style="font-size: 0.7rem; color: #6b7280;">Amount (₹)</label>
@@ -4561,14 +4586,39 @@
                             </template>
                         </div>
 
+                        <!-- The ticked contributions of one Sangha, paid in one UPI payment -->
+                        <div class="data-card" x-show="pranami.view === 'pay' && !pranamiPay.result && pranamiSelectedHeads().length >= 2">
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding: 0.85rem 1.25rem;">
+                                <div>
+                                    <div style="font-size: 0.85rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiSelectedHeads().length + ' contributions selected'"></div>
+                                    <div style="font-size: 1.15rem; font-weight: 700; color: #1B2A4A;" x-text="'Total ' + pranamiSelectedTotal()"></div>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiPayMultiple()" x-text="pranamiPay.saving ? 'Starting…' : 'Pay all together'"></button>
+                                    <button class="btn-action" :disabled="pranamiPay.saving" @click="pranamiClearSelection()">Clear</button>
+                                </div>
+                            </div>
+                            <div class="alert-msg alert-error" style="margin: 0 1.25rem 1rem;" x-show="pranamiPay.error" x-text="pranamiPay.error"></div>
+                        </div>
+
                         <!-- The payment in progress / its outcome -->
-                        <div class="data-card" x-show="pranamiPay.result">
+                        <div class="data-card" x-show="pranami.view === 'pay' && pranamiPay.result">
                             <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Your payment</h2></div>
                             <div style="padding: 0.6rem 1.25rem 1rem;">
                                 <div x-show="pranamiPay.result">
                                     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                         <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiPay.result && (NSS.formatMoney(pranamiPay.result.amount) + ' — ' + pranamiPay.result.head_name + (pranamiPay.result.organization_name ? ' (' + pranamiPay.result.organization_name + ')' : ''))"></span>
                                         <span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(pranamiPay.result && pranamiPay.result.status)" x-text="pranamiPay.result && NSS.financeStatusLabel(pranamiPay.result.status)"></span>
+                                    </div>
+                                    <div style="margin-top: 0.4rem;" x-show="pranamiPay.result && pranamiPay.result.items.length > 0">
+                                        <template x-for="it in (pranamiPay.result ? pranamiPay.result.items : [])" :key="it.head_name">
+                                            <div style="font-size: 0.8rem; color: #374151; padding: 0.2rem 0; border-top: 1px solid #f3f4f6;">
+                                                <span x-text="it.head_name"></span> · <b x-text="NSS.formatMoney(it.amount)"></b>
+                                                <span class="mono" style="color: #6b7280;" x-show="it.receipt_number" x-text="'· ' + it.receipt_number"></span>
+                                                <button class="link-action" style="margin-left: 0.4rem;" x-show="it.financial_receipt_pk"
+                                                        @click="pranamiDownloadReceipt(it.financial_receipt_pk, it.receipt_number)">Download PDF</button>
+                                            </div>
+                                        </template>
                                     </div>
                                     <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem;">
                                         <p style="font-size: 0.8rem; color: #374151;">Complete the payment in your UPI app. This page will show it as paid once the bank confirms it.</p>
@@ -4580,6 +4630,8 @@
                                     </div>
                                     <p x-show="pranamiPay.result && pranamiPay.result.status === 'PAID'" style="margin-top: 0.6rem; font-size: 0.85rem; color: #047857;">
                                         Payment received. Thank you<span x-show="pranamiPay.result && pranamiPay.result.receipt_number">; your receipt number is <b x-text="pranamiPay.result && pranamiPay.result.receipt_number"></b></span>.
+                                        <button class="btn-action primary" x-show="pranamiPay.result && pranamiPay.result.financial_receipt_pk && pranamiPay.result.items.length === 0" style="margin-left: 0.5rem;"
+                                                @click="pranamiDownloadReceipt(pranamiPay.result.financial_receipt_pk, pranamiPay.result.receipt_number)">Download receipt (PDF)</button>
                                         <button class="link-action" @click="pranamiPayClose()">Done</button>
                                     </p>
                                     <p x-show="pranamiPay.result && ['FAILED','EXPIRED','CANCELLED'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem; font-size: 0.85rem; color: #b91c1c;">
@@ -4592,42 +4644,113 @@
 
                         <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="pranami.loading"><div class="spinner"></div></div>
                         <div class="alert-msg alert-error" x-show="pranami.error" x-text="pranami.error"></div>
+                        <div class="alert-msg alert-error" x-show="pranami.receiptError" x-text="pranami.receiptError"></div>
 
-                        <div class="data-card" x-show="!pranami.loading && !pranami.error && pranamiFiltered().length === 0">
+                        <div class="data-card" x-show="pranami.view === 'pay' && !pranami.loading && pranamiPay.heads.length === 0 && !pranamiPay.result">
+                            <p style="padding: 1.25rem; color: #6b7280; font-size: 0.85rem;">There is nothing for you to pay right now. Your past payments and their receipts are in History.</p>
+                        </div>
+
+                        <div class="data-card" x-show="pranami.view === 'history' && !pranami.loading && !pranami.error && pranamiFiltered().length === 0">
                             <p style="padding: 1.25rem; color: #6b7280; font-size: 0.85rem;">
                                 No Pranami has been recorded against your membership yet.
                                 <span x-show="pranami.year">Try another financial year.</span>
                             </p>
                         </div>
 
-                        <template x-for="p in pranamiFiltered()" :key="p.financial_transaction_pk">
+                        <!-- History: every payment recorded against the member, with its receipts as downloadable PDFs -->
+                        <div class="data-card" x-show="pranami.view === 'history' && pranamiFiltered().length > 0">
+                            <div style="overflow-x: auto;">
+                                <table class="admin-table">
+                                    <thead><tr><th>Date</th><th>Towards</th><th>Paid to</th><th>Amount</th><th>Status</th><th>Receipt</th></tr></thead>
+                                    <tbody>
+                                        <template x-for="p in pranamiFiltered()" :key="p.financial_transaction_pk">
+                                            <tr>
+                                                <td style="font-size: 0.8rem; white-space: nowrap;" x-text="formatDate(p.transaction_date)"></td>
+                                                <td style="font-size: 0.82rem;">
+                                                    <span x-text="p.finance_head_name || NSS.codeLabel(p.transaction_category)"></span>
+                                                    <div style="font-size: 0.7rem; color: #6b7280;" x-text="'FY ' + p.year_code + ' · ' + p.transaction_reference"></div>
+                                                </td>
+                                                <td style="font-size: 0.8rem;" x-text="p.organization_name || p.scope_name"></td>
+                                                <td style="font-size: 0.85rem; font-weight: 700; color: #047857; white-space: nowrap;" x-text="NSS.formatMoney(p.amount)"></td>
+                                                <td><span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(p.status)" x-text="NSS.financeStatusLabel(p.status)"></span></td>
+                                                <td style="font-size: 0.78rem;">
+                                                    <template x-for="r in p.receipts" :key="r.financial_receipt_pk">
+                                                        <div style="padding: 0.15rem 0;">
+                                                            <span class="mono" x-text="r.receipt_number"></span>
+                                                            <span style="color: #6b7280;" x-text="'· ' + formatDate(r.receipt_date) + ' · ' + NSS.formatMoney(r.amount)"></span>
+                                                            <span style="color: #6b7280;" x-show="r.payment_method_name" x-text="'· via ' + r.payment_method_name"></span>
+                                                            <button class="link-action" style="margin-left: 0.4rem;" @click="pranamiDownloadReceipt(r.financial_receipt_pk, r.receipt_number)">Download PDF</button>
+                                                        </div>
+                                                    </template>
+                                                    <span style="color: #9ca3af;" x-show="p.receipts.length === 0">No receipt issued yet</span>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Finance approvals (Sakha chain, owner 2026-11-17) ──
+                         Entries waiting for THIS member's approval: the Treasurer first, then the President (the Secretary when no
+                         President is seated). The server checks the seat on every decision; this page only shows and sends. -->
+                    <div x-show="tab === 'finApprovals'">
+                        <div class="data-card">
+                            <div style="padding: 0.85rem 1.25rem;">
+                                <h2 class="data-card-title" style="padding: 0;">Finance approvals</h2>
+                                <p style="font-size: 0.78rem; color: #6b7280; margin-top: 0.2rem;">Entries of your Sakha that wait for you. Check the bills, then approve or reject. Your decision is recorded against your office.</p>
+                            </div>
+                            <div class="alert-msg alert-error" style="margin: 0 1.25rem 0.75rem;" x-show="finApprovals.error" x-text="finApprovals.error"></div>
+                            <div class="alert-msg alert-success" style="margin: 0 1.25rem 0.75rem;" x-show="finApprovals.notice" x-text="finApprovals.notice"></div>
+                        </div>
+                        <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finApprovals.loading"><div class="spinner"></div></div>
+                        <div class="data-card" x-show="!finApprovals.loading && finApprovals.items.length === 0">
+                            <p style="padding: 1.25rem; color: #6b7280; font-size: 0.85rem;">Nothing is waiting for your approval.</p>
+                        </div>
+                        <template x-for="it in finApprovals.items" :key="it.financial_transaction_pk">
                             <div class="data-card">
                                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; padding: 0.85rem 1.25rem 0;">
                                     <div>
-                                        <span style="font-size: 0.9rem; font-weight: 600; color: #1B2A4A;" x-text="NSS.codeLabel(p.transaction_category)"></span>
-                                        <span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(p.status)" x-text="NSS.financeStatusLabel(p.status)"></span>
+                                        <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="it.head_name"></span>
+                                        <span class="badge badge-xs" :class="it.transaction_type === 'EXPENSE' ? 'badge-fin-bad' : 'badge-fin-live'" x-text="it.transaction_type === 'EXPENSE' ? 'Spend' : 'Income'"></span>
+                                        <div class="mono" style="font-size: 0.72rem; color: #6b7280;" x-text="it.transaction_reference + ' · ' + (it.organization_name || '')"></div>
                                     </div>
-                                    <span style="font-size: 1.05rem; font-weight: 700; color: #047857;" x-text="NSS.formatMoney(p.amount)"></span>
+                                    <span style="font-size: 1.15rem; font-weight: 700; color: #1B2A4A;" x-text="NSS.formatMoney(it.amount)"></span>
                                 </div>
-                                <div class="card-grid" style="padding: 0.4rem 1.25rem 0.75rem; gap: 0.5rem;">
-                                    <div style="font-size: 0.75rem; color: #6b7280;">Date: <span style="color: #374151;" x-text="formatDate(p.transaction_date)"></span></div>
-                                    <div style="font-size: 0.75rem; color: #6b7280;">Financial year: <span style="color: #374151;" x-text="p.year_code"></span></div>
-                                    <div style="font-size: 0.75rem; color: #6b7280;">Received by: <span style="color: #374151;" x-text="p.organization_name || p.scope_name"></span></div>
-                                    <div style="font-size: 0.75rem; color: #6b7280;">Reference: <span class="mono" style="color: #374151;" x-text="p.transaction_reference"></span></div>
+                                <div class="card-grid" style="padding: 0.4rem 1.25rem 0.5rem; gap: 0.5rem;">
+                                    <div style="font-size: 0.75rem; color: #6b7280;">Date: <span style="color: #374151;" x-text="formatDate(it.transaction_date)"></span></div>
+                                    <div style="font-size: 0.75rem; color: #6b7280;" x-show="it.recorded_by_name">Recorded by: <span style="color: #374151;" x-text="it.recorded_by_name"></span></div>
+                                    <div style="font-size: 0.75rem; color: #6b7280;" x-show="it.member_name">Member: <span style="color: #374151;" x-text="it.member_name"></span></div>
+                                    <div style="font-size: 0.75rem; color: #6b7280;" x-show="it.description">Note: <span style="color: #374151;" x-text="it.description"></span></div>
                                 </div>
-                                <div x-show="p.receipts.length > 0" style="padding: 0 1.25rem 0.85rem;">
-                                    <div style="font-size: 0.7rem; color: #6b7280; margin-bottom: 0.25rem;">Receipts</div>
-                                    <template x-for="r in p.receipts" :key="r.receipt_number">
+                                <div style="padding: 0 1.25rem 0.5rem;" x-show="it.bills.length > 0">
+                                    <div style="font-size: 0.7rem; color: #6b7280; margin-bottom: 0.25rem;" x-text="'Bills — ' + NSS.formatMoney(it.bills_total) + ' of ' + NSS.formatMoney(it.amount)"></div>
+                                    <template x-for="b in it.bills" :key="b.finance_transaction_bill_pk">
                                         <div style="font-size: 0.78rem; color: #374151; padding: 0.2rem 0; border-top: 1px solid #f3f4f6;">
-                                            <span class="mono" x-text="r.receipt_number"></span>
-                                            · <span x-text="formatDate(r.receipt_date)"></span>
-                                            · <span x-text="NSS.formatMoney(r.amount)"></span>
-                                            <span x-show="r.payment_method_name" x-text="'· via ' + r.payment_method_name"></span>
-                                            <span class="mono" style="color: #6b7280;" x-show="r.instrument_reference" x-text="'· ' + r.instrument_reference"></span>
+                                            <span x-text="b.vendor_name"></span>
+                                            <span x-show="b.bill_number" x-text="'· #' + b.bill_number"></span>
+                                            · <span x-text="formatDate(b.bill_date)"></span>
+                                            · <b x-text="NSS.formatMoney(b.amount)"></b>
+                                            <template x-if="pranamiSafeUrl(b.document_url)"><a :href="pranamiSafeUrl(b.document_url)" target="_blank" rel="noopener noreferrer">· open bill</a></template>
                                         </div>
                                     </template>
                                 </div>
-                                <p x-show="p.receipts.length === 0" style="padding: 0 1.25rem 0.85rem; font-size: 0.75rem; color: #9ca3af;">No receipt issued yet.</p>
+                                <div style="padding: 0 1.25rem 0.5rem;" x-show="it.steps.length > 0">
+                                    <template x-for="st in it.steps" :key="st.step_no">
+                                        <div style="font-size: 0.75rem; color: #047857;" x-text="'Step ' + st.step_no + ': ' + ({ TREASURER: 'Treasurer', PRESIDENT: 'President', SECRETARY: 'Secretary' }[st.position_code] || '') + ' approved — ' + (st.decided_by_name || '')"></div>
+                                    </template>
+                                </div>
+                                <p style="padding: 0 1.25rem 0.5rem; font-size: 0.78rem; color: #374151;" x-text="'You act as ' + finApprovalOffice(it) + '. ' + finApprovalRuleText(it)"></p>
+                                <div style="padding: 0 1.25rem 1rem;">
+                                    <input type="text" class="form-input" maxlength="2000" placeholder="Remarks (required to reject)" autocomplete="off"
+                                           :value="finApprovals.remarks[it.financial_transaction_pk] || ''" @input="finApprovals.remarks[it.financial_transaction_pk] = $event.target.value">
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                        <button class="btn-action primary" :disabled="finApprovals.acting === it.financial_transaction_pk" @click="finApprovalDecide(it, 'APPROVED')"
+                                                x-text="finApprovals.acting === it.financial_transaction_pk ? 'Saving…' : 'Approve'"></button>
+                                        <button class="btn-action danger" :disabled="finApprovals.acting === it.financial_transaction_pk" @click="finApprovalDecide(it, 'REJECTED')">Reject</button>
+                                    </div>
+                                </div>
                             </div>
                         </template>
                     </div>

@@ -24,6 +24,7 @@ import pytest
 
 from tests.attendance_support import marker_h, marker_user  # noqa: F401  (fixtures)
 from tests.finance_support import (  # noqa: F401  (fixtures)
+    single_approval_levels,
     BASE,
     FAKE_UUID,
     admin_h,
@@ -49,7 +50,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     webhook,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("single_approval_levels")]
 
 _DATE = "2090-05-15"
 _SIGNED_ONLY = ("POST", f"{BASE}/gateway/webhook/MOCK", {"order_id": "x"})
@@ -85,8 +86,10 @@ MEMBER = [
     ("POST", f"{BASE}/my-pranami/pay", {"finance_head_pk": FAKE_UUID, "amount": "10"}),
     ("GET", f"{BASE}/my-pranami/requests/{FAKE_UUID}", None),
 ]
-APPROVE_ONLY = [e for e in GATED if e[0] != "GET" and "/payment-requests" not in e[1]] + [
-    ("POST", f"{BASE}/payment-requests/{FAKE_UUID}/post", None)]
+# Booking a held UPI payment is an APPROVE decision; configuring (heads, accounts, contributions, events, limits) is FINANCE_CONFIGURE,
+# which a Sakha admin holds for ITS OWN Sakha (owner 2026-11-17) - so it is no longer approve-only.
+APPROVE_ONLY = [("POST", f"{BASE}/payment-requests/{FAKE_UUID}/post", None)]
+CONFIGURE_ROUTES = [e for e in GATED if e[0] != "GET" and "/payment-requests" not in e[1]]
 WRITES = [e for e in GATED if e[0] != "GET"]
 
 
@@ -174,9 +177,13 @@ class TestPermissionGate:
         assert client.get(f"{BASE}/{path}", headers=viewer_h).status_code == 200
 
     @pytest.mark.parametrize("method,path,body", APPROVE_ONLY, ids=[_id(e) for e in APPROVE_ONLY])
-    def test_manage_only_admin_cannot_configure_or_book_a_held_payment(self, method, path, body, client, sakha_admin_h):
-        """Configuring heads / accounts and booking a held payment are FINANCE_APPROVE decisions."""
+    def test_a_sakha_admin_cannot_book_a_held_payment(self, method, path, body, client, sakha_admin_h):
+        """Booking a held payment is a FINANCE_APPROVE decision; the Sakha admin configures and records but does not approve."""
         assert _call(client, method, path, body, sakha_admin_h).status_code == 403
+
+    @pytest.mark.parametrize("method,path,body", CONFIGURE_ROUTES, ids=[_id(e) for e in CONFIGURE_ROUTES])
+    def test_a_member_cannot_configure(self, method, path, body, client, plain_member_h):
+        assert _call(client, method, path, body, plain_member_h).status_code == 403
 
 
 class TestMemberRoutesAreLoginOnly:
