@@ -79,6 +79,14 @@ const NSS = {
      * Keeps HTML templates clean: :class="NSS.statusBadgeClass(code)"
      */
 
+    // Member Directory "Membership Status" filter: the lifecycle statuses a membership can
+    // hold (owner 2026-11-18: Resigned is a post matter, not a membership status), in this
+    // order. The values still come from master data (STATUS); this list only picks which to offer.
+    // Suspended / Expelled / Deceased members cannot be marked at Sangha Puja (server: attendance.py).
+    ATTENDANCE_BLOCKED_STATUSES: ["SUSPENDED", "EXPELLED", "DECEASED"],
+
+    MEMBERSHIP_STATUS_FILTER: ["ACTIVE", "SUSPENDED", "LAPSED", "EXPELLED", "DECEASED"],
+
     STATUS_BADGE_MAP: {
         ACTIVE:              "badge-status-active",
         INACTIVE:            "badge-status-inactive",
@@ -1147,6 +1155,14 @@ const NSS = {
      * @param {string} columnKey
      * @returns {string}
      */
+    // Two-letter avatar initials from a full name ("Sandeep Kumar Panda" -> "SP"); "?" when empty.
+    initials(name) {
+        const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return "?";
+        if (parts.length === 1) return parts[0][0].toUpperCase();
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    },
+
     sortAria(currentKey, currentDir, columnKey) {
         if (currentKey !== columnKey) return "none";
         return currentDir === this.SORT_DIR_DESC ? "descending" : "ascending";

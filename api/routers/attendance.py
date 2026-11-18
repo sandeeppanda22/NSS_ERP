@@ -63,6 +63,7 @@ from api.schemas.attendance import (
     WatchListItem,
     WatchListResponse,
 )
+from api.services.membership_status_service import attendance_blocked_members
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
@@ -529,6 +530,15 @@ def mark_attendance(
                     status_code=422,
                     detail=f"Unknown attendance status: {item.attendance_status_code}",
                 )
+        # Owner 2026-11-18: a member whose Membership Status is Suspended or Expelled cannot
+        # attend Sangha Puja, so nobody can be marked for them (nothing is saved).
+        barred = attendance_blocked_members(cur, [i.sangha_sevi_pk for i in body.records])
+        if barred:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="These members cannot be marked: "
+                       + ", ".join(f"{b['sangha_sevi_id']} ({b['status_code'].title()})" for b in barred) + ".",
+            )
         if body.records and any("expected_version" in i.model_fields_set for i in body.records):
             conflicts = _find_attendance_conflicts(cur, weekly_sangha_puja_pk, body, user.sangha_sevi_pk)
             if conflicts:

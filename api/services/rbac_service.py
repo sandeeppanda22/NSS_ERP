@@ -213,6 +213,38 @@ class UserContext:
         return str(self.sangha_sevi_pk) if self.sangha_sevi_pk else None
 
 
+# Membership Status that bars a member from logging in (owner 2026-11-18: suspended and
+# expelled members "should not be able to login"; deceased added the same day). ONE definition: load_user_context() below
+# applies it to every request (so an open session stops working too) and the login endpoint
+# applies it with member_login_barred_status() for a clear message. Attendance uses the same
+# set (membership_status_service.ATTENDANCE_BLOCKED_STATUS_CODES).
+LOGIN_BARRED_STATUS_CODES = ("SUSPENDED", "EXPELLED", "DECEASED")
+
+_LOGIN_BARRED_EXISTS_SQL = """
+    EXISTS (
+        SELECT 1 FROM nss.sangha_sevi bss
+        JOIN nss.master_data bms ON bms.master_data_pk = bss.membership_status_master_data_pk
+        WHERE bss.person_pk = {person_pk_expr} AND bss.is_active = TRUE AND bms.value_code = ANY(%s)
+    )
+"""
+
+
+def member_login_barred_status(cur, person_pk) -> str | None:
+    """The barring Membership Status code (SUSPENDED / EXPELLED) of this person's active
+    Sangha Sevi, or None when login is allowed."""
+    cur.execute(
+        """
+        SELECT bms.value_code FROM nss.sangha_sevi bss
+        JOIN nss.master_data bms ON bms.master_data_pk = bss.membership_status_master_data_pk
+        WHERE bss.person_pk = %s AND bss.is_active = TRUE AND bms.value_code = ANY(%s)
+        LIMIT 1
+        """,
+        (str(person_pk), list(LOGIN_BARRED_STATUS_CODES)),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 def load_user_context(conn, user_account_pk: UUID) -> UserContext | None:
     """
     Load the full RBAC context for a user from the database.
@@ -239,8 +271,9 @@ def load_user_context(conn, user_account_pk: UUID) -> UserContext | None:
             WHERE ua.user_account_pk = %s
               AND ua.is_active = TRUE
               AND ua.account_status = 'ACTIVE'
+              AND NOT """ + _LOGIN_BARRED_EXISTS_SQL.format(person_pk_expr="ua.person_pk") + """
             """,
-            (str(user_account_pk),),
+            (str(user_account_pk), list(LOGIN_BARRED_STATUS_CODES)),
         )
         row = cur.fetchone()
         if row is None:

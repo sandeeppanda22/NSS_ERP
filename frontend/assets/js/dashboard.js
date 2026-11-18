@@ -292,6 +292,7 @@ function _buildCoupleTree(allPersons) {
 // LIVE_TABLE_TABS:begin
 const LIVE_TABLE_TABS = {
     registration_claim: ["pendingItems"],
+    membership_status_change_request: ["pendingItems"],
     correspondence_approval_step: ["pendingItems"],
     organization_reparent_request: ["pendingItems"],
     organization_reparent_step: ["pendingItems"],
@@ -351,7 +352,7 @@ const LIVE_REFRESH_CONFIG = {
         pendingItems: {
             background: true,
             reload: (h) => h._loadPendingItems(),
-            busy: (h) => [h.sendApp.decisionRemarks, h.reparentRemarks]
+            busy: (h) => [h.sendApp.decisionRemarks, h.reparentRemarks, h.statusRemarks]
                 .some((m) => Object.values(m || {}).some((v) => String(v || "").trim() !== "")),
         },
         // Advisory Board dashboard (governance bodies / seats / people it lists): a read-only view.
@@ -579,6 +580,11 @@ function dashboardApp() {
         // live President seat only — the list endpoint already filters to
         // steps this member can decide right now (viewer_can_decide).
         reparentApprovals: [],
+        // Membership Status change requests awaiting MY decision (Parichalak / acting delegate /
+        // Kendra President; api/routers/membership_status.py). Empty for everyone else.
+        statusApprovals: [],
+        statusRemarks: {},
+        statusDeciding: false,
         reparentRemarks: {},
         reparentDeciding: false,
 
@@ -3181,6 +3187,46 @@ function dashboardApp() {
             }
         },
 
+        async _loadStatusApprovals() {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    "/api/v1/membership-status/requests?awaiting_my_decision=true&page_size=100"
+                );
+                if (res.ok) this.statusApprovals = (await res.json()).requests || [];
+            } catch (e) {
+                console.error("Failed to load membership status approvals", e);
+            }
+        },
+
+        // decision: "approve" | "reject" (remarks required to reject)
+        async decideStatusRequest(req, decision) {
+            const pk = req.membership_status_change_request_pk;
+            const remarks = (this.statusRemarks[pk] || "").trim();
+            if (decision === "reject" && remarks.length < 3) {
+                await NSSDialog.alert("Give a reason for rejecting the request.", "Membership status");
+                return;
+            }
+            this.statusDeciding = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership-status/requests/${pk}/${decision}`, {
+                    method: "POST",
+                    body: JSON.stringify({ remarks: remarks || null }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    delete this.statusRemarks[pk];
+                    await this._loadStatusApprovals();
+                } else {
+                    await NSSDialog.alert(NSS.errorMessage(data, res.status), "Membership status");
+                }
+            } catch (e) {
+                console.error("Failed to record the membership status decision", e);
+                await NSSDialog.alert("Unable to connect to server.", "Membership status");
+            } finally {
+                this.statusDeciding = false;
+            }
+        },
+
         // The step of this request the viewer can decide right now.
         reparentMyStepFor(req) {
             return (req.steps || []).find(st => st.viewer_can_decide) || null;
@@ -4245,9 +4291,12 @@ function dashboardApp() {
         myPendingReparentApprovalsCount() {
             return (this.reparentApprovals || []).length;
         },
+        myPendingStatusApprovalsCount() {
+            return (this.statusApprovals || []).length;
+        },
         myTotalPendingItemsCount() {
             return this.myPendingActingApprovalsCount() + this.myPendingApplicationApprovalsCount()
-                + this.myPendingReparentApprovalsCount()
+                + this.myPendingReparentApprovalsCount() + this.myPendingStatusApprovalsCount()
                 + this.myPendingElectionsCount() + (this.pendingClaimsCount || 0);
         },
 
@@ -5893,6 +5942,7 @@ function dashboardApp() {
                 this._loadMyPendingActingApprovals(),
                 this._loadPendingApprovals(),
                 this._loadReparentApprovals(),
+                this._loadStatusApprovals(),
                 this._loadOpenElectionsForVoting(),
                 this._loadPendingClaimsCount(),
             ]);

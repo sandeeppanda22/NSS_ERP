@@ -1217,6 +1217,40 @@
                             </div>
                         </template>
 
+                        <!-- ── Membership status changes awaiting my decision (owner 2026-11-18).
+                             Shown only to the live Parichalak (or the delegate acting for the seat)
+                             and the Kendra President; authority is enforced server-side. ── -->
+                        <template x-if="statusApprovals.length > 0">
+                            <div class="data-card" style="margin-bottom:1rem;">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Membership Status Changes — Awaiting My Decision</h2>
+                                </div>
+                                <div class="data-card-body alert-warning" style="border-radius:0;margin-bottom:0;">
+                                    <template x-for="req in statusApprovals" :key="req.membership_status_change_request_pk">
+                                        <div style="padding:0.75rem;border:1px solid #fde68a;border-radius:8px;background:#fff;margin-bottom:0.5rem;">
+                                            <div style="display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                                                <div style="font-weight:600;font-size:0.85rem;"
+                                                     x-text="req.member_name + ' (' + req.sangha_sevi_id + ')'"></div>
+                                                <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.75rem;">
+                                                    <span class="badge badge-xs" :class="NSS.statusBadgeClass(req.from_status_code)" x-text="req.from_status_name"></span>
+                                                    <span>→</span>
+                                                    <span class="badge badge-xs" :class="NSS.statusBadgeClass(req.to_status_code)" x-text="req.to_status_name"></span>
+                                                </div>
+                                            </div>
+                                            <div style="font-size:0.72rem;color:#6b7280;"
+                                                 x-text="(req.organization_name || '—') + ' — effective ' + req.effective_date + ' — requested by ' + (req.requested_by_name || 'an administrator')"></div>
+                                            <div style="font-size:0.78rem;margin-top:0.2rem;" x-text="'Reason: ' + req.reason"></div>
+                                            <textarea class="form-input" rows="2" maxlength="500" placeholder="Remarks (required to reject)" x-model="statusRemarks[req.membership_status_change_request_pk]" style="margin-top:0.5rem;"></textarea>
+                                            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                                                <button class="btn-action primary" :disabled="statusDeciding" @click="decideStatusRequest(req, 'approve')">Approve</button>
+                                                <button class="btn-action" :disabled="statusDeciding" @click="decideStatusRequest(req, 'reject')">Reject</button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
                         <!-- ── Elections open for my vote (item 2 follow-up, 2026-10-25) ──
                              Lightweight box, not a full ballot duplicate: the real voting
                              form (per-position radio + submit) already lives on the

@@ -497,6 +497,7 @@ run_sql "sakha_only_membership_trigger"  "${DDL_BASE}/05_membership/14_sakha_onl
 run_ddl "credential_sequence_counter"    "credential_sequence_counter"    "${DDL_BASE}/05_membership/15_credential_sequence_counter.sql"
 run_ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "${DDL_BASE}/05_membership/17_sakha_local_number_counter.sql"
 run_ddl "membership_change_request"      "membership_change_request"      "${DDL_BASE}/05_membership/18_membership_change_request.sql"
+run_ddl "membership_status_change_request" "membership_status_change_request" "${DDL_BASE}/05_membership/21_membership_status_change_request.sql"
 # Local Sakha ID allocator + home-affiliation guard (2026-11-01): functions /
 # DEFERRED constraint triggers only (CREATE OR REPLACE / DROP..CREATE TRIGGER, idempotent;
 # no existing-row scan, so a DB already holding members without a Local Sakha ID builds).
