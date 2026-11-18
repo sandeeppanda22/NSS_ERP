@@ -3,7 +3,8 @@
 -- Module: Membership
 -- File: 21_membership_status_change_request.sql
 -- Table: nss.membership_status_change_request
--- Depth: 4 (depends on sangha_sevi, master_data)
+-- Depth: 5 (depends on sangha_sevi, master_data, user_account)
+-- Build: Phase 11f (after authentication creates user_account), NOT in the Phase 7 membership block.
 -- Version: 1.0
 -- Authority: MBR-020 / MBR-021 / MBR-045 (status + history, never delete);
 --            owner decision 2026-11-18 (see below)

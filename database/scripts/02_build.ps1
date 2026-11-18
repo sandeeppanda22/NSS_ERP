@@ -400,7 +400,6 @@ Invoke-Sql "sakha_only_membership_trigger"  "$DdlBase\05_membership\14_sakha_onl
 Invoke-Ddl "credential_sequence_counter"    "credential_sequence_counter"    "$DdlBase\05_membership\15_credential_sequence_counter.sql"
 Invoke-Ddl "sakha_local_number_counter"     "sakha_local_number_counter"     "$DdlBase\05_membership\17_sakha_local_number_counter.sql"
 Invoke-Ddl "membership_change_request"      "membership_change_request"      "$DdlBase\05_membership\18_membership_change_request.sql"
-Invoke-Ddl "membership_status_change_request" "membership_status_change_request" "$DdlBase\05_membership\21_membership_status_change_request.sql"
 # Local Sakha ID allocator + home-affiliation guard (2026-11-01): functions /
 # DEFERRED constraint triggers only (CREATE OR REPLACE / DROP..CREATE TRIGGER, idempotent;
 # no existing-row scan, so a DB already holding members without a Local Sakha ID builds).
@@ -574,6 +573,8 @@ Invoke-Ddl "organization_reparent_request" "organization_reparent_request" "$Ddl
 Invoke-Ddl "organization_reparent_step"    "organization_reparent_step"    "$DdlBase\02_organization\07_organization_reparent_step.sql"
 # Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
 Invoke-Sql "organization_reparent_step source-role patch" "$DdlBase\02_organization\09_organization_reparent_step_source_role_patch.sql"
+# membership_status_change_request (Membership module) FKs user_account (Phase 10), so it is built here, after authentication, not in the Phase 7 membership block.
+Invoke-Ddl "membership_status_change_request" "membership_status_change_request" "$DdlBase\05_membership\21_membership_status_change_request.sql"
 Write-Host ""
 
 # -------------------------------------------------
