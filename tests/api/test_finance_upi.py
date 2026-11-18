@@ -563,7 +563,7 @@ class TestMemberSelfService:
         assert r.status_code == 201, r.text
         mine = r.json()
         # the member's view carries no internals
-        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk"}
+        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk", "items"}
         assert mine["status"] == "PENDING" and mine["upi_uri"].startswith("upi://pay?") and mine["receipt_number"] is None
         # the treasurer sees who is paying - the token, not a field the member could choose
         full = fetch(client, admin_h, mine["upi_payment_request_pk"])

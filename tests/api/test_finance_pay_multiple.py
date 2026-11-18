@@ -134,7 +134,7 @@ class TestOnePaymentForSeveralContributions:
         r = pay_multiple(client, plain_member_h, (a, "300.00"), (b, "120.50"))
         pay_request(client, mock_gateway, full(client, admin_h, r["upi_payment_request_pk"]))
         cur = write_conn.cursor()
-        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'upi_payment_request' AND action = 'CREATE' AND record_pk::text = %s", (r["upi_payment_request_pk"],))
+        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'upi_payment_request' AND action = 'CREATE' AND detail->>'multiple' = 'true' AND record_pk::text = %s", (r["upi_payment_request_pk"],))   # the DB trigger writes its own CREATE row without this detail
         detail = cur.fetchone()[0]
         assert detail["multiple"] is True and len(detail["items"]) == 2
         cur.execute("SELECT COUNT(*) FROM nss.system_event_log WHERE action = 'UPI_PAYMENT_POSTED' AND detail->>'request' = %s", (full(client, admin_h, r["upi_payment_request_pk"])["request_reference"],))

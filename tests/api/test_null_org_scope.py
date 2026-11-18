@@ -275,7 +275,7 @@ class TestSeededPermissions:
     # (no Mahila Sangha organization can be a custodian), although the Kendra admin does.
     NO_ASSET_ACCESS = {"ASSET_VIEW", "ASSET_MANAGE"}
     # Finance (Tier 12, PROPOSED grants - owner to confirm): the Kendra admin holds FINANCE_*, the Mahila admin none yet.
-    NO_FINANCE_ACCESS = {"FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_APPROVE"}
+    NO_FINANCE_ACCESS = {"FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_APPROVE", "FINANCE_CONFIGURE"}
 
     def test_mahila_is_kendra_operational_set(self, write_conn):
         mahila = self._perms(write_conn, MAHILA_ROLE)

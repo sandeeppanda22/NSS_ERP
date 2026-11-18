@@ -149,9 +149,11 @@ class TestSimpleContribution:
     def test_all_sakhas_is_for_the_kendra_only(self, client, admin_h, register_org_pk):
         contribution(client, admin_h, register_org_pk, expect=422, applies_to="ALL_SAKHAS")
 
-    def test_only_an_approver_with_scope_over_the_sangha_may_add_one(self, client, admin_h, kendra_h, register_org_pk, sakha_admin_h, other_admin_h, plain_member_h):
-        for headers in (sakha_admin_h, other_admin_h, plain_member_h):            # no FINANCE_APPROVE / no scope
+    def test_only_an_administrator_with_scope_over_the_sangha_may_add_one(self, client, admin_h, kendra_h, register_org_pk, sakha_admin_h, other_admin_h, plain_member_h):
+        # Configuring is FINANCE_CONFIGURE (owner 2026-11-17), which a Sakha admin holds for ITS OWN Sakha only.
+        for headers in (other_admin_h, plain_member_h):                            # a foreign Sakha's admin / no permission
             contribution(client, headers, register_org_pk, expect=403)
+        contribution(client, sakha_admin_h, register_org_pk)
         contribution(client, kendra_h, register_org_pk)
 
     def test_the_creation_is_audited(self, client, admin_h, write_conn, register_org_pk, mock_gateway):

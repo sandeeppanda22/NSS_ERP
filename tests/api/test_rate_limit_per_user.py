@@ -27,7 +27,8 @@ from api.rate_limit import limiter, user_or_ip_key
 from api.services.auth_service import create_access_token
 
 LIVE_ROUTE = "api.routers.attendance.live_attendance"
-UPI_ROUTES = ("api.routers.finance_upi.gateway_webhook", "api.routers.finance_upi.pay_my_pranami")  # UPI_WEBHOOK_/UPI_PAY_RATE_LIMIT
+UPI_ROUTES = ("api.routers.finance_upi.gateway_webhook", "api.routers.finance_upi.pay_my_pranami",
+              "api.routers.finance_upi.pay_my_pranami_multiple")  # UPI_WEBHOOK_/UPI_PAY_RATE_LIMIT
 AADHAAR_REVEAL_ROUTE = "api.routers.person.reveal_person_aadhaar"  # per-user reveal limit (AADHAAR_REVEAL_RATE_LIMIT)
 LIVE_CHANGES_ROUTE = "api.routers.live.live_changes"  # live-refresh feed (tests/api/test_live_changes.py)
 

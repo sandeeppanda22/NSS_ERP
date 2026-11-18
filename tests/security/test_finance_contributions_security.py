@@ -159,10 +159,11 @@ class TestInputIsHostileSafe:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestTheCopyIsTheKendrasToDefine:
-    def test_nobody_without_approve_can_change_a_copy(self, client, admin_h, write_conn, register_org_pk, sakha_admin_h, plain_member_h):
+    def test_nobody_without_configure_rights_over_that_sakha_can_change_a_copy(self, client, admin_h, write_conn, register_org_pk, other_admin_h, plain_member_h):
+        # FINANCE_CONFIGURE is held by the Sakha's own admin (it may pick its account or switch its copy off), not by a foreign Sakha's admin.
         copy = _copy(client, admin_h, _all_sakhas(client, admin_h, write_conn)["finance_head_pk"], register_org_pk)
         pk = copy["finance_head_pk"]
-        for headers in (sakha_admin_h, plain_member_h):
+        for headers in (other_admin_h, plain_member_h):
             assert client.patch(f"{BASE}/heads/{pk}", json={"collection_account_pk": None}, headers=headers).status_code == 403
             assert client.post(f"{BASE}/heads/{pk}/transition", json={"status": "INACTIVE"}, headers=headers).status_code == 403
 

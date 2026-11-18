@@ -38,6 +38,14 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_default_limit(write_conn, register_org_pk):
+    """The DB is rolled back per MODULE, not per test: a test that sets the Sakha's default Treasurer limit (2000, 100, 700 ...) would leave
+    it behind and let the Treasurer approve alone in every later test. Start each test with no default."""
+    write_conn.cursor().execute(
+        "UPDATE nss.finance_approval_policy SET default_treasurer_limit = NULL WHERE organization_pk = %s", (str(register_org_pk),))
+
+
 @pytest.fixture
 def cw(client, admin_h, write_conn, register_org_pk):
     return chain_world(client, admin_h, write_conn, register_org_pk)
@@ -359,7 +367,7 @@ class TestEveryDecisionIsAudited:
     def test_the_limit_change_is_audited_with_the_old_and_new_value(self, client, cw, sakha_admin_h, write_conn, register_org_pk):
         client.put(f"{BASE}/approval-policy", json={"organization_pk": str(register_org_pk), "default_treasurer_limit": "700.00"}, headers=sakha_admin_h)
         cur = write_conn.cursor()
-        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'finance_approval_policy' ORDER BY event_at DESC LIMIT 1")
+        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'finance_approval_policy' AND detail->>'to' IS NOT NULL ORDER BY event_at DESC LIMIT 1")   # not the DB trigger's own row
         assert cur.fetchone()[0]["to"] == "700.00"
 
 

@@ -472,7 +472,7 @@ def test_kendra_head_templates_are_seeded_and_inert(write_conn):
 def test_permissions_are_seeded(write_conn):
     with write_conn.cursor() as cur:
         cur.execute("SELECT permission_code FROM nss.permission_master WHERE permission_code LIKE 'FINANCE\\_%' AND is_active")
-        assert {r[0] for r in cur.fetchall()} == {"FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_APPROVE"}
+        assert {r[0] for r in cur.fetchall()} == {"FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_APPROVE", "FINANCE_CONFIGURE"}
         cur.execute("""SELECT rm.role_code FROM nss.role_permission rp
                        JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk
                        JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk

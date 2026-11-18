@@ -84,6 +84,7 @@ GATED: list[tuple[str, str, dict | None]] = [
 MEMBER = [
     ("GET", f"{BASE}/my-pranami/heads", None),
     ("POST", f"{BASE}/my-pranami/pay", {"finance_head_pk": FAKE_UUID, "amount": "10"}),
+    ("POST", f"{BASE}/my-pranami/pay-multiple", {"items": [{"finance_head_pk": FAKE_UUID, "amount": "10"}]}),
     ("GET", f"{BASE}/my-pranami/requests/{FAKE_UUID}", None),
 ]
 # Booking a held UPI payment is an APPROVE decision; configuring (heads, accounts, contributions, events, limits) is FINANCE_CONFIGURE,
@@ -116,7 +117,7 @@ def test_endpoint_table_covers_every_route():
     # the webhook is listed with the MOCK provider; the real route takes any provider name
     listed = {(m, p.replace("/gateway/webhook/MOCK", f"/gateway/webhook/{FAKE_UUID}")) for m, p in listed}
     assert routes == listed
-    assert len(setup.routes) + len(upi.routes) == 25
+    assert len(setup.routes) + len(upi.routes) == 26
 
 
 def test_every_gated_route_declares_a_permission_dependency():

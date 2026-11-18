@@ -31,6 +31,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     raw_move,
     register_org_pk,
     sakha_pks,
+    single_approval_levels,
 )
 from tests.reparent_support import kendra_pks, seat, vacate_seat
 from tests.attendance_support import _with_sevi_pk
@@ -109,7 +110,8 @@ class TestApplicability:
         assert state["authority"] is None and "Record the Governing Body resolution" in state["next_step"]
         assert any("President" in line for line in state["requirements"])
 
-    def test_sakha_payment_is_not_bound_and_keeps_working(self, client, admin_h, register_org_pk):
+    def test_sakha_payment_is_not_bound_and_keeps_working(self, client, admin_h, register_org_pk, single_approval_levels):
+        # the Sakha approval chain (bills, Treasurer, President) is switched off: this test is about the generic lifecycle below the Bye-Law levels
         w = make_world(client, admin_h, register_org_pk)
         txn = make_txn(client, admin_h, w["year"], w["scope"], kind="EXPENSE", amount="100.00")
         pk = txn["financial_transaction_pk"]
