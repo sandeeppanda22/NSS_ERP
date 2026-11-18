@@ -202,6 +202,7 @@ class TestSanghaSeviChecks:
         assert resp.status_code == 200
         assert resp.json() == {
             "has_sangha_sevi": True, "sangha_sevi_id": in_scope_member["sangha_sevi_id"],
+            "deactivated_sangha_sevi_id": None,
         }
 
     def test_check_person_without_sangha_sevi(self, client, admin_headers, target_person_pk):
@@ -209,7 +210,9 @@ class TestSanghaSeviChecks:
             f"/api/v1/admin/sangha-sevi/check/{target_person_pk}", headers=admin_headers,
         )
         assert resp.status_code == 200
-        assert resp.json() == {"has_sangha_sevi": False, "sangha_sevi_id": None}
+        assert resp.json() == {
+            "has_sangha_sevi": False, "sangha_sevi_id": None, "deactivated_sangha_sevi_id": None,
+        }
 
     def test_check_malformed_person_pk_is_422(self, client, admin_headers):
         resp = client.get("/api/v1/admin/sangha-sevi/check/not-a-uuid", headers=admin_headers)
