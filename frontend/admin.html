@@ -3719,7 +3719,7 @@
                                 <span style="font-size: 0.75rem; color: #6b7280;" x-text="mdMembers.length + (mdTotal > mdMembers.length ? ' of ' + mdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
-                                <div class="search-bar dir-toolbar">
+                                <div class="search-bar dir-toolbar" :class="{ 'has-hint': mdOrgSelectHint }">
                                     <div class="form-group dir-search">
                                         <label class="form-label">Search</label>
                                         <input type="search" class="form-input" x-model="mdSearch"

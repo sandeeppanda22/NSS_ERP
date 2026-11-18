@@ -38,10 +38,16 @@
    controls; each row is a grid that lines up under them, and below 900px the header hides
    and every cell shows its own label. Specificity is raised on .dir-list rows so the older
    card look of .nss-dir-row (inline <style> in admin.html, still used elsewhere) never wins. */
-.dir-toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; padding: 0.875rem 1rem;
-    background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 0.625rem; }
-.dir-toolbar .form-group { margin: 0; }
-.dir-toolbar .dir-search { flex: 1 1 280px; min-width: 220px; }
+/* Toolbar = a grid: the search box takes a full row, the filters share the next row(s) in equal columns
+   at any width (no intrinsic-width gaps, no ragged wrapping). The inline min-widths on the filter groups
+   are overridden here on purpose. */
+.dir-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem 1rem; align-items: end;
+    padding: 0.875rem 1rem; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 0.625rem; }
+.dir-toolbar .form-group { margin: 0; min-width: 0 !important; }
+.dir-toolbar .dir-search { grid-column: 1 / -1; }
+.dir-toolbar .form-input, .dir-toolbar .nss-select { width: 100%; }
+.dir-toolbar .btn-filter { width: 100%; justify-content: center; }
+.dir-toolbar.has-hint { padding-bottom: 1.9rem; }   /* room for the "Select an Org Type first" hint under Org Name */
 .dir-toolbar .dir-search .form-input { background: #fff; padding-left: 2.1rem;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: 0.65rem center; }
