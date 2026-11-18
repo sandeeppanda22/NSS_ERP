@@ -367,8 +367,13 @@ class TestEveryDecisionIsAudited:
     def test_the_limit_change_is_audited_with_the_old_and_new_value(self, client, cw, sakha_admin_h, write_conn, register_org_pk):
         client.put(f"{BASE}/approval-policy", json={"organization_pk": str(register_org_pk), "default_treasurer_limit": "700.00"}, headers=sakha_admin_h)
         cur = write_conn.cursor()
-        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'finance_approval_policy' AND detail->>'to' IS NOT NULL ORDER BY event_at DESC LIMIT 1")   # not the DB trigger's own row
-        assert cur.fetchone()[0]["to"] == "700.00"
+        # Not "the latest row": every row of this module shares one transaction, so event_at is identical and earlier tests' policy
+        # audits (2000.00, 100.00) tie with this one. Find this change by its own values; the DB trigger's rows carry no "to".
+        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'finance_approval_policy' "
+                    "AND detail->>'organization_pk' = %s AND detail->>'to' = '700.00'", (str(register_org_pk),))
+        rows = cur.fetchall()
+        assert len(rows) == 1
+        assert rows[0][0]["from"] is None                     # the autouse fixture cleared the default before the test
 
 
 class TestHeadFlagsAreValidated:
