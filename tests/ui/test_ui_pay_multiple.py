@@ -142,3 +142,48 @@ class TestSelectionUnderNode:
     def test_clear_and_the_group_count(self):
         assert self._run("t.pranamiToggle(t.pranamiPay.heads[0]); t.pranamiClearSelection();", "t.pranamiSelectedHeads().length") == 0
         assert self._run("", "t.pranamiGroupPayableCount({ heads: t.pranamiPay.heads.filter(h => h.organization_pk === 'SAKHA') })") == 3
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+class TestAPartPaymentShowsTheBalanceNextTime:
+    """Owner 2026-11-19: after a member pays part of a head, the next visit shows what is still due, not the amount they typed last time."""
+
+    PART = {"finance_head_pk": "p", "organization_pk": "SAKHA", "head_name": "Annual", "payable": True, "state": "DUE", "fixed_amount": "110",
+            "allow_part_payment": True, "pending_amount": "0", "due_amount": "110.00"}
+
+    def _run(self, statements: str, expr: str):
+        helpers = _between(DASH_JS, "        pranamiCardAmountLabel(h) {", "        async pranamiPayMultiple() {")
+        helpers = "pranamiCardAmountLabel(h) {" + helpers
+        script = f"""
+        const NSS = {{ formatMoney: (v) => "Rs " + Number(v).toFixed(2) }};
+        const t = {{ pranamiPay: {{ heads: [{json.dumps(self.PART)}], amounts: {{}}, selected: {{}} }}, {helpers} }};
+        {statements}
+        console.log(JSON.stringify({expr}));
+        """
+        out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout)
+
+    def test_the_box_starts_at_what_is_due_and_keeps_what_the_member_types(self):
+        assert self._run("", "t.pranamiCardAmount(t.pranamiPay.heads[0])") == "110.00"
+        assert self._run('t.pranamiPay.amounts.p = "50";', "t.pranamiCardAmount(t.pranamiPay.heads[0])") == "50"
+
+    def test_after_a_part_payment_the_typed_amount_is_replaced_by_the_new_balance(self):
+        script = """
+        t._forgetStaleTypedAmounts();                                   // first look: remembers the due amount
+        t.pranamiPay.amounts.p = "50";                                  // the member types 50 and pays it
+        t.pranamiPay.heads = [Object.assign({}, t.pranamiPay.heads[0], { due_amount: "60.00", paid_amount: "50.00", state: "PART" })];
+        t._forgetStaleTypedAmounts();                                   // the cards reload: 60 is now due
+        """
+        assert self._run(script, "t.pranamiCardAmount(t.pranamiPay.heads[0])") == "60.00"
+
+    def test_a_typed_amount_survives_a_reload_that_changed_nothing(self):
+        script = """
+        t._forgetStaleTypedAmounts();
+        t.pranamiPay.amounts.p = "50";
+        t._forgetStaleTypedAmounts();
+        """
+        assert self._run(script, "t.pranamiCardAmount(t.pranamiPay.heads[0])") == "50"
+
+    def test_the_card_names_the_balance_next_to_the_amount_box(self):
+        assert "'Amount (₹) — balance due ' + NSS.formatMoney(h.due_amount)" in DASH_HTML

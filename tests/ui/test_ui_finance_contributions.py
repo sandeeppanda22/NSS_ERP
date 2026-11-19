@@ -526,3 +526,64 @@ class TestTheRequestDetailPage:
         for outcome in ("paid", "failed", "expired"):
             assert f"finReqSimulate('{outcome}')" in d, outcome
         assert "Gateway details" in d                     # the order / payment ids are tucked away, not the first thing seen
+
+
+class TestTheGoLiveChecklist:
+    """Owner 2026-11-18: before registering with Razorpay, the app shows what to register and what is still missing."""
+
+    def test_the_card_lists_the_four_things_and_never_a_secret(self):
+        card = _between(ADMIN_HTML, "<!-- Go-live checklist for a real gateway", '<!-- Accounts list (under "More"')
+        for needle in ("Razorpay is switched on for this server", "Register this webhook address in the Razorpay dashboard", "API keys are on the server",
+                       "Payment window is long enough", "finCopyWebhook(", "webhook_events", "scripts/fake_razorpay.py"):
+            assert needle in card, needle
+        assert "x-model" not in card and "type=\"password\"" not in card
+
+    def test_it_loads_when_more_is_opened_from_the_readiness_route(self):
+        assert '@click="finToggleMore()"' in ADMIN_HTML
+        body = _between(SETUP_JS, "finToggleMore() {", "finGatewayProvider(name)")
+        assert 'this._finGet("/gateway/readiness")' in body
+
+    def test_the_server_returns_names_and_urls_only(self):
+        from api.schemas.finance import GatewayProviderReadiness, GatewayReadiness
+
+        fields = set(GatewayReadiness.model_fields) | set(GatewayProviderReadiness.model_fields)
+        assert not {f for f in fields if any(w in f for w in ("secret", "key_id", "password", "token"))}
+
+
+class TestTheChecklistFollowsTheAccounts:
+    def test_it_is_refreshed_when_an_account_is_saved_and_on_every_reload(self):
+        assert "this.finGatewayRefresh()" in _between(SETUP_JS, "async finSetupReload() {", "finSetupBusy()")
+        assert "this.finGatewayRefresh()" in _between(SETUP_JS, 'this._finNote(edit ? "Receiving account updated."', "} catch")
+        assert "finGatewayRefresh() { return this.finSetupMore ? this.finGatewayLoad() : Promise.resolve(); }" in SETUP_JS
+
+
+class TestTheOpenPortalFormAsksForADueDate:
+    """Owner 2026-11-19: a due date for every Pranami when opening the portal, with a preview of the member's card."""
+
+    def _form(self):
+        return _between(ADMIN_HTML, "<!-- Open payment portal: what members are asked to pay", "<!-- Heads list -->")
+
+    def test_the_form_has_amount_frequency_due_date_and_a_preview(self):
+        form = self._form()
+        for needle in ("How much?", "When?", "Due by", "every Pranami has a due date", "What members will see", "finPortalPreview()", "← Back to heads"):
+            assert needle in form, needle
+        for model in ("finPortalForm.fixed_amount", "finPortalForm.due_date", "finPortalForm.allow_part_payment"):
+            assert f'x-model="{model}"' in form, model
+        for period in ("YEARLY", "MONTHLY", "ONE_TIME"):
+            assert f"finPortalForm.due_period = '{period}'" in form, period
+
+    def test_a_default_date_is_offered_and_the_date_is_required_with_an_amount_and_sent(self):
+        assert "_finDefaultDueDate(period) {" in SETUP_JS and "-03-31" in SETUP_JS
+        body = _between(SETUP_JS, "async finPortalSubmit() {", "// List helpers of the simple Heads page")
+        assert "Choose the date this Pranami is due by." in body and "due_date: f.due_date" in body
+        assert "!f.follows_kendra && !f.due_date" in body, "the date is required for a free-amount Pranami too"
+
+    def test_the_when_section_is_shown_for_a_free_amount_but_the_frequency_is_not(self):
+        form = self._form()
+        when = _between(form, "<h3 class=\"ask-section__title\">When?</h3>", "</section>")
+        assert 'x-show="finPortalForm.fixed_amount.trim() !== \'\'"' in when.split("Due by")[0]       # only the frequency waits for an amount
+        assert 'x-model="finPortalForm.due_date"' in when and "fixed_amount.trim()" not in when.split("Due by")[1]
+
+    def test_members_see_the_date_and_an_overdue_mark_and_admins_see_it_in_the_list(self):
+        assert "(h.overdue ? 'Overdue — was due by ' : 'Due by ') + formatDate(h.due_date)" in DASH_HTML
+        assert "'Due by ' + NSS.formatDate(h.due_date)" in ADMIN_HTML

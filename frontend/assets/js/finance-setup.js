@@ -74,7 +74,7 @@
                 await Promise.all([this.finHeadsLoad(), this.finAcctsLoad()]);
             },
             async finSetupReload() {
-                await Promise.all([this.finHeadsLoad({ silent: true }), this.finAcctsLoad({ silent: true })]);
+                await Promise.all([this.finHeadsLoad({ silent: true }), this.finAcctsLoad({ silent: true }), this.finGatewayRefresh()]);
             },
             finSetupBusy() { return !!(this.finPolicy.saving || this.finContribForm.show || this.finPortalForm.show || this.finCopyForm.show || this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
 
@@ -303,6 +303,25 @@
             // Simple Heads & Accounts page (owner 2026-11-18): create a head, list the heads, open or close a head's payment portal.
             // Receiving accounts and the Treasurer's limit stay one click away under "More".
             finSetupMore: false,
+            // The "go-live" checklist under "More": is the gateway enabled here, the webhook address to register with the provider, are the keys
+            // in place, is the payment window long enough. Names and URLs only - no secret ever reaches the browser.
+            finGateway: null, finGatewayError: "", finWebhookCopied: false,
+            finToggleMore() {
+                this.finSetupMore = !this.finSetupMore;
+                if (this.finSetupMore) return this.finGatewayLoad();
+            },
+            async finGatewayLoad() {
+                this.finGatewayError = "";
+                try { this.finGateway = await this._finGet("/gateway/readiness"); }
+                catch (err) { this.finGateway = null; this.finGatewayError = err.message || "Could not load the payment gateway checklist."; }
+            },
+            // The checklist counts accounts, so it is re-read whenever accounts change (and with the live refresh), not only when "More" is opened.
+            finGatewayRefresh() { return this.finSetupMore ? this.finGatewayLoad() : Promise.resolve(); },
+            finGatewayProvider(name) { return this.finGateway ? (this.finGateway.providers.find((p) => p.provider === name) || null) : null; },
+            async finCopyWebhook(url) {
+                try { await navigator.clipboard.writeText(url); this.finWebhookCopied = true; setTimeout(() => { this.finWebhookCopied = false; }, 2000); }
+                catch { this.finWebhookCopied = false; }
+            },
             // Is the head's payment portal open? Income heads only: members see it in the Pranami tab and can pay it. A head for every
             // Sakha is open once its copies exist; a copy is open while it collects into an account.
             finHeadPortalOpen(h) {
@@ -311,22 +330,46 @@
                 return !!(h.is_pranami && h.allow_upi);
             },
             // Opening a portal asks what members are to pay first (amount, how often, part payments); closing needs nothing.
-            finPortalForm: { show: false, saving: false, error: "", pk: "", name: "", follows_kendra: false, fixed_amount: "", due_period: "YEARLY", allow_part_payment: false },
+            finPortalForm: { show: false, saving: false, error: "", pk: "", name: "", description: "", follows_kendra: false, fixed_amount: "", due_period: "YEARLY",
+                             due_date: "", due_touched: false, allow_part_payment: false },
+            // A sensible due date for the chosen frequency: the end of the financial year (31 March), the end of this month, or none for a one-time
+            // Pranami (the admin picks it). Offered, never forced: once the admin edits the date it is left alone.
+            _finDefaultDueDate(period) {
+                const pad = (n) => String(n).padStart(2, "0"), t = new Date();
+                if (period === "YEARLY") return `${t.getMonth() >= 3 ? t.getFullYear() + 1 : t.getFullYear()}-03-31`;
+                if (period === "MONTHLY") { const d = new Date(t.getFullYear(), t.getMonth() + 1, 0); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+                return "";
+            },
+            // The frequency only exists with a fixed amount; a free-amount head still has a due date (end of the financial year unless chosen).
+            finPortalPeriodChanged() {
+                const f = this.finPortalForm;
+                if (!f.due_touched) f.due_date = this._finDefaultDueDate(blank(f.fixed_amount) ? "YEARLY" : f.due_period) || f.due_date;
+            },
             finHeadPortalOpenForm(h) {
+                const period = h.due_period || "YEARLY";
                 this.finPortalForm = {
-                    show: true, saving: false, error: "", pk: h.finance_head_pk, name: h.head_name, follows_kendra: !!h.is_kendra_copy,
-                    fixed_amount: h.fixed_amount == null ? "" : String(h.fixed_amount), due_period: h.due_period || "YEARLY", allow_part_payment: !!h.allow_part_payment,
+                    show: true, saving: false, error: "", pk: h.finance_head_pk, name: h.head_name, description: h.description || "", follows_kendra: !!h.is_kendra_copy,
+                    fixed_amount: h.fixed_amount == null ? "" : String(h.fixed_amount), due_period: period, allow_part_payment: !!h.allow_part_payment,
+                    due_date: h.due_date || this._finDefaultDueDate(h.fixed_amount == null ? "YEARLY" : period), due_touched: !!h.due_date,
                 };
+            },
+            // What the member's card will read, for the preview beside the form.
+            finPortalPreview() {
+                const f = this.finPortalForm, amount = blank(f.fixed_amount);
+                const per = { YEARLY: "per financial year", MONTHLY: "per month", ONE_TIME: "one time" }[f.due_period] || "";
+                return { amount: amount ? NSS.formatMoney(amount) + (per ? " " + per : "") : "Any amount", due: f.due_date ? NSS.formatDate(f.due_date) : "" };
             },
             finPortalCancel() { this.finPortalForm = { ...this.finPortalForm, show: false }; },
             async finPortalSubmit() {
                 const f = this.finPortalForm;
                 const amount = blank(f.fixed_amount);
                 if (!f.follows_kendra && amount && (!MONEY_RE.test(amount) || Number(amount) <= 0)) { f.error = "Enter a positive amount with at most two decimals, or leave it empty to let members pay any amount."; return; }
+                if (!f.follows_kendra && !f.due_date) { f.error = "Choose the date this Pranami is due by."; return; }
                 f.saving = true; f.error = "";
                 try {
                     const body = f.follows_kendra ? { open: true }
-                        : { open: true, fixed_amount: amount, due_period: amount ? f.due_period : null, allow_part_payment: amount ? f.allow_part_payment : false };
+                        : { open: true, fixed_amount: amount, due_period: amount ? f.due_period : null, due_date: f.due_date,
+                            allow_part_payment: amount ? f.allow_part_payment : false };
                     await this._finSend("POST", `/heads/${f.pk}/portal`, body);
                     this.finPortalForm = { ...f, show: false, saving: false };
                     this._finNote(`Payment portal opened: members can now pay "${f.name}" from their Pranami tab` + (amount && !f.follows_kendra ? ` (${NSS.formatMoney(amount)}).` : "."));
@@ -583,7 +626,7 @@
                     else await this._finSend("POST", "/accounts", { organization_pk: f.organization.selected.organization_pk, ...body });
                     this.finAcctForm = newAcctForm();
                     this._finNote(edit ? "Receiving account updated." : "Receiving account added.");
-                    await this.finAcctsLoad({ silent: true });
+                    await Promise.all([this.finAcctsLoad({ silent: true }), this.finGatewayRefresh()]);
                 } catch (err) {
                     f.error = err.message || "Could not save the receiving account.";
                 } finally {
@@ -607,7 +650,8 @@
             get finReqNeedsBooking() { return !!this.finReq && this.finReq.status === "PAID" && !this.finReq.transaction_reference; },
 
             // Only render a link whose scheme is the expected one.
-            finReqSafeUrl(url) { return typeof url === "string" && /^https:\/\//i.test(url) ? url : ""; },
+            // https only - plus this computer's own address (http://127.0.0.1 / localhost), where the local Razorpay rehearsal serves its pay page.
+            finReqSafeUrl(url) { return typeof url === "string" && /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/)/i.test(url) ? url : ""; },
             finReqSafeUpi(uri) { return typeof uri === "string" && /^upi:\/\/pay\?/i.test(uri) ? uri : ""; },
 
             async finReqLoadHeads() {

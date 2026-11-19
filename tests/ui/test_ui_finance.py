@@ -344,6 +344,10 @@ class TestCustomizationAndCollectionScreens:
 
     def test_the_account_form_can_never_take_a_secret_or_a_full_account_number(self):
         form = _screen("finSetup")
+        # the read-only go-live checklist NAMES the environment variables to set on the server (it has no input at all); it is checked on its own
+        checklist = form.split("<!-- Go-live checklist for a real gateway", 1)[1].split('<!-- Accounts list (under "More"', 1)[0]
+        assert "<input" not in checklist and "<textarea" not in checklist and "x-model" not in checklist
+        form = form.replace(checklist, "")
         assert not re.search(r'type="password"', form)
         models = set(re.findall(r'x-model="(finAcctForm\.[a-z_0-9.]+)"', form))
         assert models == {"finAcctForm.organization.query", "finAcctForm.account_label", "finAcctForm.account_type",
@@ -425,11 +429,14 @@ class TestLinkHelpersAgainstHostileInput:
         assert out.returncode == 0, out.stderr
         return json.loads(out.stdout)
 
-    def test_only_https_is_a_payment_page(self):
+    def test_only_https_or_this_computer_is_a_payment_page(self):
         urls = ["https://rzp.io/i/abc", "HTTPS://x.example/pay", "http://plain.example", "javascript:alert(1)", " https://leading-space.example",
-                "data:text/html,<script>1</script>", "//protocol-relative.example", "https:/no-slashes", None, 5, {}, ""]
+                "data:text/html,<script>1</script>", "//protocol-relative.example", "https:/no-slashes", None, 5, {}, "",
+                "http://127.0.0.1:8099/pay/plink_1", "http://localhost/pay", "http://127.0.0.1.evil.example/x", "http://localhost@evil.example/x",
+                "http://127.0.0.1:80@evil.example/x", "http://10.0.0.5/x"]
         got = self._run("[" + ",".join(json.dumps(u) if u is not None else "null" for u in urls) + "].map((u) => t.finReqSafeUrl(u))")
-        assert got == ["https://rzp.io/i/abc", "HTTPS://x.example/pay", "", "", "", "", "", "", "", "", "", ""]
+        assert got == ["https://rzp.io/i/abc", "HTTPS://x.example/pay", "", "", "", "", "", "", "", "", "", "",
+                       "http://127.0.0.1:8099/pay/plink_1", "http://localhost/pay", "", "", "", ""]      # plain http only for this computer itself
 
     def test_only_a_upi_pay_deep_link_is_a_upi_link(self):
         uris = ["upi://pay?pa=a@b&am=1.00", "UPI://PAY?pa=x", "upi://mandate?x=1", "upi://", "javascript:upi://pay?x", "intent://pay", " upi://pay?x", "", None]

@@ -4634,6 +4634,9 @@
                                                 <div style="font-size: 0.72rem; color: #6b7280; margin-top: 0.15rem;" x-show="h.event_name" x-text="'Event: ' + h.event_name"></div>
                                                 <div style="font-size: 0.72rem; color: #6b7280; margin-top: 0.15rem;" x-show="h.description" x-text="h.description"></div>
                                                 <div style="font-size: 1.05rem; font-weight: 700; color: #1B2A4A; margin-top: 0.4rem;" x-show="h.fixed_amount != null" x-text="pranamiCardAmountLabel(h)"></div>
+                                                <div style="font-size: 0.78rem; margin-top: 0.3rem;" x-show="h.due_date && h.state !== 'PAID'" :style="h.overdue ? 'color: #b91c1c; font-weight: 600;' : 'color: #374151;'">
+                                                    <span x-text="(h.overdue ? 'Overdue — was due by ' : 'Due by ') + formatDate(h.due_date)"></span>
+                                                </div>
                                                 <div style="font-size: 0.78rem; color: #374151; margin-top: 0.3rem;" x-show="h.fixed_amount != null">
                                                     Paid <b x-text="NSS.formatMoney(h.paid_amount)"></b>
                                                     <span x-show="h.period_label" style="color: #6b7280;" x-text="'(' + h.period_label + ')'"></span>
@@ -4654,7 +4657,7 @@
                                                 </label>
                                                 <div style="margin-top: 0.6rem;" x-show="pranamiCardCanPay(h)">
                                                     <div x-show="pranamiCardAsksAmount(h)" style="margin-bottom: 0.4rem;">
-                                                        <label style="font-size: 0.7rem; color: #6b7280;">Amount (₹)</label>
+                                                        <label style="font-size: 0.7rem; color: #6b7280;" x-text="h.due_amount != null ? 'Amount (₹) — balance due ' + NSS.formatMoney(h.due_amount) : 'Amount (₹)'"></label>
                                                         <input type="text" inputmode="decimal" class="form-input" :value="pranamiCardAmount(h)"
                                                                @input="pranamiPay.amounts[h.finance_head_pk] = $event.target.value" placeholder="0.00" autocomplete="off"
                                                                @keydown.enter="pranamiPayStart(h)">

@@ -267,3 +267,33 @@ def test_advisory_board_and_governance_catalog_tabs_have_live_hooks():
     assert "reload: (h) => h.loadGovCatalog({ silent: true })" in admin
     assert "async loadGovCatalog(opts = {})" in admin
     assert 'body_type_master: ["govCatalog"]' in admin and 'position_master: ["govCatalog"]' in admin
+
+
+class TestTheMembersPranamiTabIsLive:
+    """Owner 2026-11-19: everything that changes what a member sees or may pay in the Pranami tab refreshes it by itself."""
+
+    TABLES = ("finance_head", "financial_account", "financial_scope", "financial_transaction", "financial_receipt",
+              "upi_payment_request", "upi_payment_request_line")
+
+    def test_every_table_behind_the_tab_feeds_it(self):
+        import re
+        from pathlib import Path
+
+        js = (Path(__file__).resolve().parents[2] / "frontend/assets/js/dashboard.js").read_text()
+        block = js.split("// LIVE_TABLE_TABS:begin")[1].split("// LIVE_TABLE_TABS:end")[0]
+        for table in self.TABLES:
+            row = re.search(rf"^\s+{table}: \[(.*?)\]", block, re.M)
+            assert row and '"pranami"' in row.group(1), table
+
+    def test_they_are_all_on_the_server_whitelist(self):
+        from api.routers.live import LIVE_FEED_TABLES
+
+        assert set(self.TABLES) <= set(LIVE_FEED_TABLES)
+
+    def test_the_tab_reloads_silently_without_losing_an_open_payment(self):
+        from pathlib import Path
+
+        js = (Path(__file__).resolve().parents[2] / "frontend/assets/js/dashboard.js").read_text()
+        assert "pranami: { reload: (h) => h._loadPranami({ silent: true }), busy: () => false }" in js
+        loader = js.split("async _loadPranami(opts = {}) {")[1].split("// Financial years that have")[0]
+        assert "this._loadPranamiPayHeads();" in loader and "pranamiPay.result" not in loader     # the checkout page the member is on is never reset

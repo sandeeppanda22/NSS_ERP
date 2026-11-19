@@ -9455,35 +9455,63 @@
                                 </div>
                             </div>
 
-                            <!-- Open payment portal: what members are asked to pay -->
+                            <!-- Open payment portal: what members are asked to pay, and by when - with a preview of the card they will see -->
                             <div class="data-card" x-show="finPortalForm.show" x-cloak>
-                                <div class="data-card-header"><h2 class="data-card-title" x-text="'Open payment portal — ' + finPortalForm.name"></h2></div>
-                                <div class="data-card-body">
-                                    <p class="form-hint">Members of this Sangha will see this head in their Pranami tab and can pay it by UPI into the Sangha's default receiving account.</p>
-                                    <p class="form-hint" x-show="finPortalForm.follows_kendra">The amount for this head is set by the Kendra.</p>
-                                    <div class="form-grid-2" x-show="!finPortalForm.follows_kendra">
-                                        <div>
-                                            <label class="form-label">Amount each member pays (₹) <span class="optional">(leave empty to let members pay any amount)</span></label>
-                                            <input type="text" inputmode="decimal" class="form-input" x-model="finPortalForm.fixed_amount" placeholder="e.g. 500" autocomplete="off" @keydown.enter="finPortalSubmit()">
-                                        </div>
-                                        <div x-show="finPortalForm.fixed_amount.trim() !== ''">
-                                            <label class="form-label">How often</label>
-                                            <select class="nss-select" x-model="finPortalForm.due_period">
-                                                <option value="YEARLY">Every financial year</option>
-                                                <option value="MONTHLY">Every month</option>
-                                                <option value="ONE_TIME">One time (for example an event)</option>
-                                            </select>
-                                        </div>
-                                        <div x-show="finPortalForm.fixed_amount.trim() !== ''">
-                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin-top:1.6rem;">
-                                                <input type="checkbox" x-model="finPortalForm.allow_part_payment"> Members may pay in parts
-                                            </label>
-                                        </div>
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title" x-text="'Open payment portal — ' + finPortalForm.name"></h2>
+                                        <p class="form-hint" style="margin: 0.15rem 0 0;">Members of this Sangha will see it in their Pranami tab and can pay it by UPI into the Sangha's default receiving account.</p>
                                     </div>
-                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finPortalForm.error" x-text="finPortalForm.error"></div>
-                                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
-                                        <button class="btn-action primary" :disabled="finPortalForm.saving" @click="finPortalSubmit()" x-text="finPortalForm.saving ? 'Opening…' : 'Open payment portal'"></button>
-                                        <button class="btn-action" :disabled="finPortalForm.saving" @click="finPortalCancel()">Cancel</button>
+                                    <button type="button" class="btn-action" :disabled="finPortalForm.saving" @click="finPortalCancel()">← Back to heads</button>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="ask-grid">
+                                        <div class="ask-main">
+                                            <section class="ask-section" x-show="!finPortalForm.follows_kendra">
+                                                <h3 class="ask-section__title">How much?</h3>
+                                                <label class="form-label">Amount each member pays <span class="optional">(leave empty to let members pay any amount)</span></label>
+                                                <div class="ask-money"><span>₹</span><input type="text" inputmode="decimal" class="form-input" x-model="finPortalForm.fixed_amount" placeholder="e.g. 500" autocomplete="off" @keydown.enter="finPortalSubmit()"></div>
+                                                <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin-top:0.75rem;" x-show="finPortalForm.fixed_amount.trim() !== ''">
+                                                    <input type="checkbox" x-model="finPortalForm.allow_part_payment"> Members may pay in parts (they always see what is still due)
+                                                </label>
+                                            </section>
+                                            <section class="ask-section" x-show="!finPortalForm.follows_kendra">
+                                                <h3 class="ask-section__title">When?</h3>
+                                                <div x-show="finPortalForm.fixed_amount.trim() !== ''">
+                                                    <label class="form-label">How often</label>
+                                                    <div class="seg" role="group" aria-label="How often">
+                                                        <button type="button" :class="{ 'is-on': finPortalForm.due_period === 'YEARLY' }" @click="finPortalForm.due_period = 'YEARLY'; finPortalPeriodChanged()">Every financial year</button>
+                                                        <button type="button" :class="{ 'is-on': finPortalForm.due_period === 'MONTHLY' }" @click="finPortalForm.due_period = 'MONTHLY'; finPortalPeriodChanged()">Every month</button>
+                                                        <button type="button" :class="{ 'is-on': finPortalForm.due_period === 'ONE_TIME' }" @click="finPortalForm.due_period = 'ONE_TIME'; finPortalPeriodChanged()">One time</button>
+                                                    </div>
+                                                </div>
+                                                <label class="form-label" style="margin-top: 0.85rem;">Due by <span class="optional">(every Pranami has a due date)</span></label>
+                                                <input type="date" class="form-input" style="max-width: 14rem;" x-model="finPortalForm.due_date" @input="finPortalForm.due_touched = true">
+                                                <p class="form-hint">Members see this date on their card, and an Overdue mark once it has passed with nothing paid. For a yearly or monthly Pranami, set the next date when you reopen the portal.</p>
+                                            </section>
+                                            <section class="ask-section" x-show="finPortalForm.follows_kendra">
+                                                <p class="pay-muted" style="margin: 0;">The amount and due date for this head are set by the Kendra. Opening the portal lets your members pay it into your Sangha's account.</p>
+                                            </section>
+                                        </div>
+
+                                        <aside class="ask-summary">
+                                            <div class="pay-label">What members will see</div>
+                                            <div class="data-card contrib-card-due" style="margin: 0.6rem 0 0; padding: 0.85rem 1rem;">
+                                                <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
+                                                    <span style="font-size:0.9rem; font-weight:600; color:#1B2A4A;" x-text="finPortalForm.name"></span>
+                                                    <span class="badge badge-xs badge-fin-bad">Due</span>
+                                                </div>
+                                                <div style="font-size:0.72rem; color:#6b7280; margin-top:0.15rem;" x-show="finPortalForm.description" x-text="finPortalForm.description"></div>
+                                                <div style="font-size:1.05rem; font-weight:700; color:#1B2A4A; margin-top:0.4rem;" x-text="finPortalPreview().amount"></div>
+                                                <div style="font-size:0.78rem; color:#374151; margin-top:0.3rem;" x-show="finPortalPreview().due">Due by <b x-text="finPortalPreview().due"></b></div>
+                                                <div class="btn-action primary" style="margin-top:0.6rem; opacity:0.85; cursor:default;">Pay by UPI</div>
+                                            </div>
+                                            <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finPortalForm.error" x-text="finPortalForm.error"></div>
+                                            <div class="ask-actions">
+                                                <button class="btn-action primary pay-btn" :disabled="finPortalForm.saving" @click="finPortalSubmit()" x-text="finPortalForm.saving ? 'Opening…' : 'Open payment portal'"></button>
+                                                <button class="btn-action" :disabled="finPortalForm.saving" @click="finPortalCancel()">Cancel</button>
+                                            </div>
+                                        </aside>
                                     </div>
                                 </div>
                             </div>
@@ -9542,6 +9570,7 @@
                                                                 <td class="fh-sub" x-show="finHeadsMultiOrg()" x-text="h.organization_name || '—'"></td>
                                                                 <td>
                                                                     <div class="fh-amount" x-text="finHeadAmountLabel(h)"></div>
+                                                                    <div class="fh-sub" x-show="h.due_date" x-text="'Due by ' + NSS.formatDate(h.due_date)"></div>
                                                                     <div class="fh-sub" x-show="h.fixed_amount != null && h.allow_part_payment">Part payments allowed</div>
                                                                 </td>
                                                                 <td>
@@ -9627,9 +9656,54 @@
                             </div>
 
                             <p style="margin:0.25rem 0 1rem;" x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show && !finAcctForm.show">
-                                <button type="button" class="link-action" @click="finSetupMore = !finSetupMore"
+                                <button type="button" class="link-action" @click="finToggleMore()"
                                         x-text="finSetupMore ? 'Hide receiving accounts and approval limit' : 'Receiving accounts and approval limit'"></button>
                             </p>
+
+                            <!-- Go-live checklist for a real gateway (Razorpay): what is done here and what is left to do in the provider's dashboard -->
+                            <div class="data-card" x-show="finSetupMore && (finGateway || finGatewayError)" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title">Go live with Razorpay</h2></div>
+                                <div class="data-card-body">
+                                    <div class="alert-msg alert-error" x-show="finGatewayError" x-text="finGatewayError"></div>
+                                    <template x-if="finGateway && finGatewayProvider('RAZORPAY')">
+                                        <ul class="gr-list">
+                                            <li>
+                                                <span class="gr-mark" :class="finGatewayProvider('RAZORPAY').enabled ? 'gr-ok' : 'gr-no'" x-text="finGatewayProvider('RAZORPAY').enabled ? '✓' : '✕'"></span>
+                                                <div>
+                                                    <div class="gr-title">Razorpay is switched on for this server</div>
+                                                    <div class="pay-muted" x-show="!finGatewayProvider('RAZORPAY').enabled">Set <span class="mono">UPI_GATEWAY_ENABLED_PROVIDERS=RAZORPAY</span> in the server environment and restart.</div>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <span class="gr-mark" :class="finGateway.webhook_public ? 'gr-ok' : 'gr-warn'" x-text="finGateway.webhook_public ? '✓' : '!'"></span>
+                                                <div>
+                                                    <div class="gr-title">Register this webhook address in the Razorpay dashboard</div>
+                                                    <div class="gr-url"><span class="mono" x-text="finGatewayProvider('RAZORPAY').webhook_url"></span>
+                                                        <button type="button" class="link-action" @click="finCopyWebhook(finGatewayProvider('RAZORPAY').webhook_url)" x-text="finWebhookCopied ? 'Copied' : 'Copy'"></button></div>
+                                                    <div class="pay-muted">Events to tick: <span class="mono" x-text="finGatewayProvider('RAZORPAY').webhook_events.join(', ')"></span>. Type a webhook secret of your choice and keep it for the next step.</div>
+                                                    <div class="gr-note" x-show="!finGateway.webhook_public">This address cannot be reached from the internet (it is local or not https), so Razorpay could not call it. Use the deployed address, or a tunnel such as ngrok while testing.</div>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <span class="gr-mark" :class="finGatewayProvider('RAZORPAY').accounts_ready > 0 ? 'gr-ok' : 'gr-no'" x-text="finGatewayProvider('RAZORPAY').accounts_ready > 0 ? '✓' : '✕'"></span>
+                                                <div>
+                                                    <div class="gr-title">API keys are on the server and a receiving account uses them</div>
+                                                    <div class="pay-muted">In the server environment add <span class="mono">UPI_&lt;NAME&gt;_KEY_ID</span>, <span class="mono">UPI_&lt;NAME&gt;_KEY_SECRET</span> and <span class="mono">UPI_&lt;NAME&gt;_WEBHOOK_SECRET</span> (NAME = the credential set name you give the account, e.g. RAZORPAY_MAIN). Never type a key here.</div>
+                                                    <div class="pay-muted" x-text="finGatewayProvider('RAZORPAY').accounts_using_it + ' receiving account(s) use Razorpay; ' + finGatewayProvider('RAZORPAY').accounts_ready + ' ready to take a payment.'"></div>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <span class="gr-mark" :class="finGateway.window_ok ? 'gr-ok' : 'gr-no'" x-text="finGateway.window_ok ? '✓' : '✕'"></span>
+                                                <div>
+                                                    <div class="gr-title">Payment window is long enough</div>
+                                                    <div class="pay-muted" x-text="'Requests stay payable for ' + finGateway.request_expiry_minutes + ' minutes; Razorpay needs at least ' + (finGateway.min_window_minutes.RAZORPAY || 16) + '.'"></div>
+                                                </div>
+                                            </li>
+                                        </ul>
+                                    </template>
+                                    <p class="pay-muted" x-show="finGateway && finGateway.dev_install" style="margin-top: 0.75rem;">To rehearse the whole Razorpay flow on this computer before you have an account, run <span class="mono">python3 scripts/fake_razorpay.py --webhook-secret &lt;secret&gt;</span> (see the top of that file).</p>
+                                </div>
+                            </div>
 
                             <!-- Accounts list (under "More"; a payment portal collects into the Sangha's default account) -->
                             <div class="data-card" x-show="!finAcctForm.show && finSetupMore">

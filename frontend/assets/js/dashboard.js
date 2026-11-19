@@ -330,6 +330,12 @@ const LIVE_TABLE_TABS = {
     financial_transaction: ["pranami", "finApprovals"],
     upi_payment_request: ["pranami"],
     financial_receipt: ["pranami"],
+    // what a member may pay is decided by the heads (portal opened / closed, amount), the receiving account and the Sangha's scope, and a
+    // multi-item payment is its request lines: a change by an admin shows on the member's Pranami tab by itself
+    finance_head: ["pranami"],
+    financial_account: ["pranami"],
+    financial_scope: ["pranami"],
+    upi_payment_request_line: ["pranami"],
     // Finance approvals (owner 2026-11-17): the Treasurer / President's own list of entries waiting for them
     finance_approval_step: ["finApprovals"],
     finance_transaction_bill: ["finApprovals"],
@@ -1095,7 +1101,8 @@ function dashboardApp() {
             const typed = this.pranamiPay.amounts[h.finance_head_pk];
             return typed == null || typed === "" ? (h.due_amount != null ? String(h.due_amount) : "") : String(typed);
         },
-        pranamiSafeUrl(url) { return typeof url === "string" && /^https:\/\//i.test(url) ? url : ""; },
+        // https only - plus this computer's own address, where the local Razorpay rehearsal serves its pay page.
+        pranamiSafeUrl(url) { return typeof url === "string" && /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/)/i.test(url) ? url : ""; },
         pranamiSafeUpi(uri) { return typeof uri === "string" && /^upi:\/\/pay\?/i.test(uri) ? uri : ""; },
 
         async _loadPranamiPayHeads() {
@@ -1103,7 +1110,19 @@ function dashboardApp() {
                 const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/heads");
                 this.pranamiPay.heads = res.ok ? await res.json() : [];
             } catch { this.pranamiPay.heads = []; }
+            this._forgetStaleTypedAmounts();
             this._loadPranamiRequests();
+        },
+        // A part payment changes what is still due. The amount box shows what the member typed last time, which would then be stale (they
+        // typed 50, paid it, and are shown 50 again instead of the balance): a typed amount is dropped for any head whose due amount moved.
+        _pranamiDueSeen: {},
+        _forgetStaleTypedAmounts() {
+            const p = this.pranamiPay;
+            for (const h of p.heads) {
+                const key = h.finance_head_pk, due = h.due_amount == null ? "" : String(h.due_amount);
+                if (key in this._pranamiDueSeen && this._pranamiDueSeen[key] !== due) delete p.amounts[key];
+                this._pranamiDueSeen[key] = due;
+            }
         },
         // Payments a treasurer / admin asked THIS member to make: they show here by themselves (no one has to tell the member).
         async _loadPranamiRequests() {
@@ -1168,6 +1187,7 @@ function dashboardApp() {
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 p.result = await res.json();
                 p.selected = {};
+                for (const x of heads) delete p.amounts[x.finance_head_pk];         // the next visit starts from what is then due
                 this._pranamiStartClock();
                 this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
             } catch (err) {
@@ -1192,6 +1212,7 @@ function dashboardApp() {
                 });
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 p.result = await res.json();
+                delete p.amounts[h.finance_head_pk];                                   // the next visit starts from what is then due
                 this._pranamiStartClock();
                 this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
             } catch (err) {

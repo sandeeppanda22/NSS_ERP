@@ -206,3 +206,22 @@
 .rq-sim { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.75rem; }
 .rq-sim .form-input { max-width: 14rem; }
 @media (max-width: 900px) { .rq-grid { grid-template-columns: 1fr; } .rq-status { align-items: flex-start; } }
+
+/* "Go live with Razorpay" checklist (admin, under Finance heads > More) */
+.gr-list { list-style: none; margin: 0; padding: 0; }
+.gr-list li { display: flex; gap: 0.85rem; padding: 0.8rem 0; border-top: 1px solid #f1f5f9; }
+.gr-list li:first-child { border-top: 0; }
+.gr-mark { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 700; }
+.gr-ok { background: #dcfce7; color: #15803d; }
+.gr-no { background: #fee2e2; color: #b91c1c; }
+.gr-warn { background: #fef3c7; color: #b45309; }
+.gr-title { font-size: 0.9rem; font-weight: 600; color: #0f172a; }
+.gr-url { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.3rem 0; padding: 0.4rem 0.6rem; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 0.4rem; font-size: 0.8rem; overflow-wrap: anywhere; }
+.gr-note { margin-top: 0.4rem; padding: 0.45rem 0.65rem; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 0.4rem; font-size: 0.78rem; color: #78350f; }
+
+/* segmented choice (one of a few): "How often" in the open-portal form */
+.seg { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 0.45rem; overflow: hidden; background: #fff; }
+.seg button { padding: 0.45rem 0.9rem; font-size: 0.82rem; color: #475569; background: #fff; border: 0; border-right: 1px solid #e2e8f0; cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button:hover { background: #f1f5f9; }
+.seg button.is-on { background: #0D7377; color: #fff; font-weight: 600; }
