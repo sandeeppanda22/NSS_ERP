@@ -657,6 +657,7 @@ Invoke-Sql "finance heads structure patch" "$DdlBase\14_finance\12_finance_heads
 # Fixed amount / due period / part payment / applies-to-all-Sakhas columns on finance_head (owner decision 2026-11-15).
 Invoke-Sql "finance head fixed amount patch" "$DdlBase\14_finance\14_finance_head_fixed_amount_patch.sql"
 Invoke-Sql "finance head approval patch" "$DdlBase\14_finance\15_finance_head_approval_patch.sql"
+Invoke-Sql "finance head due date patch" "$DdlBase\14_finance\20_finance_head_due_date_patch.sql"
 # Head flags AFTER the columns: pre-defined income heads skip approval; the member-reimbursement template.
 Invoke-Sql "finance head approval flags patch" "$SeedBase\12_finance\04_finance_head_approval_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.

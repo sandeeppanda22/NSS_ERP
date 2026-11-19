@@ -617,6 +617,7 @@ run_sql "finance heads structure patch" "${DDL_BASE}/14_finance/12_finance_heads
 # Fixed amount / due period / part payment / applies-to-all-Sakhas columns on finance_head (owner decision 2026-11-15).
 run_sql "finance head fixed amount patch" "${DDL_BASE}/14_finance/14_finance_head_fixed_amount_patch.sql"
 run_sql "finance head approval patch" "${DDL_BASE}/14_finance/15_finance_head_approval_patch.sql"
+run_sql "finance head due date patch" "${DDL_BASE}/14_finance/20_finance_head_due_date_patch.sql"
 # Head flags AFTER the columns: pre-defined income heads skip approval; the member-reimbursement template.
 run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_head_approval_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.

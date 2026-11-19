@@ -59,6 +59,7 @@ _SIGNED_ONLY = ("POST", f"{BASE}/gateway/webhook/MOCK", {"order_id": "x"})
 # ever 404/403/422, never succeed.
 GATED: list[tuple[str, str, dict | None]] = [
     ("GET", f"{BASE}/accounts", None),
+    ("GET", f"{BASE}/gateway/readiness", None),
     ("POST", f"{BASE}/accounts", {"organization_pk": FAKE_UUID, "account_label": "x", "account_holder_name": "x"}),
     ("GET", f"{BASE}/accounts/{FAKE_UUID}", None),
     ("PATCH", f"{BASE}/accounts/{FAKE_UUID}", {"bank_name": "x"}),
@@ -121,7 +122,7 @@ def test_endpoint_table_covers_every_route():
     # the webhook is listed with the MOCK provider; the real route takes any provider name
     listed = {(m, p.replace("/gateway/webhook/MOCK", f"/gateway/webhook/{FAKE_UUID}")) for m, p in listed}
     assert routes == listed
-    assert len(setup.routes) + len(upi.routes) == 30
+    assert len(setup.routes) + len(upi.routes) == 31
 
 
 def test_every_gated_route_declares_a_permission_dependency():

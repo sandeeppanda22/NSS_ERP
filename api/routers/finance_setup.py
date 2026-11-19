@@ -40,7 +40,7 @@ Rules enforced here (DB CHECKs in database/ddl/14_finance/ are the backstop):
 import re
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from api.database import get_connection
 from api.dependencies.auth import get_write_connection
@@ -294,7 +294,7 @@ _HEAD_SELECT = """
            h.collection_fund_pk, cf.fund_code AS collection_fund_code, h.collection_account_pk,
            ca.account_label AS collection_account_label, h.template_head_pk, h.display_order, h.status,
            (SELECT COUNT(*) FROM nss.financial_transaction t WHERE t.finance_head_pk = h.finance_head_pk AND t.is_active = TRUE) AS transaction_count,
-           h.fixed_amount, h.due_period, h.allow_part_payment, h.applies_to_all_sakhas,
+           h.fixed_amount, h.due_period, h.due_date, h.allow_part_payment, h.applies_to_all_sakhas,
            h.skips_approval, h.treasurer_limit, h.requires_member,
            COALESCE(src.applies_to_all_sakhas, FALSE) AS is_kendra_copy,
            (COALESCE(src.applies_to_all_sakhas, FALSE) AND h.collection_account_pk IS NULL) AS needs_account,
@@ -355,6 +355,51 @@ def _validate_collection(cur, *, org_pk, direction, is_restricted, required_fund
             raise F._invalid(f"The receiving account {acct['account_label']} is {acct['status']}.")
         if allow_upi and (not acct["gateway_provider"] or not acct["gateway_credential_ref"]):
             raise F._invalid("UPI collection needs a receiving account that has a payment gateway configured.")
+
+
+_WEBHOOK_EVENTS = {"RAZORPAY": ["payment_link.paid", "payment_link.expired", "payment_link.cancelled"], "MOCK": []}
+
+
+@router.get("/gateway/readiness", response_model=S.GatewayReadiness)
+def gateway_readiness(request: Request, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_connection)):
+    """
+    A checklist for going live with a payment gateway (Razorpay): is the provider enabled on this server, the exact webhook URL to register
+    in the provider's dashboard, whether that URL can be reached from outside, the payment window, and which of the accounts in the
+    caller's scope are ready. Names only - never a key or secret.
+    """
+    from api.config import settings
+
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    base = f"{proto}://{host}"
+    hostname = host.split(":")[0].strip("[]").lower()
+    public = proto == "https" and hostname not in ("localhost", "127.0.0.1", "::1") and not hostname.endswith(".local")
+    enabled = upi_gateway.enabled_providers()
+    with conn.cursor() as cur:
+        allowed = actor_scope_org_pks(cur, user)
+        rows = []
+        if allowed is None or allowed:                         # None = the global authority; an empty set = nothing in scope
+            where, params = "a.is_active = TRUE AND a.gateway_provider IS NOT NULL", []
+            if allowed is not None:
+                where += " AND a.organization_pk = ANY(%s::uuid[])"
+                params.append(list(allowed))
+            cur.execute(f"SELECT a.gateway_provider, a.gateway_credential_ref, a.status FROM nss.financial_account a WHERE {where}", params)
+            rows = cur.fetchall()
+    providers = []
+    for name in sorted(upi_gateway.PROVIDERS):
+        mine = [r for r in rows if (r[0] or "").upper() == name]
+        ready = sum(1 for r in mine if r[2] == "ACTIVE" and account_ready({"gateway_provider": name, "gateway_credential_ref": r[1]}))
+        providers.append({
+            "provider": name, "enabled": name in enabled, "webhook_url": f"{base}/api/v1/finance/gateway/webhook/{name.lower()}",
+            "webhook_events": _WEBHOOK_EVENTS.get(name, []), "needs_credentials": name != "MOCK",
+            "accounts_using_it": len(mine), "accounts_ready": ready,
+        })
+    windows = {name: int(getattr(p, "MIN_WINDOW").total_seconds() // 60) for name, p in upi_gateway.PROVIDERS.items() if hasattr(p, "MIN_WINDOW")}
+    return {
+        "providers": providers, "webhook_public": public, "request_expiry_minutes": settings.UPI_REQUEST_EXPIRY_MINUTES,
+        "min_window_minutes": windows, "window_ok": all(settings.UPI_REQUEST_EXPIRY_MINUTES >= m for m in windows.values()),
+        "credential_sets": sorted({r[1] for r in rows if r[1] and (r[0] or "").upper() != "MOCK"}), "dev_install": upi_gateway.is_dev_install(),
+    }
 
 
 @router.get("/heads", response_model=S.HeadListResponse)
@@ -467,6 +512,12 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_CONFIGURE), con
         return _head_response(cur, pk)
 
 
+def _check_due_date(due_date) -> None:
+    """EVERY Pranami has a due date, a free-amount one too (owner 2026-11-19); it is set when the payment portal is opened."""
+    if due_date is None:
+        raise F._invalid("Choose the date this Pranami is due by.")
+
+
 def _check_amount_fields(amount, period, part, *, direction="INCOME") -> None:
     """The fixed-amount fields of a head (same rules on create and edit)."""
     if period is not None and period not in S.DUE_PERIODS:
@@ -558,9 +609,12 @@ def set_head_portal(head_pk: UUID, body: S.PortalToggle, user: UserContext = Dep
                     "FROM nss.finance_head h LEFT JOIN nss.finance_head src ON src.finance_head_pk = h.template_head_pk "
                     "WHERE h.finance_head_pk = %s", (str(head_pk),))
         is_source, is_copy = cur.fetchone()
-        sent = body.model_fields_set & {"fixed_amount", "due_period", "allow_part_payment"}
+        sent = body.model_fields_set & {"fixed_amount", "due_period", "due_date", "allow_part_payment"}
         if sent and (is_copy or not body.open):
             raise F._invalid("The amount is set when a head's portal is opened, and a Sakha's copy takes it from the Kendra's head.")
+        if body.open and not is_copy:                # a copy follows the Kendra's date; every other head needs one
+            cur.execute("SELECT due_date FROM nss.finance_head WHERE finance_head_pk = %s", (str(head_pk),))
+            _check_due_date(body.due_date if "due_date" in body.model_fields_set else cur.fetchone()[0])
         if is_source:
             if not body.open:
                 raise F._invalid("A head for every Sakha is stopped by switching the head off.")
@@ -568,6 +622,8 @@ def set_head_portal(head_pk: UUID, body: S.PortalToggle, user: UserContext = Dep
             if sent:
                 _check_amount_fields(body.fixed_amount, body.due_period, body.allow_part_payment, direction="INCOME")
                 values.update(fixed_amount=body.fixed_amount, due_period=body.due_period, allow_part_payment=body.allow_part_payment)
+                if "due_date" in body.model_fields_set:
+                    values["due_date"] = body.due_date
             F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, values)
             created = FC.sync_copies(cur, user, head_pk)["created"]
             F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Opened the payment portal of {head['head_code']} for every Sakha",
@@ -596,10 +652,12 @@ def set_head_portal(head_pk: UUID, body: S.PortalToggle, user: UserContext = Dep
             if sent:                       # what members are asked to pay (same rules as creating / editing a head)
                 _check_amount_fields(body.fixed_amount, body.due_period, body.allow_part_payment, direction="INCOME")
                 values.update(fixed_amount=body.fixed_amount, due_period=body.due_period, allow_part_payment=body.allow_part_payment)
+                if "due_date" in body.model_fields_set:
+                    values["due_date"] = body.due_date
         else:
+            # Closing only stops NEW payments. The head stays member-visible (is_pranami) so what members already paid on it stays in their
+            # history, and nothing is re-hidden when it is opened again.
             values = {"allow_upi": False}
-            if not is_copy:
-                values["is_pranami"] = False
         F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, values)
         F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"{'Opened' if body.open else 'Closed'} the payment portal of {head['head_code']}",
                  {"portal": body.open})

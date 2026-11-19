@@ -241,6 +241,11 @@ def _open_order_and_store(cur, *, account: dict, head: dict, scope: dict, fund: 
         creds = upi_gateway.credentials_for(account["gateway_credential_ref"], account["gateway_provider"])
     except upi_gateway.GatewayUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"UPI collection is not available: {exc}")
+    window = getattr(provider, "MIN_WINDOW", None)         # Razorpay refuses a link that expires in under 15 minutes
+    if window is not None and timedelta(minutes=settings.UPI_REQUEST_EXPIRY_MINUTES) < window:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail=f"UPI collection is not available: {provider.name} needs a payment window of at least "
+                                   f"{int(window.total_seconds() // 60)} minutes; raise UPI_REQUEST_EXPIRY_MINUTES.")
     cur.execute("SELECT organization_name FROM nss.organization WHERE organization_pk = %s", (str(head["organization_pk"]),))
     org_name = cur.fetchone()[0]
     reference = next_id(cur, "UPI_PAYMENT_REQUEST")
@@ -697,14 +702,15 @@ def _member_destinations(cur, user: UserContext) -> list[str]:
     return [home] + [str(r[0]) for r in cur.fetchall() if str(r[0]) != home]
 
 
-# The member's contribution cards: every ACTIVE member-visible INCOME head of their OWN Sakha and of the Kendra (the source of an
+# The member's Pranami cards: every ACTIVE INCOME head of their OWN Sakha and of the Kendra whose payment portal is OPEN (allow_upi; a closed
+# portal shows nothing here - what was already paid stays in the history, which does not depend on the portal) (the source of an
 # all-Sakhas head collects nothing and is never shown - the member sees their own Sakha's copy). Accounts / scopes are LEFT joined
 # so a head whose Sangha has not set up payment still shows (as "not available yet") with what the member has already paid.
 _CARDS_SQL = """
     SELECT h.finance_head_pk, h.head_name, h.description, h.organization_pk, o.organization_name,
            (mdo.value_code = 'KENDRA') AS is_kendra,
            CASE WHEN cs.scope_type = 'EVENT' THEN cs.scope_name END AS event_name,
-           h.fixed_amount, h.due_period, h.allow_part_payment, h.allow_upi,
+           h.fixed_amount, h.due_period, h.due_date, h.allow_part_payment, h.allow_upi,
            (cs.financial_scope_pk IS NOT NULL) AS scope_active,
            a.financial_account_pk, a.upi_vpa, a.gateway_provider, a.gateway_credential_ref
       FROM nss.finance_head h
@@ -714,13 +720,13 @@ _CARDS_SQL = """
                                        AND a.is_active = TRUE AND a.status = 'ACTIVE'
       LEFT JOIN nss.financial_scope cs ON cs.financial_scope_pk = h.collection_scope_pk
                                       AND cs.is_active = TRUE AND cs.status = 'ACTIVE'
-     WHERE h.is_active = TRUE AND h.status = 'ACTIVE' AND h.is_pranami = TRUE AND h.direction = 'INCOME'
+     WHERE h.is_active = TRUE AND h.status = 'ACTIVE' AND h.is_pranami = TRUE AND h.direction = 'INCOME' AND h.allow_upi = TRUE
        AND h.applies_to_all_sakhas = FALSE AND h.organization_pk = ANY(%s::uuid[])
        AND (h.collection_scope_pk IS NULL OR cs.financial_scope_pk IS NOT NULL)      -- a closed event / scope is hidden, not shown as unavailable
      ORDER BY (h.organization_pk = %s::uuid) DESC, o.organization_name, h.display_order, h.head_name
 """
 _CARD_FIELDS = ("finance_head_pk", "head_name", "description", "organization_pk", "organization_name", "is_kendra", "event_name",
-                "upi_vpa", "fixed_amount", "due_period", "allow_part_payment")
+                "upi_vpa", "fixed_amount", "due_period", "due_date", "allow_part_payment")
 
 
 def _member_cards(cur, user: UserContext) -> list[dict]:
@@ -780,6 +786,8 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
         card.update(FC.card_state(h["fixed_amount"], paid.get(key, Decimal("0")), pending.get(key, Decimal("0"))))
         card["pending_request_pk"] = pending_req.get(key)
         card["period_label"] = FC.period_label(h["due_period"], today)
+        card["overdue"] = bool(h["due_date"] and h["due_date"] < today
+                               and (card["state"] in ("DUE", "PART") or (card["state"] == "OPEN" and card["paid_amount"] == 0)))
         ready = bool(h["allow_upi"] and h["scope_active"] and h["financial_account_pk"] and account_ready(h))
         card["payable"] = ready
         card["unavailable_reason"] = None if ready else (

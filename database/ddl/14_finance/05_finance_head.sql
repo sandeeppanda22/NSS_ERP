@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS nss.finance_head
 
     due_period VARCHAR(10) NULL,
 
+    -- The date the amount is due by (owner decision 2026-11-19: every Pranami carries one, chosen when its payment portal is opened);
+    -- members see "Due by ..." and an Overdue mark once it has passed unpaid. NULL = no date (a free-amount head).
+    due_date DATE NULL,
+
     allow_part_payment BOOLEAN NOT NULL
         DEFAULT FALSE,
 

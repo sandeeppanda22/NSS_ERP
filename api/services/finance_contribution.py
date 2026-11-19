@@ -32,7 +32,7 @@ from api.schemas.finance import DUE_PERIODS  # noqa: F401  (re-exported: the one
 logger = logging.getLogger(__name__)
 
 # The head columns a Sakha copy takes from its source (everything else stays the Sakha's own).
-FOLLOWED_FIELDS = ("head_name", "description", "fixed_amount", "due_period", "allow_part_payment", "display_order", "skips_approval")
+FOLLOWED_FIELDS = ("head_name", "description", "fixed_amount", "due_period", "due_date", "allow_part_payment", "display_order", "skips_approval")
 
 
 # ───────────────────────── pure helpers (no database) ─────────────────────────
@@ -137,14 +137,15 @@ DEMO_ACCOUNT_LABEL = "Demo UPI account"
 
 def ensure_demo_account(cur, user, org_pk) -> dict | None:
     """
-    DEMO ONLY. When the MOCK gateway is the only one enabled on this server (a demo / development install) and the Sangha has no usable
-    receiving account, create its default "Demo UPI account" on the MOCK gateway so a head's payment portal works end to end with no manual
-    setup. Returns the account like default_account(), or None when this is not a MOCK-only server or the Sangha already has a
-    (different or switched-off) account with that label. No money ever moves through it. Audited.
+    DEMO ONLY. On a development / demo install (the database is on this machine) where the MOCK gateway is enabled, when the Sangha has no
+    usable receiving account create its default "Demo UPI account" on the MOCK gateway, so a head's payment portal works end to end with no
+    manual setup - even while RAZORPAY is also enabled: a Sangha that HAS a Razorpay account keeps using it. Returns the account like
+    default_account(), or None on any other server (production never gets a fake account) or when the Sangha already has an account with that
+    label. No money ever moves through it. Audited.
     """
     from api.services import upi_gateway          # local: this module is imported by code that must not need the gateway
 
-    if upi_gateway.enabled_providers() != frozenset({"MOCK"}):
+    if "MOCK" not in upi_gateway.enabled_providers() or not upi_gateway.is_dev_install():
         return None
     cur.execute("SELECT 1 FROM nss.financial_account WHERE organization_pk = %s AND account_label = %s", (str(org_pk), DEMO_ACCOUNT_LABEL))
     if cur.fetchone():
@@ -168,13 +169,13 @@ def ensure_demo_account(cur, user, org_pk) -> dict | None:
 
 def _source_row(cur, source_pk) -> dict:
     cur.execute(
-        "SELECT finance_head_pk, head_code, head_name, description, fixed_amount, due_period, allow_part_payment, display_order, "
+        "SELECT finance_head_pk, head_code, head_name, description, fixed_amount, due_period, due_date, allow_part_payment, display_order, "
         "skips_approval, status FROM nss.finance_head WHERE finance_head_pk = %s AND is_active = TRUE AND applies_to_all_sakhas = TRUE",
         (str(source_pk),))
     row = cur.fetchone()
     if row is None:
         raise LookupError("not an all-Sakhas source head")
-    return dict(zip(("finance_head_pk", "head_code", "head_name", "description", "fixed_amount", "due_period",
+    return dict(zip(("finance_head_pk", "head_code", "head_name", "description", "fixed_amount", "due_period", "due_date",
                      "allow_part_payment", "display_order", "skips_approval", "status"), row))
 
 
@@ -197,11 +198,11 @@ def _make_copy(cur, user, source: dict, org_pk: str) -> str | None:
         """
         INSERT INTO nss.finance_head
             (organization_pk, head_code, head_name, description, direction, is_pranami, skips_approval, template_head_pk,
-             fixed_amount, due_period, allow_part_payment, display_order, status, created_by_sangha_sevi_pk)
-        VALUES (%s, %s, %s, %s, 'INCOME', TRUE, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+             fixed_amount, due_period, due_date, allow_part_payment, display_order, status, created_by_sangha_sevi_pk)
+        VALUES (%s, %s, %s, %s, 'INCOME', TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
         """,
         (org_pk, source["head_code"], source["head_name"], source["description"], source["skips_approval"],
-         str(source["finance_head_pk"]), source["fixed_amount"], source["due_period"], source["allow_part_payment"],
+         str(source["finance_head_pk"]), source["fixed_amount"], source["due_period"], source["due_date"], source["allow_part_payment"],
          source["display_order"], source["status"], user.actor_pk if user else None))
     pk = cur.fetchone()[0]
     _audit(cur, user, "CREATE", "finance_head", pk, f"Created {source['head_code']} for a Sakha from the Kendra's head",
@@ -221,16 +222,16 @@ def sync_copies(cur, user, source_pk) -> dict:
         if _make_copy(cur, user, source, org_pk):
             created += 1
     cur.execute(
-        "SELECT finance_head_pk, head_name, description, fixed_amount, due_period, allow_part_payment, display_order, "
+        "SELECT finance_head_pk, head_name, description, fixed_amount, due_period, due_date, allow_part_payment, display_order, "
         "skips_approval FROM nss.finance_head WHERE template_head_pk = %s AND is_active = TRUE", (str(source_pk),))
-    for pk, name, desc, amt, per, part, order, skip in cur.fetchall():
-        if (name, desc, amt, per, part, order, skip) == tuple(source[f] for f in FOLLOWED_FIELDS):
+    for pk, name, desc, amt, per, due, part, order, skip in cur.fetchall():
+        if (name, desc, amt, per, due, part, order, skip) == tuple(source[f] for f in FOLLOWED_FIELDS):
             continue
         cur.execute(
-            "UPDATE nss.finance_head SET head_name = %s, description = %s, fixed_amount = %s, due_period = %s, "
+            "UPDATE nss.finance_head SET head_name = %s, description = %s, fixed_amount = %s, due_period = %s, due_date = %s, "
             "allow_part_payment = %s, display_order = %s, skips_approval = %s, updated_at = NOW(), "
             "updated_by_sangha_sevi_pk = %s WHERE finance_head_pk = %s",
-            (source["head_name"], source["description"], source["fixed_amount"], source["due_period"],
+            (source["head_name"], source["description"], source["fixed_amount"], source["due_period"], source["due_date"],
              source["allow_part_payment"], source["display_order"], source["skips_approval"],
              user.actor_pk if user else None, str(pk)))
         _audit(cur, user, "UPDATE", "finance_head", pk, f"Copy of {source['head_code']} brought in line with the Kendra's head",

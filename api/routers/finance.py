@@ -523,7 +523,8 @@ _MY_PRANAMI_LIMIT = 500
 @router.get("/my-pranami", response_model=S.MyPranami)
 def my_pranami(user: UserContext = Depends(get_current_user), conn=Depends(get_connection)):
     """
-    The signed-in member's own Pranami: INCOME of a Pranami category that is already counted
+    The signed-in member's own Pranami history: INCOME on a member-facing head (whether or not its payment portal is open today: closing a
+    portal never hides what was already paid) that is already counted
     (POSTED / SETTLED) and linked to them by Sangha Sevi or person, newest first, each with its
     ISSUED receipts. Login only - there is deliberately NO id parameter, so a caller can only ever
     read their own rows (identity comes from the token). Nothing else of the books is returned.
@@ -535,7 +536,8 @@ def my_pranami(user: UserContext = Depends(get_current_user), conn=Depends(get_c
                    t.transaction_category, h.head_name AS finance_head_name, t.amount, fs.scope_name,
                    o.organization_name, t.status
               FROM nss.financial_transaction t
-              JOIN nss.finance_head h ON h.finance_head_pk = t.finance_head_pk AND h.is_pranami = TRUE
+              JOIN nss.finance_head h ON h.finance_head_pk = t.finance_head_pk
+                                     AND (h.is_pranami = TRUE OR h.collection_scope_pk IS NOT NULL)      -- opened once = member-facing for good
               JOIN nss.financial_year fy ON fy.financial_year_pk = t.financial_year_pk
               JOIN nss.financial_scope fs ON fs.financial_scope_pk = t.financial_scope_pk
               LEFT JOIN nss.organization o ON o.organization_pk = fs.organization_pk

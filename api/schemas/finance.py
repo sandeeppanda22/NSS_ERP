@@ -548,6 +548,7 @@ class HeadResponse(BaseModel):
     status: str
     transaction_count: int = 0
     fixed_amount: Decimal | None = None
+    due_date: date | None = None             # the date the amount is due by (set when the payment portal is opened)
     due_period: str | None = None
     allow_part_payment: bool = False
     applies_to_all_sakhas: bool = False
@@ -594,6 +595,7 @@ class PortalToggle(BaseModel):
     # A Sakha's copy of a Kendra head ignores nothing: sending these for a copy is refused (the Kendra sets the amount).
     fixed_amount: Amount | None = Field(None, description="Amount each member is asked to pay; null = any amount (donation style)")
     due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; required with an amount")
+    due_date: date | None = Field(None, description="The date it is due by. EVERY Pranami has one (a free-amount head too): required when the portal is opened, unless the head already has one")
     allow_part_payment: bool = False
 
 
@@ -606,6 +608,28 @@ class ContributionResult(BaseModel):
 class SyncCopiesResult(BaseModel):
     created: int                              # Sakhas that had no copy of the Kendra head yet
     updated: int                              # copies brought in line with the Kendra's name / amount / schedule
+
+
+class GatewayProviderReadiness(BaseModel):
+    provider: str
+    enabled: bool                       # listed in UPI_GATEWAY_ENABLED_PROVIDERS on this server
+    webhook_url: str                    # what to register with the provider (the provider's own dashboard)
+    webhook_events: list[str]
+    needs_credentials: bool             # MOCK needs none; a real provider needs UPI_<REF>_KEY_ID / _KEY_SECRET / _WEBHOOK_SECRET
+    accounts_using_it: int              # receiving accounts (in the caller's scope) set to this provider
+    accounts_ready: int                 # ... of which can take a payment now
+
+
+class GatewayReadiness(BaseModel):
+    """What to do - and what is already done - before a payment gateway can take real money. No secrets, only names."""
+
+    providers: list[GatewayProviderReadiness]
+    webhook_public: bool                # False on localhost: a provider cannot reach it, a tunnel or the deployed URL is needed
+    request_expiry_minutes: int
+    min_window_minutes: dict[str, int]  # provider -> the shortest payment window it accepts
+    window_ok: bool
+    credential_sets: list[str]          # the credential set names accounts use (e.g. RAZORPAY_MAIN) - the keys are UPI_<NAME>_...
+    dev_install: bool
 
 
 class AdoptTemplates(BaseModel):
@@ -695,6 +719,8 @@ class MyPayableHead(BaseModel):
     upi_vpa: str | None
     fixed_amount: Decimal | None = None
     due_period: str | None = None
+    due_date: date | None = None            # the date it is due by; None for a free-amount head
+    overdue: bool = False                   # past its due date and still unpaid (DUE / PART)
     allow_part_payment: bool = False
     state: str = "OPEN"                     # PAID / PART / DUE / OPEN (no fixed amount)
     paid_amount: Decimal = Decimal("0")

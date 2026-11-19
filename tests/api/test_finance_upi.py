@@ -545,9 +545,8 @@ class TestMemberSelfService:
                                 collection_account_pk=mine["account"]["financial_account_pk"])                 # UPI but not Pranami
         cards = {h["finance_head_pk"]: h for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}
         assert cards[mine["head"]["finance_head_pk"]]["payable"] is True
-        # a Pranami head whose Sangha has not set up payment still shows - as a card that cannot be paid yet
-        assert cards[no_upi["finance_head_pk"]]["payable"] is False and cards[no_upi["finance_head_pk"]]["unavailable_reason"]
-        assert not set(cards) & {theirs["head"]["finance_head_pk"], not_pranami["finance_head_pk"]}
+        # owner 2026-11-19: a head whose payment portal is not open is not shown to members at all (what they paid on it stays in History)
+        assert not set(cards) & {theirs["head"]["finance_head_pk"], not_pranami["finance_head_pk"], no_upi["finance_head_pk"]}
 
     def test_a_card_cannot_be_paid_while_the_gateway_is_not_ready(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h, monkeypatch):
         u = upi_world(client, admin_h, register_org_pk, mock_gateway)

@@ -141,7 +141,7 @@ class TestRequestSchema:
 
     def test_the_card_model_carries_what_the_ui_reads(self):
         for field in ("fixed_amount", "due_period", "allow_part_payment", "state", "paid_amount", "due_amount", "pending_amount",
-                      "period_label", "payable", "unavailable_reason"):
+                      "period_label", "payable", "unavailable_reason", "due_date", "overdue"):
             assert field in S.MyPayableHead.model_fields, field
 
 
@@ -171,7 +171,7 @@ class TestWiring:
     def test_the_card_fields_are_exactly_what_the_model_declares(self):
         from api.routers import finance_upi as upi
 
-        produced = set(upi._CARD_FIELDS) | set(FC.card_state(None, D("0"))) | {"period_label", "payable", "unavailable_reason", "pending_request_pk"}
+        produced = set(upi._CARD_FIELDS) | set(FC.card_state(None, D("0"))) | {"period_label", "payable", "unavailable_reason", "pending_request_pk", "overdue"}
         assert produced == set(S.MyPayableHead.model_fields)
 
     def test_linking_an_account_only_touches_copies_of_an_all_sakhas_head(self):
@@ -264,3 +264,43 @@ class TestWiring:
             mod.log_audit = original
         assert log_audit                                                                   # the real one is untouched
 
+
+
+class TestDueDateAndWhatMembersSee:
+    """Owner 2026-11-19: every fixed Pranami has a due date set when its portal is opened; members see only open portals; History never depends on the portal."""
+
+    def test_every_pranami_needs_a_due_date_a_free_amount_one_too(self):
+        import datetime
+        import pytest as _pytest
+        from fastapi import HTTPException
+        from api.routers import finance_setup as setup
+
+        with _pytest.raises(HTTPException) as exc:
+            setup._check_due_date(None)
+        assert exc.value.status_code == 422 and "due by" in exc.value.detail
+        setup._check_due_date(datetime.date(2027, 3, 31))
+
+    def test_the_date_travels_through_the_api_models_and_copies(self):
+        from api.schemas import finance as S2
+
+        assert "due_date" in S2.PortalToggle.model_fields and "due_date" in S2.HeadResponse.model_fields
+        assert {"due_date", "overdue"} <= set(S2.MyPayableHead.model_fields)
+        assert "due_date" in FC.FOLLOWED_FIELDS                                  # a Sakha's copy follows the Kendra's date
+
+    def test_the_cards_show_open_portals_only_and_history_does_not_need_one(self):
+        import inspect
+        from api.routers import finance, finance_setup, finance_upi
+
+        assert "h.allow_upi = TRUE" in " ".join(finance_upi._CARDS_SQL.split())
+        assert "h.collection_scope_pk IS NOT NULL" in inspect.getsource(finance.my_pranami)            # opened once = history for good
+        closing = inspect.getsource(finance_setup.set_head_portal).split("else:\n            # Closing")[1]
+        assert 'values = {"allow_upi": False}' in closing and '"is_pranami"' not in closing.split("F._update_row")[0]
+
+    def test_the_column_and_its_patch_are_wired_into_every_build_script(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        assert "due_date DATE NULL" in (root / "database/ddl/14_finance/05_finance_head.sql").read_text()
+        assert "ADD COLUMN IF NOT EXISTS due_date" in (root / "database/ddl/14_finance/20_finance_head_due_date_patch.sql").read_text()
+        for script in ("database/scripts/02_build.sh", "database/scripts/02_build.ps1", "render_build.sh"):
+            assert "20_finance_head_due_date_patch.sql" in (root / script).read_text(), script
