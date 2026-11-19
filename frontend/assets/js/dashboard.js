@@ -328,6 +328,7 @@ const LIVE_TABLE_TABS = {
     family_transition_history: ["family"],
     // Finance (Tier 12): the member's own Pranami contributions and their receipts
     financial_transaction: ["pranami", "finApprovals"],
+    upi_payment_request: ["pranami"],
     financial_receipt: ["pranami"],
     // Finance approvals (owner 2026-11-17): the Treasurer / President's own list of entries waiting for them
     finance_approval_step: ["finApprovals"],
@@ -1000,7 +1001,7 @@ function dashboardApp() {
         // GET /api/v1/finance/my-pranami - login only, no id parameter, so it can
         // only ever return the signed-in member's rows (posted / settled Pranami
         // income linked to them, with its issued receipts).
-        pranami: { loading: false, error: "", data: null, year: "", receiptError: "", view: "pay" },
+        pranami: { loading: false, error: "", data: null, year: "", head: "", org: "", method: "", from: "", to: "", receiptError: "", view: "pay" },
         _pranamiSeq: 0,
 
         async _loadPranami(opts = {}) {
@@ -1025,9 +1026,35 @@ function dashboardApp() {
             const years = new Set(((this.pranami.data || {}).items || []).map((i) => i.year_code));
             return [...years].sort().reverse();
         },
+        // History filters (all in the browser, over the member's own list): financial year, head, Sangha paid, method, date range.
+        pranamiHeadOf(i) { return i.finance_head_name || NSS.codeLabel(i.transaction_category); },
+        pranamiOrgOf(i) { return i.organization_name || i.scope_name; },
+        pranamiMethodOf(i) { return [...new Set((i.receipts || []).map((r) => r.payment_method_name).filter(Boolean))].join(", "); },
+        _pranamiOptions(pick) {
+            const items = (this.pranami.data || {}).items || [];
+            return [...new Set(items.map(pick).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        },
+        pranamiHeadOptions() { return this._pranamiOptions((i) => this.pranamiHeadOf(i)); },
+        pranamiOrgOptions() { return this._pranamiOptions((i) => this.pranamiOrgOf(i)); },
+        pranamiMethodOptions() {
+            const items = (this.pranami.data || {}).items || [];
+            return [...new Set(items.flatMap((i) => (i.receipts || []).map((r) => r.payment_method_name)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        },
+        pranamiFiltersActive() {
+            const f = this.pranami;
+            return !!(f.year || f.head || f.org || f.method || f.from || f.to);
+        },
+        pranamiClearFilters() { Object.assign(this.pranami, { year: "", head: "", org: "", method: "", from: "", to: "" }); },
         pranamiFiltered() {
             const items = (this.pranami.data || {}).items || [];
-            return this.pranami.year ? items.filter((i) => i.year_code === this.pranami.year) : items;
+            const f = this.pranami;
+            return items.filter((i) =>
+                (!f.year || i.year_code === f.year)
+                && (!f.head || this.pranamiHeadOf(i) === f.head)
+                && (!f.org || this.pranamiOrgOf(i) === f.org)
+                && (!f.method || (i.receipts || []).some((r) => r.payment_method_name === f.method))
+                && (!f.from || i.transaction_date >= f.from)
+                && (!f.to || i.transaction_date <= f.to));
         },
         pranamiTotal() {
             return this.pranamiFiltered().reduce((sum, i) => sum + Number(i.amount), 0);
@@ -1036,7 +1063,7 @@ function dashboardApp() {
         // GET /finance/my-pranami/heads lists what the member's own Sakha and the Kendra can collect by UPI; POST /finance/my-pranami/pay
         // starts a payment of THEIR OWN Pranami (the payer is the token). This page never marks anything paid: the gateway's
         // signed webhook does, and the status poll below only reports it. Links are rendered only with the expected scheme.
-        pranamiPay: { heads: [], amounts: {}, selected: {}, head: "", saving: false, error: "", result: null },
+        pranamiPay: { heads: [], requests: [], amounts: {}, selected: {}, head: "", saving: false, error: "", result: null, now: 0 },
         _pranamiPayTimer: null,
 
         // The contribution cards grouped by the Sangha they pay: the member's own Sakha first, then the Kendra (the server sorts them so).
@@ -1076,6 +1103,21 @@ function dashboardApp() {
                 const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/heads");
                 this.pranamiPay.heads = res.ok ? await res.json() : [];
             } catch { this.pranamiPay.heads = []; }
+            this._loadPranamiRequests();
+        },
+        // Payments a treasurer / admin asked THIS member to make: they show here by themselves (no one has to tell the member).
+        async _loadPranamiRequests() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/requests");
+                this.pranamiPay.requests = res.ok ? (await res.json()).filter((r) => r.asked_by_name) : [];
+            } catch { this.pranamiPay.requests = []; }
+        },
+        // Pay an asked-for request: open it on the checkout page exactly like one the member started.
+        pranamiPayRequested(r) {
+            const p = this.pranamiPay;
+            p.error = ""; p.result = r;
+            this._pranamiStartClock();
+            this._pranamiPayPoll(r.upi_payment_request_pk, 0);
         },
         // ── Pay several contributions in ONE UPI payment (owner request 2026-11-17) ──────────────────────
         // The member ticks cards of ONE Sangha (a payment goes to one account, so the Sakha and the Kendra are paid separately);
@@ -1109,7 +1151,7 @@ function dashboardApp() {
         async pranamiPayMultiple() {
             const p = this.pranamiPay;
             const heads = this.pranamiSelectedHeads();
-            if (heads.length < 2) { p.error = "Tick at least two contributions of the same Sangha to pay them together."; return; }
+            if (heads.length < 2) { p.error = "Tick at least two Pranami of the same Sangha to pay them together."; return; }
             const items = [];
             for (const h of heads) {
                 const amount = this.pranamiCardAmount(h).trim();
@@ -1126,6 +1168,7 @@ function dashboardApp() {
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 p.result = await res.json();
                 p.selected = {};
+                this._pranamiStartClock();
                 this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
             } catch (err) {
                 p.error = err.message || "Could not start the payment.";
@@ -1149,6 +1192,7 @@ function dashboardApp() {
                 });
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 p.result = await res.json();
+                this._pranamiStartClock();
                 this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
             } catch (err) {
                 p.error = err.message || "Could not start the payment.";
@@ -1173,7 +1217,74 @@ function dashboardApp() {
                 this._pranamiPayPoll(pk, tries + 1);
             }, 3000);
         },
-        pranamiPayClose() { clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.head = ""; this.pranamiPay.error = ""; this.pranamiPay.selected = {}; this._loadPranamiPayHeads(); },
+        // A payment the member started and left (reload, "Back", closed tab) is still waiting on the card: resume it where it was ...
+        async pranamiResume(h) {
+            const p = this.pranamiPay;
+            if (!h.pending_request_pk) return;
+            p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${h.pending_request_pk}`);
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                this._pranamiStartClock();
+                this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
+            } catch (err) {
+                p.error = err.message || "Could not open that payment.";
+            }
+        },
+        // ... or cancel it for real, so it stops counting as "waiting for the bank" and the member can start again.
+        async pranamiCancelRequest(pk, { confirm = true } = {}) {
+            const p = this.pranamiPay;
+            if (!pk) return;
+            if (confirm && !(await NSSDialog.confirm("Cancel this payment? Nothing has been charged by this page; you can start a new payment afterwards.",
+                { title: "Cancel payment", confirmText: "Cancel payment" }))) return;
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${pk}/cancel`, { method: "POST" });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                if (p.result && p.result.upi_payment_request_pk === pk) this.pranamiPayClose(); else await this._loadPranamiPayHeads();
+            } catch (err) {
+                p.error = err.message || "Could not cancel the payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+        // DEMO gateway only (the server says so with demo_payable): completes the member's own waiting payment, no real money.
+        async pranamiDemoPay(outcome = "paid") {
+            const p = this.pranamiPay;
+            if (!p.result) return;
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${p.result.upi_payment_request_pk}/demo-pay?outcome=${outcome === "failed" ? "failed" : "paid"}`, { method: "POST" });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                this._loadPranami({ silent: true });
+            } catch (err) {
+                p.error = err.message || "Could not complete the demo payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+        pranamiPayClose() { clearInterval(this._pranamiClock); clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.head = ""; this.pranamiPay.error = ""; this.pranamiPay.selected = {}; this._loadPranamiPayHeads(); },
+
+        // The "valid for mm:ss" countdown of the payment page: ticks once a second while the payment is waiting, then stops by itself.
+        _pranamiClock: null,
+        _pranamiStartClock() {
+            clearInterval(this._pranamiClock);
+            this.pranamiPay.now = Date.now();
+            this._pranamiClock = setInterval(() => {
+                this.pranamiPay.now = Date.now();
+                const r = this.pranamiPay.result;
+                if (!r || !["CREATED", "PENDING"].includes(r.status)) clearInterval(this._pranamiClock);
+            }, 1000);
+        },
+        pranamiExpiresIn() {
+            const r = this.pranamiPay.result;
+            if (!r || !r.expires_at) return "";
+            const left = Math.floor((new Date(r.expires_at).getTime() - this.pranamiPay.now) / 1000);
+            if (left <= 0) return "Expired";
+            return String(Math.floor(left / 60)).padStart(2, "0") + ":" + String(left % 60).padStart(2, "0");
+        },
 
         // ── Finance approvals (Sakha chain, owner 2026-11-17) ─────────────────
         // GET /finance/my-approvals lists the entries waiting for THIS member to act now (their seat is the one the next step needs);

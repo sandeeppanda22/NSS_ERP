@@ -363,10 +363,13 @@
 
 /* ── Member contribution cards (dashboard Pranami tab, NSS.contributionState) ──
  *   contrib-card-paid / -part / -due / -open — left border colour matching badge-fin-live / -pending / -bad / -neutral */
-.contrib-card-paid { border-left: 4px solid #16a34a; }  /* green-600 */
-.contrib-card-part { border-left: 4px solid #d97706; }  /* amber-600 */
-.contrib-card-due  { border-left: 4px solid #dc2626; }  /* red-600   */
-.contrib-card-open { border-left: 4px solid #9ca3af; }  /* gray-400  */
+/* A full visible outline in a lighter tone of the state colour (the cards sit on a white card, so a bare left bar was too faint to tell them apart),
+ * plus a clearer shadow; the state colour stays on the thick left edge. */
+.contrib-card-paid, .contrib-card-part, .contrib-card-due, .contrib-card-open { border: 1px solid #cbd5e1; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12); }
+.contrib-card-paid { border-color: #86efac; border-left: 4px solid #16a34a; }  /* green-300 / green-600 */
+.contrib-card-part { border-color: #fcd34d; border-left: 4px solid #d97706; }  /* amber-300 / amber-600 */
+.contrib-card-due  { border-color: #fca5a5; border-left: 4px solid #dc2626; }  /* red-300   / red-600   */
+.contrib-card-open { border-color: #cbd5e1; border-left: 4px solid #9ca3af; }  /* slate-300 / gray-400  */
 
 /* ── Audit & Diagnostics (audit-diagnostics.js) ─────────────────────────
  *   badge-audit-success  — event succeeded / table is on the live whitelist

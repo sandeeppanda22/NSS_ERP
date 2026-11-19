@@ -41,6 +41,7 @@
     const newContribForm = () => ({
         show: false, saving: false, error: "", organization: emptyPicker(), applies_to: "ORGANIZATION", head_name: "", description: "",
         fixed_amount: "", due_period: "YEARLY", allow_part_payment: false, collection_account_pk: "",
+        direction: "INCOME",       // INCOME: members pay it in; EXPENSE: money the Sangha spends
     });
     const newPolicy = () => ({ loaded: false, saving: false, error: "", current: null, input: "" });
     // A Sakha's copy of a Kendra head: only the receiving account is the Sakha's to choose.
@@ -54,7 +55,9 @@
         account_type: "BANK", bank_name: "", branch_name: "", account_holder_name: "", account_number_last4: "", ifsc_code: "",
         upi_vpa: "", gateway_provider: "", gateway_credential_ref: "", gateway_merchant_ref: "", is_default: false,
     });
-    const newReqForm = () => ({ show: false, saving: false, error: "", finance_head_pk: "", amount: "", sangha_sevi_id: "", payer_name: "", note: "" });
+    // member = the payer picker: type a name / ID, choose from the matches (sangha_sevi_id is then set); a payer who is not a member is typed in payer_name.
+    const newReqForm = () => ({ show: false, saving: false, error: "", finance_head_pk: "", amount: "", sangha_sevi_id: "", payer_name: "", note: "",
+                                member: { query: "", results: [], searching: false, selected: null } });
 
     function financeSetupMixin() {
         return {
@@ -64,12 +67,16 @@
             async finSetupEnter() {
                 this.finHeadForm = newHeadForm(); this.finAcctForm = newAcctForm(); this.finEventForm = newEventForm();
                 this.finContribForm = newContribForm(); this.finCopyForm = newCopyForm();
+                // A scope that names exactly one Sangha (a Sakha admin) has nothing to choose: select it.
+                const own = this.finSetupScopeOrg;
+                if (own && this.finSetupOrgPk !== own.organization_pk) { this.corrSelectOrg(this.finSetupOrg, own); await this.finPolicyLoad(); }
+                await this.finEnsureDefaultHeads();
                 await Promise.all([this.finHeadsLoad(), this.finAcctsLoad()]);
             },
             async finSetupReload() {
                 await Promise.all([this.finHeadsLoad({ silent: true }), this.finAcctsLoad({ silent: true })]);
             },
-            finSetupBusy() { return !!(this.finPolicy.saving || this.finContribForm.show || this.finCopyForm.show || this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
+            finSetupBusy() { return !!(this.finPolicy.saving || this.finContribForm.show || this.finPortalForm.show || this.finCopyForm.show || this.finHeadForm.show || this.finAcctForm.show || this.finEventForm.show || this.finEventForm.saving || this.finHeadForm.saving || this.finAcctForm.saving); },
 
             async finReqEnter() {
                 this.finReq = null; this.finReqForm = newReqForm();
@@ -86,7 +93,34 @@
             // ═════════════════════════════════════════════════════════
             finSetupOrg: emptyPicker(),            // optional filter: one Sangha's heads / accounts
             get finSetupOrgPk() { return this.finSetupOrg.selected ? this.finSetupOrg.selected.organization_pk : ""; },
-            finSetupOrgChanged() { return Promise.all([this.finSetupReload(), this.finPolicyLoad()]); },
+            // The one Sangha the caller's admin scope names, or null when it names none (NSS-wide / Kendra / a null-organization scope)
+            // or several (they choose). Read from the login's own scopes, so it needs no extra request.
+            get finSetupScopeOrg() {
+                if (this.isNssAdmin || this.isGovNssWideAdmin) return null;
+                const named = new Map();
+                for (const sc of (this.currentUser?.scopes || [])) if (sc.organization_pk) named.set(sc.organization_pk, sc);
+                if (named.size !== 1) return null;
+                const sc = [...named.values()][0];
+                return { organization_pk: sc.organization_pk, organization_name: sc.organization_name,
+                         organization_type_code: sc.organization_type_code, type_name: NSS.codeLabel(sc.organization_type_code) };
+            },
+            get finSetupOrgLocked() { return !!this.finSetupScopeOrg; },
+            async finSetupOrgChanged() { await this.finEnsureDefaultHeads(); return Promise.all([this.finSetupReload(), this.finPolicyLoad()]); },
+
+            // The standard (Kendra template) heads - Membership subscription, Parichaya Patra, Anumati Patra, Annual / Special Pranami,
+            // donations, grant, expenses ... - are in a Sangha's list from the start (owner 2026-11-18): the first time a configurer
+            // looks at a Sangha's heads in this session they are copied in. Safe to repeat: heads the Sangha already has (same code,
+            // even renamed or switched off) are skipped, and every copy starts with its payment portal closed.
+            _finDefaultsSeen: {},
+            async finEnsureDefaultHeads() {
+                const pk = this.finSetupOrgPk;
+                if (!pk || !this.canConfigureFinance || this._finDefaultsSeen[pk]) return;
+                this._finDefaultsSeen[pk] = true;
+                try {
+                    const r = await this._finSend("POST", "/heads/adopt-templates", { organization_pk: pk });
+                    if (r.created) this._finNote(`${r.created} standard finance head(s) added to this Sangha. Open a head's payment portal when members should pay it.`);
+                } catch { /* the list still loads; "Create head" works without the defaults */ }
+            },
             finSetupClearOrg() { this.corrClearPicker(this.finSetupOrg); this.finPolicy = newPolicy(); return this.finSetupReload(); },
 
             // The Treasurer's default approval limit of the chosen Sakha (owner 2026-11-17): what the Treasurer may approve alone on
@@ -265,6 +299,70 @@
                 }
             },
             finContribCancel() { this.finContribForm = { ...this.finContribForm, show: false }; },
+
+            // Simple Heads & Accounts page (owner 2026-11-18): create a head, list the heads, open or close a head's payment portal.
+            // Receiving accounts and the Treasurer's limit stay one click away under "More".
+            finSetupMore: false,
+            // Is the head's payment portal open? Income heads only: members see it in the Pranami tab and can pay it. A head for every
+            // Sakha is open once its copies exist; a copy is open while it collects into an account.
+            finHeadPortalOpen(h) {
+                if (h.direction !== "INCOME") return null;
+                if (h.applies_to_all_sakhas) return !!h.is_pranami;
+                return !!(h.is_pranami && h.allow_upi);
+            },
+            // Opening a portal asks what members are to pay first (amount, how often, part payments); closing needs nothing.
+            finPortalForm: { show: false, saving: false, error: "", pk: "", name: "", follows_kendra: false, fixed_amount: "", due_period: "YEARLY", allow_part_payment: false },
+            finHeadPortalOpenForm(h) {
+                this.finPortalForm = {
+                    show: true, saving: false, error: "", pk: h.finance_head_pk, name: h.head_name, follows_kendra: !!h.is_kendra_copy,
+                    fixed_amount: h.fixed_amount == null ? "" : String(h.fixed_amount), due_period: h.due_period || "YEARLY", allow_part_payment: !!h.allow_part_payment,
+                };
+            },
+            finPortalCancel() { this.finPortalForm = { ...this.finPortalForm, show: false }; },
+            async finPortalSubmit() {
+                const f = this.finPortalForm;
+                const amount = blank(f.fixed_amount);
+                if (!f.follows_kendra && amount && (!MONEY_RE.test(amount) || Number(amount) <= 0)) { f.error = "Enter a positive amount with at most two decimals, or leave it empty to let members pay any amount."; return; }
+                f.saving = true; f.error = "";
+                try {
+                    const body = f.follows_kendra ? { open: true }
+                        : { open: true, fixed_amount: amount, due_period: amount ? f.due_period : null, allow_part_payment: amount ? f.allow_part_payment : false };
+                    await this._finSend("POST", `/heads/${f.pk}/portal`, body);
+                    this.finPortalForm = { ...f, show: false, saving: false };
+                    this._finNote(`Payment portal opened: members can now pay "${f.name}" from their Pranami tab` + (amount && !f.follows_kendra ? ` (${NSS.formatMoney(amount)}).` : "."));
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    f.error = err.message || "Could not open the payment portal.";
+                    f.saving = false;
+                }
+            },
+            // List helpers of the simple Heads page: the portal filter (browser side), the counts, the "Sangha" column only when several show.
+            finHeadPortalFilter: "",
+            finHeadsShown() {
+                const f = this.finHeadPortalFilter;
+                if (!f) return this.finHeads;
+                return this.finHeads.filter((h) => this.finHeadPortalOpen(h) === (f === "OPEN"));
+            },
+            finHeadsPortalCount(open) { return this.finHeads.filter((h) => this.finHeadPortalOpen(h) === open && h.status === "ACTIVE").length; },
+            finHeadsMultiOrg() { return new Set(this.finHeads.map((h) => h.organization_pk)).size > 1; },
+            // "₹110.00 yearly" / "Any amount" for an income head with no fixed amount / "—" for money out.
+            finHeadAmountLabel(h) {
+                if (h.direction !== "INCOME") return "—";
+                if (h.fixed_amount == null) return "Any amount";
+                const per = { YEARLY: "per financial year", MONTHLY: "per month", ONE_TIME: "one time" }[h.due_period] || "";
+                return NSS.formatMoney(h.fixed_amount) + (per ? " · " + per : "");
+            },
+            async finHeadPortal(h, open) {
+                this.finHeadsError = "";
+                try {
+                    await this._finSend("POST", `/heads/${h.finance_head_pk}/portal`, { open });
+                    this._finNote(open ? `Payment portal opened: members can now pay "${h.head_name}" from their Pranami tab.`
+                                       : `Payment portal closed for "${h.head_name}"; members no longer see it.`);
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    this.finHeadsError = err.message || "Could not change the payment portal.";
+                }
+            },
             get finContribIsKendra() { const o = this.finContribForm.organization.selected; return !!o && o.type_code === "KENDRA"; },
             // The receiving account is chosen from the Sangha's own ACTIVE accounts; blank = its default account.
             async finContribOrgChanged() {
@@ -279,28 +377,35 @@
             },
             async finContribSubmit() {
                 const f = this.finContribForm;
-                if (!f.organization.selected) { f.error = "Choose the Sangha that collects this contribution."; return; }
-                if (!blank(f.head_name)) { f.error = "The contribution needs a name."; return; }
-                const amount = blank(f.fixed_amount);
+                if (!f.organization.selected) { f.error = "Choose the Sangha that collects this Pranami."; return; }
+                if (!blank(f.head_name)) { f.error = "The finance head needs a name."; return; }
+                const amount = f.direction === "EXPENSE" ? null : blank(f.fixed_amount);
                 if (amount && (!MONEY_RE.test(amount) || Number(amount) <= 0)) { f.error = "Enter a positive amount with at most two decimals, or leave it empty for any amount."; return; }
                 if (amount && !f.due_period) { f.error = "Choose how often the amount is due."; return; }
                 f.saving = true; f.error = "";
                 try {
+                    if (f.direction === "EXPENSE") {            // money the Sangha spends: a plain head (no amount, no portal)
+                        await this._finSend("POST", "/heads", {
+                            organization_pk: f.organization.selected.organization_pk, head_code: `HEAD_${Date.now().toString(36).toUpperCase()}`,
+                            head_name: f.head_name.trim(), description: blank(f.description), direction: "EXPENSE",
+                        });
+                        this.finContribForm = newContribForm();
+                        this._finNote("Finance head created.");
+                        await this.finHeadsLoad({ silent: true });
+                        return;
+                    }
                     const allSakhas = f.applies_to === "ALL_SAKHAS";
                     const r = await this._finSend("POST", "/contributions", {
                         organization_pk: f.organization.selected.organization_pk, applies_to: f.applies_to, head_name: f.head_name.trim(),
                         description: blank(f.description), fixed_amount: amount, due_period: amount ? f.due_period : null,
                         allow_part_payment: amount ? f.allow_part_payment : false,
-                        collection_account_pk: allSakhas ? null : (f.collection_account_pk || null),
+                        collection_account_pk: null, open_portal: false,
                     });
                     this.finContribForm = newContribForm();
-                    this._finNote(allSakhas
-                        ? `Contribution added. ${r.copies_created} Sakha(s) received it; each collects into its own account (a Sakha with no account yet shows "needs an account").`
-                        : (r.needs_account ? "Contribution added, but members cannot pay it until this Sangha has a receiving account with a payment gateway."
-                                           : "Contribution added. Members of this Sangha can see and pay it now."));
+                    this._finNote("Finance head created. Open its payment portal from the list when members should pay it.");
                     await this.finHeadsLoad({ silent: true });
                 } catch (err) {
-                    f.error = err.message || "Could not add the contribution.";
+                    f.error = err.message || "Could not add the Pranami.";
                 } finally {
                     f.saving = false;
                 }
@@ -532,6 +637,40 @@
             finReqClear() { this.finReqQ = ""; this.finReqStatus = ""; this.finReqReview = false; return this.finReqApply(); },
             finReqPageBy(d) { this.finReqsPage = Math.min(Math.max(1, this.finReqsPage + d), this.finReqsTotalPages); return this.finReqLoad(); },
 
+            // Payer picker: matches appear while typing (name, Sangha Sevi ID, mobile ...), from the member directory every signed-in admin may read.
+            // Who may actually be asked is still decided by the server (the member must be inside the admin's scope).
+            _finReqMemberTimer: null,
+            finReqMemberInput() {
+                const f = this.finReqForm;
+                clearTimeout(this._finReqMemberTimer);
+                f.sangha_sevi_id = ""; f.member.selected = null;
+                const q = f.member.query.trim();
+                if (q.length < 2) { f.member.results = []; return; }
+                this._finReqMemberTimer = setTimeout(() => this.finReqMemberSearch(), 300);
+            },
+            async finReqMemberSearch() {
+                const m = this.finReqForm.member;
+                const q = m.query.trim();
+                m.searching = true;
+                try {
+                    const res = await NSSAuth.apiFetch(`/api/v1/membership/directory?${new URLSearchParams({ q, limit: "8" })}`);
+                    const data = res.ok ? await res.json() : { members: [] };
+                    if (m.query.trim() === q && !m.selected) m.results = data.members || [];
+                } catch { m.results = []; } finally { m.searching = false; }
+            },
+            finReqMemberName(x) { return [x.first_name, x.middle_name, x.last_name].filter(Boolean).join(" "); },
+            finReqMemberPick(x) {
+                const f = this.finReqForm;
+                f.sangha_sevi_id = x.sangha_sevi_id; f.payer_name = "";
+                f.member = { query: `${this.finReqMemberName(x)} (${x.sangha_sevi_id})`, results: [], searching: false, selected: x };
+            },
+            finReqMemberClear() { this.finReqForm.sangha_sevi_id = ""; this.finReqForm.member = { query: "", results: [], searching: false, selected: null }; },
+            // The head chosen in the form (for the summary), and a fixed amount pre-fills the box once.
+            finReqHeadSel() { return this.finReqHeads.find((x) => x.finance_head_pk === this.finReqForm.finance_head_pk) || null; },
+            finReqHeadChanged() {
+                const hd = this.finReqHeadSel();
+                if (hd && hd.fixed_amount != null && !String(this.finReqForm.amount || "").trim()) this.finReqForm.amount = String(hd.fixed_amount);
+            },
             finReqOpenForm() { this.finReq = null; this.finReqForm = { ...newReqForm(), show: true }; },
             async finReqSubmit() {
                 const f = this.finReqForm;

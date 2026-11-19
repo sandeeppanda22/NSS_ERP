@@ -4526,41 +4526,88 @@
                         <!-- Two views: what to pay now, and the history of past payments with their PDF receipts -->
                         <div class="data-card">
                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.75rem 1.25rem;">
-                                <button class="btn-action" :class="{ primary: pranami.view === 'pay' }" @click="pranami.view = 'pay'">Pay &amp; contributions</button>
-                                <button class="btn-action" :class="{ primary: pranami.view === 'history' }" @click="pranami.view = 'history'">
-                                    History <span class="badge badge-xs badge-muted" style="margin-left: 0.25rem;" x-text="pranamiFiltered().length"></span>
-                                </button>
+                                <button class="btn-action" :class="{ primary: pranami.view === 'pay' }" @click="pranami.view = 'pay'">Pay Pranami</button>
+                                <button class="btn-action" :class="{ primary: pranami.view === 'history' }" @click="pranami.view = 'history'">History</button>
                             </div>
                         </div>
 
                         <div class="data-card" x-show="pranami.view === 'history'">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Pranami</h2>
-                                <span class="badge badge-xs badge-muted" x-text="pranamiFiltered().length + ' contribution' + (pranamiFiltered().length !== 1 ? 's' : '')"></span>
+                            <div style="padding: 0.85rem 1.25rem 0;">
+                                <h2 class="data-card-title" style="padding: 0;">Payment history</h2>
+                                <p style="font-size: 0.78rem; color: #6b7280; margin-top: 0.2rem;">Your Pranami paid, once your Sakha or the Kendra has recorded it. Download a receipt for any payment.</p>
                             </div>
-                            <p style="padding: 0.4rem 1.25rem 0; font-size: 0.78rem; color: #6b7280;">
-                                Your Pranami contributions to the Sangha, once they have been recorded and posted by your Sakha or the Kendra.
-                            </p>
-                            <div style="padding: 0.85rem 1.25rem 1rem;">
-                                <div class="card-grid" style="gap: 0.75rem; align-items: end;">
-                                    <div>
-                                        <div style="font-size: 0.7rem; color: #6b7280;">Total contributed</div>
-                                        <div style="font-size: 1.25rem; font-weight: 700; color: #1B2A4A;" x-text="NSS.formatMoney(pranamiTotal())"></div>
-                                    </div>
-                                    <div>
-                                        <div style="font-size: 0.7rem; color: #6b7280;">Last contribution</div>
-                                        <div style="font-size: 0.9rem; font-weight: 600; color: #374151;" x-text="pranamiLatestDate() ? formatDate(pranamiLatestDate()) : '—'"></div>
-                                    </div>
-                                    <div>
-                                        <label style="font-size: 0.7rem; color: #6b7280;">Financial year</label>
+                            <div style="padding: 0.85rem 1.25rem 0.5rem;">
+                                <div class="hist-tiles">
+                                    <div class="hist-tile"><div class="hist-tile__label">Total Pranami paid</div><div class="hist-tile__value" x-text="NSS.formatMoney(pranamiTotal())"></div></div>
+                                    <div class="hist-tile"><div class="hist-tile__label">Last Pranami paid</div><div class="hist-tile__value hist-tile__value--sm" x-text="pranamiLatestDate() ? formatDate(pranamiLatestDate()) : '—'"></div></div>
+                                </div>
+                            </div>
+                            <div style="padding: 0 1.25rem 1rem;">
+                                <div class="dir-toolbar">
+                                    <div class="form-group">
+                                        <label class="form-label">Financial year</label>
                                         <select class="nss-select" x-model="pranami.year">
                                             <option value="">All years</option>
-                                            <template x-for="y in pranamiYears()" :key="y">
-                                                <option :value="y" x-text="y"></option>
-                                            </template>
+                                            <template x-for="y in pranamiYears()" :key="y"><option :value="y" x-text="y"></option></template>
                                         </select>
                                     </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Towards</label>
+                                        <select class="nss-select" x-model="pranami.head">
+                                            <option value="">All Pranami</option>
+                                            <template x-for="n in pranamiHeadOptions()" :key="n"><option :value="n" x-text="n"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Paid to</label>
+                                        <select class="nss-select" x-model="pranami.org">
+                                            <option value="">All Sangha</option>
+                                            <template x-for="n in pranamiOrgOptions()" :key="n"><option :value="n" x-text="n"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Payment method</label>
+                                        <select class="nss-select" x-model="pranami.method">
+                                            <option value="">All methods</option>
+                                            <template x-for="n in pranamiMethodOptions()" :key="n"><option :value="n" x-text="n"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">From</label>
+                                        <input type="date" class="form-input" x-model="pranami.from" :max="pranami.to || null">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">To</label>
+                                        <input type="date" class="form-input" x-model="pranami.to" :min="pranami.from || null">
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="button" class="btn-action btn-filter" :disabled="!pranamiFiltersActive()" @click="pranamiClearFilters()">Clear filters</button>
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Payment requests a treasurer / admin made for this member: shown here as soon as they are created -->
+                        <div class="data-card" x-show="pranami.view === 'pay' && !pranamiPay.result && pranamiPay.requests.length > 0" x-cloak>
+                            <div style="padding: 0.85rem 1.25rem 0;">
+                                <h2 class="data-card-title" style="padding: 0;">Payment requests for you</h2>
+                                <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Your Sakha or the Kendra has asked you to pay these. Pay now, or decline one you do not want to pay.</p>
+                            </div>
+                            <div style="padding: 0.75rem 1.25rem 1rem;">
+                                <template x-for="rq in pranamiPay.requests" :key="rq.upi_payment_request_pk">
+                                    <div class="pay-ask">
+                                        <div class="pay-ask__main">
+                                            <div class="pay-ask__title" x-text="rq.items.length > 0 ? 'Several Pranami' : rq.head_name"></div>
+                                            <div class="pay-ask__meta" x-text="(rq.organization_name || '') + ' · requested by ' + rq.asked_by_name"></div>
+                                            <div class="pay-ask__meta" x-show="rq.note" x-text="rq.note"></div>
+                                        </div>
+                                        <div class="pay-ask__amount" x-text="NSS.formatMoney(rq.amount)"></div>
+                                        <div class="pay-ask__actions">
+                                            <button type="button" class="btn-action primary" @click="pranamiPayRequested(rq)">Pay now</button>
+                                            <button type="button" class="btn-action" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(rq.upi_payment_request_pk)">Decline</button>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
                         </div>
 
@@ -4572,7 +4619,7 @@
                                 <div class="data-card">
                                     <div style="padding: 0.85rem 1.25rem 0;">
                                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-                                            <h2 class="data-card-title" style="padding: 0;" x-text="g.name || 'Contributions'"></h2>
+                                            <h2 class="data-card-title" style="padding: 0;" x-text="g.name || 'Pranami'"></h2>
                                             <button class="link-action" x-show="pranamiGroupPayableCount(g) >= 2" @click="pranamiSelectGroup(g)">Select all to pay together</button>
                                         </div>
                                         <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Money paid here goes straight to this Sangha's account. Tick several to pay them in one UPI payment.</p>
@@ -4597,6 +4644,10 @@
                                                 </div>
                                                 <div style="font-size: 0.72rem; color: #b45309; margin-top: 0.3rem;" x-show="Number(h.pending_amount) > 0"
                                                      x-text="NSS.formatMoney(h.pending_amount) + ' is waiting for the bank to confirm.'"></div>
+                                                <div class="pay-card-links" x-show="Number(h.pending_amount) > 0 && h.pending_request_pk">
+                                                    <button type="button" class="link-action" @click="pranamiResume(h)">Resume payment</button>
+                                                    <button type="button" class="link-action" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(h.pending_request_pk)">Cancel this payment</button>
+                                                </div>
                                                 <label class="flex items-center gap-2" style="font-size: 0.75rem; color: #374151; margin-top: 0.5rem;" x-show="pranamiCardCanPay(h)">
                                                     <input type="checkbox" :checked="!!pranamiPay.selected[h.finance_head_pk]" :disabled="pranamiSelectDisabled(h)" @change="pranamiToggle(h)">
                                                     <span>Pay together with others</span>
@@ -4624,7 +4675,7 @@
                         <div class="data-card" x-show="pranami.view === 'pay' && !pranamiPay.result && pranamiSelectedHeads().length >= 2">
                             <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding: 0.85rem 1.25rem;">
                                 <div>
-                                    <div style="font-size: 0.85rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiSelectedHeads().length + ' contributions selected'"></div>
+                                    <div style="font-size: 0.85rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiSelectedHeads().length + ' Pranami selected'"></div>
                                     <div style="font-size: 1.15rem; font-weight: 700; color: #1B2A4A;" x-text="'Total ' + pranamiSelectedTotal()"></div>
                                 </div>
                                 <div style="display: flex; gap: 0.5rem;">
@@ -4635,43 +4686,88 @@
                             <div class="alert-msg alert-error" style="margin: 0 1.25rem 1rem;" x-show="pranamiPay.error" x-text="pranamiPay.error"></div>
                         </div>
 
-                        <!-- The payment in progress / its outcome -->
-                        <div class="data-card" x-show="pranami.view === 'pay' && pranamiPay.result">
-                            <div style="padding: 0.85rem 1.25rem 0;"><h2 class="data-card-title" style="padding: 0;">Your payment</h2></div>
-                            <div style="padding: 0.6rem 1.25rem 1rem;">
-                                <div x-show="pranamiPay.result">
-                                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                                        <span style="font-size: 0.95rem; font-weight: 600; color: #1B2A4A;" x-text="pranamiPay.result && (NSS.formatMoney(pranamiPay.result.amount) + ' — ' + pranamiPay.result.head_name + (pranamiPay.result.organization_name ? ' (' + pranamiPay.result.organization_name + ')' : ''))"></span>
-                                        <span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(pranamiPay.result && pranamiPay.result.status)" x-text="pranamiPay.result && NSS.financeStatusLabel(pranamiPay.result.status)"></span>
-                                    </div>
-                                    <div style="margin-top: 0.4rem;" x-show="pranamiPay.result && pranamiPay.result.items.length > 0">
+                        <!-- The payment in progress / its outcome: a checkout page (summary on the left, what to do on the right) -->
+                        <div class="pay-card" x-show="pranami.view === 'pay' && pranamiPay.result" x-cloak>
+                            <div class="pay-card__top">
+                                <button type="button" class="btn-action" @click="pranamiPayClose()">← Back to my Pranami</button>
+                                <span class="pay-secure"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Secure UPI payment</span>
+                            </div>
+
+                            <ol class="pay-steps" aria-label="Payment steps">
+                                <li class="is-done"><span>1</span> Review</li>
+                                <li :class="pranamiPay.result && pranamiPay.result.status === 'PAID' ? 'is-done' : 'is-current'"><span>2</span> Pay</li>
+                                <li :class="pranamiPay.result && pranamiPay.result.status === 'PAID' ? 'is-current' : ''"><span>3</span> Receipt</li>
+                            </ol>
+
+                            <div class="pay-grid">
+                                <!-- Summary -->
+                                <div class="pay-summary">
+                                    <div class="pay-label">Amount to pay</div>
+                                    <div class="pay-amount" x-text="pranamiPay.result ? NSS.formatMoney(pranamiPay.result.amount) : ''"></div>
+                                    <dl class="pay-dl">
+                                        <div><dt>Paying to</dt><dd x-text="pranamiPay.result && pranamiPay.result.organization_name || '—'"></dd></div>
+                                        <div x-show="pranamiPay.result && pranamiPay.result.items.length === 0"><dt>Towards</dt><dd x-text="pranamiPay.result && pranamiPay.result.head_name"></dd></div>
+                                        <div><dt>Paid by</dt><dd x-text="user && user.person_name || '—'"></dd></div>
+                                        <div><dt>Payment reference</dt><dd class="mono" x-text="pranamiPay.result && pranamiPay.result.request_reference"></dd></div>
+                                        <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)"><dt>Valid for</dt><dd class="mono" x-text="pranamiExpiresIn()"></dd></div>
+                                    </dl>
+                                    <div class="pay-items" x-show="pranamiPay.result && pranamiPay.result.items.length > 0">
                                         <template x-for="it in (pranamiPay.result ? pranamiPay.result.items : [])" :key="it.head_name">
-                                            <div style="font-size: 0.8rem; color: #374151; padding: 0.2rem 0; border-top: 1px solid #f3f4f6;">
-                                                <span x-text="it.head_name"></span> · <b x-text="NSS.formatMoney(it.amount)"></b>
-                                                <span class="mono" style="color: #6b7280;" x-show="it.receipt_number" x-text="'· ' + it.receipt_number"></span>
-                                                <button class="link-action" style="margin-left: 0.4rem;" x-show="it.financial_receipt_pk"
+                                            <div class="pay-item">
+                                                <span x-text="it.head_name"></span>
+                                                <b x-text="NSS.formatMoney(it.amount)"></b>
+                                                <span class="mono pay-muted" x-show="it.receipt_number" x-text="it.receipt_number"></span>
+                                                <button type="button" class="link-action" x-show="it.financial_receipt_pk"
                                                         @click="pranamiDownloadReceipt(it.financial_receipt_pk, it.receipt_number)">Download PDF</button>
                                             </div>
                                         </template>
                                     </div>
-                                    <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem;">
-                                        <p style="font-size: 0.8rem; color: #374151;">Complete the payment in your UPI app. This page will show it as paid once the bank confirms it.</p>
-                                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem;">
-                                            <template x-if="pranamiSafeUpi(pranamiPay.result && pranamiPay.result.upi_uri)"><a class="btn-action primary" :href="pranamiSafeUpi(pranamiPay.result.upi_uri)">Open UPI app</a></template>
-                                            <template x-if="pranamiSafeUrl(pranamiPay.result && pranamiPay.result.pay_url)"><a class="btn-action primary" :href="pranamiSafeUrl(pranamiPay.result.pay_url)" target="_blank" rel="noopener noreferrer">Open payment page</a></template>
-                                            <button class="btn-action" @click="pranamiPayClose()">Close</button>
+                                </div>
+
+                                <!-- What to do now -->
+                                <div class="pay-action">
+                                    <!-- WAITING -->
+                                    <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)">
+                                        <h3 class="pay-title">Pay with your UPI app</h3>
+                                        <p class="pay-muted">Open any UPI app (Google Pay, PhonePe, Paytm, BHIM ...), approve the request and enter your UPI PIN. This page updates by itself once the bank confirms.</p>
+                                        <div class="pay-buttons">
+                                            <template x-if="pranamiSafeUpi(pranamiPay.result && pranamiPay.result.upi_uri)"><a class="btn-action primary pay-btn" :href="pranamiSafeUpi(pranamiPay.result.upi_uri)">Pay with UPI app</a></template>
+                                            <template x-if="pranamiSafeUrl(pranamiPay.result && pranamiPay.result.pay_url)"><a class="btn-action primary pay-btn" :href="pranamiSafeUrl(pranamiPay.result.pay_url)" target="_blank" rel="noopener noreferrer">Open payment page</a></template>
+                                            <button type="button" class="btn-action" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(pranamiPay.result.upi_payment_request_pk)">Cancel payment</button>
+                                        </div>
+                                        <div class="pay-waiting"><span class="pay-pulse"></span> Waiting for confirmation from your bank…</div>
+
+                                        <div class="pay-test" x-show="pranamiPay.result && pranamiPay.result.demo_payable">
+                                            <div class="pay-test__tag">TEST MODE</div>
+                                            <p>This is the demo payment gateway: no real money moves. Choose an outcome to see how the page, the booking and your receipt behave.</p>
+                                            <div class="pay-buttons">
+                                                <button type="button" class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiDemoPay('paid')"
+                                                        x-text="pranamiPay.saving ? 'Working…' : 'Simulate successful payment'"></button>
+                                                <button type="button" class="btn-action" :disabled="pranamiPay.saving" @click="pranamiDemoPay('failed')">Simulate failed payment</button>
+                                            </div>
+                                        </div>
+                                        <div class="alert-msg alert-error" style="margin-top: 0.75rem;" x-show="pranamiPay.error" x-text="pranamiPay.error"></div>
+                                    </div>
+
+                                    <!-- PAID -->
+                                    <div class="pay-outcome pay-outcome--ok" x-show="pranamiPay.result && pranamiPay.result.status === 'PAID'">
+                                        <div class="pay-outcome__icon" aria-hidden="true">✓</div>
+                                        <h3 class="pay-title">Payment received. Thank you!</h3>
+                                        <p class="pay-muted" x-show="pranamiPay.result && pranamiPay.result.receipt_number">Your receipt number is <b class="mono" x-text="pranamiPay.result && pranamiPay.result.receipt_number"></b>. It is also kept under History.</p>
+                                        <div class="pay-buttons">
+                                            <button type="button" class="btn-action primary pay-btn" x-show="pranamiPay.result && pranamiPay.result.financial_receipt_pk && pranamiPay.result.items.length === 0"
+                                                    @click="pranamiDownloadReceipt(pranamiPay.result.financial_receipt_pk, pranamiPay.result.receipt_number)">Download receipt (PDF)</button>
+                                            <button type="button" class="btn-action" @click="pranamiPayClose()">Done</button>
                                         </div>
                                     </div>
-                                    <p x-show="pranamiPay.result && pranamiPay.result.status === 'PAID'" style="margin-top: 0.6rem; font-size: 0.85rem; color: #047857;">
-                                        Payment received. Thank you<span x-show="pranamiPay.result && pranamiPay.result.receipt_number">; your receipt number is <b x-text="pranamiPay.result && pranamiPay.result.receipt_number"></b></span>.
-                                        <button class="btn-action primary" x-show="pranamiPay.result && pranamiPay.result.financial_receipt_pk && pranamiPay.result.items.length === 0" style="margin-left: 0.5rem;"
-                                                @click="pranamiDownloadReceipt(pranamiPay.result.financial_receipt_pk, pranamiPay.result.receipt_number)">Download receipt (PDF)</button>
-                                        <button class="link-action" @click="pranamiPayClose()">Done</button>
-                                    </p>
-                                    <p x-show="pranamiPay.result && ['FAILED','EXPIRED','CANCELLED'].includes(pranamiPay.result.status)" style="margin-top: 0.6rem; font-size: 0.85rem; color: #b91c1c;">
-                                        This payment did not go through. You have not been charged for it here; start a new one if you still wish to pay.
-                                        <button class="link-action" @click="pranamiPayClose()">Close</button>
-                                    </p>
+
+                                    <!-- NOT PAID -->
+                                    <div class="pay-outcome pay-outcome--bad" x-show="pranamiPay.result && ['FAILED','EXPIRED','CANCELLED'].includes(pranamiPay.result.status)">
+                                        <div class="pay-outcome__icon" aria-hidden="true">✕</div>
+                                        <h3 class="pay-title" x-text="pranamiPay.result && pranamiPay.result.status === 'EXPIRED' ? 'This payment request expired' : 'Payment did not go through'"></h3>
+                                        <p class="pay-muted">You have not been charged for it here. Start a new payment if you still wish to pay.</p>
+                                        <div class="pay-buttons"><button type="button" class="btn-action primary" @click="pranamiPayClose()">Try again</button></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -4686,37 +4782,36 @@
 
                         <div class="data-card" x-show="pranami.view === 'history' && !pranami.loading && !pranami.error && pranamiFiltered().length === 0">
                             <p style="padding: 1.25rem; color: #6b7280; font-size: 0.85rem;">
-                                No Pranami has been recorded against your membership yet.
-                                <span x-show="pranami.year">Try another financial year.</span>
+                                <span x-show="pranamiFiltersActive()">No payments match these filters. Change or clear them to see more.</span>
+                                <span x-show="!pranamiFiltersActive()">No payment has been recorded against your membership yet.</span>
                             </p>
                         </div>
 
-                        <!-- History: every payment recorded against the member, with its receipts as downloadable PDFs -->
+                        <!-- History: every payment recorded against the member, with its receipts as downloadable PDFs (no internal numbers shown) -->
                         <div class="data-card" x-show="pranami.view === 'history' && pranamiFiltered().length > 0">
                             <div style="overflow-x: auto;">
                                 <table class="admin-table">
-                                    <thead><tr><th>Date</th><th>Towards</th><th>Paid to</th><th>Amount</th><th>Status</th><th>Receipt</th></tr></thead>
+                                    <thead><tr><th>Date</th><th>Towards</th><th>Paid to</th><th>Method</th><th class="hist-right">Amount</th><th>Status</th><th>Receipt</th></tr></thead>
                                     <tbody>
                                         <template x-for="p in pranamiFiltered()" :key="p.financial_transaction_pk">
                                             <tr>
                                                 <td style="font-size: 0.8rem; white-space: nowrap;" x-text="formatDate(p.transaction_date)"></td>
-                                                <td style="font-size: 0.82rem;">
+                                                <td style="font-size: 0.85rem; font-weight: 500;">
                                                     <span x-text="p.finance_head_name || NSS.codeLabel(p.transaction_category)"></span>
-                                                    <div style="font-size: 0.7rem; color: #6b7280;" x-text="'FY ' + p.year_code + ' · ' + p.transaction_reference"></div>
+                                                    <div style="font-size: 0.7rem; color: #6b7280; font-weight: 400;" x-text="'Financial year ' + p.year_code"></div>
                                                 </td>
                                                 <td style="font-size: 0.8rem;" x-text="p.organization_name || p.scope_name"></td>
-                                                <td style="font-size: 0.85rem; font-weight: 700; color: #047857; white-space: nowrap;" x-text="NSS.formatMoney(p.amount)"></td>
+                                                <td style="font-size: 0.8rem; color: #475569;" x-text="pranamiMethodOf(p) || '—'"></td>
+                                                <td class="hist-right" style="font-size: 0.9rem; font-weight: 700; color: #047857; white-space: nowrap;" x-text="NSS.formatMoney(p.amount)"></td>
                                                 <td><span class="badge badge-xs" :class="NSS.financeStatusBadgeClass(p.status)" x-text="NSS.financeStatusLabel(p.status)"></span></td>
                                                 <td style="font-size: 0.78rem;">
                                                     <template x-for="r in p.receipts" :key="r.financial_receipt_pk">
-                                                        <div style="padding: 0.15rem 0;">
-                                                            <span class="mono" x-text="r.receipt_number"></span>
-                                                            <span style="color: #6b7280;" x-text="'· ' + formatDate(r.receipt_date) + ' · ' + NSS.formatMoney(r.amount)"></span>
-                                                            <span style="color: #6b7280;" x-show="r.payment_method_name" x-text="'· via ' + r.payment_method_name"></span>
-                                                            <button class="link-action" style="margin-left: 0.4rem;" @click="pranamiDownloadReceipt(r.financial_receipt_pk, r.receipt_number)">Download PDF</button>
+                                                        <div class="hist-receipt">
+                                                            <button class="btn-action" @click="pranamiDownloadReceipt(r.financial_receipt_pk, r.receipt_number)">Download PDF</button>
+                                                            <span style="color: #6b7280;" x-text="formatDate(r.receipt_date)"></span>
                                                         </div>
                                                     </template>
-                                                    <span style="color: #9ca3af;" x-show="p.receipts.length === 0">No receipt issued yet</span>
+                                                    <span style="color: #9ca3af;" x-show="p.receipts.length === 0">No receipt yet</span>
                                                 </td>
                                             </tr>
                                         </template>

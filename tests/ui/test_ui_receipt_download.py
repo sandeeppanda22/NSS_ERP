@@ -169,11 +169,12 @@ class TestPranamiHistoryView:
 
     def test_the_history_is_a_table_with_a_download_on_every_receipt_row(self):
         h = _history()
-        for header in ("Date", "Towards", "Paid to", "Amount", "Status", "Receipt"):
+        for header in ("Date", "Towards", "Paid to", "Method", "Status", "Receipt"):
             assert f"<th>{header}</th>" in h, header
+        assert ">Amount</th>" in h
         assert '@click="pranamiDownloadReceipt(r.financial_receipt_pk, r.receipt_number)"' in h and ">Download PDF<" in h
         assert 'x-for="r in p.receipts" :key="r.financial_receipt_pk"' in h
-        assert "No receipt issued yet" in h                                       # a row without a receipt says so, with no dead button
+        assert "No receipt yet" in h                                       # a row without a receipt says so, with no dead button
 
     def test_every_field_the_history_reads_exists_in_the_api_models(self):
         from api.schemas.finance import MyPranamiItem, MyPranamiReceipt
@@ -188,8 +189,21 @@ class TestPranamiHistoryView:
         summary = _between(_pranami_panel(), "<div class=\"data-card\" x-show=\"pranami.view === 'history'\">", "<!-- Your contributions")
         assert "pranamiTotal()" in summary and 'x-model="pranami.year"' in summary and "pranamiYears()" in summary
 
-    def test_the_history_count_badge_follows_the_filter(self):
-        assert 'x-text="pranamiFiltered().length"' in _pranami_panel()
+    def test_the_history_shows_no_counts_or_internal_numbers(self):
+        # owner 2026-11-18: no "N contributions" badge, and no transaction / receipt numbers on screen (the receipt number only names the PDF file)
+        panel = _pranami_panel()
+        assert 'x-text="pranamiFiltered().length' not in panel
+        for shown in ("p.transaction_reference", 'x-text="r.receipt_number"', "x-text=\"'· ' + it.receipt_number\""):
+            assert shown not in _history(), shown
+
+    def test_the_history_has_professional_filters_over_the_members_own_list(self):
+        panel = _pranami_panel()
+        for model in ("pranami.year", "pranami.head", "pranami.org", "pranami.method", "pranami.from", "pranami.to"):
+            assert f'x-model="{model}"' in panel, model
+        assert "pranamiClearFilters()" in panel and "pranamiFiltersActive()" in panel
+        body = DASH_JS.split("pranamiFiltered() {")[1].split("pranamiTotal()")[0]
+        for field in ("year_code", "transaction_date", "payment_method_name"):
+            assert field in body, field
 
     def test_nothing_to_pay_points_to_the_history(self):
         panel = _pranami_panel()
@@ -198,7 +212,7 @@ class TestPranamiHistoryView:
     def test_the_history_page_has_no_inline_handlers(self):
         panel = _pranami_panel()
         assert not re.search(r"\son[a-z]+\s*=", panel) and "<form" not in panel
-        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year"}
+        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year", "pranami.head", "pranami.org", "pranami.method", "pranami.from", "pranami.to"}
 
     def test_no_x_show_carries_an_inline_display(self):
         for line in _pranami_panel().splitlines():

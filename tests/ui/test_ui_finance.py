@@ -301,8 +301,8 @@ class TestMemberPranamiTab:
         panel = _pranami_panel()
         assert not re.search(r"\son[a-z]+\s*=", panel) and "<form" not in panel
         assert 'x-init="init()"' not in panel
-        # the only x-model is the year filter; each card's amount box reads :value / writes the amount map (no payer, no head field)
-        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year"}
+        # the only x-models are the history filters; each card's amount box reads :value / writes the amount map (no payer, no head field)
+        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year", "pranami.head", "pranami.org", "pranami.method", "pranami.from", "pranami.to"}
         assert "pranamiPay.amounts[h.finance_head_pk] = $event.target.value" in panel
         # a link coming from the server is only ever rendered through the scheme-checking helpers
         for href in re.findall(r':href="([^"]+)"', panel):
@@ -334,11 +334,12 @@ class TestCustomizationAndCollectionScreens:
 
     def test_configuration_controls_are_hidden_without_the_configure_permission(self):
         setup = _screen("finSetup")
-        for needle in ("+ New account", "Add Kendra templates", "finHeadOpenEdit(h)", "finAcctOpenEdit(a)"):
+        # Simple page (owner 2026-11-18): create a head, list heads, open / close a head's payment portal; accounts sit under "More".
+        for needle in ("+ New account", "finAcctOpenEdit(a)", "+ Create head", "finHeadPortalOpenForm(h)", "finHeadPortal(h, false)"):
             line = next(l for l in setup.splitlines() if needle in l)
             assert "canConfigureFinance" in line and "canApproveFinance" not in line, f"{needle} must be gated on canConfigureFinance"
-        assert 'x-show="canConfigureFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()"' in setup
-        assert 'x-show="canConfigureFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()"' in setup
+        for gone in ("Add Kendra templates", "finHeadOpenEdit(h)", "finHeadOpenCreate()", "finEventOpenCreate()", "finHeadSetView("):
+            assert gone not in setup, f"{gone} is no longer offered on the page"
         assert "canApproveFinance" not in setup, "configuring is its own permission; approving is not needed to set a Sangha up"
 
     def test_the_account_form_can_never_take_a_secret_or_a_full_account_number(self):
@@ -380,7 +381,7 @@ class TestCustomizationAndCollectionScreens:
         assert "finReqBook()" in _screen("finCollections")
 
     def test_lifecycle_buttons_for_the_new_entities_come_from_the_server_table(self):
-        for entity in ("head", "account", "payment_request"):
+        for entity in ("account", "payment_request"):             # a head's only actions are the portal buttons now
             assert f"finActions('{entity}'" in _panel(), entity
 
     def test_the_new_live_tables_are_mapped_to_screens_that_exist(self):
@@ -517,4 +518,5 @@ class TestMemberDestinationsAndEventsUi:
 
     def test_events_are_configured_by_an_approver_only(self):
         p = _panel()
-        assert 'x-show="canConfigureFinance && finHeadsAreEvents"' in p and "finEventOpenCreate()" in p
+        assert "finEventOpenCreate()" not in p, "events have their own module; the Heads page no longer offers them"
+        assert "/events" in SETUP_JS and "finEventOpenCreate" in SETUP_JS      # the API call and its handler are kept

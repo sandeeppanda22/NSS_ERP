@@ -31,7 +31,7 @@ class TestMarkup:
     def test_each_payable_card_has_a_tick_box_that_never_uses_a_model(self):
         panel = _panel()
         assert 'type="checkbox" :checked="!!pranamiPay.selected[h.finance_head_pk]" :disabled="pranamiSelectDisabled(h)" @change="pranamiToggle(h)"' in panel
-        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year"}
+        assert set(re.findall(r'x-model="([^"]+)"', panel)) == {"pranami.year", "pranami.head", "pranami.org", "pranami.method", "pranami.from", "pranami.to"}
 
     def test_the_tick_box_is_only_for_a_card_that_can_be_paid(self):
         assert 'x-show="pranamiCardCanPay(h)"' in _between(_panel(), "Pay together with others", "</label>") or "pranamiCardCanPay(h)" in _panel().split("Pay together with others")[0].rsplit("<label", 1)[1]

@@ -9154,12 +9154,21 @@
                              digits and the NAME of a server-side credential set, never a secret. -->
                         <div x-show="activeTab === 'finSetup'" x-cloak>
 
-                            <div class="data-card">
-                                <div class="data-card-header"><h2 class="data-card-title">Heads &amp; Accounts</h2></div>
-                                <div class="data-card-body">
-                                    <p class="form-hint" style="margin-bottom:0.6rem;">Each Sangha has its own finance heads (what money is for) and its own receiving accounts. Start from the Kendra templates, then rename, switch off or add heads of your own.</p>
+                            <div class="data-card fh-page">
+                                <div class="fh-page__head">
+                                    <div>
+                                        <h2 class="fh-page__title">Finance heads</h2>
+                                        <p class="fh-page__sub">What money is for. Create a head, then open its payment portal so members can pay it as Pranami.</p>
+                                    </div>
+                                    <!-- A scope that names one Sangha (a Sakha admin) has nothing to choose: it is shown, not asked -->
+                                    <div class="fh-chip" x-show="finSetupOrgLocked && finSetupOrg.selected" x-cloak>
+                                        <span class="fh-chip__label">Sangha</span>
+                                        <span class="fh-chip__value" x-text="finSetupOrg.selected && finSetupOrg.selected.organization_name"></span>
+                                    </div>
+                                </div>
+                                <div class="fh-page__picker" x-show="!finSetupOrgLocked" x-cloak>
                                     <div class="typeahead-wrap">
-                                        <label class="form-label">Sangha <span class="optional">(optional filter)</span></label>
+                                        <label class="form-label">Sangha <span class="optional">(optional: leave empty to see every Sangha in your scope)</span></label>
                                         <input type="text" class="form-input" x-model="finSetupOrg.query" @input="corrOnOrgQueryInput(finSetupOrg)" placeholder="Search by Sangha name…" autocomplete="off">
                                         <div class="typeahead-menu" x-show="finSetupOrg.results.length > 0">
                                             <template x-for="org in finSetupOrg.results" :key="org.organization_pk">
@@ -9177,7 +9186,7 @@
                             </div>
 
                             <!-- The Treasurer's default approval limit of the chosen Sakha -->
-                            <div class="data-card" x-show="finPolicyApplies" x-cloak>
+                            <div class="data-card" x-show="finPolicyApplies && finSetupMore" x-cloak>
                                 <div class="data-card-header"><h2 class="data-card-title">Treasurer's approval limit</h2></div>
                                 <div class="data-card-body">
                                     <p class="form-hint">The Treasurer approves a spend alone up to this amount on any expense head that has no limit of its own. Above it (or with no limit at all) the President, or the Secretary when no President is seated, must approve as well. Every spend needs bills that add up to its amount.</p>
@@ -9196,9 +9205,9 @@
 
                             <!-- Simple contribution form: name, amount, how often. The server fills in the rest. -->
                             <div class="data-card" x-show="finContribForm.show" x-cloak>
-                                <div class="data-card-header"><h2 class="data-card-title">Add a contribution</h2></div>
+                                <div class="data-card-header"><h2 class="data-card-title">Create finance head</h2></div>
                                 <div class="data-card-body">
-                                    <p class="form-hint">Members of the Sangha see it in their Pranami tab with the amount and whether it is paid or due. Money goes to the Sangha's own receiving account.</p>
+                                    <p class="form-hint">A head says what money is for. It starts with its payment portal closed: members see and pay it only after you open the portal from the list.</p>
                                     <div class="form-grid-2">
                                         <div class="typeahead-wrap">
                                             <label class="form-label">Sangha</label>
@@ -9212,7 +9221,14 @@
                                                 </template>
                                             </div>
                                         </div>
-                                        <div x-show="finContribIsKendra">
+                                        <div>
+                                            <label class="form-label">Type</label>
+                                            <select class="nss-select" x-model="finContribForm.direction">
+                                                <option value="INCOME">Money in (members pay it)</option>
+                                                <option value="EXPENSE">Money out (the Sangha spends it)</option>
+                                            </select>
+                                        </div>
+                                        <div x-show="finContribIsKendra && finContribForm.direction === 'INCOME'">
                                             <label class="form-label">Who pays into it</label>
                                             <select class="nss-select" x-model="finContribForm.applies_to">
                                                 <option value="ORGANIZATION">Kendra members — money goes to the Kendra</option>
@@ -9223,11 +9239,11 @@
                                             <label class="form-label">Name</label>
                                             <input type="text" class="form-input" maxlength="150" x-model="finContribForm.head_name" placeholder="e.g. Annual Pranami" autocomplete="off">
                                         </div>
-                                        <div>
+                                        <div x-show="finContribForm.direction === 'INCOME'">
                                             <label class="form-label">Amount <span class="optional">(leave empty for any amount)</span></label>
                                             <input type="text" inputmode="decimal" class="form-input" x-model="finContribForm.fixed_amount" placeholder="e.g. 500" autocomplete="off">
                                         </div>
-                                        <div x-show="finContribForm.fixed_amount.trim() !== ''">
+                                        <div x-show="finContribForm.direction === 'INCOME' && finContribForm.fixed_amount.trim() !== ''">
                                             <label class="form-label">How often</label>
                                             <select class="nss-select" x-model="finContribForm.due_period">
                                                 <option value="YEARLY">Every financial year</option>
@@ -9235,26 +9251,19 @@
                                                 <option value="ONE_TIME">One time (for example an event)</option>
                                             </select>
                                         </div>
-                                        <div x-show="finContribForm.fixed_amount.trim() !== ''">
+                                        <div x-show="finContribForm.direction === 'INCOME' && finContribForm.fixed_amount.trim() !== ''">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin-top:1.6rem;">
                                                 <input type="checkbox" x-model="finContribForm.allow_part_payment"> Members may pay in parts
                                             </label>
                                         </div>
                                         <div>
-                                            <label class="form-label">Note for members <span class="optional">(optional)</span></label>
+                                            <label class="form-label">Note <span class="optional">(optional; members see it for a head they can pay)</span></label>
                                             <input type="text" class="form-input" maxlength="2000" x-model="finContribForm.description" autocomplete="off">
-                                        </div>
-                                        <div x-show="finContribForm.applies_to !== 'ALL_SAKHAS'">
-                                            <label class="form-label">Receiving account <span class="optional">(default: the Sangha's default account)</span></label>
-                                            <select class="nss-select" x-model="finContribForm.collection_account_pk">
-                                                <option value="">Default account</option>
-                                                <template x-for="a in finContribAccounts" :key="a.financial_account_pk"><option :value="a.financial_account_pk" x-text="a.account_label + (a.gateway_provider ? '' : ' (no payment gateway)')"></option></template>
-                                            </select>
                                         </div>
                                     </div>
                                     <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finContribForm.error" x-text="finContribForm.error"></div>
                                     <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
-                                        <button class="btn-action primary" :disabled="finContribForm.saving" @click="finContribSubmit()" x-text="finContribForm.saving ? 'Saving…' : 'Add contribution'"></button>
+                                        <button class="btn-action primary" :disabled="finContribForm.saving" @click="finContribSubmit()" x-text="finContribForm.saving ? 'Saving…' : 'Create head'"></button>
                                         <button class="btn-action" :disabled="finContribForm.saving" @click="finContribCancel()">Cancel</button>
                                     </div>
                                 </div>
@@ -9302,7 +9311,7 @@
                                         </div>
                                         <div style="grid-column:span 2;">
                                             <label class="form-label">What members see <span class="optional">(optional)</span></label>
-                                            <input type="text" class="form-input" maxlength="2000" x-model="finEventForm.description" placeholder="Dates, venue, what the contribution is for" autocomplete="off">
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finEventForm.description" placeholder="Dates, venue, what the Pranami is for" autocomplete="off">
                                         </div>
                                         <div>
                                             <label class="form-label">Receiving account</label>
@@ -9401,7 +9410,7 @@
                                         </div>
                                         <div x-show="finHeadForm.direction === 'INCOME'">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
-                                                <input type="checkbox" x-model="finHeadForm.is_pranami"> Show these contributions in the member's own "Pranami" tab
+                                                <input type="checkbox" x-model="finHeadForm.is_pranami"> Show this as Pranami in the member's own "Pranami" tab
                                             </label>
                                         </div>
                                         <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
@@ -9446,67 +9455,104 @@
                                 </div>
                             </div>
 
-                            <!-- Heads list -->
-                            <div class="data-card" x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show">
-                                <div class="data-card-header">
-                                    <h2 class="data-card-title" x-text="finHeadsAreTemplates ? 'Kendra template heads' : 'Finance heads'"></h2>
-                                    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finHeadsTotal + ' total'"></span>
-                                        <button class="btn-action" :class="{ primary: finHeadView === 'sangha' }" @click="finHeadSetView('sangha')">Sangha heads</button>
-                                        <button class="btn-action" :class="{ primary: finHeadsAreEvents }" @click="finHeadSetView('events')">Events</button>
-                                        <button class="btn-action" :class="{ primary: finHeadsAreTemplates }" @click="finHeadSetView('templates')">Kendra templates</button>
-                                        <button class="btn-action" x-show="canConfigureFinance && !finHeadsAreTemplates" @click="finHeadAdopt()" title="Copy the Kendra templates into the Sangha chosen above">Add Kendra templates</button>
-                                        <button class="btn-action primary" x-show="canConfigureFinance && finHeadsAreEvents" @click="finEventOpenCreate()">+ New event</button>
-                                        <button class="btn-action primary" x-show="canConfigureFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate()">+ Add contribution</button>
-                                        <button class="btn-action" x-show="canConfigureFinance && !finHeadsAreEvents" @click="finHeadOpenCreate()" x-text="finHeadsAreTemplates ? '+ New template' : 'Advanced head'" title="The full form: expense heads, restricted funds, funds and scopes"></button>
+                            <!-- Open payment portal: what members are asked to pay -->
+                            <div class="data-card" x-show="finPortalForm.show" x-cloak>
+                                <div class="data-card-header"><h2 class="data-card-title" x-text="'Open payment portal — ' + finPortalForm.name"></h2></div>
+                                <div class="data-card-body">
+                                    <p class="form-hint">Members of this Sangha will see this head in their Pranami tab and can pay it by UPI into the Sangha's default receiving account.</p>
+                                    <p class="form-hint" x-show="finPortalForm.follows_kendra">The amount for this head is set by the Kendra.</p>
+                                    <div class="form-grid-2" x-show="!finPortalForm.follows_kendra">
+                                        <div>
+                                            <label class="form-label">Amount each member pays (₹) <span class="optional">(leave empty to let members pay any amount)</span></label>
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finPortalForm.fixed_amount" placeholder="e.g. 500" autocomplete="off" @keydown.enter="finPortalSubmit()">
+                                        </div>
+                                        <div x-show="finPortalForm.fixed_amount.trim() !== ''">
+                                            <label class="form-label">How often</label>
+                                            <select class="nss-select" x-model="finPortalForm.due_period">
+                                                <option value="YEARLY">Every financial year</option>
+                                                <option value="MONTHLY">Every month</option>
+                                                <option value="ONE_TIME">One time (for example an event)</option>
+                                            </select>
+                                        </div>
+                                        <div x-show="finPortalForm.fixed_amount.trim() !== ''">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin-top:1.6rem;">
+                                                <input type="checkbox" x-model="finPortalForm.allow_part_payment"> Members may pay in parts
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finPortalForm.error" x-text="finPortalForm.error"></div>
+                                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                                        <button class="btn-action primary" :disabled="finPortalForm.saving" @click="finPortalSubmit()" x-text="finPortalForm.saving ? 'Opening…' : 'Open payment portal'"></button>
+                                        <button class="btn-action" :disabled="finPortalForm.saving" @click="finPortalCancel()">Cancel</button>
                                     </div>
                                 </div>
+                            </div>
+
+                            <!-- Heads list -->
+                            <div class="data-card" x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show && !finPortalForm.show">
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">All heads</h2>
+                                    <button class="btn-action primary" x-show="canConfigureFinance" @click="finContribOpenCreate()">+ Create head</button>
+                                </div>
                                 <div class="data-card-body">
-                                    <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
-                                        <div><label class="form-label">Search</label><input type="text" class="form-input" x-model="finHeadQ" @keydown.enter="finHeadsApply()" placeholder="Code or name…" autocomplete="off"></div>
-                                        <div>
-                                            <label class="form-label">Direction</label>
+                                    <div class="hist-tiles" style="margin-bottom: 1rem;">
+                                        <div class="hist-tile"><div class="hist-tile__label">Finance heads</div><div class="hist-tile__value" x-text="finHeadsTotal"></div></div>
+                                        <div class="hist-tile"><div class="hist-tile__label">Payment portals open</div><div class="hist-tile__value" x-text="finHeadsPortalCount(true)"></div></div>
+                                        <div class="hist-tile"><div class="hist-tile__label">Ready to open</div><div class="hist-tile__value" x-text="finHeadsPortalCount(false)"></div></div>
+                                    </div>
+
+                                    <div class="dir-toolbar" style="margin-bottom: 1rem;">
+                                        <div class="form-group dir-search">
+                                            <label class="form-label">Search</label>
+                                            <input type="search" class="form-input" x-model="finHeadQ" @input.debounce.300ms="finHeadsApply()" @keydown.enter="finHeadsApply()"
+                                                   placeholder="Search by head name or code" title="The code is the short fixed ID shown under each name, for example PRANAMI_ANNUAL" autocomplete="off">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Type</label>
                                             <select class="nss-select" x-model="finHeadDirFilter" @change="finHeadsApply()">
-                                                <option value="">Income and expense</option><option value="INCOME">Income</option><option value="EXPENSE">Expense</option>
+                                                <option value="">Income and expense</option><option value="INCOME">Money in (income)</option><option value="EXPENSE">Money out (expense)</option>
                                             </select>
                                         </div>
-                                        <div>
-                                            <label class="form-label">Status</label>
-                                            <select class="nss-select" x-model="finHeadStatusFilter" @change="finHeadsApply()">
-                                                <option value="">All</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
+                                        <div class="form-group">
+                                            <label class="form-label">Payment portal</label>
+                                            <select class="nss-select" x-model="finHeadPortalFilter">
+                                                <option value="">All</option><option value="OPEN">Open</option><option value="CLOSED">Closed</option>
                                             </select>
                                         </div>
                                     </div>
+
                                     <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finHeadsLoading"><div class="spinner"></div></div>
                                     <div class="alert-msg alert-error" x-show="finHeadsError" x-text="finHeadsError"></div>
                                     <template x-if="!finHeadsLoading && !finHeadsError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finHeads.length === 0">No finance heads here yet. <span x-show="!finHeadsAreTemplates">Use "Add Kendra templates" to start from the standard set.</span></div>
-                                            <div style="overflow-x:auto;" x-show="finHeads.length > 0">
+                                            <div class="dir-empty" x-show="finHeadsShown().length === 0">
+                                                <span x-show="finHeads.length === 0">No finance heads here yet. Use "+ Create head" to add one.</span>
+                                                <span x-show="finHeads.length > 0">No head matches these filters.</span>
+                                            </div>
+                                            <div class="fh-table" x-show="finHeadsShown().length > 0">
                                                 <table class="admin-table">
-                                                    <thead><tr><th>Head</th><th x-show="!finHeadsAreTemplates">Sangha</th><th>Rules</th><th x-show="!finHeadsAreTemplates">UPI goes to</th><th>Used</th><th>Status</th><th></th></tr></thead>
+                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Amount members pay</th><th>Payment portal</th><th class="hist-right"></th></tr></thead>
                                                     <tbody>
-                                                        <template x-for="h in finHeads" :key="h.finance_head_pk">
+                                                        <template x-for="h in finHeadsShown()" :key="h.finance_head_pk">
                                                             <tr>
-                                                                <td style="font-size:0.82rem;">
-                                                                    <span x-text="h.head_name"></span>
-                                                                    <div class="mono" style="font-size:0.7rem; color:#6b7280;" x-text="h.head_code + ' · ' + (h.direction === 'INCOME' ? 'income' : 'expense')"></div>
-                                                                </td>
-                                                                <td style="font-size:0.78rem; color:#6b7280;" x-show="!finHeadsAreTemplates" x-text="h.organization_name || '—'"></td>
                                                                 <td>
-                                                                    <template x-for="r in finHeadRules(h)" :key="r"><span class="badge badge-xs badge-muted" style="margin-right:0.2rem;" x-text="r"></span></template>
-                                                                    <div style="font-size:0.7rem; color:#6b7280;" x-show="h.restriction_purpose" x-text="h.restriction_purpose"></div>
+                                                                    <div class="fh-name" x-text="h.head_name"></div>
+                                                                    <div class="fh-sub"><span x-text="h.direction === 'INCOME' ? 'Money in' : 'Money out'"></span> · <span class="mono" x-text="h.head_code"></span></div>
                                                                 </td>
-                                                                <td style="font-size:0.75rem; color:#6b7280;" x-show="!finHeadsAreTemplates" x-text="h.allow_upi ? (h.collection_scope_code || '—') + ' → ' + (h.collection_account_label || '—') : '—'"></td>
-                                                                <td style="font-size:0.8rem;" x-text="h.transaction_count"></td>
-                                                                <td><span class="badge badge-xs" :class="finBadge(h.status)" x-text="finLabel(h.status)"></span></td>
+                                                                <td class="fh-sub" x-show="finHeadsMultiOrg()" x-text="h.organization_name || '—'"></td>
                                                                 <td>
-                                                                    <button class="link-action" x-show="canConfigureFinance && !h.is_kendra_copy" @click="finHeadOpenEdit(h)">Edit</button>
-                                                                    <button class="link-action" x-show="canConfigureFinance && h.is_kendra_copy" @click="finCopyOpen(h)">Account</button>
-                                                                    <button class="link-action" x-show="canConfigureFinance && h.applies_to_all_sakhas" @click="finHeadSyncCopies(h)" title="Give every Sakha its copy and refresh the existing ones">Update Sakhas</button>
-                                                                    <template x-for="a in finActions('head', h.status)" :key="a.to">
-                                                                        <button class="link-action" @click="finAskTransition('head', h.finance_head_pk, 'Head ' + h.head_code, a)" x-text="a.label"></button>
-                                                                    </template>
+                                                                    <div class="fh-amount" x-text="finHeadAmountLabel(h)"></div>
+                                                                    <div class="fh-sub" x-show="h.fixed_amount != null && h.allow_part_payment">Part payments allowed</div>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="fh-state fh-state--open" x-show="finHeadPortalOpen(h) === true">Open</span>
+                                                                    <span class="fh-state fh-state--closed" x-show="finHeadPortalOpen(h) === false">Closed</span>
+                                                                    <span class="fh-sub" x-show="finHeadPortalOpen(h) === null">Not applicable</span>
+                                                                    <span class="fh-state fh-state--off" x-show="h.status !== 'ACTIVE'" x-text="finLabel(h.status)"></span>
+                                                                </td>
+                                                                <td class="hist-right">
+                                                                    <button class="btn-action primary" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === false" @click="finHeadPortalOpenForm(h)">Open payment portal</button>
+                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === true && !h.applies_to_all_sakhas" @click="finHeadPortal(h, false)">Close portal</button>
                                                                 </td>
                                                             </tr>
                                                         </template>
@@ -9580,8 +9626,13 @@
                                 </div>
                             </div>
 
-                            <!-- Accounts list -->
-                            <div class="data-card" x-show="!finAcctForm.show">
+                            <p style="margin:0.25rem 0 1rem;" x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show && !finAcctForm.show">
+                                <button type="button" class="link-action" @click="finSetupMore = !finSetupMore"
+                                        x-text="finSetupMore ? 'Hide receiving accounts and approval limit' : 'Receiving accounts and approval limit'"></button>
+                            </p>
+
+                            <!-- Accounts list (under "More"; a payment portal collects into the Sangha's default account) -->
+                            <div class="data-card" x-show="!finAcctForm.show && finSetupMore">
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Receiving accounts</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
@@ -9633,29 +9684,78 @@
                              receipt; this screen only asks for payments, follows them, and resolves the ones the books held back. -->
                         <div x-show="activeTab === 'finCollections'" x-cloak>
 
-                            <!-- Create form -->
+                            <!-- Create form: who is paying, what for - with a live summary of the request on the right -->
                             <div class="data-card" x-show="finReqForm.show" x-cloak>
-                                <div class="data-card-header"><h2 class="data-card-title">Ask for a UPI payment</h2></div>
-                                <div class="data-card-body">
-                                    <p class="form-hint">The finance head decides which scope, fund and account the money is booked into. The payer pays by UPI; when the gateway confirms it, the transaction is posted and the receipt issued automatically.</p>
-                                    <div class="form-grid-2">
-                                        <div>
-                                            <label class="form-label">Finance head</label>
-                                            <select class="nss-select" x-model="finReqForm.finance_head_pk">
-                                                <option value="">Select…</option>
-                                                <template x-for="h in finReqHeads" :key="h.finance_head_pk"><option :value="h.finance_head_pk" x-text="h.head_name + ' — ' + h.organization_name"></option></template>
-                                            </select>
-                                            <p class="form-hint" x-show="finReqHeads.length === 0">No finance head can be collected by UPI yet. Switch it on under Heads &amp; Accounts.</p>
-                                        </div>
-                                        <div><label class="form-label">Amount (₹)</label><input type="text" inputmode="decimal" class="form-input" x-model="finReqForm.amount" placeholder="0.00" autocomplete="off"></div>
-                                        <div><label class="form-label">Member (Sangha Sevi ID) <span class="optional">(optional)</span></label><input type="text" class="form-input" maxlength="20" x-model="finReqForm.sangha_sevi_id" placeholder="e.g. SS12" autocomplete="off"></div>
-                                        <div><label class="form-label">Payer name <span class="optional">(if not a member)</span></label><input type="text" class="form-input" maxlength="200" x-model="finReqForm.payer_name" autocomplete="off"></div>
-                                        <div class="span-all" style="grid-column:span 2;"><label class="form-label">Note <span class="optional">(optional)</span></label><input type="text" class="form-input" maxlength="500" x-model="finReqForm.note" autocomplete="off"></div>
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title">Ask for a UPI payment</h2>
+                                        <p class="form-hint" style="margin: 0.15rem 0 0;">The payer pays by UPI; when the bank confirms, the payment is posted and the receipt issued automatically.</p>
                                     </div>
-                                    <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finReqForm.error" x-text="finReqForm.error"></div>
-                                    <div class="form-section" style="display:flex; align-items:center; gap:0.6rem;">
-                                        <button class="btn-action primary" :disabled="finReqForm.saving" @click="finReqSubmit()" x-text="finReqForm.saving ? 'Creating…' : 'Create payment request'"></button>
-                                        <button class="btn-action" :disabled="finReqForm.saving" @click="finReqForm = { ...finReqForm, show: false }">Cancel</button>
+                                    <button type="button" class="btn-action" :disabled="finReqForm.saving" @click="finReqForm = { ...finReqForm, show: false }">← Back to list</button>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="ask-grid">
+                                        <div class="ask-main">
+                                            <section class="ask-section">
+                                                <h3 class="ask-section__title">Who is paying?</h3>
+                                                <div class="typeahead-wrap">
+                                                    <label class="form-label">Member <span class="optional">(start typing a name or Sangha Sevi ID)</span></label>
+                                                    <input type="text" class="form-input" x-model="finReqForm.member.query" @input="finReqMemberInput()" placeholder="e.g. Sandeep or SS12" autocomplete="off">
+                                                    <div class="typeahead-menu" x-show="finReqForm.member.results.length > 0">
+                                                        <template x-for="m in finReqForm.member.results" :key="m.sangha_sevi_pk">
+                                                            <div class="typeahead-item" @click="finReqMemberPick(m)">
+                                                                <span x-text="finReqMemberName(m)"></span>
+                                                                <span class="meta" x-text="m.sangha_sevi_id + ' · ' + m.organization_name"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                    <p class="form-hint" x-show="finReqForm.member.searching">Searching…</p>
+                                                    <p class="form-hint" x-show="finReqForm.member.selected">Member selected: the request will appear in their Pranami tab. <button type="button" class="link-action" @click="finReqMemberClear()">Change</button></p>
+                                                </div>
+                                                <div x-show="!finReqForm.member.selected" style="margin-top: 0.75rem;">
+                                                    <label class="form-label">Payer name <span class="optional">(only if the payer is not a member; you share the payment link with them)</span></label>
+                                                    <input type="text" class="form-input" maxlength="200" x-model="finReqForm.payer_name" autocomplete="off">
+                                                </div>
+                                            </section>
+
+                                            <section class="ask-section">
+                                                <h3 class="ask-section__title">What is it for?</h3>
+                                                <div>
+                                                    <label class="form-label">Finance head</label>
+                                                    <select class="nss-select" x-model="finReqForm.finance_head_pk" @change="finReqHeadChanged()">
+                                                        <option value="">Select…</option>
+                                                        <template x-for="h in finReqHeads" :key="h.finance_head_pk"><option :value="h.finance_head_pk" x-text="h.head_name + ' — ' + h.organization_name"></option></template>
+                                                    </select>
+                                                    <p class="form-hint" x-show="finReqHeads.length === 0">No finance head can be collected by UPI yet. Open its payment portal under Finance heads.</p>
+                                                </div>
+                                                <div class="ask-two">
+                                                    <div>
+                                                        <label class="form-label">Amount</label>
+                                                        <div class="ask-money"><span>₹</span><input type="text" inputmode="decimal" class="form-input" x-model="finReqForm.amount" placeholder="0.00" autocomplete="off"></div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="form-label">Note <span class="optional">(optional; the member sees it)</span></label>
+                                                        <input type="text" class="form-input" maxlength="500" x-model="finReqForm.note" autocomplete="off">
+                                                    </div>
+                                                </div>
+                                            </section>
+                                        </div>
+
+                                        <aside class="ask-summary">
+                                            <div class="pay-label">Request summary</div>
+                                            <div class="pay-amount" x-text="finReqForm.amount.trim() ? '₹' + finReqForm.amount.trim() : '₹0.00'"></div>
+                                            <dl class="pay-dl">
+                                                <div><dt>Payer</dt><dd x-text="finReqForm.member.selected ? (finReqMemberName(finReqForm.member.selected) + ' (' + finReqForm.member.selected.sangha_sevi_id + ')') : (finReqForm.payer_name.trim() || 'Not chosen yet')"></dd></div>
+                                                <div><dt>For</dt><dd x-text="finReqHeadSel() ? finReqHeadSel().head_name : 'Not chosen yet'"></dd></div>
+                                                <div x-show="finReqHeadSel()"><dt>Paid to</dt><dd x-text="finReqHeadSel() && finReqHeadSel().organization_name"></dd></div>
+                                                <div x-show="finReqHeadSel() && finReqHeadSel().collection_account_label"><dt>Into account</dt><dd x-text="finReqHeadSel() && finReqHeadSel().collection_account_label"></dd></div>
+                                            </dl>
+                                            <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finReqForm.error" x-text="finReqForm.error"></div>
+                                            <div class="ask-actions">
+                                                <button class="btn-action primary pay-btn" :disabled="finReqForm.saving" @click="finReqSubmit()" x-text="finReqForm.saving ? 'Creating…' : 'Create payment request'"></button>
+                                                <button class="btn-action" :disabled="finReqForm.saving" @click="finReqForm = { ...finReqForm, show: false }">Cancel</button>
+                                            </div>
+                                        </aside>
                                     </div>
                                 </div>
                             </div>
@@ -9663,50 +9763,55 @@
                             <!-- List -->
                             <div class="data-card" x-show="!finReqForm.show && !finReq">
                                 <div class="data-card-header">
-                                    <h2 class="data-card-title">UPI collections</h2>
-                                    <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finReqsTotal + ' total'"></span>
-                                        <button class="btn-action primary" x-show="canManageFinance" @click="finReqOpenForm()">+ Ask for a payment</button>
+                                    <div>
+                                        <h2 class="data-card-title">UPI payment requests</h2>
+                                        <p class="form-hint" style="margin: 0.15rem 0 0;">Payments you asked for, and member payments made through the Pranami tab. Open one to follow it.</p>
                                     </div>
+                                    <button class="btn-action primary" x-show="canManageFinance" @click="finReqOpenForm()">+ Ask for a payment</button>
                                 </div>
                                 <div class="data-card-body">
-                                    <div class="form-grid-3" style="margin-bottom:1rem; align-items:end;">
-                                        <div><label class="form-label">Search</label><input type="text" class="form-input" x-model="finReqQ" @keydown.enter="finReqApply()" placeholder="Reference, payer, member…" autocomplete="off"></div>
-                                        <div>
+                                    <div class="dir-toolbar" style="margin-bottom: 1rem;">
+                                        <div class="form-group dir-search">
+                                            <label class="form-label">Search</label>
+                                            <input type="search" class="form-input" x-model="finReqQ" @input.debounce.300ms="finReqApply()" @keydown.enter="finReqApply()" placeholder="Payer name, member ID or reference" autocomplete="off">
+                                        </div>
+                                        <div class="form-group">
                                             <label class="form-label">Status</label>
                                             <select class="nss-select" x-model="finReqStatus" @change="finReqApply()">
                                                 <option value="">All</option>
                                                 <template x-for="st in (finStatuses.payment_request || [])" :key="st"><option :value="st" x-text="finLabel(st)"></option></template>
                                             </select>
                                         </div>
-                                        <div>
-                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin-top:1.6rem;">
+                                        <div class="form-group">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem; margin: 0 0 0.5rem;">
                                                 <input type="checkbox" x-model="finReqReview" @change="finReqApply()"> Only paid, waiting to be booked
                                             </label>
                                         </div>
-                                        <div style="display:flex; gap:0.4rem;">
-                                            <button class="btn-action primary" @click="finReqApply()">Search</button>
-                                            <button class="btn-action" @click="finReqClear()">Reset</button>
+                                        <div class="form-group">
+                                            <button class="btn-action btn-filter" :disabled="!finReqQ && !finReqStatus && !finReqReview" @click="finReqClear()">Clear filters</button>
                                         </div>
                                     </div>
                                     <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finReqsLoading"><div class="spinner"></div></div>
                                     <div class="alert-msg alert-error" x-show="finReqsError" x-text="finReqsError"></div>
                                     <template x-if="!finReqsLoading && !finReqsError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finReqs.length === 0">No payment requests found.</div>
-                                            <div style="overflow-x:auto;" x-show="finReqs.length > 0">
+                                            <div class="dir-empty" x-show="finReqs.length === 0">No payment requests found.</div>
+                                            <div class="fh-table" x-show="finReqs.length > 0">
                                                 <table class="admin-table">
-                                                    <thead><tr><th>Reference</th><th>Head</th><th>Payer</th><th>Amount</th><th>Status</th></tr></thead>
+                                                    <thead><tr><th>Payer</th><th>For</th><th>Asked on</th><th class="hist-right">Amount</th><th>Status</th></tr></thead>
                                                     <tbody>
                                                         <template x-for="r in finReqs" :key="r.upi_payment_request_pk">
                                                             <tr @click="finReqOpen(r.upi_payment_request_pk)" style="cursor:pointer;">
-                                                                <td class="mono" style="font-size:0.78rem;" x-text="r.request_reference"></td>
-                                                                <td style="font-size:0.8rem;">
-                                                                    <span x-text="r.head_name"></span>
-                                                                    <div style="font-size:0.7rem; color:#6b7280;" x-text="r.organization_name"></div>
+                                                                <td>
+                                                                    <div class="fh-name" x-text="r.payer_name || r.payer_sangha_sevi_id || '—'"></div>
+                                                                    <div class="fh-sub"><span x-show="r.payer_name && r.payer_sangha_sevi_id" x-text="r.payer_sangha_sevi_id + ' · '"></span><span class="mono" x-text="r.request_reference"></span></div>
                                                                 </td>
-                                                                <td style="font-size:0.78rem;" x-text="r.payer_sangha_sevi_id || r.payer_name || '—'"></td>
-                                                                <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(r.amount)"></td>
+                                                                <td>
+                                                                    <div class="fh-amount" x-text="r.head_name"></div>
+                                                                    <div class="fh-sub" x-text="r.organization_name"></div>
+                                                                </td>
+                                                                <td class="fh-sub" x-text="NSS.formatDateTime(r.created_at)"></td>
+                                                                <td class="hist-right fh-amount" x-text="finMoney(r.amount)"></td>
                                                                 <td>
                                                                     <span class="badge badge-xs" :class="finBadge(r.status)" x-text="finLabel(r.status)"></span>
                                                                     <span class="badge badge-xs badge-fin-pending" x-show="r.status === 'PAID' && !r.transaction_reference">Needs booking</span>
@@ -9728,64 +9833,95 @@
                                 </div>
                             </div>
 
-                            <!-- Detail -->
+                            <!-- Detail: one request - amount and status on top, the steps, who / what / where, how to share it, and the demo gateway -->
                             <template x-if="finReq && !finReqForm.show">
                                 <div class="data-card">
-                                    <div class="data-card-header">
-                                        <div>
-                                            <h2 class="data-card-title" x-text="finMoney(finReq.amount) + ' — ' + finReq.head_name"></h2>
-                                            <span class="mono" style="font-size:0.75rem; color:#6b7280;" x-text="finReq.request_reference"></span>
-                                        </div>
-                                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-                                            <span class="badge badge-sm" :class="finBadge(finReq.status)" x-text="finLabel(finReq.status)"></span>
+                                    <div class="rq-top">
+                                        <button type="button" class="link-action" @click="finReqBack()">← Back to requests</button>
+                                        <div class="rq-actions">
                                             <button class="btn-action" x-show="canManageFinance && ['CREATED','PENDING'].includes(finReq.status)" :disabled="finReqActing" @click="finReqRefresh()">Check status</button>
                                             <template x-for="a in finActions('payment_request', finReq.status)" :key="a.to">
                                                 <button class="btn-action danger" @click="finAskTransition('payment_request', finReq.upi_payment_request_pk, finReq.request_reference, a)" x-text="a.label"></button>
                                             </template>
                                             <button class="btn-action primary" x-show="finReqNeedsBooking && canApproveFinance" :disabled="finReqActing" @click="finReqBook()">Book this payment</button>
-                                            <button class="btn-action" @click="finReqBack()">Back to list</button>
                                         </div>
                                     </div>
+
+                                    <div class="rq-head">
+                                        <div>
+                                            <div class="pay-label">Payment request</div>
+                                            <div class="pay-amount" x-text="finMoney(finReq.amount)"></div>
+                                            <div class="rq-for" x-text="finReq.head_name + ' · ' + (finReq.organization_name || '')"></div>
+                                        </div>
+                                        <div class="rq-status">
+                                            <span class="badge badge-sm" :class="finBadge(finReq.status)" x-text="finLabel(finReq.status)"></span>
+                                            <span class="mono pay-muted" x-text="finReq.request_reference"></span>
+                                        </div>
+                                    </div>
+
+                                    <ol class="pay-steps" aria-label="Request progress">
+                                        <li class="is-done"><span>1</span> Asked</li>
+                                        <li :class="['PAID','COMPLETED'].includes(finReq.status) || finReq.transaction_reference ? 'is-done' : (['CREATED','PENDING'].includes(finReq.status) ? 'is-current' : '')"><span>2</span> Paid</li>
+                                        <li :class="finReq.transaction_reference ? 'is-current' : ''"><span>3</span> Booked and receipted</li>
+                                    </ol>
+
                                     <div class="data-card-body">
                                         <div class="alert-msg alert-error" x-show="finReqActionError" x-text="finReqActionError"></div>
                                         <div class="alert-msg alert-error" x-show="finReq.review_reason" x-text="'Held for review — ' + finReq.review_reason"></div>
 
-                                        <div class="form-section" x-show="['CREATED','PENDING'].includes(finReq.status)">
-                                            <h4 class="form-section-title">Share with the payer</h4>
-                                            <div style="display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center;">
-                                                <template x-if="finReqSafeUrl(finReq.pay_url)"><a class="btn-action primary" :href="finReqSafeUrl(finReq.pay_url)" target="_blank" rel="noopener noreferrer">Open payment page</a></template>
-                                                <template x-if="finReqSafeUpi(finReq.upi_uri)"><a class="btn-action" :href="finReqSafeUpi(finReq.upi_uri)">Open in a UPI app</a></template>
-                                                <button class="btn-action" x-show="finReqSafeUrl(finReq.pay_url)" @click="finReqCopy(finReq.pay_url, 'url')" x-text="finReqCopied === 'url' ? 'Copied' : 'Copy payment link'"></button>
-                                                <button class="btn-action" x-show="finReqSafeUpi(finReq.upi_uri)" @click="finReqCopy(finReq.upi_uri, 'upi')" x-text="finReqCopied === 'upi' ? 'Copied' : 'Copy UPI link'"></button>
+                                        <div class="rq-grid">
+                                            <div>
+                                                <h3 class="ask-section__title">Details</h3>
+                                                <dl class="pay-dl rq-dl">
+                                                    <div><dt>Payer</dt><dd x-text="finReq.payer_name || finReq.payer_sangha_sevi_id || '—'"></dd></div>
+                                                    <div x-show="finReq.payer_name && finReq.payer_sangha_sevi_id"><dt>Member ID</dt><dd class="mono" x-text="finReq.payer_sangha_sevi_id"></dd></div>
+                                                    <div><dt>Paid to</dt><dd x-text="finReq.organization_name || '—'"></dd></div>
+                                                    <div><dt>Receiving account</dt><dd x-text="finReq.account_label + (finReq.upi_vpa ? ' — ' + finReq.upi_vpa : '')"></dd></div>
+                                                    <div><dt>Booked into</dt><dd class="mono" x-text="finReq.scope_code"></dd></div>
+                                                    <div><dt>Asked on</dt><dd x-text="NSS.formatDateTime(finReq.created_at)"></dd></div>
+                                                    <div x-show="['CREATED','PENDING'].includes(finReq.status)"><dt>Valid until</dt><dd x-text="NSS.formatDateTime(finReq.expires_at)"></dd></div>
+                                                    <div x-show="finReq.note"><dt>Note</dt><dd x-text="finReq.note"></dd></div>
+                                                    <div x-show="finReq.paid_amount"><dt>Amount received</dt><dd x-text="finMoney(finReq.paid_amount)"></dd></div>
+                                                    <div x-show="finReq.paid_at"><dt>Paid at</dt><dd x-text="NSS.formatDateTime(finReq.paid_at)"></dd></div>
+                                                    <div x-show="finReq.transaction_reference"><dt>Booked as</dt><dd class="mono" x-text="finReq.transaction_reference + ' / ' + finReq.receipt_number"></dd></div>
+                                                    <div x-show="finReq.failure_reason"><dt>Note from the gateway</dt><dd x-text="finReq.failure_reason"></dd></div>
+                                                </dl>
+                                                <details class="rq-tech">
+                                                    <summary>Gateway details</summary>
+                                                    <dl class="pay-dl rq-dl">
+                                                        <div><dt>Gateway</dt><dd x-text="finReq.provider"></dd></div>
+                                                        <div x-show="finReq.provider_order_id"><dt>Order</dt><dd class="mono" x-text="finReq.provider_order_id"></dd></div>
+                                                        <div x-show="finReq.provider_payment_id"><dt>Payment</dt><dd class="mono" x-text="finReq.provider_payment_id"></dd></div>
+                                                    </dl>
+                                                </details>
                                             </div>
-                                            <p class="form-hint">Valid until <span x-text="NSS.formatDateTime(finReq.expires_at)"></span>.</p>
-                                        </div>
 
-                                        <div class="detail-grid cols-3">
-                                            <div class="detail-item"><div class="label">Sangha</div><div class="value" x-text="finReq.organization_name || '—'"></div></div>
-                                            <div class="detail-item"><div class="label">Booked into scope</div><div class="value" x-text="finReq.scope_code"></div></div>
-                                            <div class="detail-item"><div class="label">Receiving account</div><div class="value" x-text="finReq.account_label + (finReq.upi_vpa ? ' — ' + finReq.upi_vpa : '')"></div></div>
-                                            <div class="detail-item"><div class="label">Payer</div><div class="value" x-text="finReq.payer_sangha_sevi_id || finReq.payer_name || '—'"></div></div>
-                                            <div class="detail-item"><div class="label">Gateway</div><div class="value" x-text="finReq.provider + (finReq.provider_order_id ? ' · ' + finReq.provider_order_id : '')"></div></div>
-                                            <div class="detail-item"><div class="label">Created</div><div class="value" x-text="NSS.formatDateTime(finReq.created_at)"></div></div>
-                                            <div class="detail-item" x-show="finReq.note" style="grid-column:span 3;"><div class="label">Note</div><div class="value" x-text="finReq.note"></div></div>
-                                            <div class="detail-item" x-show="finReq.provider_payment_id"><div class="label">Gateway payment id</div><div class="value mono" x-text="finReq.provider_payment_id"></div></div>
-                                            <div class="detail-item" x-show="finReq.paid_amount"><div class="label">Amount received</div><div class="value" x-text="finMoney(finReq.paid_amount)"></div></div>
-                                            <div class="detail-item" x-show="finReq.paid_at"><div class="label">Paid at</div><div class="value" x-text="NSS.formatDateTime(finReq.paid_at)"></div></div>
-                                            <div class="detail-item" x-show="finReq.transaction_reference"><div class="label">Booked as</div><div class="value mono" x-text="finReq.transaction_reference + ' / ' + finReq.receipt_number"></div></div>
-                                            <div class="detail-item" x-show="finReq.failure_reason" style="grid-column:span 3;"><div class="label">Note from the gateway</div><div class="value" x-text="finReq.failure_reason"></div></div>
-                                        </div>
+                                            <div class="rq-side">
+                                                <div class="ask-section" x-show="['CREATED','PENDING'].includes(finReq.status)">
+                                                    <h3 class="ask-section__title">Share with the payer</h3>
+                                                    <p class="pay-muted" style="margin: 0 0 0.6rem;">A member sees this request in their own Pranami tab. For someone who is not a member, send the link.</p>
+                                                    <div class="pay-buttons" style="margin-top: 0;">
+                                                        <template x-if="finReqSafeUrl(finReq.pay_url)"><a class="btn-action primary" :href="finReqSafeUrl(finReq.pay_url)" target="_blank" rel="noopener noreferrer">Open payment page</a></template>
+                                                        <template x-if="finReqSafeUpi(finReq.upi_uri)"><a class="btn-action" :href="finReqSafeUpi(finReq.upi_uri)">Open in a UPI app</a></template>
+                                                        <button class="btn-action" x-show="finReqSafeUrl(finReq.pay_url)" @click="finReqCopy(finReq.pay_url, 'url')" x-text="finReqCopied === 'url' ? 'Copied' : 'Copy payment link'"></button>
+                                                        <button class="btn-action" x-show="finReqSafeUpi(finReq.upi_uri)" @click="finReqCopy(finReq.upi_uri, 'upi')" x-text="finReqCopied === 'upi' ? 'Copied' : 'Copy UPI link'"></button>
+                                                    </div>
+                                                </div>
 
-                                        <div class="form-section" x-show="finReqCanSimulate">
-                                            <h4 class="form-section-title">Simulate the gateway <span class="optional">(demo / development only — no money moves)</span></h4>
-                                            <p class="form-hint">Plays the payer and the gateway: a signed callback goes through exactly the same path as a real one.</p>
-                                            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:end;">
-                                                <button class="btn-action primary" :disabled="finReqActing" @click="finReqSimulate('paid')">Payer pays</button>
-                                                <input type="text" inputmode="decimal" class="form-input" style="max-width:9rem;" x-model="finReqSimAmount" placeholder="other amount" autocomplete="off">
-                                                <button class="btn-action" :disabled="finReqActing" @click="finReqSimulate('failed')">Payment fails</button>
-                                                <button class="btn-action" :disabled="finReqActing" @click="finReqSimulate('expired')">Link expires</button>
+                                                <div class="pay-test" x-show="finReqCanSimulate">
+                                                    <div class="pay-test__tag">TEST MODE</div>
+                                                    <p>Play the payer and the gateway: the signed callback goes through exactly the same path as a real one. No money moves.</p>
+                                                    <div class="pay-buttons">
+                                                        <button class="btn-action primary" :disabled="finReqActing" @click="finReqSimulate('paid')">Payer pays</button>
+                                                        <button class="btn-action" :disabled="finReqActing" @click="finReqSimulate('failed')">Payment fails</button>
+                                                        <button class="btn-action" :disabled="finReqActing" @click="finReqSimulate('expired')">Link expires</button>
+                                                    </div>
+                                                    <div class="rq-sim">
+                                                        <input type="text" inputmode="decimal" class="form-input" x-model="finReqSimAmount" placeholder="Other amount (optional)" autocomplete="off">
+                                                        <span class="pay-muted">Fill it and press "Payer pays" to rehearse a wrong-amount payment (held for review).</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <p class="form-hint">Fill "other amount" and press "Payer pays" to rehearse a wrong-amount payment (it will be held for review).</p>
                                         </div>
                                     </div>
                                 </div>

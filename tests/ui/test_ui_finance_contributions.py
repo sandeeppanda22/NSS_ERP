@@ -49,8 +49,8 @@ class TestAdminContributionForm:
 
         form = _contrib_form()
         bound = {m.split(".")[1] for m in re.findall(r'x-model="(finContribForm\.[a-z_0-9.]+)"', form)} - {"organization"}
-        assert bound <= set(ContributionCreate.model_fields), bound - set(ContributionCreate.model_fields)
-        # the four things the owner asked for are all there
+        # "direction" picks Money in (a contribution) or Money out (a plain EXPENSE head via /heads); it is not a ContributionCreate field
+        assert bound - {"direction"} <= set(ContributionCreate.model_fields), bound - set(ContributionCreate.model_fields)
         assert {"head_name", "fixed_amount", "due_period", "allow_part_payment"} <= bound
 
     def test_the_submit_sends_exactly_the_contribution_fields(self):
@@ -58,12 +58,16 @@ class TestAdminContributionForm:
 
         body = _between(SETUP_JS, "async finContribSubmit()", "// A Sakha's copy of a Kendra contribution")
         assert '"/contributions"' in body
-        sent = set(re.findall(r"\b(organization_pk|applies_to|head_name|description|fixed_amount|due_period|allow_part_payment|collection_account_pk):", body))
-        assert sent == {"organization_pk", "applies_to", "head_name", "description", "fixed_amount", "due_period", "allow_part_payment", "collection_account_pk"}
+        contribution = body.split('"/contributions"', 1)[1]            # the income path; the expense path posts a plain head first
+        sent = set(re.findall(r"\b(organization_pk|applies_to|head_name|description|fixed_amount|due_period|allow_part_payment|collection_account_pk|open_portal):", contribution))
+        assert sent == {"organization_pk", "applies_to", "head_name", "description", "fixed_amount", "due_period", "allow_part_payment", "collection_account_pk", "open_portal"}
         assert sent <= set(ContributionCreate.model_fields)
-        # no code, direction, scope or UPI flag from the browser: the server decides those
-        for forbidden in ("head_code", "direction", "collection_scope_pk", "allow_upi", "is_pranami", "is_restricted"):
+        assert "open_portal: false" in contribution, "a new head starts with its payment portal closed"
+        # no scope or UPI flag from the browser: the server decides those
+        for forbidden in ("collection_scope_pk", "allow_upi", "is_pranami", "is_restricted"):
             assert forbidden not in body, forbidden
+        expense = body.split('"/contributions"', 1)[0]
+        assert 'direction: "EXPENSE"' in expense and "/heads" in expense
 
     def test_the_form_checks_input_before_sending(self):
         body = _between(SETUP_JS, "async finContribSubmit()", "// A Sakha's copy of a Kendra contribution")
@@ -79,25 +83,24 @@ class TestAdminContributionForm:
 
     def test_all_sakhas_is_offered_for_the_kendra_only(self):
         form = _contrib_form()
-        assert 'x-show="finContribIsKendra"' in form and 'value="ALL_SAKHAS"' in form
+        assert 'x-show="finContribIsKendra && finContribForm.direction === \'INCOME\'"' in form and 'value="ALL_SAKHAS"' in form
         assert 'o.type_code === "KENDRA"' in SETUP_JS
         assert 'if (!this.finContribIsKendra) f.applies_to = "ORGANIZATION"' in SETUP_JS
-        # an all-Sakhas head collects nothing itself: the account box is hidden and not sent
-        assert "finContribForm.applies_to !== 'ALL_SAKHAS'" in form
-        assert 'collection_account_pk: allSakhas ? null' in SETUP_JS
+        # a new head has no receiving account box: the portal uses the Sangha's default account when it is opened
+        assert "finContribForm.collection_account_pk" not in form
 
     def test_the_buttons_are_for_configurers_only(self):
-        assert re.search(r'x-show="canConfigureFinance && !finHeadsAreEvents && !finHeadsAreTemplates" @click="finContribOpenCreate\(\)"', ADMIN_HTML)
-        assert re.search(r'x-show="canConfigureFinance && !h\.is_kendra_copy" @click="finHeadOpenEdit\(h\)"', ADMIN_HTML)
-        assert re.search(r'x-show="canConfigureFinance && h\.is_kendra_copy" @click="finCopyOpen\(h\)"', ADMIN_HTML)
-        assert re.search(r'x-show="canConfigureFinance && h\.applies_to_all_sakhas" @click="finHeadSyncCopies\(h\)"', ADMIN_HTML)
+        assert re.search(r'x-show="canConfigureFinance" @click="finContribOpenCreate\(\)">\+ Create head', ADMIN_HTML)
+        assert re.search(r'x-show="canConfigureFinance && h\.status === \'ACTIVE\' && finHeadPortalOpen\(h\) === false" @click="finHeadPortalOpenForm\(h\)"', ADMIN_HTML)
+        assert re.search(r'x-show="canConfigureFinance && h\.status === \'ACTIVE\' && finHeadPortalOpen\(h\) === true && !h\.applies_to_all_sakhas" @click="finHeadPortal\(h, false\)"', ADMIN_HTML)
 
-    def test_the_old_full_form_is_still_reachable_as_advanced(self):
-        assert "'Advanced head'" in ADMIN_HTML and "finHeadOpenCreate()" in ADMIN_HTML
+    def test_the_old_full_form_is_no_longer_offered(self):
+        # Simple page (owner 2026-11-18): the advanced head form, templates, events and per-row editing are not reachable from the page.
+        assert "'+ New head'" not in ADMIN_HTML and "@click=\"finHeadOpenCreate()\"" not in ADMIN_HTML
 
     def test_the_list_hides_while_a_contribution_form_is_open(self):
-        assert 'x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show"' in ADMIN_HTML
-        assert "this.finContribForm.show || this.finCopyForm.show" in SETUP_JS            # an open form counts as busy for live refresh
+        assert 'x-show="!finHeadForm.show && !finContribForm.show && !finCopyForm.show && !finPortalForm.show"' in ADMIN_HTML
+        assert "this.finContribForm.show || this.finPortalForm.show || this.finCopyForm.show" in SETUP_JS            # an open form counts as busy for live refresh
 
     def test_the_forms_reset_when_the_tab_is_entered(self):
         assert "this.finContribForm = newContribForm(); this.finCopyForm = newCopyForm();" in SETUP_JS
@@ -218,8 +221,13 @@ class TestStateMap:
             assert re.search(rf"\.{row.group(3)}\s*\{{", BADGES), f"{row.group(3)} is not defined in badges.css"
 
     def test_the_colours_are_green_amber_red_and_grey(self):
-        colours = {s: re.search(rf"\.contrib-card-{s}\s*\{{ border-left: 4px solid (#[0-9a-f]{{6}})", BADGES).group(1) for s in ("paid", "part", "due", "open")}
+        colours = {s: re.search(rf"\.contrib-card-{s}\s*\{{ border-color: #[0-9a-f]{{6}}; border-left: 4px solid (#[0-9a-f]{{6}})", BADGES).group(1)
+                   for s in ("paid", "part", "due", "open")}
         assert colours == {"paid": "#16a34a", "part": "#d97706", "due": "#dc2626", "open": "#9ca3af"}
+
+    def test_every_card_has_a_full_visible_outline(self):
+        # owner 2026-11-18: a bare left bar on a white card was too faint to tell the cards apart
+        assert re.search(r"\.contrib-card-paid, \.contrib-card-part, \.contrib-card-due, \.contrib-card-open \{ border: 1px solid #[0-9a-f]{6}; box-shadow:", BADGES)
 
     def test_the_states_match_what_the_service_returns(self):
         from api.services.finance_contribution import card_state
@@ -303,3 +311,218 @@ class TestPayRequestFromTheCard:
         poll = _between(DASH_JS, "_pranamiPayPoll(pk, tries) {", "pranamiPayClose()")
         assert 'this._loadPranami({ silent: true })' in poll          # which reloads the cards too (see _loadPranami)
         assert "this._loadPranamiPayHeads();" in _between(DASH_JS, "async _loadPranami(opts = {}) {", "// Financial years that have")
+
+
+class TestOpenPortalAsksForTheAmount:
+    """Owner 2026-11-18: opening a head's payment portal asks what members are to pay."""
+
+    def test_the_button_opens_a_form_and_the_form_sends_the_amount_fields(self):
+        from api.schemas.finance import PortalToggle
+
+        assert 'finHeadPortalOpenForm(h)">Open payment portal' in ADMIN_HTML
+        body = _between(SETUP_JS, "async finPortalSubmit()", "async finHeadPortal(h, open)")
+        assert "/portal" in body and "fixed_amount" in body and "due_period" in body and "allow_part_payment" in body
+        assert {"open", "fixed_amount", "due_period", "allow_part_payment"} <= set(PortalToggle.model_fields)
+        assert "MONEY_RE" in body and "<= 0" in body
+
+    def test_a_kendra_copy_is_not_asked_for_an_amount(self):
+        body = _between(SETUP_JS, "async finPortalSubmit()", "async finHeadPortal(h, open)")
+        assert "follows_kendra ? { open: true }" in body
+        assert "set by the Kendra" in ADMIN_HTML
+
+    def test_the_form_counts_as_busy_for_live_refresh(self):
+        assert "this.finPortalForm.show" in SETUP_JS
+
+
+class TestThePaymentPageIsACheckout:
+    """Owner 2026-11-18: the member's "Your payment" panel looks like a real checkout."""
+
+    def _panel(self):
+        return _between(DASH_HTML, "<!-- The payment in progress / its outcome", 'x-show="pranami.loading"')
+
+    def test_it_shows_the_summary_the_steps_and_every_outcome(self):
+        panel = self._panel()
+        for needle in ("Amount to pay", "Paying to", "Paid by", "Payment reference", "Valid for", "Pay with your UPI app",
+                       "Payment received. Thank you!", "Payment did not go through", "Review", "Receipt", "pranamiExpiresIn()"):
+            assert needle in panel, needle
+
+    def test_the_demo_box_is_shown_only_for_a_demo_payment_and_offers_both_outcomes(self):
+        panel = self._panel()
+        assert 'x-show="pranamiPay.result && pranamiPay.result.demo_payable"' in panel and "TEST MODE" in panel
+        assert "pranamiDemoPay('paid')" in panel and "pranamiDemoPay('failed')" in panel
+        body = _between(DASH_JS, "async pranamiDemoPay(", "pranamiPayClose()")
+        assert "/demo-pay?outcome=" in body and '"failed" : "paid"' in body
+
+    def test_the_countdown_ticks_only_while_waiting_and_is_cleared_on_close(self):
+        assert "_pranamiStartClock()" in _between(DASH_JS, "async pranamiPayStart(h)", "_pranamiPayPoll(pk, tries) {")
+        assert "clearInterval(this._pranamiClock)" in _between(DASH_JS, "pranamiPayClose()", "// The \"valid for")
+        clock = _between(DASH_JS, "_pranamiStartClock() {", "pranamiExpiresIn() {")
+        assert '["CREATED", "PENDING"].includes(r.status)' in clock and "clearInterval" in clock
+
+    def test_the_server_offers_both_demo_outcomes_and_no_other(self):
+        import inspect
+        from api.routers import finance_upi
+
+        src = inspect.getsource(finance_upi.demo_pay_my_request)
+        assert 'pattern="^(paid|failed)$"' in src and "payment.failed" in src
+
+
+class TestAWaitingPaymentCanBeResumedOrCancelled:
+    """Owner 2026-11-18: leaving the payment page (Back, reload) must not leave an unexplained "waiting for the bank"."""
+
+    def test_the_panel_cancel_really_cancels_and_back_does_not(self):
+        panel = _between(DASH_HTML, "<!-- The payment in progress / its outcome", 'x-show="pranami.loading"')
+        assert "pranamiCancelRequest(pranamiPay.result.upi_payment_request_pk)" in panel and ">Cancel payment<" in panel
+        assert '@click="pranamiPayClose()">← Back to my Pranami' in panel          # Back only leaves; the request stays waiting
+
+    def test_a_waiting_card_offers_resume_and_cancel(self):
+        cards = _between(DASH_HTML, "<!-- Your contributions:", "<!-- The ticked contributions")
+        assert 'x-show="Number(h.pending_amount) > 0 && h.pending_request_pk"' in cards
+        assert 'pranamiResume(h)' in cards and 'pranamiCancelRequest(h.pending_request_pk)' in cards
+
+    def test_the_handlers_call_the_member_routes_only(self):
+        resume = _between(DASH_JS, "async pranamiResume(h)", "async pranamiCancelRequest(")
+        cancel = _between(DASH_JS, "async pranamiCancelRequest(", "// DEMO gateway only")
+        assert "/api/v1/finance/my-pranami/requests/${h.pending_request_pk}" in resume and "_pranamiPayPoll" in resume
+        assert "/cancel" in cancel and '"POST"' in cancel and "NSSDialog.confirm" in cancel
+
+    def test_the_server_cancels_only_the_callers_unpaid_request(self):
+        import inspect
+        from api.routers import finance_upi
+        from api.schemas.finance import MyPayableHead
+
+        src = inspect.getsource(finance_upi.cancel_my_request)
+        assert "_not_found" in src and "_UNPAID" in src and '"status": "CANCELLED"' in src
+        assert "pending_request_pk" in MyPayableHead.model_fields
+
+
+class TestTheHeadsPageLayout:
+    """Owner 2026-11-18: the Finance heads page is a clean header + tiles + toolbar + table, not a wall of badges."""
+
+    def _page(self):
+        return _between(ADMIN_HTML, "<div x-show=\"activeTab === 'finSetup'\" x-cloak>", "<!-- Account form -->")
+
+    def test_a_locked_sangha_is_shown_as_a_chip_and_only_an_open_scope_asks(self):
+        page = self._page()
+        assert 'class="fh-chip" x-show="finSetupOrgLocked && finSetupOrg.selected"' in page
+        assert 'class="fh-page__picker" x-show="!finSetupOrgLocked"' in page
+        assert "(SAKHA_SANGHA)" not in page and "type_name: NSS.codeLabel(sc.organization_type_code)" in SETUP_JS
+
+    def test_the_toolbar_filters_by_search_type_and_portal(self):
+        page = self._page()
+        for model in ("finHeadQ", "finHeadDirFilter", "finHeadPortalFilter"):
+            assert f'x-model="{model}"' in page, model
+        assert "finHeadsShown()" in page and "finHeadsMultiOrg()" in page
+
+    def test_the_table_shows_amount_and_portal_not_rule_badges(self):
+        page = self._page()
+        for header in ("Head", "Amount members pay", "Payment portal"):
+            assert f"<th>{header}</th>" in page, header
+        assert "finHeadRules(h)" not in page and "No approval needed" not in page
+        assert "finHeadAmountLabel(h)" in page and "Part payments allowed" in page
+
+    def test_the_helpers_exist(self):
+        for fn in ("finHeadsShown()", "finHeadsPortalCount(open)", "finHeadsMultiOrg()", "finHeadAmountLabel(h)"):
+            assert fn in SETUP_JS, fn
+
+
+class TestThePayerPickerOfAPaymentRequest:
+    """Owner 2026-11-18: asking a member for a UPI payment shows matching names while typing."""
+
+    def test_matches_appear_while_typing_and_picking_sets_the_member_id(self):
+        form = _between(ADMIN_HTML, 'x-show="finReqForm.show" x-cloak>', "Create payment request")
+        assert 'x-model="finReqForm.member.query"' in form and '@input="finReqMemberInput()"' in form
+        assert '@click="finReqMemberPick(m)"' in form and "finReqMemberName(m)" in form
+        assert 'x-show="!finReqForm.member.selected"' in form                      # a typed payer name only for a non-member
+        assert 'x-model="finReqForm.sangha_sevi_id"' not in form                   # the id is never typed by hand any more
+        pick = _between(SETUP_JS, "finReqMemberPick(x) {", "finReqMemberClear()")
+        assert "f.sangha_sevi_id = x.sangha_sevi_id" in pick and 'f.payer_name = ""' in pick
+
+    def test_the_search_waits_for_two_characters_debounces_and_uses_the_member_directory(self):
+        inp = _between(SETUP_JS, "finReqMemberInput() {", "async finReqMemberSearch()")
+        assert "q.length < 2" in inp and "setTimeout" in inp and "300" in inp
+        search = _between(SETUP_JS, "async finReqMemberSearch() {", "finReqMemberName(x)")
+        assert "/api/v1/membership/directory" in search and "m.query.trim() === q" in search     # a late reply never overwrites newer typing
+
+    def test_the_request_still_posts_the_member_id_and_payer_name_only(self):
+        body = _between(SETUP_JS, "async finReqSubmit()", "async finReqOpen(pk)")
+        assert "sangha_sevi_id: blank(f.sangha_sevi_id)" in body and "payer_name: blank(f.payer_name)" in body and "member" not in body.split("_finSend")[1].split("});")[0]
+
+
+class TestARequestMadeForAMemberShowsInTheirPranamiTab:
+    """Owner 2026-11-18: a payment request typed against a member's name appears in that member's Pranami tab by itself."""
+
+    def test_the_tab_lists_requests_asked_of_the_member_with_pay_and_decline(self):
+        block = _between(DASH_HTML, "<!-- Payment requests a treasurer / admin made for this member", "<!-- Your contributions")
+        assert 'x-for="rq in pranamiPay.requests"' in block and "rq.asked_by_name" in block
+        assert "pranamiPayRequested(rq)" in block and "pranamiCancelRequest(rq.upi_payment_request_pk)" in block
+        body = _between(DASH_JS, "async _loadPranamiRequests() {", "pranamiPayRequested(r) {")
+        assert "/api/v1/finance/my-pranami/requests" in body and "asked_by_name" in body      # only the ones somebody ASKED (own ones live on the cards)
+
+    def test_it_opens_the_same_checkout_and_refreshes_by_itself(self):
+        pay = _between(DASH_JS, "pranamiPayRequested(r) {", "async _loadPranami(opts")
+        assert "_pranamiStartClock()" in pay and "_pranamiPayPoll(" in pay
+        block = DASH_JS.split("// LIVE_TABLE_TABS:begin")[1].split("// LIVE_TABLE_TABS:end")[0]
+        assert 'upi_payment_request: ["pranami"]' in block
+        assert "this._loadPranamiRequests();" in _between(DASH_JS, "async _loadPranamiPayHeads() {", "async _loadPranamiRequests()")
+
+    def test_the_server_lists_only_the_callers_own_open_requests(self):
+        import inspect
+        from api.routers import finance_upi
+        from api.schemas.finance import MyPaymentRequest
+
+        src = inspect.getsource(finance_upi.my_open_requests)
+        assert "r.payer_person_pk = %s" in src and "'CREATED', 'PENDING'" in src
+        assert list(inspect.signature(finance_upi.my_open_requests).parameters) == ["user", "conn"]      # no id parameter: only ever the caller's own
+        assert {"asked_by_name", "note", "upi_payment_request_pk", "demo_payable"} <= set(MyPaymentRequest.model_fields)
+
+
+class TestTheAskForAPaymentPage:
+    """Owner 2026-11-18: the "Ask for a UPI payment" page - form on the left, a live summary on the right, a tidy request list."""
+
+    def _page(self):
+        return _between(ADMIN_HTML, "<!-- Create form: who is paying", "<!-- Detail: one request")
+
+    def test_the_form_is_split_into_who_and_what_with_a_live_summary(self):
+        page = self._page()
+        for needle in ("Who is paying?", "What is it for?", "Request summary", "ask-summary", "finReqHeadSel()", "Create payment request", "← Back to list"):
+            assert needle in page, needle
+        for model in ("finReqForm.member.query", "finReqForm.payer_name", "finReqForm.finance_head_pk", "finReqForm.amount", "finReqForm.note"):
+            assert f'x-model="{model}"' in page, model
+
+    def test_a_fixed_amount_prefills_the_amount_once(self):
+        body = _between(SETUP_JS, "finReqHeadChanged() {", "finReqOpenForm() {")
+        assert "fixed_amount" in body and 'String(this.finReqForm.amount || "").trim()' in body
+
+    def test_the_list_shows_payer_name_first_and_filters_as_you_type(self):
+        page = self._page()
+        for header in ("Payer", "For", "Asked on", "Status"):
+            assert f"<th>{header}</th>" in page, header
+        assert 'x-model="finReqQ" @input.debounce.300ms="finReqApply()"' in page
+        assert "r.payer_name || r.payer_sangha_sevi_id" in page
+
+
+class TestTheRequestDetailPage:
+    """Owner 2026-11-18: one payment request - amount and status on top, the steps, details, sharing, the demo gateway."""
+
+    def _detail(self):
+        return _between(ADMIN_HTML, "<!-- Detail: one request", "</div><!-- /Finance -->")
+
+    def test_it_leads_with_the_amount_the_status_and_the_progress_steps(self):
+        d = self._detail()
+        for needle in ("← Back to requests", "Payment request", "pay-amount", "finBadge(finReq.status)", "Asked", "Paid", "Booked and receipted"):
+            assert needle in d, needle
+
+    def test_the_actions_keep_their_gates(self):
+        d = self._detail()
+        assert "canManageFinance && ['CREATED','PENDING'].includes(finReq.status)" in d and "finReqRefresh()" in d
+        assert 'x-show="finReqNeedsBooking && canApproveFinance"' in d and "finReqBook()" in d
+        assert "finActions('payment_request', finReq.status)" in d
+
+    def test_sharing_and_the_demo_gateway_are_separate_blocks(self):
+        d = self._detail()
+        assert "Share with the payer" in d and "finReqSafeUrl(finReq.pay_url)" in d and "finReqSafeUpi(finReq.upi_uri)" in d
+        assert 'class="pay-test" x-show="finReqCanSimulate"' in d and "TEST MODE" in d
+        for outcome in ("paid", "failed", "expired"):
+            assert f"finReqSimulate('{outcome}')" in d, outcome
+        assert "Gateway details" in d                     # the order / payment ids are tucked away, not the first thing seen
