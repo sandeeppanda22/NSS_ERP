@@ -42,7 +42,7 @@ import re
 import secrets
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote, urlencode
 
@@ -119,6 +119,13 @@ def credentials_for(ref: str | None, provider: str | None = None) -> Credentials
     if (provider or "").upper() == "MOCK":
         return mock_credentials()
     raise GatewayUnavailable(f"Gateway credential set {ref} is not configured on this server.")
+
+
+def is_dev_install() -> bool:
+    """True when the database is on this machine (a development / demo install, never Render / Neon)."""
+    from api.config import LOCAL_DB_HOSTS
+
+    return (settings.DB_HOST or "").strip().lower() in LOCAL_DB_HOSTS
 
 
 def enabled_providers() -> frozenset[str]:
@@ -231,9 +238,19 @@ class RazorpayProvider(Provider):
     signature_header = "X-Razorpay-Signature"
     API = "https://api.razorpay.com/v1"           # fixed: never built from input
 
+    def _api(self) -> str:
+        """The Razorpay API root. Fixed - except on a development install, where RAZORPAY_API_BASE may point at the local rehearsal server
+        (scripts/fake_razorpay.py), and only to this machine: an operator setting, never request input."""
+        override = os.environ.get("RAZORPAY_API_BASE", "").strip().rstrip("/")
+        if override and is_dev_install() and re.match(r"^http://(127\.0\.0\.1|localhost)(:\d+)?(/|$)", override):
+            return override
+        return self.API
+
     def _client(self):
         import httpx                                # imported lazily: only live use needs it
         return httpx.Client(timeout=HTTP_TIMEOUT)
+
+    MIN_WINDOW = timedelta(minutes=16)              # Razorpay refuses a link that expires in under 15 minutes
 
     def create_order(self, *, creds, reference, amount, description, payer_name, expires_at, vpa, payee_name, merchant_ref):
         body = {
@@ -247,7 +264,7 @@ class RazorpayProvider(Provider):
         headers = {"X-Razorpay-Account": merchant_ref} if merchant_ref else {}
         try:
             with self._client() as http:
-                r = http.post(f"{self.API}/payment_links", json=body, auth=(creds.key_id, creds.key_secret), headers=headers)
+                r = http.post(f"{self._api()}/payment_links", json=body, auth=(creds.key_id, creds.key_secret), headers=headers)
         except Exception as exc:                     # network / TLS / timeout
             raise GatewayError("The payment gateway could not be reached.") from exc
         if r.status_code >= 400:
@@ -280,7 +297,7 @@ class RazorpayProvider(Provider):
         headers = {"X-Razorpay-Account": merchant_ref} if merchant_ref else {}
         try:
             with self._client() as http:
-                r = http.get(f"{self.API}/payment_links/{quote(provider_order_id, safe='')}", auth=(creds.key_id, creds.key_secret), headers=headers)
+                r = http.get(f"{self._api()}/payment_links/{quote(provider_order_id, safe='')}", auth=(creds.key_id, creds.key_secret), headers=headers)
         except Exception as exc:
             raise GatewayError("The payment gateway could not be reached.") from exc
         if r.status_code >= 400:

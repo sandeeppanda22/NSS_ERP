@@ -18,6 +18,16 @@ _env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(_env_path, encoding="utf-8-sig")
 
 
+# A database on this machine means a development / demo install; Render / Neon (production) are remote.
+LOCAL_DB_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def default_upi_providers(db_host: str) -> str:
+    """UPI_GATEWAY_ENABLED_PROVIDERS when the variable is not set: both adapters on a local install (MOCK needs no keys, and RAZORPAY only
+    works once its credential set is in the environment, so enabling it moves nothing by itself); OFF for any remote database."""
+    return "MOCK,RAZORPAY" if (db_host or "").strip().lower() in LOCAL_DB_HOSTS else ""
+
+
 class Settings:
     """Application settings sourced from environment variables."""
 
@@ -96,13 +106,14 @@ class Settings:
     #   (a member paying their own Pranami).
     # UPI_WEBHOOK_RATE_LIMIT — per-IP limit on the (unauthenticated, signature-
     #   verified) gateway webhook; UPI_WEBHOOK_MAX_BYTES — body size cap.
-    # Owner 2026-11-18 ("add it by default"): when the variable is NOT SET and the database is on this machine (a development / demo
-    #   install), the MOCK demo gateway is on, so the whole pay flow works with no setup (api/.env is rewritten by the setup script, so
-    #   a hand-added line kept vanishing). A remote database (Render / Neon = production) never gets this default, and an explicit value -
-    #   including an empty one, which switches UPI collection OFF - always wins.
+    # Owner 2026-11-18 ("add it by default"; "also enable razorpay"): when the variable is NOT SET and the database is on this machine (a
+    #   development / demo install), the MOCK demo gateway AND the RAZORPAY adapter are on, so the whole pay flow works with no setup and a
+    #   Razorpay account only needs its keys (api/.env is rewritten by the setup script, so a hand-added line kept vanishing). A remote
+    #   database (Render / Neon = production) never gets this default, and an explicit value - including an empty one, which switches UPI
+    #   collection OFF - always wins.
     UPI_GATEWAY_ENABLED_PROVIDERS: str = (
         os.environ["UPI_GATEWAY_ENABLED_PROVIDERS"] if "UPI_GATEWAY_ENABLED_PROVIDERS" in os.environ
-        else ("MOCK" if DB_HOST.strip().lower() in ("localhost", "127.0.0.1", "::1") else "")
+        else default_upi_providers(DB_HOST)
     )
     UPI_REQUEST_EXPIRY_MINUTES: int = int(os.environ.get("UPI_REQUEST_EXPIRY_MINUTES", "30"))
     UPI_PAY_RATE_LIMIT: str = os.environ.get("UPI_PAY_RATE_LIMIT", "10/minute")

@@ -239,6 +239,7 @@ class TestRazorpayAdapterAgainstAFake:
     """Shape checks only - NOT proof the live API behaves like this."""
 
     def _p(self, monkeypatch, response):
+        monkeypatch.delenv("RAZORPAY_API_BASE", raising=False)     # a developer's api/.env may point at the local rehearsal server; these tests pin the real URL
         _FakeHttp.calls = []
         p = gw.PROVIDERS["RAZORPAY"]
         monkeypatch.setattr(p, "_client", lambda: _FakeHttp(response))
@@ -313,3 +314,44 @@ class TestRazorpayAdapterAgainstAFake:
         p = self._p(monkeypatch, _FakeResponse(200, {"status": "created"}))
         p.fetch_order_status(creds=gw.Credentials("k", "s", SECRET), provider_order_id="../../x?y", merchant_ref=None)
         assert _FakeHttp.calls[0][1] == "https://api.razorpay.com/v1/payment_links/..%2F..%2Fx%3Fy"
+
+
+class TestRazorpayIsEnabledByDefaultOnALocalInstall:
+    """Owner 2026-11-18: "also enable razorpay" - offered with no setup locally, never by default on a server, never faking an account there."""
+
+    @pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "::1", " LocalHost "])
+    def test_a_local_database_gets_both_adapters(self, host):
+        from api.config import default_upi_providers
+
+        assert default_upi_providers(host) == "MOCK,RAZORPAY"
+
+    @pytest.mark.parametrize("host", ["ep-cool-123.neon.tech", "10.0.0.5", "db.internal", "", None])
+    def test_a_remote_database_gets_nothing(self, host):
+        from api.config import default_upi_providers
+
+        assert default_upi_providers(host) == ""
+
+    def test_the_explicit_value_always_wins(self):
+        import inspect
+        from api import config
+
+        src = inspect.getsource(config.Settings)
+        assert '"UPI_GATEWAY_ENABLED_PROVIDERS" in os.environ' in src
+
+    def test_a_demo_account_is_only_ever_made_on_a_local_install_with_mock_on(self, monkeypatch):
+        from api.services import finance_contribution as FC
+
+        class NoCursor:                       # any query would be a bug: the rule must stop before touching the database
+            def execute(self, *a, **k):
+                raise AssertionError("queried")
+
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "MOCK,RAZORPAY")
+        monkeypatch.setattr(settings, "DB_HOST", "ep-cool-123.neon.tech")
+        assert FC.ensure_demo_account(NoCursor(), None, "x") is None                      # a server: never
+        monkeypatch.setattr(settings, "DB_HOST", "localhost")
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "RAZORPAY")
+        assert FC.ensure_demo_account(NoCursor(), None, "x") is None                      # MOCK not enabled: never
+
+    def test_razorpay_has_a_minimum_payment_window_and_mock_has_none(self):
+        assert gw.RazorpayProvider.MIN_WINDOW >= timedelta(minutes=15)
+        assert not hasattr(gw.MockProvider, "MIN_WINDOW")
