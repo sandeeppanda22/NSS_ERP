@@ -7,6 +7,8 @@
 # modules only.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
+# Version: 2.10 - Phase 11i Finance (12 tables, 91 total; + disbursement authority) + Phase 0 FINANCE_* permissions patch + Finance reference-data patch (2026-11-10);
+#          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
 # Version: 2.9  - Phase 11h live-refresh change marker (1 table, 79 total) (2026-11-03);
 #          desk-checked by analogy with 02_build.sh only (no PowerShell host available).
 # Version: 2.8  - Phase 11g Assets & Property (7 tables, 78 total) + Phase 0 ASSET_VIEW/ASSET_MANAGE patch (2026-11-02);
@@ -80,6 +82,9 @@
 #              triggers + reference-data patch (GDR-010)
 #   Phase 11h- Live refresh DDL (1 table: live_change_marker + sequence live_change_seq;
 #              idempotent statement-level triggers on the watched tables)
+#   Phase 11i- Finance DDL (12 tables: financial_year, financial_scope, fund_master, financial_account,
+#              finance_head, financial_transaction, financial_receipt, financial_payment, financial_transfer,
+#              upi_payment_request, finance_gateway_event — Module Finance, Tier 12)
 #   Phase 12 - Grant nss_db_writer write access (Tier 5)
 #   Phase 13 - Admin bootstrap seed (NSS Admin superuser)
 #   Phase 13b- Geo attribution backfill (city_village/postal_code/
@@ -116,7 +121,7 @@
 #             ddl/11_assets_property/11_assets_property_acquisition_method_patch.sql
 #             seed/11_assets_property/01_assets_property_reference_data_patch.sql
 #             ddl/11_assets_property/12_assets_property_terminal_custody_patch.sql
-# Table count: 79 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,14).
+# Table count: 90 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+11+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,11i,14).
 #
 # NOT executed:
 #   - database/seed/03_person/ (no seed data - Person data lives in
@@ -271,6 +276,8 @@ Invoke-Sql "assets_property permissions patch" "$SeedBase\00_bootstrap\05_assets
 Invoke-Sql "assets_property permissions revoke patch" "$SeedBase\00_bootstrap\06_assets_property_permissions_revoke_patch.sql"
 # Idempotent patch (2026-11-04, GDR-011 Proposed owner decision): soft-deletes (is_active=FALSE) the NSS_ERP_AUDITOR PERSON_VIEW_SENSITIVE grant seeded by the existence-gated 03_role_permission.sql (role_permission stays 178 rows, 177 active).
 Invoke-Sql "person_view_sensitive auditor revoke patch" "$SeedBase\00_bootstrap\07_person_view_sensitive_auditor_revoke_patch.sql"
+Invoke-Sql "finance permissions patch" "$SeedBase\00_bootstrap\08_finance_permissions_patch.sql"
+Invoke-Sql "finance configure permission patch" "$SeedBase\00_bootstrap\09_finance_configure_permission_patch.sql"
 Write-Host ""
 
 # Phase 1: Foundation DDL
@@ -566,6 +573,8 @@ Invoke-Ddl "organization_reparent_request" "organization_reparent_request" "$Ddl
 Invoke-Ddl "organization_reparent_step"    "organization_reparent_step"    "$DdlBase\02_organization\07_organization_reparent_step.sql"
 # Idempotent patch (owner 2026-10-31): widens the existing organization_reparent_step CHECKs for the new SOURCE_PARENT_PRESIDENT step (step_role + step_order 1..4); the table DDL above is existence-gated.
 Invoke-Sql "organization_reparent_step source-role patch" "$DdlBase\02_organization\09_organization_reparent_step_source_role_patch.sql"
+# membership_status_change_request (Membership module) FKs user_account (Phase 10), so it is built here, after authentication, not in the Phase 7 membership block.
+Invoke-Ddl "membership_status_change_request" "membership_status_change_request" "$DdlBase\05_membership\21_membership_status_change_request.sql"
 Write-Host ""
 
 # -------------------------------------------------
@@ -612,11 +621,49 @@ Write-Host ""
 # nss.live_change_marker + nss.live_change_seq (existence-gated), then the
 # idempotent statement-level triggers on the watched tables (run EVERY build:
 # the table list in 02_live_change_triggers.sql may grow; must run after every
-# table it names exists, i.e. after Phase 11g). Placed before Phase 12/14 so the
+# table it names exists, i.e. after Phase 11i: the trigger call itself is made at the
+# END of Phase 11i, once the Finance tables exist). Placed before Phase 12/14 so the
 # writer grant covers the marker table; Phase 14's audit trigger EXCLUDES it.
 # -------------------------------------------------
-Write-Host "[Phase 11h] Live refresh - DDL (1 table + change-marker triggers)" -ForegroundColor Cyan
+Write-Host "[Phase 11h] Live refresh - DDL (1 table; its triggers are applied at the end of Phase 11i)" -ForegroundColor Cyan
 Invoke-Ddl "live_change_marker" "live_change_marker" "$DdlBase\12_live_refresh\01_live_change_marker.sql"
+Write-Host ""
+
+# -------------------------------------------------
+# Phase 11i: Finance DDL (12 tables, Tier 12) - DRAFT, owner approval pending
+# Same order and placement as 02_build.sh Phase 11i.
+# -------------------------------------------------
+Write-Host "[Phase 11i] Finance - DDL (12 tables)" -ForegroundColor Cyan
+Invoke-Ddl "financial_year" "financial_year" "$DdlBase\14_finance\01_financial_year.sql"
+Invoke-Ddl "financial_scope" "financial_scope" "$DdlBase\14_finance\02_financial_scope.sql"
+Invoke-Ddl "fund_master" "fund_master" "$DdlBase\14_finance\03_fund_master.sql"
+Invoke-Ddl "financial_account" "financial_account" "$DdlBase\14_finance\04_financial_account.sql"
+Invoke-Ddl "finance_head" "finance_head" "$DdlBase\14_finance\05_finance_head.sql"
+Invoke-Ddl "financial_transaction" "financial_transaction" "$DdlBase\14_finance\06_financial_transaction.sql"
+Invoke-Ddl "financial_receipt" "financial_receipt" "$DdlBase\14_finance\07_financial_receipt.sql"
+Invoke-Ddl "financial_payment" "financial_payment" "$DdlBase\14_finance\08_financial_payment.sql"
+Invoke-Ddl "financial_transfer" "financial_transfer" "$DdlBase\14_finance\09_financial_transfer.sql"
+Invoke-Ddl "upi_payment_request" "upi_payment_request" "$DdlBase\14_finance\10_upi_payment_request.sql"
+Invoke-Ddl "finance_gateway_event" "finance_gateway_event" "$DdlBase\14_finance\11_finance_gateway_event.sql"
+Invoke-Ddl "finance_disbursement_authority" "finance_disbursement_authority" "$DdlBase\14_finance\13_finance_disbursement_authority.sql"
+Invoke-Ddl "finance_transaction_bill" "finance_transaction_bill" "$DdlBase\14_finance\16_finance_transaction_bill.sql"
+Invoke-Ddl "finance_approval_step" "finance_approval_step" "$DdlBase\14_finance\17_finance_approval_step.sql"
+Invoke-Ddl "finance_approval_policy" "finance_approval_policy" "$DdlBase\14_finance\18_finance_approval_policy.sql"
+Invoke-Ddl "upi_payment_request_line" "upi_payment_request_line" "$DdlBase\14_finance\19_upi_payment_request_line.sql"
+Invoke-Sql "finance reference data patch" "$SeedBase\12_finance\01_finance_reference_data_patch.sql"
+# Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
+Invoke-Sql "finance head templates patch" "$SeedBase\12_finance\02_finance_head_templates_patch.sql"
+Invoke-Sql "finance heads structure patch" "$DdlBase\14_finance\12_finance_heads_patch.sql"
+# Fixed amount / due period / part payment / applies-to-all-Sakhas columns on finance_head (owner decision 2026-11-15).
+Invoke-Sql "finance head fixed amount patch" "$DdlBase\14_finance\14_finance_head_fixed_amount_patch.sql"
+Invoke-Sql "finance head approval patch" "$DdlBase\14_finance\15_finance_head_approval_patch.sql"
+Invoke-Sql "finance head due date patch" "$DdlBase\14_finance\20_finance_head_due_date_patch.sql"
+# Head flags AFTER the columns: pre-defined income heads skip approval; the member-reimbursement template.
+Invoke-Sql "finance head approval flags patch" "$SeedBase\12_finance\04_finance_head_approval_patch.sql"
+# Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
+Invoke-Sql "finance disbursement purpose patch" "$SeedBase\12_finance\03_finance_disbursement_purpose_patch.sql"
+# Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
+# tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 Invoke-Sql "live_change_triggers" "$DdlBase\12_live_refresh\02_live_change_triggers.sql"
 Write-Host ""
 

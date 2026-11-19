@@ -80,6 +80,9 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // list); tests/api/test_live_changes.py::TestJsMapParity parses this block, so
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
+// Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
+const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers", "finSetup", "finCollections"];
+
 // LIVE_TABLE_TABS:begin
 const LIVE_TABLE_TABS = {
     registration_claim: ["claims", "claimsBadge", "users", "detail"],
@@ -97,7 +100,7 @@ const LIVE_TABLE_TABS = {
     // Governance catalogue tab (body types / positions)
     body_type_master: ["govCatalog"],
     position_master: ["govCatalog"],
-    organization: ["orgDashboard", "organizations", "orgHierarchy", "users", "detail", "memberDir"],
+    organization: ["orgDashboard", "organizations", "orgHierarchy", "users", "detail", "memberDir", "create"],
     membership_sakha_affiliation: ["orgDashboard", "users", "detail", "memberDir", "credentials"],
     parichaya_patra: ["orgDashboard", "memberDir", "credentials", "credentialsBadge"],
     family_group: ["orgDashboard"],
@@ -109,6 +112,23 @@ const LIVE_TABLE_TABS = {
     property_statutory_record: ["properties"],
     property_document: ["properties"],
     asset_document: ["assets"],
+    // Finance (Tier 12)
+    financial_year: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    financial_scope: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    fund_master: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    financial_transaction: ["finOverview", "finTransactions"],
+    financial_receipt: ["finTransactions"],
+    financial_payment: ["finTransactions"],
+    financial_transfer: ["finOverview", "finTransfers"],
+    // Customization + UPI collection: heads and accounts shape the transaction forms; requests move the overview figures.
+    finance_head: ["finSetup", "finTransactions", "finCollections"],
+    financial_account: ["finSetup"],
+    upi_payment_request: ["finCollections", "finOverview"],
+    finance_disbursement_authority: ["finTransactions", "finTransfers"],
+    finance_transaction_bill: ["finTransactions"],
+    finance_approval_step: ["finTransactions"],
+    finance_approval_policy: ["finSetup"],
+    upi_payment_request_line: ["finCollections"],
     // ── Batch 2 ──
     // Users tab + user detail. user_account's login churn (last_login_at, failed-login
     // counters, locked_until) never bumps its marker (ignored-column trigger), so a login
@@ -118,14 +138,14 @@ const LIVE_TABLE_TABS = {
     user_role: ["detail"],
     admin_scope: ["detail"],
     role_master: ["detail"],
-    person: ["users", "detail", "personDir", "memberDir", "credentials"],
+    person: ["users", "detail", "personDir", "memberDir", "credentials", "create"],
     person_address: ["personDir"],
     sangha_sevi: ["orgDashboard", "users", "detail", "personDir", "memberDir", "credentials", "credentialsBadge"],
     anumati_patra: ["memberDir", "credentials", "credentialsBadge"],
     membership_journey_event: ["memberDir"],
     // Reference data / geography / location approvals / settings
     master_category: ["refData", "organizations"],
-    master_data: ["users", "detail", "organizations", "personDir", "memberDir", "credentials", "refData"],
+    master_data: ["users", "detail", "organizations", "personDir", "memberDir", "credentials", "refData", "create"],
     document_master: ["refData"],
     country: ["geography", "organizations"],
     state: ["geography", "organizations"],
@@ -193,6 +213,12 @@ const LIVE_REFRESH_CONFIG = {
         },
         properties: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
         assets: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
+        finOverview: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finSetup: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finCollections: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
 
         // ── Batch 2 ──
         // Busy = a modal, inline editor or Profile Details editor of that tab is open.
@@ -209,6 +235,10 @@ const LIVE_REFRESH_CONFIG = {
             busy: (h) => !!(h.editingOrgPk || h.editOrgDetailPk || h.savingOrgDetail || h.savingShortCode),
         },
         orgHierarchy: { reload: (h) => h.loadOrgHierarchy({ silent: true }) },
+        // Create Person & Account is a data-entry form, so nothing here touches typed input: the
+        // dropdown lists reload in place and the last person search is re-run only while no person
+        // is selected and the new-person form is closed. No busy hook for that reason.
+        create: { reload: (h) => h.createTabLiveReload() },
         personDir: {
             reload: (h) => h.fetchPersonDirectory({ silent: true }),
             busy: (h) => !!h.aadhaarReveal.open,
@@ -264,12 +294,16 @@ function adminApp() {
     // NSSAssetsProperty.install() likewise adds the Assets & Property screens
     // (assets-property.js): permission getters, list/detail/forms/custody/
     // maintenance/statutory/documents for both the Properties and Assets tabs.
+    // NSSFinanceSetup.install() adds the Finance customization + UPI collection screens (finance-setup.js): Heads &
+    // Accounts and UPI Collections.
+    // NSSFinance.install() adds the Finance screens (finance.js): permission getters and the
+    // Overview / Years & Scopes / Transactions / Transfers tabs (FINANCE_VIEW / MANAGE / APPROVE).
     // NSSAuditDiagnostics.install() adds the AUDIT_VIEW-gated System Event Log explorer and
     // Live Change Markers diagnostics tabs (audit-diagnostics.js); they poll their own audit
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -320,6 +354,7 @@ function adminApp() {
             credential_document_number: "",
         },
         createLoading: false,
+        _createDrafts: {},
         createSSLoading: false,
         createError: "",
         createSuccess: "",
@@ -400,6 +435,7 @@ function adminApp() {
             create_user_account: false, password: "", force_password_change: true,
         },
         ssLoading: false,
+        _ssDrafts: {},
         ssError: "",
         ssSuccess: "",
         ssPersonSearchQuery: "",
@@ -1621,7 +1657,7 @@ function adminApp() {
             // ASSET_VIEW/ASSET_MANAGE (Assets & Property) also qualifies: Report
             // Viewer holds neither ADMIN_* nor GOVERNANCE_*, and gets an
             // Assets-&-Property-only panel.
-            if (!this.hasGeneralAdminAccess && !this.canViewGovernance && !this.canViewAssets && !this.canViewAudit) {
+            if (!this.canViewFinance && !this.hasGeneralAdminAccess && !this.canViewGovernance && !this.canViewAssets && !this.canViewAudit) {
                 window.location.href = "/dashboard";
                 return;
             }
@@ -1643,23 +1679,30 @@ function adminApp() {
                 // demand, so none of the general loaders are needed for it.
                 const assetsHash = (govHash === "assets" || govHash === "properties") && this.canViewAssets;
                 const auditHash = (govHash === "auditEvents" || govHash === "liveMarkers") && this.canViewAudit;
-                const assetsLanding = !auditHash && (assetsHash || (!this.canViewGovernance && this.canViewAssets));
+                // Finance (FINANCE_VIEW/MANAGE/APPROVE): #finOverview / #finStructure / #finTransactions /
+                // #finTransfers, or the landing tab of a holder with no governance, assets or audit access.
+                const financeHash = FINANCE_TABS.includes(govHash) && this.canViewFinance;
+                const financeLanding = !auditHash && (financeHash
+                    || (!this.canViewGovernance && !this.canViewAssets && !this.canViewAudit && this.canViewFinance));
+                const assetsLanding = !auditHash && !financeLanding && (assetsHash || (!this.canViewGovernance && this.canViewAssets));
                 // Audit & Diagnostics (AUDIT_VIEW): #auditEvents / #liveMarkers, or the landing
                 // tab of a holder of AUDIT_VIEW alone. An Auditor also holds ASSET_VIEW, so lands on Assets
                 // and reaches these from the sidebar.
-                const auditLanding = auditHash || (!this.canViewGovernance && !this.canViewAssets && this.canViewAudit);
+                const auditLanding = auditHash || (!this.canViewGovernance && !this.canViewAssets && !this.canViewFinance && this.canViewAudit);
                 // The Advisory Board admin's own Correspondence register (2026-10-30)
                 // is built from the organization tree + the ORGANIZATION_TYPE
                 // catalogue (ORGANIZATION_VIEW / FOUNDATION_VIEW, both granted to it).
                 const corrOnly = govHash === "correspondence" && this.canViewCorrespondence;
-                if (this.canViewCorrespondence && !assetsLanding && !auditLanding) {
+                if (this.canViewCorrespondence && !assetsLanding && !auditLanding && !financeLanding) {
                     await Promise.all([this.fetchOrganizations(), this.loadOrgTypes()]);
                 }
                 this.activeTab = auditLanding ? (auditHash ? govHash : "auditEvents")
+                    : financeLanding ? (financeHash ? govHash : "finOverview")
                     : assetsLanding ? (assetsHash ? govHash : "properties")
                     : corrOnly ? "correspondence"
                     : govHash === "govBodies" ? "govBodies" : "govAssignments";
                 if (auditLanding) await (this.activeTab === "liveMarkers" ? this.liveMarkersEnter() : this.auditEventsEnter());
+                else if (financeLanding) await this.finEnterTab();
                 else if (assetsLanding) await this.apEnterTab();
                 else if (this.activeTab === "correspondence") await this.loadCorrespondence();
                 else if (this.activeTab === "govBodies") await this.loadGovBodies();
@@ -1733,6 +1776,12 @@ function adminApp() {
                     correspondence: () => this.loadCorrespondence(),
                     properties: () => { if (this.canViewAssets) this.apEnterTab(); },
                     assets: () => { if (this.canViewAssets) this.apEnterTab(); },
+                    finOverview: () => { if (this.canViewFinance) this.finEnterTab("finOverview"); },
+                    finStructure: () => { if (this.canViewFinance) this.finEnterTab("finStructure"); },
+                    finTransactions: () => { if (this.canViewFinance) this.finEnterTab("finTransactions"); },
+                    finTransfers: () => { if (this.canViewFinance) this.finEnterTab("finTransfers"); },
+                    finSetup: () => { if (this.canViewFinance) this.finEnterTab("finSetup"); },
+                    finCollections: () => { if (this.canViewFinance) this.finEnterTab("finCollections"); },
                     auditEvents: () => { if (this.canViewAudit) this.auditEventsEnter(); },
                     liveMarkers: () => { if (this.canViewAudit) this.liveMarkersEnter(); },
                 };
@@ -1972,27 +2021,56 @@ function adminApp() {
 
         // ── Create user ────────────────────────────────────────
 
-        async searchPersons() {
+        // Live refresh of the Create Person tab (see LIVE_REFRESH_CONFIG.create).
+        async createTabLiveReload() {
+            const jobs = [this.fetchOrganizations(), this.fetchMembershipTypes(), this.loadGenders()];
+            if (!this.createForm.person_pk && !this.showNewPersonForm && this.personSearchDone
+                && !this.personSearchLoading && this.personSearchQuery.trim().length >= 2) {
+                jobs.push(this.searchPersons({ silent: true }));
+            }
+            await Promise.all(jobs);
+        },
+
+        // Search-as-you-type (debounced in admin.html): keep the old rows until the new ones
+        // arrive; under 2 characters clears the list.
+        typePersonSearch() {
+            if (this.personSearchQuery.trim().length < 2) {
+                this._personSearchSeq = (this._personSearchSeq || 0) + 1;
+                this.personSearchResults = [];
+                this.personSearchTotal = 0;
+                this.personSearchDone = false;
+                this.personSearchLoading = false;
+                return;
+            }
+            return this.searchPersons({ silent: true });
+        },
+
+        async searchPersons({ silent = false } = {}) {
             const q = this.personSearchQuery.trim();
             if (q.length < 2) return;
-            this.personSearchLoading = true;
-            this.personSearchResults = [];
-            this.personSearchDone = false;
+            const seq = this._personSearchSeq = (this._personSearchSeq || 0) + 1;
+            this.personSearchLoading = !silent;
+            if (!silent) {
+                this.personSearchResults = [];
+                this.personSearchDone = false;
+            }
 
             try {
                 const res = await NSSAuth.apiFetch(`/api/v1/person/search?q=${encodeURIComponent(q)}`);
                 if (res.ok) {
                     const data = await res.json();
+                    if (seq !== this._personSearchSeq) return;   // a newer search is in flight
                     this.personSearchResults = data.persons;
                     this.personSearchTotal = data.total;
                 }
             } catch (_) {}
+            if (seq !== this._personSearchSeq) return;
             this.personSearchLoading = false;
             this.personSearchDone = true;
         },
 
         selectPerson(p) {
-            this.createForm.person_pk = p.person_pk;
+            if (this.createForm.person_pk !== p.person_pk) this.resetCreateForm(p.person_pk);
             this.selectedPersonDisplay = {
                 person_pk: p.person_pk,
                 person_id: p.person_id,
@@ -2022,8 +2100,24 @@ function adminApp() {
                 .catch(() => {});
         },
 
+        // Blank Create Person & Account form (Steps 2-3): after a save, and whenever the
+        // selected person changes or is cleared, so nothing carries over between people.
+        resetCreateForm(personPk = "") {
+            const prev = this.createForm && this.createForm.person_pk;
+            if (prev && prev !== personPk) this._createDrafts[prev] = { ...this.createForm, password: "" };
+            const draft = personPk ? this._createDrafts[personPk] : null;
+            this.createForm = draft ? { ...draft, person_pk: personPk } : {
+                person_pk: personPk, password: "", force_password_change: true,
+                sangha_sevi_pk: "", sangha_sevi_skipped: false,
+                membership_type_pk: "", organization_pk: "",
+                joining_date: "", is_legacy_member: false, local_sakha_number: "",
+                credential_document_number: "",
+            };
+            this.applySakhaAutoSelect("createForm");
+        },
+
         clearSelectedPerson() {
-            this.createForm.person_pk = "";
+            this.resetCreateForm();
             this.selectedPersonDisplay = {};
         },
 
@@ -2232,18 +2326,12 @@ function adminApp() {
                 this.createSuccess = `User account created for ${newUser.person_name || newUser.user_account_pk}.`;
 
                 // Reset form
-                this.createForm = {
-                    person_pk: "", password: "", force_password_change: true,
-                    sangha_sevi_pk: "", sangha_sevi_skipped: false,
-                    membership_type_pk: "", organization_pk: "",
-                    joining_date: "", is_legacy_member: false, local_sakha_number: "",
-                    credential_document_number: "",
-                };
+                delete this._createDrafts[this.createForm.person_pk];
+                this.resetCreateForm();
                 this.selectedPersonDisplay = {};
                 this.personSearchResults = [];
                 this.personSearchQuery = "";
                 this.personSearchDone = false;
-                this.applySakhaAutoSelect("createForm");
 
                 this.fetchUsers();
             } catch (err) {
@@ -2255,18 +2343,34 @@ function adminApp() {
 
         // ── Create Sangha Sevi ────────────────────────────────
 
-        async searchPersonsForSS() {
+        typeSsPersonSearch() {
+            if (this.ssPersonSearchQuery.trim().length < 2) {
+                this._ssSearchSeq = (this._ssSearchSeq || 0) + 1;
+                this.ssPersonSearchResults = [];
+                this.ssPersonSearchTotal = 0;
+                this.ssPersonSearchDone = false;
+                this.ssPersonSearchLoading = false;
+                return;
+            }
+            return this.searchPersonsForSS({ silent: true });
+        },
+
+        async searchPersonsForSS({ silent = false } = {}) {
             const q = this.ssPersonSearchQuery.trim();
             if (q.length < 2) return;
-            this.ssPersonSearchLoading = true;
-            this.ssPersonSearchResults = [];
-            this.ssPersonSearchDone = false;
+            const seq = this._ssSearchSeq = (this._ssSearchSeq || 0) + 1;
+            this.ssPersonSearchLoading = !silent;
+            if (!silent) {
+                this.ssPersonSearchResults = [];
+                this.ssPersonSearchDone = false;
+            }
 
             try {
                 const res = await NSSAuth.apiFetch(`/api/v1/person/search?q=${encodeURIComponent(q)}`);
                 if (res.ok) {
                     const data = await res.json();
                     const persons = data.persons;
+                    if (seq !== this._ssSearchSeq) return;   // a newer search is in flight
                     this.ssPersonSearchResults = persons;
                     this.ssPersonSearchTotal = data.total;
 
@@ -2280,12 +2384,17 @@ function adminApp() {
                             });
                             if (checkRes.ok) {
                                 const ssMap = await checkRes.json();
+                                if (seq !== this._ssSearchSeq) return;
                                 this.ssPersonSearchResults = persons.map(p => {
                                     const info = ssMap[p.person_pk] || {};
                                     return {
                                         ...p,
-                                        _already_ss: !!info.sangha_sevi_id,
-                                        _existing_ss_id: info.sangha_sevi_id || null,
+                                        // A deactivated record blocks too (one Sangha Sevi row per person).
+                                        _already_ss: !!(info.sangha_sevi_id || info.deactivated_sangha_sevi_id),
+                                        _ss_deactivated: !info.sangha_sevi_id && !!info.deactivated_sangha_sevi_id,
+                                        _existing_ss_id: info.sangha_sevi_id || info.deactivated_sangha_sevi_id || null,
+                                        // Where the member belongs; a pending claim shows its claimed Sakha.
+                                        _sakha_name: info.sakha_name || info.pending_claim_org || "",
                                         _pending_claim: !!info.pending_claim_pk,
                                         _pending_claim_pk: info.pending_claim_pk || null,
                                         _pending_claim_org: info.pending_claim_org || null,
@@ -2296,14 +2405,62 @@ function adminApp() {
                     }
                 }
             } catch (_) {}
+            if (seq !== this._ssSearchSeq) return;
             this.ssPersonSearchLoading = false;
             this.ssPersonSearchDone = true;
+        },
+
+        // The one blank Create Sangha Sevi form: used after a save, when the person is
+        // changed, and when the selection is cleared, so one person's details never carry
+        // over to the next. Scoped admins get their only Sakha pre-selected again.
+        // Per-person drafts (memory only, gone on page reload): switching away from a person
+        // keeps what was filled in for them, and picking them again restores it. The password
+        // is never kept. A successful save discards that person's draft.
+        resetSsForm(personPk = "") {
+            const prev = this.ssForm && this.ssForm.person_pk;
+            if (prev && prev !== personPk) this._ssDrafts[prev] = { ...this.ssForm, password: "" };
+            const draft = personPk ? this._ssDrafts[personPk] : null;
+            this.ssForm = draft ? { ...draft, person_pk: personPk } : {
+                person_pk: personPk, membership_type_pk: "", organization_pk: "",
+                joining_date: "", is_legacy_member: false, local_sakha_number: "",
+                credential_document_number: "",
+                create_user_account: false, password: "", force_password_change: true,
+            };
+            this.applySakhaAutoSelect();
+        },
+
+        clearSsPerson() {
+            this.resetSsForm();
+            this.ssSelectedPerson = {};
+            this.ssError = "";
+        },
+
+        // Reactivate a person's deactivated Sangha Sevi (same ID) from the search results.
+        async restoreSanghaSevi(p) {
+            const ok = await NSSDialog.confirm(
+                `Restore Sangha Sevi ${p._existing_ss_id} for "${[p.first_name, p.last_name].filter(Boolean).join(" ")}"? ` +
+                "The membership and its Sakha affiliation are reactivated. Login access is not restored.",
+                { title: "Restore Sangha Sevi", confirmText: "Restore" }
+            );
+            if (!ok) return;
+            this.ssError = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/sangha-sevi/${p.person_pk}/restore`, { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { this.ssError = NSS.errorMessage(data, res.status); return; }
+                this.showToast(data.message || "Sangha Sevi restored.");
+                await this.searchPersonsForSS({ silent: true });
+            } catch (err) {
+                this.ssError = err.message || "Failed to restore Sangha Sevi.";
+            }
         },
 
         selectPersonForSS(p) {
             // Block selection if already flagged as existing SS from batch check
             if (p._already_ss) {
-                this.ssError = `This person is already a Sangha Sevi (ID: ${p._existing_ss_id}). Cannot create another.`;
+                this.ssError = p._ss_deactivated
+                    ? `This person already has a deactivated Sangha Sevi record (ID: ${p._existing_ss_id}). A new one cannot be created; the record has to be restored.`
+                    : `This person is already a Sangha Sevi (ID: ${p._existing_ss_id}). Cannot create another.`;
                 return;
             }
             // Block selection if a pending registration claim exists
@@ -2312,7 +2469,7 @@ function adminApp() {
                 return;
             }
 
-            this.ssForm.person_pk = p.person_pk;
+            if (this.ssForm.person_pk !== p.person_pk) this.resetSsForm(p.person_pk);
             this.ssSelectedPerson = {
                 person_pk: p.person_pk,
                 person_id: p.person_id,
@@ -2405,17 +2562,12 @@ function adminApp() {
                     : `Sangha Sevi created — ID: ${data.sangha_sevi_id || data.sangha_sevi_pk}. ${credentialNote}`;
 
                 // Reset form
-                this.ssForm = {
-                    person_pk: "", membership_type_pk: "", organization_pk: "",
-                    joining_date: "", is_legacy_member: false, local_sakha_number: "",
-                    credential_document_number: "",
-                    create_user_account: false, password: "", force_password_change: true,
-                };
+                delete this._ssDrafts[this.ssForm.person_pk];
+                this.resetSsForm();
                 this.ssSelectedPerson = {};
                 this.ssPersonSearchResults = [];
                 this.ssPersonSearchQuery = "";
                 this.ssPersonSearchDone = false;
-                this.applySakhaAutoSelect();
             } catch (err) {
                 this.ssError = err.message || "Failed to create Sangha Sevi.";
             } finally {
@@ -2745,7 +2897,7 @@ function adminApp() {
                 return;
             }
             const ok = await NSSDialog.confirm(
-                `Permanently deactivate account for "${displayName}"? This will revoke all roles and disable login.`,
+                `Delete the login account for "${displayName}"? This revokes all roles and disables login. The person and their membership are NOT removed.`,
                 { title: "Delete User Account", confirmText: "Delete", confirmClass: "btn-error" }
             );
             if (!ok) return;
@@ -4515,6 +4667,7 @@ function adminApp() {
         pdTotal: 0,
         pdLoading: false,
         pdError: "",
+        pdSearch: "",
         pdGenderFilter: "",
         pdMaritalFilter: "",
         pdBloodFilter: "",
@@ -4552,7 +4705,7 @@ function adminApp() {
          */
         get pdFiltersActive() {
             return Boolean(
-                this.pdGenderFilter || this.pdMaritalFilter ||
+                this.pdSearch.trim() || this.pdGenderFilter || this.pdMaritalFilter ||
                 this.pdBloodFilter || this.pdSortBy
             );
         },
@@ -4562,7 +4715,15 @@ function adminApp() {
          * all three filters, the sort order, and the open detail row
          * (fetchPersonDirectory clears pdSelected).
          */
+        // Search box (debounced in admin.html): empty or 2+ characters only, like every picker.
+        pdSearchChanged() {
+            const n = this.pdSearch.trim().length;
+            if (n === 1) return;
+            return this.fetchPersonDirectory();
+        },
+
         clearPersonDirFilters() {
+            this.pdSearch = "";
             this.pdGenderFilter = "";
             this.pdMaritalFilter = "";
             this.pdBloodFilter = "";
@@ -4598,6 +4759,7 @@ function adminApp() {
             }
             try {
                 const params = new URLSearchParams({ limit: NSS.MAX_PAGE_SIZE });
+                if (this.pdSearch.trim().length >= 2) params.set("q", this.pdSearch.trim());
                 if (this.pdGenderFilter) params.set("gender_code", this.pdGenderFilter);
                 if (this.pdMaritalFilter) params.set("marital_status_code", this.pdMaritalFilter);
                 if (this.pdBloodFilter) params.set("blood_group_code", this.pdBloodFilter);
@@ -4670,6 +4832,7 @@ function adminApp() {
         mdTotal: 0,
         mdLoading: false,
         mdError: "",
+        mdSearch: "",
         mdTypeFilter: "",
         mdStatusFilter: "",
         mdOrgTypeFilter: "",
@@ -4722,7 +4885,10 @@ function adminApp() {
                     this.loadOrgTypes(),
                 ]);
                 this.mdTypeOptions = t;
-                this.mdStatusOptions = s;
+                // Only the statuses an admin filters members by (NSS.MEMBERSHIP_STATUS_FILTER, in that order).
+                this.mdStatusOptions = NSS.MEMBERSHIP_STATUS_FILTER
+                    .map(code => (s || []).find(o => o.value_code === code))
+                    .filter(Boolean);
                 await this.mdLoadOrgs();
             }
             await this.fetchMemberDirectory();
@@ -4810,7 +4976,7 @@ function adminApp() {
          */
         get mdFiltersActive() {
             return Boolean(
-                this.mdTypeFilter || this.mdStatusFilter ||
+                this.mdSearch.trim() || this.mdTypeFilter || this.mdStatusFilter ||
                 this.mdOrgTypeFilter || this.mdOrgFilter || this.mdSortBy
             );
         },
@@ -4822,7 +4988,13 @@ function adminApp() {
          * unscoped organization list, otherwise the Org Name dropdown
          * would keep showing only the previously selected type's orgs.
          */
+        mdSearchChanged() {
+            if (this.mdSearch.trim().length === 1) return;
+            return this.fetchMemberDirectory();
+        },
+
         async clearMemberDirFilters() {
+            this.mdSearch = "";
             this.mdTypeFilter = "";
             this.mdStatusFilter = "";
             this.mdOrgTypeFilter = "";
@@ -4846,6 +5018,7 @@ function adminApp() {
             }
             try {
                 const params = new URLSearchParams({ limit: NSS.MAX_PAGE_SIZE });
+                if (this.mdSearch.trim().length >= 2) params.set("q", this.mdSearch.trim());
                 if (this.mdTypeFilter) params.set("type_code", this.mdTypeFilter);
                 if (this.mdStatusFilter) params.set("status_code", this.mdStatusFilter);
                 if (this.mdOrgTypeFilter) params.set("org_type_code", this.mdOrgTypeFilter);
@@ -4883,6 +5056,76 @@ function adminApp() {
             if (pp) this.mdParichaya = pp;
             if (ap) this.mdAnumati = ap;
             if (jr) this.mdJourney = jr;
+            this.msLoad(pk);
+        },
+
+        // ── Membership Status (request -> Parichalak / Kendra President approval) ──
+        // api/routers/membership_status.py. msOverview = status, history, pending request and
+        // what the caller may do; the form files a request, approve / reject are the approver's.
+        msOverview: null,
+        msForm: { show: false, to_status_code: "", effective_date: "", reason: "", saving: false, error: "" },
+        msDecisionRemarks: "",
+        msBusy: false,
+
+        async msLoad(pk) {
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership-status/members/${pk}`);
+                if (this.mdSelected && this.mdSelected.sangha_sevi_pk === pk) this.msOverview = res.ok ? await res.json() : null;
+            } catch { this.msOverview = null; }
+        },
+
+        msStatusName(code) {
+            const o = (this.mdStatusOptions || []).find(x => x.value_code === code);
+            return o ? o.value_name : code;
+        },
+
+        msOpenForm() {
+            this.msForm = { show: true, to_status_code: "", effective_date: new Date().toISOString().slice(0, 10),
+                            reason: "", saving: false, error: "" };
+        },
+
+        async msSubmitRequest() {
+            const f = this.msForm;
+            if (!f.to_status_code || !f.effective_date || f.reason.trim().length < 3) {
+                f.error = "Choose the new status, the effective date and give a reason.";
+                return;
+            }
+            f.saving = true; f.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership-status/members/${this.mdSelected.sangha_sevi_pk}/requests`, {
+                    method: "POST",
+                    body: JSON.stringify({ to_status_code: f.to_status_code, effective_date: f.effective_date, reason: f.reason.trim() }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { f.error = NSS.errorMessage(data, res.status); return; }
+                this.msForm.show = false;
+                this.showToast("Status change sent for approval.");
+                await this.msLoad(this.mdSelected.sangha_sevi_pk);
+            } catch (err) { f.error = err.message || "Failed to send the request."; }
+            finally { f.saving = false; }
+        },
+
+        // action: "approve" | "reject" | "cancel"
+        async msDecide(action) {
+            const req = this.msOverview && this.msOverview.pending_request;
+            if (!req) return;
+            const remarks = this.msDecisionRemarks.trim();
+            if (action === "reject" && remarks.length < 3) {
+                await NSSDialog.alert("Give a reason for rejecting the request.");
+                return;
+            }
+            this.msBusy = true;
+            try {
+                const res = await NSSAuth.apiFetch(
+                    `/api/v1/membership-status/requests/${req.membership_status_change_request_pk}/${action}`,
+                    { method: "POST", body: JSON.stringify(action === "cancel" ? {} : { remarks: remarks || null }) });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { await NSSDialog.alert(NSS.errorMessage(data, res.status)); return; }
+                this.msDecisionRemarks = "";
+                this.showToast(action === "approve" ? "Status change approved." : action === "reject" ? "Request rejected." : "Request cancelled.");
+                await Promise.all([this.msLoad(this.mdSelected.sangha_sevi_pk), this.fetchMemberDirectory({ silent: true })]);
+            } catch (err) { await NSSDialog.alert(err.message || "Failed."); }
+            finally { this.msBusy = false; }
         },
 
         async viewMember(member) {
@@ -4894,9 +5137,13 @@ function adminApp() {
                 this.mdParichaya = [];
                 this.mdAnumati = [];
                 this.mdJourney = [];
+                this.msOverview = null;
                 return;
             }
+            this.msOverview = null;
+            this.msForm.show = false;
             this.mdSelected = member;
+            this.msLoad(member.sangha_sevi_pk);
             this.mdAffiliations = [];
             this.mdParichaya = [];
             this.mdAnumati = [];
@@ -5325,7 +5572,7 @@ function adminApp() {
         ssSettings: [],
         ssSequences: [],
         ssSettingsLoading: false,
-        ssError: "",
+        settingsError: "",
 
         async loadSystemSettings() {
             // Always refetch on tab open (was latched behind a one-shot
@@ -5346,13 +5593,13 @@ function adminApp() {
                     NSSAuth.apiFetch("/api/v1/foundation/sequences"),
                 ]);
                 if (setRes.status === 403 || seqRes.status === 403) {
-                    if (!opts.silent) this.ssError = "You do not have permission to view system settings.";
+                    if (!opts.silent) this.settingsError = "You do not have permission to view system settings.";
                     return;
                 }
                 if (setRes.ok) this.ssSettings = await setRes.json();
                 if (seqRes.ok) this.ssSequences = await seqRes.json();
             } catch (err) {
-                if (!opts.silent) this.ssError = "Failed to load system settings.";
+                if (!opts.silent) this.settingsError = "Failed to load system settings.";
             } finally {
                 if (!opts.silent) this.ssSettingsLoading = false;
             }
@@ -5363,12 +5610,12 @@ function adminApp() {
         ssModalMode: "edit",     // "edit" | "add"
         ssModalSaving: false,
         ssModalError: "",
-        ssForm: { setting_key: "", setting_value: "", description: "", data_type: "STRING" },
+        settingForm: { setting_key: "", setting_value: "", description: "", data_type: "STRING" },
 
         openEditSetting(s) {
             this.ssModalMode = "edit";
             this.ssModalError = "";
-            this.ssForm = {
+            this.settingForm = {
                 setting_key: s.setting_key,
                 setting_value: s.setting_value,
                 description: s.description || "",
@@ -5380,7 +5627,7 @@ function adminApp() {
         openAddSetting() {
             this.ssModalMode = "add";
             this.ssModalError = "";
-            this.ssForm = { setting_key: "", setting_value: "", description: "", data_type: "STRING" };
+            this.settingForm = { setting_key: "", setting_value: "", description: "", data_type: "STRING" };
             this.ssModalOpen = true;
         },
 
@@ -5390,9 +5637,9 @@ function adminApp() {
 
         async saveSetting() {
             this.ssModalError = "";
-            const val = (this.ssForm.setting_value || "").trim();
+            const val = (this.settingForm.setting_value || "").trim();
             if (!val) { this.ssModalError = "Value is required."; return; }
-            if (this.ssModalMode === "add" && !(this.ssForm.setting_key || "").trim()) {
+            if (this.ssModalMode === "add" && !(this.settingForm.setting_key || "").trim()) {
                 this.ssModalError = "Key is required."; return;
             }
             this.ssModalSaving = true;
@@ -5403,19 +5650,19 @@ function adminApp() {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            setting_key: this.ssForm.setting_key.trim(),
+                            setting_key: this.settingForm.setting_key.trim(),
                             setting_value: val,
-                            data_type: this.ssForm.data_type,
-                            description: this.ssForm.description.trim() || null,
+                            data_type: this.settingForm.data_type,
+                            description: this.settingForm.description.trim() || null,
                         }),
                     });
                 } else {
-                    res = await NSSAuth.apiFetch(`/api/v1/foundation/settings/${encodeURIComponent(this.ssForm.setting_key)}`, {
+                    res = await NSSAuth.apiFetch(`/api/v1/foundation/settings/${encodeURIComponent(this.settingForm.setting_key)}`, {
                         method: "PATCH",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             setting_value: val,
-                            description: this.ssForm.description.trim() || null,
+                            description: this.settingForm.description.trim() || null,
                         }),
                     });
                 }
@@ -9193,5 +9440,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    }))), LIVE_REFRESH_CONFIG);
+    }))))), LIVE_REFRESH_CONFIG);
 }

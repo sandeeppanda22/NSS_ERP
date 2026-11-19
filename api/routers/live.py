@@ -48,7 +48,7 @@ router = APIRouter(prefix="/api/v1/live", tags=["Live"])
 # withheld on purpose: ballot timing is not something every member should see.
 LIVE_FEED_TABLES = frozenset({
     # Registration / claim approvals + change requests
-    "registration_claim", "membership_change_request",
+    "registration_claim", "membership_change_request", "membership_status_change_request",
     # Correspondence (list, detail, approval chain)
     "correspondence", "correspondence_document", "correspondence_finance_reference",
     "correspondence_approval_step",
@@ -61,6 +61,11 @@ LIVE_FEED_TABLES = frozenset({
     # Assets & Property
     "property", "asset", "custodianship", "maintenance_record",
     "property_statutory_record", "property_document", "asset_document",
+    # Finance (Tier 12)
+    "financial_year", "financial_scope", "fund_master", "financial_transaction",
+    "financial_receipt", "financial_payment", "financial_transfer",
+    "financial_account", "finance_head", "upi_payment_request", "finance_disbursement_authority",
+    "finance_transaction_bill", "finance_approval_step", "finance_approval_policy", "upi_payment_request_line",
     # Member dashboard "Pending Items"
     "organization_reparent_request", "organization_reparent_step",
     # Batch 2 - Users tab + user detail. user_account's routine login churn

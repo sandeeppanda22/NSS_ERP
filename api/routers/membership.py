@@ -241,6 +241,10 @@ def list_members(
             "whose primary organization is of that type."
         ),
     ),
+    q: str | None = Query(
+        None, min_length=2, max_length=100,
+        description="Search box: same matching as /search (IDs, name, mobile, email, Sakha, Kendra Number)",
+    ),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Max rows"),
     offset: int = Query(0, ge=0, description="Rows to skip"),
     sort_by: str | None = Query(None, description="Column to sort by"),
@@ -281,6 +285,9 @@ def list_members(
     if org_type_code is not None:
         where += " AND ot.value_code = %s"
         params.append(org_type_code)
+    if q is not None:
+        where += " AND " + _MEMBER_SEARCH_PREDICATE_SQL
+        params.extend(_member_search_params(q.strip())[1])
 
     order_by = build_order_by(
         sort_by, sort_dir, _MEMBER_SORT_COLUMNS, "p.first_name, p.last_name"

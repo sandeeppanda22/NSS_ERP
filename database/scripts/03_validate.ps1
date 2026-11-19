@@ -7,6 +7,9 @@
 # run 02_build.ps1 first.
 #
 # Authority: SOL-ARCH-010, SOL-ARCH-011
+# Version: 1.8 - Finance now 12 tables (91 total): + finance_disbursement_authority, disbursement purpose checks; earlier + financial_account, finance_head, upi_payment_request, finance_gateway_event, head/UPI checks (2026-11-10; desk-checked, never run on PowerShell).
+# Version: 1.7 - add Finance (7 tables, 86 total), FINANCE_* / PAYMENT_METHOD patch checks, raised minimums: permission_master 33,
+#                 role_permission 192, master_category 27, master_data 162, id_sequence_master 21 (2026-11-10; desk-checked, never run on PowerShell).
 # Version: 1.6 - add Module 11 live_change_marker (1 table, 79 total) (2026-11-03; desk-checked, never run on PowerShell).
 # Version: 1.5 - minimums recomputed after ACQUISITION_METHOD + DISPOSED/RETIRED end reasons: master_category 26,
 #                 master_data 156 (2026-11-03; desk-checked, never run on PowerShell).
@@ -126,11 +129,11 @@ Check-TableExists "role_permission"
 
 Write-Host "  Row counts:"
 Check-RowCount "role_master" 11
-Check-RowCount "permission_master" 30
+Check-RowCount "permission_master" 33
 # 178 = 166 + 12 asset grants. A DB that ran the original 16-row patch holds 182 rows, 4 of them
 # soft-deleted (is_active = FALSE, history is never hard-deleted): still >= 178, so the minimum holds.
 # Since 2026-11-04 (GDR-011) one more row (Auditor PERSON_VIEW_SENSITIVE) is soft-deleted by patch 07: 178 rows, 177 active; the minimum counts all rows.
-Check-RowCount "role_permission" 178
+Check-RowCount "role_permission" 192
 
 Write-Host "  Unique constraints:"
 Check-NoDuplicates "role_master" "role_code"
@@ -152,9 +155,9 @@ $foundationTables = @("master_category","system_setting","id_sequence_master","c
 foreach ($t in $foundationTables) { Check-TableExists $t }
 
 Write-Host "  Row counts:"
-Check-RowCount "master_category" 26
-Check-RowCount "master_data" 156
-Check-RowCount "id_sequence_master" 16
+Check-RowCount "master_category" 27
+Check-RowCount "master_data" 162
+Check-RowCount "id_sequence_master" 21
 Check-RowCount "country" 5
 Check-RowCount "state" 112
 Check-RowCount "district" 780
@@ -551,6 +554,95 @@ Write-Host "--- Audit-actor FKs ---" -ForegroundColor Cyan
 Check-WarnCount "audit actor columns (*_by_sangha_sevi_pk) WITHOUT a foreign key to sangha_sevi (re-run the build: Phase 13c, ddl/13_audit_actor_fk)" "SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'nss' AND c.relkind IN ('r','p') AND a.attnum > 0 AND NOT a.attisdropped AND a.attname LIKE '%\_by\_sangha\_sevi\_pk' AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND k.conkey = ARRAY[a.attnum]::smallint[]);"
 Check-WarnCount "audit actor FKs still NOT VALID (dangling actor values exist; find them with the diagnostic SELECT in database/scripts/README.md, fix, re-run the build)" "SELECT COUNT(*) FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.conkey[1] WHERE n.nspname = 'nss' AND k.contype = 'f' AND k.confrelid = 'nss.sangha_sevi'::regclass AND NOT k.convalidated AND a.attname LIKE '%\_by\_sangha\_sevi\_pk';"
 Write-Host ""
+# Finance (7 tables, Tier 12 - existence only; initial Financial Year, PAYMENT_METHOD master data and
+# FINANCE_* permissions come from the idempotent patches)
+Write-Host "--- Finance ---" -ForegroundColor Cyan
+Write-Host "  Tables (existence only):"
+Check-TableExists "financial_year"
+Check-TableExists "financial_scope"
+Check-TableExists "fund_master"
+Check-TableExists "financial_transaction"
+Check-TableExists "financial_receipt"
+Check-TableExists "financial_payment"
+Check-TableExists "financial_transfer"
+Check-TableExists "financial_account"
+Check-TableExists "finance_head"
+Check-TableExists "upi_payment_request"
+Check-TableExists "finance_gateway_event"
+Check-TableExists "finance_disbursement_authority"
+Check-TableExists "finance_transaction_bill"
+Check-TableExists "finance_approval_step"
+Check-TableExists "finance_approval_policy"
+Check-TableExists "upi_payment_request_line"
+
+Check-ColumnExists "financial_scope" "scope_code"
+Check-ColumnExists "financial_scope" "organization_pk"
+Check-ColumnExists "fund_master" "financial_scope_pk"
+Check-ColumnExists "financial_transaction" "financial_year_pk"
+Check-ColumnExists "financial_transaction" "financial_scope_pk"
+Check-ColumnExists "financial_transaction" "amount"
+Check-ColumnExists "financial_receipt" "payment_method_master_data_pk"
+Check-ColumnExists "financial_payment" "payment_method_master_data_pk"
+Check-ColumnExists "financial_transfer" "source_scope_pk"
+Check-ColumnExists "financial_transfer" "destination_scope_pk"
+Check-ColumnExists "financial_account" "organization_pk"
+Check-ColumnExists "financial_account" "upi_vpa"
+Check-ColumnExists "financial_account" "gateway_credential_ref"
+Check-ColumnExists "finance_head" "organization_pk"
+Check-ColumnExists "finance_head" "head_code"
+Check-ColumnExists "finance_head" "direction"
+Check-ColumnExists "finance_head" "collection_account_pk"
+Check-ColumnExists "financial_transaction" "finance_head_pk"
+Check-ColumnExists "upi_payment_request" "financial_account_pk"
+Check-ColumnExists "upi_payment_request" "provider_order_id"
+Check-ColumnExists "finance_gateway_event" "event_id"
+Check-ColumnExists "finance_gateway_event" "signature_valid"
+Check-ColumnExists "finance_disbursement_authority" "resolution_reference"
+Check-ColumnExists "finance_disbursement_authority" "treasurer_person_pk"
+Check-ColumnExists "finance_disbursement_authority" "secretary_person_pk"
+Check-ColumnExists "finance_head" "skips_approval"
+Check-ColumnExists "finance_head" "treasurer_limit"
+Check-ColumnExists "finance_head" "requires_member"
+Check-ColumnExists "finance_transaction_bill" "financial_transaction_pk"
+Check-ColumnExists "finance_approval_step" "decided_by_person_pk"
+Check-ColumnExists "finance_approval_policy" "default_treasurer_limit"
+Check-ColumnExists "upi_payment_request_line" "upi_payment_request_pk"
+
+Write-Host "  FK integrity (no orphans - vacuously true until used):"
+Check-FkIntegrity "financial_scope -> financial_year" "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
+Check-FkIntegrity "fund_master -> financial_scope" "SELECT COUNT(*) FROM nss.fund_master c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+Check-FkIntegrity "financial_transaction -> financial_year" "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
+Check-FkIntegrity "financial_transaction -> financial_scope" "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+Check-FkIntegrity "financial_receipt -> financial_transaction" "SELECT COUNT(*) FROM nss.financial_receipt c LEFT JOIN nss.financial_transaction p ON c.financial_transaction_pk = p.financial_transaction_pk WHERE p.financial_transaction_pk IS NULL;"
+Check-FkIntegrity "financial_payment -> financial_transaction" "SELECT COUNT(*) FROM nss.financial_payment c LEFT JOIN nss.financial_transaction p ON c.financial_transaction_pk = p.financial_transaction_pk WHERE p.financial_transaction_pk IS NULL;"
+Check-FkIntegrity "financial_transfer -> financial_scope (source)" "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.source_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+Check-FkIntegrity "financial_transfer -> financial_scope (destination)" "SELECT COUNT(*) FROM nss.financial_transfer c LEFT JOIN nss.financial_scope p ON c.destination_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
+Check-FkIntegrity "financial_account -> organization" "SELECT COUNT(*) FROM nss.financial_account c LEFT JOIN nss.organization p ON c.organization_pk = p.organization_pk WHERE c.organization_pk IS NOT NULL AND p.organization_pk IS NULL;"
+Check-FkIntegrity "finance_head -> financial_account (collection)" "SELECT COUNT(*) FROM nss.finance_head c LEFT JOIN nss.financial_account p ON c.collection_account_pk = p.financial_account_pk WHERE c.collection_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
+Check-FkIntegrity "financial_transaction -> finance_head" "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
+Check-FkIntegrity "upi_payment_request -> financial_account" "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.financial_account p ON c.financial_account_pk = p.financial_account_pk WHERE c.financial_account_pk IS NOT NULL AND p.financial_account_pk IS NULL;"
+Check-FkIntegrity "upi_payment_request -> finance_head" "SELECT COUNT(*) FROM nss.upi_payment_request c LEFT JOIN nss.finance_head p ON c.finance_head_pk = p.finance_head_pk WHERE c.finance_head_pk IS NOT NULL AND p.finance_head_pk IS NULL;"
+Check-FkIntegrity "finance_gateway_event -> upi_payment_request" "SELECT COUNT(*) FROM nss.finance_gateway_event c LEFT JOIN nss.upi_payment_request p ON c.upi_payment_request_pk = p.upi_payment_request_pk WHERE c.upi_payment_request_pk IS NOT NULL AND p.upi_payment_request_pk IS NULL;"
+Check-FkIntegrity "finance_disbursement_authority -> financial_payment" "SELECT COUNT(*) FROM nss.finance_disbursement_authority c LEFT JOIN nss.financial_payment p ON c.financial_payment_pk = p.financial_payment_pk WHERE c.financial_payment_pk IS NOT NULL AND p.financial_payment_pk IS NULL;"
+Check-FkIntegrity "finance_disbursement_authority -> financial_transfer" "SELECT COUNT(*) FROM nss.finance_disbursement_authority c LEFT JOIN nss.financial_transfer p ON c.financial_transfer_pk = p.financial_transfer_pk WHERE c.financial_transfer_pk IS NOT NULL AND p.financial_transfer_pk IS NULL;"
+Check-FkIntegrity "no COMPLETED Kendra/Mahila disbursement without both the Treasurer and the Secretary signature" "SELECT COUNT(*) FROM nss.finance_disbursement_authority a LEFT JOIN nss.financial_payment py ON py.financial_payment_pk = a.financial_payment_pk LEFT JOIN nss.financial_transfer tr ON tr.financial_transfer_pk = a.financial_transfer_pk WHERE (py.status = 'COMPLETED' OR tr.status = 'COMPLETED') AND (a.treasurer_signed_at IS NULL OR a.secretary_signed_at IS NULL);"
+Check-FkIntegrity "DISBURSEMENT_PURPOSE master_data present (disbursement purpose patch ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'DISBURSEMENT_PURPOSE') >= 20 THEN 0 ELSE 1 END;"
+Check-FkIntegrity "every transaction has a finance head (heads structure patch ran)" "SELECT COUNT(*) FROM nss.financial_transaction WHERE finance_head_pk IS NULL;"
+Check-FkIntegrity "no UPI-enabled head without a collection scope and account" "SELECT COUNT(*) FROM nss.finance_head WHERE allow_upi AND (collection_scope_pk IS NULL OR collection_account_pk IS NULL);"
+Check-FkIntegrity "no PAID UPI request left unposted without a review reason" "SELECT COUNT(*) FROM nss.upi_payment_request WHERE status = 'PAID' AND financial_transaction_pk IS NULL AND review_reason IS NULL;"
+Check-FkIntegrity "Kendra template finance heads present (head templates patch ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.finance_head WHERE organization_pk IS NULL) >= 12 THEN 0 ELSE 1 END;"
+Check-FkIntegrity "PAYMENT_METHOD master_data present (reference-data patch ran)" "SELECT CASE WHEN EXISTS (SELECT 1 FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code = 'PAYMENT_METHOD' AND md.value_code = 'UPI') THEN 0 ELSE 1 END;"
+Check-FkIntegrity "FINANCE_* permissions present (permissions patch ran)" "SELECT CASE WHEN (SELECT COUNT(*) FROM nss.permission_master WHERE permission_code LIKE 'FINANCE\_%') = 4 THEN 0 ELSE 1 END;"
+
+Check-FkIntegrity "finance_transaction_bill -> financial_transaction" "SELECT COUNT(*) FROM nss.finance_transaction_bill b LEFT JOIN nss.financial_transaction t ON b.financial_transaction_pk = t.financial_transaction_pk WHERE t.financial_transaction_pk IS NULL;"
+Check-FkIntegrity "finance_approval_step -> financial_transaction" "SELECT COUNT(*) FROM nss.finance_approval_step s LEFT JOIN nss.financial_transaction t ON s.financial_transaction_pk = t.financial_transaction_pk WHERE t.financial_transaction_pk IS NULL;"
+Write-Host "  Seed (initial Financial Year from the reference-data patch):"
+Check-RowCount "financial_year" 1
+Write-Host "  Unique constraints:"
+Check-NoDuplicates "financial_transaction" "transaction_reference"
+Check-NoDuplicates "financial_year" "year_code"
+Write-Host ""
+
 
 # Summary
 Write-Host "=============================================" -ForegroundColor Cyan

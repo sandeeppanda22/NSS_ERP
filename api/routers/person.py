@@ -249,6 +249,10 @@ def list_persons(
     blood_group_code: str | None = Query(
         None, description="Filter by blood group value_code"
     ),
+    q: str | None = Query(
+        None, min_length=2, max_length=100,
+        description="Search box: name (prefix / fuzzy), Person ID, mobile or email prefix",
+    ),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Max rows to return"),
     offset: int = Query(0, ge=0, description="Number of rows to skip"),
     sort_by: str | None = Query(None, description="Column to sort by"),
@@ -286,6 +290,9 @@ def list_persons(
     if blood_group_code is not None:
         where += " AND bg.value_code = %s"
         params.append(blood_group_code)
+    if q is not None:
+        where += " AND " + _PERSON_SEARCH_PREDICATE_SQL
+        params.extend(_person_search_params(q.strip())[1])
 
     order_by = build_order_by(
         sort_by, sort_dir, _PERSON_SORT_COLUMNS, "p.first_name, p.last_name"
@@ -848,21 +855,41 @@ def search_persons_selectable(
     return _run_person_search(conn, q, limit, offset)
 
 
+# Shared person-search predicate: used by /search, /search-selectable and the Person Directory's
+# search box (GET /persons?q=), so the matching rules live in one place. Takes the 7
+# placeholders _person_search_params() builds, in the same order.
+_PERSON_SEARCH_PREDICATE_SQL = """
+    (
+        similarity(p.first_name, %s) > 0.45
+        OR similarity(p.last_name, %s) > 0.45
+        OR p.first_name ILIKE %s
+        OR p.last_name ILIKE %s
+        OR p.person_id ILIKE %s
+        OR p.mobile_number ILIKE %s
+        OR p.email ILIKE %s
+    )
+"""
+
+
+def _person_search_params(q: str) -> tuple[str, tuple]:
+    """(name_q, params) for _PERSON_SEARCH_PREDICATE_SQL's 7 placeholders.
+
+    For trigram, an email-like query is cut at the first '.'/'@' ("aniket.mishra" ->
+    "aniket"). Name PREFIX matches sit beside the trigram test: a 2-4 letter query scores
+    far below the 0.45 similarity threshold against a full name, so without them a picker
+    showed nothing until ~5 characters were typed.
+    """
+    name_q = re.split(r'[.@]', q)[0] if ('.' in q or '@' in q) else q
+    prefix_pattern = f"{q}%"
+    return name_q, (name_q, name_q, name_q + "%", name_q + "%",
+                    prefix_pattern, prefix_pattern, prefix_pattern)
+
+
 def _run_person_search(conn, q: str, limit: int, offset: int) -> PersonListResponse:
     """Shared trigram person-search behind /search and /search-selectable."""
-    # For trigram: strip email-like suffix so "aniket.mishra" → "aniket"
-    name_q = re.split(r'[.@]', q)[0] if ('.' in q or '@' in q) else q
+    name_q, match_params = _person_search_params(q)
 
-    where = """
-        WHERE p.is_active = TRUE
-          AND (
-              similarity(p.first_name, %s) > 0.45
-              OR similarity(p.last_name, %s) > 0.45
-              OR p.person_id ILIKE %s
-              OR p.mobile_number ILIKE %s
-              OR p.email ILIKE %s
-          )
-    """
+    where = " WHERE p.is_active = TRUE AND " + _PERSON_SEARCH_PREDICATE_SQL
     sql = (
         _PERSON_SUMMARY_SELECT
         + where
@@ -872,9 +899,6 @@ def _run_person_search(conn, q: str, limit: int, offset: int) -> PersonListRespo
         LIMIT %s OFFSET %s
     """
     )
-
-    prefix_pattern = f"{q}%"
-    match_params = (name_q, name_q, prefix_pattern, prefix_pattern, prefix_pattern)
 
     with conn.cursor() as cur:
         cur.execute(_PERSON_COUNT_SELECT + where, match_params)

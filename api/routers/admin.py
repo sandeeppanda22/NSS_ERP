@@ -100,7 +100,7 @@ from api.services.rbac_service import (
     require_account_in_scope as _require_account_in_scope,
     load_composite_grants as _load_composite_grants,
 )
-from api.services import org_reparent_service
+from api.services import finance_contribution, org_reparent_service
 from api.services.aadhaar_service import aadhaar_field_validator, set_person_aadhaar
 from api.services.person_scope import gate_aadhaar_fields
 from api.services.org_reparent_service import ALLOWED_PARENT_TYPES
@@ -879,15 +879,24 @@ def create_sangha_sevi(
         # Check person exists
         require_entity(cur, "person", str(body.person_pk), label="Person")
 
-        # Check no existing SS for this person
+        # Check no existing SS for this person. uq_sangha_sevi_person is one row per
+        # person, active or not, so a deactivated record blocks a new one too (history is
+        # never deleted, and a person keeps their one Sangha Sevi ID).
         cur.execute(
-            "SELECT sangha_sevi_id FROM nss.sangha_sevi WHERE person_pk = %s AND is_active = TRUE",
+            "SELECT sangha_sevi_id, is_active FROM nss.sangha_sevi WHERE person_pk = %s",
             (str(body.person_pk),),
         )
-        if cur.fetchone() is not None:
+        existing = cur.fetchone()
+        if existing is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="This person already has a Sangha Sevi record.",
+                detail=(
+                    "This person already has a Sangha Sevi record."
+                    if existing[1] else
+                    f"This person already has a deactivated Sangha Sevi record ({existing[0]}). "
+                    "A person keeps one Sangha Sevi ID, so a new one cannot be created; "
+                    "the deactivated record has to be restored instead."
+                ),
             )
 
         # Auto-resolve the target Sakha when the caller omitted it: a
@@ -1055,14 +1064,17 @@ def check_sangha_sevi(
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT sangha_sevi_id FROM nss.sangha_sevi WHERE person_pk = %s AND is_active = TRUE",
+            "SELECT sangha_sevi_id, is_active FROM nss.sangha_sevi WHERE person_pk = %s",
             (str(person_pk),),
         )
         row = cur.fetchone()
 
+    # has_sangha_sevi stays "an ACTIVE record exists"; a deactivated one is reported
+    # separately because it still blocks creation (uq_sangha_sevi_person).
     return {
-        "has_sangha_sevi": row is not None,
-        "sangha_sevi_id": row[0] if row else None,
+        "has_sangha_sevi": row is not None and bool(row[1]),
+        "sangha_sevi_id": row[0] if row and row[1] else None,
+        "deactivated_sangha_sevi_id": row[0] if row and not row[1] else None,
     }
 
 
@@ -1088,7 +1100,8 @@ def check_sangha_sevi_batch(
         "pending_claim_org": "Ekamra..."  -- claimed org name
       }, ...
     }
-    Only persons with an active SS or a pending claim appear in the map.
+    "sakha_name" is the member's Sakha (also for a deactivated SS).
+    Only persons with an SS (active or deactivated) or a pending claim appear in the map.
     """
     person_pks = body.person_pks
     if not person_pks or len(person_pks) > 100:
@@ -1107,6 +1120,31 @@ def check_sangha_sevi_batch(
         )
         for r in cur.fetchall():
             result[r[0]] = {"sangha_sevi_id": r[1]}
+
+        # Deactivated records also block a new one (uq_sangha_sevi_person).
+        cur.execute(
+            """SELECT person_pk::text, sangha_sevi_id
+                 FROM nss.sangha_sevi
+                WHERE person_pk = ANY(%s::uuid[]) AND is_active = FALSE""",
+            (pk_strs,),
+        )
+        for r in cur.fetchall():
+            result.setdefault(r[0], {})["deactivated_sangha_sevi_id"] = r[1]
+
+        # The member's Sakha (open affiliation first, else the most recent one), so the
+        # picker can show where an existing / deactivated Sangha Sevi belongs.
+        cur.execute(
+            """SELECT DISTINCT ON (ss.person_pk)
+                      ss.person_pk::text, o.organization_name
+                 FROM nss.sangha_sevi ss
+                 JOIN nss.membership_sakha_affiliation msa ON msa.sangha_sevi_pk = ss.sangha_sevi_pk
+                 JOIN nss.organization o ON o.organization_pk = msa.organization_pk
+                WHERE ss.person_pk = ANY(%s::uuid[])
+                ORDER BY ss.person_pk, (msa.effective_to IS NULL) DESC, msa.effective_from DESC""",
+            (pk_strs,),
+        )
+        for r in cur.fetchall():
+            result.setdefault(r[0], {})["sakha_name"] = r[1]
 
         # Check pending registration claims
         cur.execute(
@@ -1128,6 +1166,80 @@ def check_sangha_sevi_batch(
             result[r[0]] = entry
 
     return result
+
+
+# ── POST /sangha-sevi/{person_pk}/restore ─────────────────────────────
+
+@router.post("/sangha-sevi/{person_pk}/restore", response_model=MessageResponse)
+def restore_sangha_sevi(
+    person_pk: UUID,
+    user: UserContext = Depends(
+        require_any_permission("ADMIN_USER_MANAGE", "PERSON_MANAGE")
+    ),
+    conn=Depends(get_write_connection),
+) -> MessageResponse:
+    """
+    Reactivate a person's deactivated Sangha Sevi record (same ID, never a new one).
+
+    A person keeps ONE Sangha Sevi row for life (uq_sangha_sevi_person), so a record
+    that was deactivated - e.g. by the account deletion that used to cascade to the
+    membership - can only be restored, not recreated. Puts back the Sakha affiliations
+    that were closed on the same day the record was deactivated (those closed earlier
+    are real transfers and stay archived). The login account is NOT restored: give
+    access again through Create Person & Account. Same permission and scope as creating
+    a Sangha Sevi (ADMIN-BR-076).
+    """
+    with conn.cursor() as cur:
+        _require_person_in_scope(cur, user, str(person_pk), "restore Sangha Sevi records")
+
+        cur.execute(
+            "SELECT sangha_sevi_pk, sangha_sevi_id, is_active FROM nss.sangha_sevi WHERE person_pk = %s",
+            (str(person_pk),),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="This person has no Sangha Sevi record to restore.")
+        sevi_pk, sevi_id, is_active = row
+        if is_active:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail=f"Sangha Sevi {sevi_id} is already active.")
+
+        # Reopen the affiliations the deactivation closed (same calendar day), then the
+        # record itself; the deferred home-affiliation guard checks at commit.
+        cur.execute(
+            """
+            UPDATE nss.membership_sakha_affiliation msa
+               SET effective_to = NULL, affiliation_status = 'REACTIVATED', updated_at = NOW()
+              FROM nss.sangha_sevi ss
+             WHERE ss.sangha_sevi_pk = msa.sangha_sevi_pk
+               AND ss.sangha_sevi_pk = %s
+               AND msa.affiliation_status = 'ARCHIVED'
+               AND msa.effective_to = ss.deleted_at::date
+            """,
+            (str(sevi_pk),),
+        )
+        reopened = cur.rowcount
+        if reopened == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Sangha Sevi {sevi_id} has no Sakha affiliation closed by its deactivation, "
+                       "so it cannot be restored automatically.",
+            )
+        cur.execute(
+            """
+            UPDATE nss.sangha_sevi
+               SET is_active = TRUE, deleted_at = NULL, updated_at = NOW()
+             WHERE sangha_sevi_pk = %s
+            """,
+            (str(sevi_pk),),
+        )
+        log_audit(cur, action="RESTORE", table_name="sangha_sevi", record_pk=str(sevi_pk),
+                  actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
+                  module="admin",
+                  summary=f"Restored deactivated Sangha Sevi {sevi_id} ({reopened} affiliation(s) reopened)")
+
+    return MessageResponse(message=f"Sangha Sevi {sevi_id} has been restored.")
 
 
 # ── GET /users/check-account/{person_pk} ───────────────────────────────
@@ -1675,6 +1787,8 @@ def delete_user(
     actor's scope (ADMIN-BR-076/078).
     Sets is_active=FALSE, deleted_at=NOW() on user_account.
     Also soft-revokes all active role assignments and admin scopes.
+    Leaves the Person and the Membership (Sangha Sevi, affiliations) untouched
+    (AUTH-BR-010).
     Cannot delete own account (safety).
     """
     now = datetime.now(timezone.utc)
@@ -1763,36 +1877,10 @@ def delete_user(
             (now, str(user_account_pk)),
         )
 
-        # Soft-delete Sangha Sevi record (if exists)
-        if sevi_pk:
-            cur.execute(
-                """
-                UPDATE nss.sangha_sevi
-                SET is_active = FALSE,
-                    deleted_at = %s,
-                    updated_at = NOW()
-                WHERE sangha_sevi_pk = %s AND is_active = TRUE
-                """,
-                (now, str(sevi_pk)),
-            )
-            log_audit(cur, action="DELETE", table_name="sangha_sevi", record_pk=str(sevi_pk),
-                      actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
-                      module="admin", summary=f"Soft-deleted SS {sevi_id} (user account deletion)")
-
-            # Soft-delete active affiliations for this SS.
-            # chk_mem_sakha_aff_status_consistency requires that any row
-            # with effective_to set also have affiliation_status='ARCHIVED'
-            # — closing a row without archiving it violates that CHECK.
-            cur.execute(
-                """
-                UPDATE nss.membership_sakha_affiliation
-                SET effective_to = %s,
-                    affiliation_status = 'ARCHIVED',
-                    updated_at = NOW()
-                WHERE sangha_sevi_pk = %s AND effective_to IS NULL
-                """,
-                (now, str(sevi_pk)),
-            )
+        # AUTH-BR-010 (FROZEN): deleting an account never deletes the Person, the
+        # Membership (Sangha Sevi + Sakha affiliations) or any business record - only
+        # the login, its roles and its admin scopes go. The member stays on the
+        # Sakha's roll and can be given access again (Create Person & Account, Step 3).
 
         # Soft-delete any pending registration claims for this person
         cur.execute(
@@ -3629,6 +3717,8 @@ def create_organization(
                           actor_pk=actor, actor_user_account_pk=str(user.user_account_pk),
                           module="governance",
                           summary=f"Auto-created Sakha Governing Body for {body.organization_name}")
+            # A new Sakha receives a copy of every Kendra contribution that applies to all Sakhas (audited, same transaction).
+            finance_contribution.sync_new_sakha(cur, user, new_org_pk)
 
     return {
         "organization_pk": str(new_org_pk),

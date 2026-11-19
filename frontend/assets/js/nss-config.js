@@ -79,6 +79,14 @@ const NSS = {
      * Keeps HTML templates clean: :class="NSS.statusBadgeClass(code)"
      */
 
+    // Member Directory "Membership Status" filter: the lifecycle statuses a membership can
+    // hold (owner 2026-11-18: Resigned is a post matter, not a membership status), in this
+    // order. The values still come from master data (STATUS); this list only picks which to offer.
+    // Suspended / Expelled / Deceased members cannot be marked at Sangha Puja (server: attendance.py).
+    ATTENDANCE_BLOCKED_STATUSES: ["SUSPENDED", "EXPELLED", "DECEASED"],
+
+    MEMBERSHIP_STATUS_FILTER: ["ACTIVE", "SUSPENDED", "LAPSED", "EXPELLED", "DECEASED"],
+
     STATUS_BADGE_MAP: {
         ACTIVE:              "badge-status-active",
         INACTIVE:            "badge-status-inactive",
@@ -469,6 +477,82 @@ const NSS = {
 
     assetCustodianshipBadgeClass(status) {
         return this.ASSET_CUSTODIANSHIP_BADGE_MAP[status] || "badge-muted";
+    },
+
+    // ── Finance (Tier 12) ──────────────────────────────────────────────
+    // Lifecycle statuses of a financial year / scope / fund / transaction /
+    // receipt / payment / transfer (SOL-FIN-005). Fixed values (not master
+    // data), so labels and badge classes live here; one map serves all seven
+    // entities because the same word means the same thing on each of them.
+    FINANCE_STATUS_LABELS: {
+        PLANNED: "Planned", OPEN: "Open", CLOSING: "Closing", CLOSED: "Closed",
+        DRAFT: "Draft", ACTIVE: "Active", INACTIVE: "Inactive",
+        PENDING_APPROVAL: "Pending approval", APPROVED: "Approved", POSTED: "Posted", SETTLED: "Settled",
+        REJECTED: "Rejected", CANCELLED: "Cancelled",
+        ISSUED: "Issued", INITIATED: "Initiated", COMPLETED: "Completed", EXECUTED: "Executed",
+        CREATED: "Created", PENDING: "Awaiting payment", PAID: "Paid", FAILED: "Failed", EXPIRED: "Expired",
+    },
+
+    FINANCE_STATUS_BADGE_MAP: {
+        PLANNED: "badge-fin-neutral", DRAFT: "badge-fin-neutral",
+        OPEN: "badge-fin-live", ACTIVE: "badge-fin-live", ISSUED: "badge-fin-live",
+        PENDING_APPROVAL: "badge-fin-pending", CLOSING: "badge-fin-pending", INITIATED: "badge-fin-pending",
+        APPROVED: "badge-fin-approved", EXECUTED: "badge-fin-approved",
+        POSTED: "badge-fin-done", SETTLED: "badge-fin-done", COMPLETED: "badge-fin-done",
+        CLOSED: "badge-fin-closed", INACTIVE: "badge-fin-closed",
+        REJECTED: "badge-fin-bad", CANCELLED: "badge-fin-bad",
+        CREATED: "badge-fin-neutral", PENDING: "badge-fin-pending", PAID: "badge-fin-done", FAILED: "badge-fin-bad", EXPIRED: "badge-fin-closed",
+    },
+
+    financeStatusLabel(status) {
+        return this.FINANCE_STATUS_LABELS[status] || this.codeLabel(status);
+    },
+
+    financeStatusBadgeClass(status) {
+        return this.FINANCE_STATUS_BADGE_MAP[status] || "badge-muted";
+    },
+
+    /**
+     * Download a file the API serves behind a login (a PDF receipt): fetch it with the session's token, then hand the bytes to the
+     * browser as a saved file. A plain link cannot work because the token travels in a header. Throws the server's own message
+     * (NSS.extractError) when it refuses. The file name is the one the server names in Content-Disposition.
+     */
+    async downloadFile(url, fallbackName) {
+        const res = await NSSAuth.apiFetch(url);
+        if (!res.ok) throw new Error(await this.extractError(res));
+        const blob = await res.blob();
+        const named = /filename="?([^";]+)"?/i.exec(res.headers.get("Content-Disposition") || "");
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = (named && named[1]) || fallbackName || "download";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+    },
+
+    // Member contribution cards (Pranami tab): paid / part paid / due / any amount. Reuses the badge-fin-* colours
+    // (green / amber / red / grey) and the matching card border class in badges.css (contrib-card-*).
+    CONTRIBUTION_STATE: {
+        PAID: { label: "Paid", badge: "badge-fin-live", card: "contrib-card-paid" },
+        PART: { label: "Part paid", badge: "badge-fin-pending", card: "contrib-card-part" },
+        DUE: { label: "Due", badge: "badge-fin-bad", card: "contrib-card-due" },
+        OPEN: { label: "Any amount", badge: "badge-fin-neutral", card: "contrib-card-open" },
+    },
+    contributionState(state) {
+        return this.CONTRIBUTION_STATE[state] || this.CONTRIBUTION_STATE.OPEN;
+    },
+
+    /**
+     * Indian-rupee display of a decimal string / number ("1234567.5" -> "₹12,34,567.50").
+     * Money travels as decimal STRINGS from the API; this is display only.
+     * @returns {string}
+     */
+    formatMoney(value) {
+        const n = Number(value);
+        if (value === null || value === undefined || value === "" || Number.isNaN(n)) return "—";
+        return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
     },
 
     /**
@@ -1071,6 +1155,14 @@ const NSS = {
      * @param {string} columnKey
      * @returns {string}
      */
+    // Two-letter avatar initials from a full name ("Sandeep Kumar Panda" -> "SP"); "?" when empty.
+    initials(name) {
+        const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return "?";
+        if (parts.length === 1) return parts[0][0].toUpperCase();
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    },
+
     sortAria(currentKey, currentDir, columnKey) {
         if (currentKey !== columnKey) return "none";
         return currentDir === this.SORT_DIR_DESC ? "descending" : "ascending";
@@ -1374,8 +1466,8 @@ NSS.aadhaar = (() => {
         [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
         [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
     ];
-    const MESSAGE = "Aadhaar number must be exactly 12 digits (spaces or hyphens allowed), "
-        + "must not start with 0 or 1 and must pass the Verhoeff checksum.";
+    // Same wording as api/services/aadhaar_service.py MALFORMED_MESSAGE (a parity test compares them).
+    const MESSAGE = "Aadhaar number must be exactly 12 digits (spaces or hyphens allowed), must not start with 0 or 1 and must pass the Verhoeff checksum.";
 
     function verhoeffValid(digits) {
         if (!/^[0-9]+$/.test(digits || "")) return false;

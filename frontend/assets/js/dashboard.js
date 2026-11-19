@@ -292,6 +292,7 @@ function _buildCoupleTree(allPersons) {
 // LIVE_TABLE_TABS:begin
 const LIVE_TABLE_TABS = {
     registration_claim: ["pendingItems"],
+    membership_status_change_request: ["pendingItems"],
     correspondence_approval_step: ["pendingItems"],
     organization_reparent_request: ["pendingItems"],
     organization_reparent_step: ["pendingItems"],
@@ -325,6 +326,19 @@ const LIVE_TABLE_TABS = {
     family_admin: ["family"],
     family_link: ["family"],
     family_transition_history: ["family"],
+    // Finance (Tier 12): the member's own Pranami contributions and their receipts
+    financial_transaction: ["pranami", "finApprovals"],
+    upi_payment_request: ["pranami"],
+    financial_receipt: ["pranami"],
+    // what a member may pay is decided by the heads (portal opened / closed, amount), the receiving account and the Sangha's scope, and a
+    // multi-item payment is its request lines: a change by an admin shows on the member's Pranami tab by itself
+    finance_head: ["pranami"],
+    financial_account: ["pranami"],
+    financial_scope: ["pranami"],
+    upi_payment_request_line: ["pranami"],
+    // Finance approvals (owner 2026-11-17): the Treasurer / President's own list of entries waiting for them
+    finance_approval_step: ["finApprovals"],
+    finance_transaction_bill: ["finApprovals"],
 };
 // LIVE_TABLE_TABS:end
 
@@ -345,7 +359,7 @@ const LIVE_REFRESH_CONFIG = {
         pendingItems: {
             background: true,
             reload: (h) => h._loadPendingItems(),
-            busy: (h) => [h.sendApp.decisionRemarks, h.reparentRemarks]
+            busy: (h) => [h.sendApp.decisionRemarks, h.reparentRemarks, h.statusRemarks]
                 .some((m) => Object.values(m || {}).some((v) => String(v || "").trim() !== "")),
         },
         // Advisory Board dashboard (governance bodies / seats / people it lists): a read-only view.
@@ -357,6 +371,11 @@ const LIVE_REFRESH_CONFIG = {
             reload: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return t ? t.liveReload() : null; },
             busy: (h) => { const t = NSSLiveRefresh.target("orgDashboard"); return !!(t && t.liveBusy()); },
         },
+
+        // Finance: the member's own Pranami (read-only, nothing to protect from a reload).
+        pranami: { reload: (h) => h._loadPranami({ silent: true }), busy: () => false },
+        // Finance approvals: not reloaded while a decision is being sent.
+        finApprovals: { reload: (h) => h._loadFinApprovals({ silent: true }), busy: (h) => !!h.finApprovals.acting },
 
         // ── Batch 2 ──
         // Personal: person, addresses, own membership record and family. Busy while the
@@ -568,6 +587,11 @@ function dashboardApp() {
         // live President seat only — the list endpoint already filters to
         // steps this member can decide right now (viewer_can_decide).
         reparentApprovals: [],
+        // Membership Status change requests awaiting MY decision (Parichalak / acting delegate /
+        // Kendra President; api/routers/membership_status.py). Empty for everyone else.
+        statusApprovals: [],
+        statusRemarks: {},
+        statusDeciding: false,
         reparentRemarks: {},
         reparentDeciding: false,
 
@@ -979,6 +1003,382 @@ function dashboardApp() {
             );
         },
 
+        // ── Pranami tab (Finance, Tier 12): the member's OWN contributions ─────
+        // GET /api/v1/finance/my-pranami - login only, no id parameter, so it can
+        // only ever return the signed-in member's rows (posted / settled Pranami
+        // income linked to them, with its issued receipts).
+        pranami: { loading: false, error: "", data: null, year: "", head: "", org: "", method: "", from: "", to: "", receiptError: "", view: "pay" },
+        _pranamiSeq: 0,
+
+        async _loadPranami(opts = {}) {
+            const seq = ++this._pranamiSeq;
+            if (!opts.silent) { this.pranami.loading = true; this.pranami.error = ""; }
+            this._loadPranamiPayHeads();
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami");
+                if (seq !== this._pranamiSeq) return;
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                this.pranami.data = await res.json();
+            } catch (err) {
+                if (seq !== this._pranamiSeq || opts.silent) return;
+                this.pranami.data = null;
+                this.pranami.error = err.message || "Failed to load your Pranami.";
+            } finally {
+                if (seq === this._pranamiSeq) this.pranami.loading = false;
+            }
+        },
+        // Financial years that have at least one contribution, newest first.
+        pranamiYears() {
+            const years = new Set(((this.pranami.data || {}).items || []).map((i) => i.year_code));
+            return [...years].sort().reverse();
+        },
+        // History filters (all in the browser, over the member's own list): financial year, head, Sangha paid, method, date range.
+        pranamiHeadOf(i) { return i.finance_head_name || NSS.codeLabel(i.transaction_category); },
+        pranamiOrgOf(i) { return i.organization_name || i.scope_name; },
+        pranamiMethodOf(i) { return [...new Set((i.receipts || []).map((r) => r.payment_method_name).filter(Boolean))].join(", "); },
+        _pranamiOptions(pick) {
+            const items = (this.pranami.data || {}).items || [];
+            return [...new Set(items.map(pick).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        },
+        pranamiHeadOptions() { return this._pranamiOptions((i) => this.pranamiHeadOf(i)); },
+        pranamiOrgOptions() { return this._pranamiOptions((i) => this.pranamiOrgOf(i)); },
+        pranamiMethodOptions() {
+            const items = (this.pranami.data || {}).items || [];
+            return [...new Set(items.flatMap((i) => (i.receipts || []).map((r) => r.payment_method_name)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        },
+        pranamiFiltersActive() {
+            const f = this.pranami;
+            return !!(f.year || f.head || f.org || f.method || f.from || f.to);
+        },
+        pranamiClearFilters() { Object.assign(this.pranami, { year: "", head: "", org: "", method: "", from: "", to: "" }); },
+        pranamiFiltered() {
+            const items = (this.pranami.data || {}).items || [];
+            const f = this.pranami;
+            return items.filter((i) =>
+                (!f.year || i.year_code === f.year)
+                && (!f.head || this.pranamiHeadOf(i) === f.head)
+                && (!f.org || this.pranamiOrgOf(i) === f.org)
+                && (!f.method || (i.receipts || []).some((r) => r.payment_method_name === f.method))
+                && (!f.from || i.transaction_date >= f.from)
+                && (!f.to || i.transaction_date <= f.to));
+        },
+        pranamiTotal() {
+            return this.pranamiFiltered().reduce((sum, i) => sum + Number(i.amount), 0);
+        },
+        // ── Pay Pranami by UPI (Finance, Tier 12) ────────────────────────────
+        // GET /finance/my-pranami/heads lists what the member's own Sakha and the Kendra can collect by UPI; POST /finance/my-pranami/pay
+        // starts a payment of THEIR OWN Pranami (the payer is the token). This page never marks anything paid: the gateway's
+        // signed webhook does, and the status poll below only reports it. Links are rendered only with the expected scheme.
+        pranamiPay: { heads: [], requests: [], amounts: {}, selected: {}, head: "", saving: false, error: "", result: null, now: 0 },
+        _pranamiPayTimer: null,
+
+        // The contribution cards grouped by the Sangha they pay: the member's own Sakha first, then the Kendra (the server sorts them so).
+        pranamiPayGroups() {
+            const groups = [];
+            for (const h of this.pranamiPay.heads) {
+                let g = groups.find((x) => x.organization_pk === h.organization_pk);
+                if (!g) { g = { organization_pk: h.organization_pk, name: h.organization_name || "", heads: [] }; groups.push(g); }
+                g.heads.push(h);
+            }
+            return groups;
+        },
+        // "₹500 per financial year" / "₹100 per month" / "₹250, one time"; empty for a head with no fixed amount.
+        pranamiCardAmountLabel(h) {
+            if (h.fixed_amount == null) return "";
+            const per = { YEARLY: " per financial year", MONTHLY: " per month", ONE_TIME: ", one time" }[h.due_period] || "";
+            return NSS.formatMoney(h.fixed_amount) + per;
+        },
+        // A card can take a payment when its Sangha is set up, something is due (or the head has no fixed amount) and
+        // nothing is already waiting for the bank on a head that must be paid in full.
+        pranamiCardCanPay(h) {
+            if (!h.payable || h.state === "PAID") return false;
+            return !(h.fixed_amount != null && !h.allow_part_payment && Number(h.pending_amount) > 0);
+        },
+        // The amount box is only for a head that takes a part payment or any amount; a fixed head is paid in full.
+        pranamiCardAsksAmount(h) { return h.fixed_amount == null || h.allow_part_payment; },
+        pranamiCardAmount(h) {
+            if (h.fixed_amount != null && !h.allow_part_payment) return String(h.due_amount);
+            const typed = this.pranamiPay.amounts[h.finance_head_pk];
+            return typed == null || typed === "" ? (h.due_amount != null ? String(h.due_amount) : "") : String(typed);
+        },
+        // https only - plus this computer's own address, where the local Razorpay rehearsal serves its pay page.
+        pranamiSafeUrl(url) { return typeof url === "string" && /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/)/i.test(url) ? url : ""; },
+        pranamiSafeUpi(uri) { return typeof uri === "string" && /^upi:\/\/pay\?/i.test(uri) ? uri : ""; },
+
+        async _loadPranamiPayHeads() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/heads");
+                this.pranamiPay.heads = res.ok ? await res.json() : [];
+            } catch { this.pranamiPay.heads = []; }
+            this._forgetStaleTypedAmounts();
+            this._loadPranamiRequests();
+        },
+        // A part payment changes what is still due. The amount box shows what the member typed last time, which would then be stale (they
+        // typed 50, paid it, and are shown 50 again instead of the balance): a typed amount is dropped for any head whose due amount moved.
+        _pranamiDueSeen: {},
+        _forgetStaleTypedAmounts() {
+            const p = this.pranamiPay;
+            for (const h of p.heads) {
+                const key = h.finance_head_pk, due = h.due_amount == null ? "" : String(h.due_amount);
+                if (key in this._pranamiDueSeen && this._pranamiDueSeen[key] !== due) delete p.amounts[key];
+                this._pranamiDueSeen[key] = due;
+            }
+        },
+        // Payments a treasurer / admin asked THIS member to make: they show here by themselves (no one has to tell the member).
+        async _loadPranamiRequests() {
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/requests");
+                this.pranamiPay.requests = res.ok ? (await res.json()).filter((r) => r.asked_by_name) : [];
+            } catch { this.pranamiPay.requests = []; }
+        },
+        // Pay an asked-for request: open it on the checkout page exactly like one the member started.
+        pranamiPayRequested(r) {
+            const p = this.pranamiPay;
+            p.error = ""; p.result = r;
+            this._pranamiStartClock();
+            this._pranamiPayPoll(r.upi_payment_request_pk, 0);
+        },
+        // ── Pay several contributions in ONE UPI payment (owner request 2026-11-17) ──────────────────────
+        // The member ticks cards of ONE Sangha (a payment goes to one account, so the Sakha and the Kendra are paid separately);
+        // POST /finance/my-pranami/pay-multiple takes the head and amount of each and the server re-checks every one.
+        pranamiSelectedHeads() {
+            return this.pranamiPay.heads.filter((h) => this.pranamiPay.selected[h.finance_head_pk] && this.pranamiCardCanPay(h));
+        },
+        pranamiSelectedOrg() {
+            const first = this.pranamiSelectedHeads()[0];
+            return first ? first.organization_pk : "";
+        },
+        pranamiSelectDisabled(h) {
+            const org = this.pranamiSelectedOrg();
+            return !this.pranamiCardCanPay(h) || (org !== "" && org !== h.organization_pk);
+        },
+        pranamiToggle(h) {
+            if (this.pranamiSelectDisabled(h)) return;
+            this.pranamiPay.selected[h.finance_head_pk] = !this.pranamiPay.selected[h.finance_head_pk];
+        },
+        pranamiGroupPayableCount(g) { return g.heads.filter((h) => this.pranamiCardCanPay(h)).length; },
+        pranamiSelectGroup(g) {
+            this.pranamiPay.selected = {};
+            for (const h of g.heads) if (this.pranamiCardCanPay(h)) this.pranamiPay.selected[h.finance_head_pk] = true;
+        },
+        pranamiClearSelection() { this.pranamiPay.selected = {}; },
+        // The total in paise (integers: no floating-point drift), of the amounts the cards currently hold.
+        pranamiSelectedPaise() {
+            return this.pranamiSelectedHeads().reduce((sum, h) => sum + Math.round(Number(this.pranamiCardAmount(h)) * 100), 0);
+        },
+        pranamiSelectedTotal() { return NSS.formatMoney(this.pranamiSelectedPaise() / 100); },
+        async pranamiPayMultiple() {
+            const p = this.pranamiPay;
+            const heads = this.pranamiSelectedHeads();
+            if (heads.length < 2) { p.error = "Tick at least two Pranami of the same Sangha to pay them together."; return; }
+            const items = [];
+            for (const h of heads) {
+                const amount = this.pranamiCardAmount(h).trim();
+                if (!/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
+                    p.error = `${h.head_name}: enter a positive amount with at most two decimals.`; return;
+                }
+                items.push({ finance_head_pk: h.finance_head_pk, amount });
+            }
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/pay-multiple", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
+                });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                p.selected = {};
+                for (const x of heads) delete p.amounts[x.finance_head_pk];         // the next visit starts from what is then due
+                this._pranamiStartClock();
+                this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
+            } catch (err) {
+                p.error = err.message || "Could not start the payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+
+        async pranamiPayStart(h) {
+            const p = this.pranamiPay;
+            const amount = this.pranamiCardAmount(h).trim();
+            if (!/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
+                p.error = "Enter a positive amount with at most two decimals."; return;
+            }
+            p.head = h.finance_head_pk;
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-pranami/pay", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ finance_head_pk: p.head, amount }),
+                });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                delete p.amounts[h.finance_head_pk];                                   // the next visit starts from what is then due
+                this._pranamiStartClock();
+                this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
+            } catch (err) {
+                p.error = err.message || "Could not start the payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+        // Report (never decide) the status: stops on a final status, when the member leaves the tab, or after ~20 minutes.
+        _pranamiPayPoll(pk, tries) {
+            clearTimeout(this._pranamiPayTimer);
+            this._pranamiPayTimer = setTimeout(async () => {
+                const p = this.pranamiPay;
+                if (!p.result || p.result.upi_payment_request_pk !== pk || this.tab !== "pranami") return;
+                if (!document.hidden) {
+                    try {
+                        const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${pk}`);
+                        if (res.ok && p.result && p.result.upi_payment_request_pk === pk) p.result = await res.json();
+                    } catch { /* keep polling; a transient error is not a status */ }
+                }
+                if (p.result.status === "PAID") { this._loadPranami({ silent: true }); return; }
+                if (["FAILED", "EXPIRED", "CANCELLED"].includes(p.result.status) || tries > 400) return;
+                this._pranamiPayPoll(pk, tries + 1);
+            }, 3000);
+        },
+        // A payment the member started and left (reload, "Back", closed tab) is still waiting on the card: resume it where it was ...
+        async pranamiResume(h) {
+            const p = this.pranamiPay;
+            if (!h.pending_request_pk) return;
+            p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${h.pending_request_pk}`);
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                this._pranamiStartClock();
+                this._pranamiPayPoll(p.result.upi_payment_request_pk, 0);
+            } catch (err) {
+                p.error = err.message || "Could not open that payment.";
+            }
+        },
+        // ... or cancel it for real, so it stops counting as "waiting for the bank" and the member can start again.
+        async pranamiCancelRequest(pk, { confirm = true } = {}) {
+            const p = this.pranamiPay;
+            if (!pk) return;
+            if (confirm && !(await NSSDialog.confirm("Cancel this payment? Nothing has been charged by this page; you can start a new payment afterwards.",
+                { title: "Cancel payment", confirmText: "Cancel payment" }))) return;
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${pk}/cancel`, { method: "POST" });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                if (p.result && p.result.upi_payment_request_pk === pk) this.pranamiPayClose(); else await this._loadPranamiPayHeads();
+            } catch (err) {
+                p.error = err.message || "Could not cancel the payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+        // DEMO gateway only (the server says so with demo_payable): completes the member's own waiting payment, no real money.
+        async pranamiDemoPay(outcome = "paid") {
+            const p = this.pranamiPay;
+            if (!p.result) return;
+            p.saving = true; p.error = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/my-pranami/requests/${p.result.upi_payment_request_pk}/demo-pay?outcome=${outcome === "failed" ? "failed" : "paid"}`, { method: "POST" });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                p.result = await res.json();
+                this._loadPranami({ silent: true });
+            } catch (err) {
+                p.error = err.message || "Could not complete the demo payment.";
+            } finally {
+                p.saving = false;
+            }
+        },
+        pranamiPayClose() { clearInterval(this._pranamiClock); clearTimeout(this._pranamiPayTimer); this.pranamiPay.result = null; this.pranamiPay.head = ""; this.pranamiPay.error = ""; this.pranamiPay.selected = {}; this._loadPranamiPayHeads(); },
+
+        // The "valid for mm:ss" countdown of the payment page: ticks once a second while the payment is waiting, then stops by itself.
+        _pranamiClock: null,
+        _pranamiStartClock() {
+            clearInterval(this._pranamiClock);
+            this.pranamiPay.now = Date.now();
+            this._pranamiClock = setInterval(() => {
+                this.pranamiPay.now = Date.now();
+                const r = this.pranamiPay.result;
+                if (!r || !["CREATED", "PENDING"].includes(r.status)) clearInterval(this._pranamiClock);
+            }, 1000);
+        },
+        pranamiExpiresIn() {
+            const r = this.pranamiPay.result;
+            if (!r || !r.expires_at) return "";
+            const left = Math.floor((new Date(r.expires_at).getTime() - this.pranamiPay.now) / 1000);
+            if (left <= 0) return "Expired";
+            return String(Math.floor(left / 60)).padStart(2, "0") + ":" + String(left % 60).padStart(2, "0");
+        },
+
+        // ── Finance approvals (Sakha chain, owner 2026-11-17) ─────────────────
+        // GET /finance/my-approvals lists the entries waiting for THIS member to act now (their seat is the one the next step needs);
+        // POST /finance/transactions/{pk}/approve | /reject decide. The server checks the seat on every call: this page decides nothing.
+        finApprovals: { loading: false, error: "", items: [], notice: "", acting: "", remarks: {} },
+        _finApprovalsSeq: 0,
+
+        async _loadFinApprovals(opts = {}) {
+            const seq = ++this._finApprovalsSeq;
+            const a = this.finApprovals;
+            if (!opts.silent) { a.loading = true; a.error = ""; }
+            try {
+                const res = await NSSAuth.apiFetch("/api/v1/finance/my-approvals");
+                if (seq !== this._finApprovalsSeq) return;
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                a.items = (await res.json()).items || [];
+            } catch (err) {
+                if (seq !== this._finApprovalsSeq || opts.silent) return;
+                a.items = [];
+                a.error = err.message || "Failed to load your approvals.";
+            } finally {
+                if (seq === this._finApprovalsSeq) a.loading = false;
+            }
+        },
+        finApprovalsCount() { return this.finApprovals.items.length; },
+        finApprovalOffice(item) {
+            return { TREASURER: "Treasurer", PRESIDENT: "President", SECRETARY: "Secretary" }[item.position_code] || item.position_code;
+        },
+        finApprovalRuleText(item) {
+            if (item.requires === "TREASURER") return `Within the Treasurer's limit (${NSS.formatMoney(item.limit)}): your approval is the only one needed.`;
+            if (item.stage === 1) return "Step 1 of 2: after you approve, the President (or the Secretary when no President is seated) approves too.";
+            return item.cover_reason === "PRESIDENT_SEAT_VACANT"
+                ? "Step 2 of 2: no President is seated, so you approve as Secretary. Your approval posts the entry."
+                : "Step 2 of 2: the Treasurer has approved. Your approval posts the entry.";
+        },
+        async finApprovalDecide(item, decision) {
+            const a = this.finApprovals;
+            const pk = item.financial_transaction_pk;
+            const remarks = String(a.remarks[pk] || "").trim();
+            if (decision === "REJECTED" && !remarks) { a.error = "Give a reason when you reject an entry."; return; }
+            a.acting = pk; a.error = ""; a.notice = "";
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/finance/transactions/${pk}/${decision === "APPROVED" ? "approve" : "reject"}`, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remarks: remarks || null }),
+                });
+                if (!res.ok) throw new Error(await NSS.extractError(res));
+                const r = await res.json();
+                a.notice = `${r.transaction_reference}: ${r.message}`;
+                delete a.remarks[pk];
+            } catch (err) {
+                a.error = err.message || "Could not record your decision.";
+            } finally {
+                a.acting = "";
+                await this._loadFinApprovals({ silent: true });
+            }
+        },
+
+        // Download a receipt of the member's OWN as a PDF, any time (GET /finance/my-pranami/receipts/{pk}/pdf).
+        async pranamiDownloadReceipt(receiptPk, receiptNumber) {
+            if (!receiptPk) return;
+            this.pranami.receiptError = "";
+            try {
+                await NSS.downloadFile(`/api/v1/finance/my-pranami/receipts/${receiptPk}/pdf`, `NSS-Receipt-${receiptNumber || "receipt"}.pdf`);
+            } catch (err) {
+                this.pranami.receiptError = err.message || "Could not download the receipt.";
+            }
+        },
+
+        pranamiLatestDate() {
+            const items = this.pranamiFiltered();
+            return items.length ? items[0].transaction_date : "";      // the API returns newest first
+        },
+
         // Computed
         adminTabs: [],
         adminStats: {},
@@ -1163,6 +1563,15 @@ function dashboardApp() {
             if (this.tab === "personal") {
                 this.loadSessions();
             }
+
+            // Same direct-load coverage for the Pranami tab.
+            if (this.tab === "pranami") {
+                this._loadPranami();
+            }
+
+            // The Treasurer / President / Secretary's list of entries waiting for them: loaded for everyone (login only, an empty
+            // answer for anyone who holds no such seat) so the sidebar item and its count are right on login.
+            this._loadFinApprovals({ silent: true });
 
             // Same direct-load coverage for the Advisory Board dashboard tab.
             if (this.tab === "advisoryBoard") {
@@ -2910,6 +3319,46 @@ function dashboardApp() {
             }
         },
 
+        async _loadStatusApprovals() {
+            try {
+                const res = await NSSAuth.apiFetch(
+                    "/api/v1/membership-status/requests?awaiting_my_decision=true&page_size=100"
+                );
+                if (res.ok) this.statusApprovals = (await res.json()).requests || [];
+            } catch (e) {
+                console.error("Failed to load membership status approvals", e);
+            }
+        },
+
+        // decision: "approve" | "reject" (remarks required to reject)
+        async decideStatusRequest(req, decision) {
+            const pk = req.membership_status_change_request_pk;
+            const remarks = (this.statusRemarks[pk] || "").trim();
+            if (decision === "reject" && remarks.length < 3) {
+                await NSSDialog.alert("Give a reason for rejecting the request.", "Membership status");
+                return;
+            }
+            this.statusDeciding = true;
+            try {
+                const res = await NSSAuth.apiFetch(`/api/v1/membership-status/requests/${pk}/${decision}`, {
+                    method: "POST",
+                    body: JSON.stringify({ remarks: remarks || null }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    delete this.statusRemarks[pk];
+                    await this._loadStatusApprovals();
+                } else {
+                    await NSSDialog.alert(NSS.errorMessage(data, res.status), "Membership status");
+                }
+            } catch (e) {
+                console.error("Failed to record the membership status decision", e);
+                await NSSDialog.alert("Unable to connect to server.", "Membership status");
+            } finally {
+                this.statusDeciding = false;
+            }
+        },
+
         // The step of this request the viewer can decide right now.
         reparentMyStepFor(req) {
             return (req.steps || []).find(st => st.viewer_can_decide) || null;
@@ -3974,9 +4423,12 @@ function dashboardApp() {
         myPendingReparentApprovalsCount() {
             return (this.reparentApprovals || []).length;
         },
+        myPendingStatusApprovalsCount() {
+            return (this.statusApprovals || []).length;
+        },
         myTotalPendingItemsCount() {
             return this.myPendingActingApprovalsCount() + this.myPendingApplicationApprovalsCount()
-                + this.myPendingReparentApprovalsCount()
+                + this.myPendingReparentApprovalsCount() + this.myPendingStatusApprovalsCount()
                 + this.myPendingElectionsCount() + (this.pendingClaimsCount || 0);
         },
 
@@ -5241,6 +5693,10 @@ function dashboardApp() {
                     // request), so a normal tab revisit doesn't re-fetch
                     // data that's already there.
                     if (!this.person) this._fetchPersonalDetail();
+                } else if (tab === "pranami") {
+                    this._loadPranami();
+                } else if (tab === "finApprovals") {
+                    this._loadFinApprovals();
                 } else if (tab === "advisoryBoard") {
                     this._loadAdvisoryBoardDashboard();
                 } else if (tab === "governance") {
@@ -5618,6 +6074,7 @@ function dashboardApp() {
                 this._loadMyPendingActingApprovals(),
                 this._loadPendingApprovals(),
                 this._loadReparentApprovals(),
+                this._loadStatusApprovals(),
                 this._loadOpenElectionsForVoting(),
                 this._loadPendingClaimsCount(),
             ]);

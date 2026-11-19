@@ -643,6 +643,14 @@ Treasurer disbursement
 
 The ERP shall not collapse these into a single generic approval.
 
+**Implementation (2026-11-10, uncommitted):** `finance_disbursement_authority` +
+`api/services/finance_authority.py`. For a payment, or a transfer out, of a
+Kendra scope the three steps are three recorded facts — the Governing Body
+resolution/scheme and permitted purpose, the President's written order, and
+the Treasurer's disbursement — never one approval. The resolution is a typed
+reference (no lookup against the Governance module yet). Other levels are not
+bound (FIN-BR-044).
+
 ---
 
 ## FIN-BR-041 — Kendra Annual Budget
@@ -711,6 +719,13 @@ Sangha, operated jointly by the Secretary and Treasurer.
 
 Source: F[b]
 
+**Implementation (2026-11-10):** joint operation is enforced as two signatures
+by the persons CURRENTLY seated as Treasurer and Secretary of the Kendra
+Governing Body (the Treasurer starts the disbursement, a different Secretary
+countersigns before it can be COMPLETED). The ERP does not model the bank
+mandate itself (FIN-BR-047 stays PENDING) and cannot verify that an account is
+a Post Office / nationalised-bank account in the Sangha's name.
+
 ---
 
 ## FIN-BR-046 — Mahila Fund Accounts
@@ -721,6 +736,11 @@ Mahila funds are to be maintained in the prescribed postal/state-bank
 arrangement and operated jointly by the Treasurer and Secretary.
 
 Source: MS-7(ii)
+
+**Implementation (2026-11-10):** same two-signature control for the central
+Mahila Sangha (`MAHILA_PARICHALANA_MANDALI` seats), plus the Governing Body
+resolution (MS-7(iii)(i)), a permitted purpose and the Parichalak consultation
+flag (MS-7(iii)(a)). No President's order is required for Mahila money.
 
 ---
 
@@ -1079,3 +1099,25 @@ NOT YET DESIGNED
 ---
 
 # End of Document
+
+
+---
+
+## Implementation note: the Sakha approval chain (owner decision 2026-11-17 - not frozen governance)
+
+FIN-BR-044 left the authorization matrix of every level other than Kendra and the central Mahila Sangha PENDING. On 2026-11-17 the
+project owner decided it for the **Sakha / Sakha Asana** (and nothing else, so the matrix of other levels stays pending):
+
+1. every income or spend is booked under a finance head;
+2. income on a pre-defined head (Parichaya Patra, Anumati Patra, monthly / annual Pranami ...) needs **no approval**;
+3. every other entry: the **Treasurer approves first**, then the **President**; when no President is seated (and no acting President
+   covers) the **Secretary** gives the second approval;
+4. the Treasurer approves a **spend** alone up to an amount set **per head** (with a Sakha-wide default); above it, or where there is no
+   limit, the President / Secretary approves as well;
+5. every spend is supported by **bills** that add up to its amount; reimbursing a member who paid on the Sangha's behalf names the member;
+6. the authority is the **seat held at that moment**; there is no override by permission or by the super administrator, and a vacant
+   Treasurer seat blocks the entry until it is filled.
+
+Built in `api/services/finance_approval.py` / `api/routers/finance_approval.py`; the approvals page of the Treasurer / President is the
+member dashboard tab "Finance approvals". Not covered: payments and transfers (they keep the ordinary lifecycle), file upload for bills
+(the app has none yet), the Treasurer recording an entry without an admin role, and the Kendra annual-budget / audit chains.

@@ -291,7 +291,9 @@
                     // status - an untouched row is never saved), then anyone
                     // already marked for this puja who is not on the home roster
                     // (a Darshak visitor another marker added).
-                    const rows = (roster.members || []).map(m => this._attMarkRow(m, existingByPk[m.sangha_sevi_pk]));
+                    const rows = (roster.members || [])
+                        .filter(m => !NSS.ATTENDANCE_BLOCKED_STATUSES.includes(m.status_code))   // Suspended / Expelled / Deceased cannot attend
+                        .map(m => this._attMarkRow(m, existingByPk[m.sangha_sevi_pk]));
                     const onRoster = new Set(rows.map(r => r.sangha_sevi_pk));
                     for (const rec of Object.values(existingByPk)) {
                         if (!onRoster.has(rec.sangha_sevi_pk)) rows.push(this._attRowFromRecord(rec));
