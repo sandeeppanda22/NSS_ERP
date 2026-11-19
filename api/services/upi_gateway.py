@@ -91,17 +91,34 @@ class GatewayEvent:
 # Credentials + provider registry
 # ═══════════════════════════════════════════════════════════════════════
 
-def credentials_for(ref: str | None) -> Credentials:
-    """Read a credential set from the environment; raise GatewayUnavailable when it is not fully configured."""
+def mock_credentials() -> Credentials:
+    """Built-in credentials of the MOCK (demo) gateway: derived from the server's own secret, so the demo needs no setup and the
+    values are never the same on two servers. MOCK moves no money and is only usable where an operator enabled it."""
+    seed = (settings.JWT_SECRET_KEY or "nss-demo-gateway").encode("utf-8")
+
+    def part(tag: str) -> str:
+        return hmac.new(seed, f"nss-upi-mock:{tag}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+    return Credentials("mock_demo_key", part("key-secret"), part("webhook-secret"))
+
+
+def credentials_for(ref: str | None, provider: str | None = None) -> Credentials:
+    """
+    Read a credential set from the environment; raise GatewayUnavailable when it is not fully configured. A MOCK account needs no
+    environment variables (its built-in set is used) unless a full set is present for its reference, which then wins - that is
+    how the test suite signs its own webhooks. A real provider (RAZORPAY ...) always needs its own set.
+    """
     if not ref or not _REF_RE.match(ref):
         raise GatewayUnavailable("This account has no valid gateway credential reference.")
     prefix = f"UPI_{ref}_"
     key_id = os.environ.get(prefix + "KEY_ID", "")
     key_secret = os.environ.get(prefix + "KEY_SECRET", "")
     webhook_secret = os.environ.get(prefix + "WEBHOOK_SECRET", "")
-    if not (key_id and key_secret and webhook_secret):
-        raise GatewayUnavailable(f"Gateway credential set {ref} is not configured on this server.")
-    return Credentials(key_id, key_secret, webhook_secret)
+    if key_id and key_secret and webhook_secret:
+        return Credentials(key_id, key_secret, webhook_secret)
+    if (provider or "").upper() == "MOCK":
+        return mock_credentials()
+    raise GatewayUnavailable(f"Gateway credential set {ref} is not configured on this server.")
 
 
 def enabled_providers() -> frozenset[str]:

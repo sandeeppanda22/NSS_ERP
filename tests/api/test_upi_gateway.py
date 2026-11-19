@@ -57,6 +57,40 @@ class TestCredentials:
             gw.credentials_for("NEVER_CONFIGURED_SET")
 
 
+class TestMockNeedsNoSetup:
+    """Owner 2026-11-18: the demo gateway must work out of the box; a real provider must never fall back to a built-in secret."""
+
+    def test_a_mock_account_works_with_no_environment_variables(self):
+        c = gw.credentials_for("NEVER_CONFIGURED_SET", "MOCK")
+        assert c.key_id and c.key_secret and c.webhook_secret
+        assert c == gw.credentials_for("ANOTHER_UNSET_SET", "mock")          # one built-in set, provider name case-insensitive
+
+    def test_a_complete_environment_set_wins_for_mock(self, creds_env):
+        assert gw.credentials_for("SAKHA_A", "MOCK").webhook_secret == SECRET
+
+    @pytest.mark.parametrize("provider", [None, "", "RAZORPAY", "razorpay", "OTHER"])
+    def test_a_real_provider_never_gets_the_built_in_set(self, provider):
+        with pytest.raises(gw.GatewayUnavailable):
+            gw.credentials_for("NEVER_CONFIGURED_SET", provider)
+
+    def test_the_built_in_set_is_derived_from_the_server_secret(self, monkeypatch):
+        monkeypatch.setattr(settings, "JWT_SECRET_KEY", "server-one")
+        one = gw.mock_credentials()
+        monkeypatch.setattr(settings, "JWT_SECRET_KEY", "server-two")
+        assert one.webhook_secret != gw.mock_credentials().webhook_secret
+
+    def test_a_malformed_reference_is_still_rejected_for_mock(self):
+        with pytest.raises(gw.GatewayUnavailable):
+            gw.credentials_for("bad ref", "MOCK")
+
+    def test_a_mock_webhook_signed_with_the_built_in_secret_verifies(self, enabled):
+        creds = gw.credentials_for("X_SET", "MOCK")
+        raw, headers = gw.build_mock_event(secret=creds.webhook_secret, order_id="mock_1", amount=Decimal("5"))
+        provider = gw.get_provider("MOCK")
+        assert provider.verify_signature(secret=creds.webhook_secret, headers=headers, raw_body=raw)
+        assert not provider.verify_signature(secret="some-other-secret", headers=headers, raw_body=raw)
+
+
 class TestProviderGate:
     def test_everything_is_off_by_default(self, monkeypatch):
         monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "")

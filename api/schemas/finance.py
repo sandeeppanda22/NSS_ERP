@@ -585,6 +585,16 @@ class ContributionCreate(BaseModel):
     allow_part_payment: bool = False
     collection_account_pk: UUID | None = Field(None, description="Omit to use the Sangha's default receiving account; ignored for ALL_SAKHAS")
     display_order: int = Field(100, ge=0, le=10000)
+    open_portal: bool = Field(True, description="False: create the head with its payment portal CLOSED (not in members' Pranami tab); open it later with POST /heads/{pk}/portal")
+
+
+class PortalToggle(BaseModel):
+    open: bool = Field(..., description="True: members of the Sangha can pay this head (it appears in their Pranami tab); False: closed")
+    # What members are asked to pay, set when the portal is opened. Send all three (the page does); fixed_amount null = any amount.
+    # A Sakha's copy of a Kendra head ignores nothing: sending these for a copy is refused (the Kendra sets the amount).
+    fixed_amount: Amount | None = Field(None, description="Amount each member is asked to pay; null = any amount (donation style)")
+    due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; required with an amount")
+    allow_part_payment: bool = False
 
 
 class ContributionResult(BaseModel):
@@ -690,6 +700,7 @@ class MyPayableHead(BaseModel):
     paid_amount: Decimal = Decimal("0")
     due_amount: Decimal | None = None
     pending_amount: Decimal = Decimal("0")  # in an unexpired UPI request, not booked yet - never counted as paid
+    pending_request_pk: UUID | None = None  # that waiting request (the newest), so the member can resume or cancel it
     period_label: str | None = None         # e.g. "2026-27", "Nov 2026" or "one time"
     payable: bool = True
     unavailable_reason: str | None = None
@@ -710,7 +721,15 @@ class MyPayment(BaseModel):
     paid_at: datetime | None
     receipt_number: str | None
     financial_receipt_pk: UUID | None = None   # the member's own receipt: GET /finance/my-pranami/receipts/{pk}/pdf
+    demo_payable: bool = False                 # a demo (MOCK gateway) payment still waiting: the page offers "Complete the payment (demo)"
     items: list["MyPaymentItem"] = []          # a payment for several contributions: what it covers, with each one's own receipt
+
+
+class MyPaymentRequest(MyPayment):
+    """A payment a treasurer / admin ASKED this member to make (it appears in their Pranami tab until paid, declined or expired)."""
+
+    asked_by_name: str | None = None           # who asked; None for a payment the member started themselves
+    note: str | None = None
 
 
 class MyPaymentItem(BaseModel):

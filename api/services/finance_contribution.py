@@ -79,10 +79,10 @@ def amount_problem(head: dict, amount: Decimal, due: Decimal | None) -> str | No
     if head.get("fixed_amount") is None:
         return None
     if due is None or due <= 0:
-        return "This contribution is already fully paid."
+        return "This Pranami is already fully paid."
     if head.get("allow_part_payment"):
         return None if amount <= due else f"The amount is more than what is due ({due:,.2f})."
-    return None if amount == due else f"This contribution must be paid in full: {due:,.2f}."
+    return None if amount == due else f"This Pranami must be paid in full: {due:,.2f}."
 
 
 # ───────────────────────── audit ─────────────────────────
@@ -130,6 +130,38 @@ def default_account(cur, org_pk) -> dict | None:
         "ORDER BY is_default DESC, created_at LIMIT 1", (str(org_pk),))
     row = cur.fetchone()
     return {"financial_account_pk": str(row[0]), "account_label": row[1]} if row else None
+
+
+DEMO_ACCOUNT_LABEL = "Demo UPI account"
+
+
+def ensure_demo_account(cur, user, org_pk) -> dict | None:
+    """
+    DEMO ONLY. When the MOCK gateway is the only one enabled on this server (a demo / development install) and the Sangha has no usable
+    receiving account, create its default "Demo UPI account" on the MOCK gateway so a head's payment portal works end to end with no manual
+    setup. Returns the account like default_account(), or None when this is not a MOCK-only server or the Sangha already has a
+    (different or switched-off) account with that label. No money ever moves through it. Audited.
+    """
+    from api.services import upi_gateway          # local: this module is imported by code that must not need the gateway
+
+    if upi_gateway.enabled_providers() != frozenset({"MOCK"}):
+        return None
+    cur.execute("SELECT 1 FROM nss.financial_account WHERE organization_pk = %s AND account_label = %s", (str(org_pk), DEMO_ACCOUNT_LABEL))
+    if cur.fetchone():
+        return None
+    cur.execute("SELECT organization_name FROM nss.organization WHERE organization_pk = %s", (str(org_pk),))
+    name = cur.fetchone()[0]
+    cur.execute("UPDATE nss.financial_account SET is_default = FALSE, updated_at = NOW() WHERE organization_pk = %s AND is_default = TRUE AND is_active = TRUE",
+                (str(org_pk),))
+    cur.execute(
+        "INSERT INTO nss.financial_account (organization_pk, account_label, account_type, account_holder_name, upi_vpa, gateway_provider, "
+        "gateway_credential_ref, is_default, created_by_sangha_sevi_pk) VALUES (%s, %s, 'BANK', %s, 'nss.demo@mockbank', 'MOCK', 'MOCK_DEMO', TRUE, %s) "
+        "RETURNING financial_account_pk",
+        (str(org_pk), DEMO_ACCOUNT_LABEL, name[:200], user.actor_pk if user else None))
+    pk = cur.fetchone()[0]
+    _audit(cur, user, "CREATE", "financial_account", pk, f"Created the demo receiving account for {name} (MOCK gateway, no real money)",
+           {"organization_pk": str(org_pk), "gateway_provider": "MOCK", "automatic": True})
+    return {"financial_account_pk": str(pk), "account_label": DEMO_ACCOUNT_LABEL}
 
 
 # ───────────────────────── the Kendra -> Sakha copies ─────────────────────────

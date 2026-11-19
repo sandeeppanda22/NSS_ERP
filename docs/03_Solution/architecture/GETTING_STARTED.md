@@ -489,11 +489,13 @@ actually runs DDL/seed.
 
 # 7a-3. UPI Payments (Finance) — optional configuration
 
-UPI collection is **off by default**. To try it locally with no real money, add to `api/.env`:
+UPI collection works **out of the box on a development install**: when `UPI_GATEWAY_ENABLED_PROVIDERS` is not set and `DB_HOST` is this machine, the MOCK demo gateway is on (no money moves). A remote database (Render / Neon) never gets that default, so a deployment has UPI **off** until you set it. To override: set the variable (`MOCK`, `RAZORPAY`, or both), or set it **empty** to force UPI off.
 
 ```
 UPI_GATEWAY_ENABLED_PROVIDERS=MOCK
 ```
+
+The MOCK provider needs a credential set too (any non-empty values; no real keys). For an account whose "credential reference" is `SAKHA_A`, also add `UPI_SAKHA_A_KEY_ID=mock`, `UPI_SAKHA_A_KEY_SECRET=mock-secret` and `UPI_SAKHA_A_WEBHOOK_SECRET=mock-webhook`, then restart the server. Without them members see the contribution but no Pay button ("Online payment is temporarily unavailable"), and opening a head's payment portal is refused with the same instruction.
 
 Then in the admin console (Finance): add a receiving account for a Sangha (last 4 digits only; credential reference e.g. `SAKHA_A`), adopt the Kendra head templates, mark a head UPI-enabled with a collection scope + account, and create a payment request (or pay as a member from the dashboard "Pranami" tab). The MOCK provider's "mock-pay" action simulates the signed gateway callback.
 

@@ -85,7 +85,7 @@ def account_ready(account: dict) -> bool:
     if not provider or provider not in upi_gateway.enabled_providers() or provider not in upi_gateway.PROVIDERS:
         return False
     try:
-        upi_gateway.credentials_for(account.get("gateway_credential_ref"))
+        upi_gateway.credentials_for(account.get("gateway_credential_ref"), provider)
     except upi_gateway.GatewayUnavailable:
         return False
     return True
@@ -476,7 +476,7 @@ def _check_amount_fields(amount, period, part, *, direction="INCOME") -> None:
     if period is not None and amount is None:
         raise F._invalid("A due period needs a fixed amount.")
     if part and amount is None:
-        raise F._invalid("Part payment only applies to a contribution with a fixed amount.")
+        raise F._invalid("Part payment only applies to a Pranami with a fixed amount.")
     if (amount is not None or part) and direction != "INCOME":
         raise F._invalid("A fixed amount applies to INCOME heads only.")
 
@@ -497,19 +497,19 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
     _check_amount_fields(body.fixed_amount, body.due_period, body.allow_part_payment)
     all_sakhas = body.applies_to == "ALL_SAKHAS"
     with conn.cursor() as cur:
-        F._require_org_access(cur, user, body.organization_pk, "add a contribution for this organization")
+        F._require_org_access(cur, user, body.organization_pk, "add a Pranami for this organization")
         F._require_active_organization(cur, body.organization_pk, "Organization")
         if all_sakhas:
             cur.execute("SELECT md.value_code FROM nss.organization o JOIN nss.master_data md "
                         "ON md.master_data_pk = o.organization_type_master_data_pk WHERE o.organization_pk = %s", (str(body.organization_pk),))
             if cur.fetchone()[0] != "KENDRA":
-                raise F._invalid("Only the Kendra can add a contribution that applies to all Sakhas.")
+                raise F._invalid("Only the Kendra can add a Pranami that applies to all Sakhas.")
         account_pk = scope_pk = None
-        if not all_sakhas:
+        if not all_sakhas and body.open_portal:
             if body.collection_account_pk is not None:
                 account_pk = str(body.collection_account_pk)
             else:
-                default = FC.default_account(cur, body.organization_pk)
+                default = FC.default_account(cur, body.organization_pk) or FC.ensure_demo_account(cur, user, body.organization_pk)
                 account_pk = default["financial_account_pk"] if default else None
             if account_pk:
                 scope_pk = FC.ensure_org_scope(cur, user, body.organization_pk)
@@ -522,9 +522,9 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
                 (organization_pk, head_code, head_name, description, direction, is_pranami, skips_approval, allow_upi,
                  collection_scope_pk, collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas,
                  display_order, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, 'INCOME', TRUE, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+            VALUES (%s, %s, %s, %s, 'INCOME', %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
             """,
-            (str(body.organization_pk), code, name, F._clean(body.description), account_pk is not None, scope_pk, account_pk,
+            (str(body.organization_pk), code, name, F._clean(body.description), body.open_portal, account_pk is not None, scope_pk, account_pk,
              body.fixed_amount, body.due_period, body.allow_part_payment, all_sakhas, body.display_order, user.actor_pk),
         )
         pk = cur.fetchone()[0]
@@ -532,8 +532,78 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
                  {"organization_pk": str(body.organization_pk), "applies_to": body.applies_to,
                   "fixed_amount": str(body.fixed_amount) if body.fixed_amount is not None else None,
                   "due_period": body.due_period, "allow_part_payment": body.allow_part_payment})
-        created = FC.sync_copies(cur, user, pk)["created"] if all_sakhas else 0
-        return {"head": _head_response(cur, pk), "copies_created": created, "needs_account": (not all_sakhas) and account_pk is None}
+        created = FC.sync_copies(cur, user, pk)["created"] if all_sakhas and body.open_portal else 0
+        return {"head": _head_response(cur, pk), "copies_created": created,
+                "needs_account": body.open_portal and (not all_sakhas) and account_pk is None}
+
+
+@router.post("/heads/{head_pk}/portal", response_model=S.HeadResponse)
+def set_head_portal(head_pk: UUID, body: S.PortalToggle, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
+    """
+    Open or close the payment portal of an INCOME head: while it is open, the members of the Sangha see the head in their Pranami
+    tab and can pay it by UPI into the Sangha's default receiving account (the Sangha's own scope is used or created). Closing hides it
+    from members again; nothing already paid changes. A head for EVERY Sakha is opened by giving each Sakha its copy (each collects into
+    its own account); stopping it is switching the head off. FINANCE_CONFIGURE + admin scope on the Sangha; audited.
+    """
+    with conn.cursor() as cur:
+        head = F._head_row(cur, head_pk)
+        _head_access(cur, user, head, "open or close the payment portal of this head", write=True)
+        if head["organization_pk"] is None:
+            raise F._invalid("A Kendra template is a blueprint: it has no payment portal.")
+        if head["direction"] != "INCOME":
+            raise F._invalid("Only an income head can have a payment portal.")
+        if head["status"] != "ACTIVE":
+            raise F._invalid(f"The head is {head['status']}; switch it on first.")
+        cur.execute("SELECT h.applies_to_all_sakhas, h.template_head_pk IS NOT NULL AND COALESCE(src.applies_to_all_sakhas, FALSE) "
+                    "FROM nss.finance_head h LEFT JOIN nss.finance_head src ON src.finance_head_pk = h.template_head_pk "
+                    "WHERE h.finance_head_pk = %s", (str(head_pk),))
+        is_source, is_copy = cur.fetchone()
+        sent = body.model_fields_set & {"fixed_amount", "due_period", "allow_part_payment"}
+        if sent and (is_copy or not body.open):
+            raise F._invalid("The amount is set when a head's portal is opened, and a Sakha's copy takes it from the Kendra's head.")
+        if is_source:
+            if not body.open:
+                raise F._invalid("A head for every Sakha is stopped by switching the head off.")
+            values = {"is_pranami": True}
+            if sent:
+                _check_amount_fields(body.fixed_amount, body.due_period, body.allow_part_payment, direction="INCOME")
+                values.update(fixed_amount=body.fixed_amount, due_period=body.due_period, allow_part_payment=body.allow_part_payment)
+            F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, values)
+            created = FC.sync_copies(cur, user, head_pk)["created"]
+            F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Opened the payment portal of {head['head_code']} for every Sakha",
+                     {"portal": True, "copies_created": created})
+            return _head_response(cur, head_pk)
+        if body.open:
+            account = FC.default_account(cur, head["organization_pk"]) or FC.ensure_demo_account(cur, user, head["organization_pk"])
+            if account is None:
+                raise F._invalid("Add a receiving account with a payment gateway for this Sangha first; the portal collects into it.")
+            scope_pk = FC.ensure_org_scope(cur, user, head["organization_pk"])
+            _validate_collection(cur, org_pk=head["organization_pk"], direction="INCOME", is_restricted=head["is_restricted"],
+                                 required_fund_type=head["required_fund_type"], allow_upi=True, scope_pk=scope_pk,
+                                 fund_pk=head["collection_fund_pk"], account_pk=account["financial_account_pk"])
+            # Members get a Pay button only when the gateway is enabled on THIS server and the account's credential set is complete
+            # (account_ready - also for the MOCK provider). Opening a portal members cannot pay would look like it worked, so say why now.
+            ready = _account_row(cur, account["financial_account_pk"])
+            if not account_ready(ready):
+                ref = ready.get("gateway_credential_ref") or "<REF>"
+                raise F._invalid(
+                    f"Members could not pay yet: the {ready.get('gateway_provider') or 'payment'} gateway of account '{account['account_label']}' is not "
+                    f"set up on this server. Add the provider to UPI_GATEWAY_ENABLED_PROVIDERS and the credential set UPI_{ref}_KEY_ID, "
+                    f"UPI_{ref}_KEY_SECRET and UPI_{ref}_WEBHOOK_SECRET to the server environment (api/.env), then restart it.")
+            values = {"allow_upi": True, "collection_scope_pk": scope_pk, "collection_account_pk": account["financial_account_pk"]}
+            if not is_copy:
+                values["is_pranami"] = True
+            if sent:                       # what members are asked to pay (same rules as creating / editing a head)
+                _check_amount_fields(body.fixed_amount, body.due_period, body.allow_part_payment, direction="INCOME")
+                values.update(fixed_amount=body.fixed_amount, due_period=body.due_period, allow_part_payment=body.allow_part_payment)
+        else:
+            values = {"allow_upi": False}
+            if not is_copy:
+                values["is_pranami"] = False
+        F._update_row(cur, user, "finance_head", "finance_head_pk", head_pk, values)
+        F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"{'Opened' if body.open else 'Closed'} the payment portal of {head['head_code']}",
+                 {"portal": body.open})
+        return _head_response(cur, head_pk)
 
 
 @router.post("/events", response_model=S.HeadResponse, status_code=status.HTTP_201_CREATED)
@@ -625,8 +695,9 @@ def adopt_templates(body: S.AdoptTemplates, user: UserContext = Depends(_CONFIGU
             new_pk = cur.fetchone()[0]
             created += 1
             items.append(_head_response(cur, new_pk))
-        F._audit(cur, user, "CREATE", "finance_head", body.organization_pk, f"Adopted {created} finance head template(s)",
-                 {"organization_pk": str(body.organization_pk), "created": created, "skipped": skipped})
+        if created:             # a repeat that copies nothing (the page calls this on first view of a Sangha) leaves no audit noise
+            F._audit(cur, user, "CREATE", "finance_head", body.organization_pk, f"Adopted {created} finance head template(s)",
+                     {"organization_pk": str(body.organization_pk), "created": created, "skipped": skipped})
         return {"created": created, "skipped": skipped, "items": items}
 
 
@@ -654,7 +725,7 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
             # chooses which of its own receiving accounts collects (and may switch the copy off by a transition).
             if set(sent) - {"collection_account_pk"}:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                    detail="This contribution comes from the Kendra: only its receiving account can be changed here.")
+                                    detail="This Pranami comes from the Kendra: only its receiving account can be changed here.")
             account_pk = sent.get("collection_account_pk")
             if account_pk is not None:
                 scope_pk = FC.ensure_org_scope(cur, user, head["organization_pk"])
@@ -668,7 +739,7 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
                 F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Changed the receiving account of {head['head_code']}", {"fields": sorted(values)})
             return _head_response(cur, head_pk)
         if is_source and {"allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk"} & set(sent):
-            raise F._invalid("A contribution for all Sakhas collects through each Sakha's own copy, not itself.")
+            raise F._invalid("A Pranami for all Sakhas collects through each Sakha's own copy, not itself.")
         if {"fixed_amount", "due_period", "allow_part_payment"} & set(sent):
             amount = sent["fixed_amount"] if "fixed_amount" in sent else cur_amount
             period = sent["due_period"] if "due_period" in sent else cur_period
@@ -731,7 +802,7 @@ def sync_head_copies(head_pk: UUID, user: UserContext = Depends(_CONFIGURE), con
         _head_access(cur, user, head, "update the copies of this finance head", write=True)
         cur.execute("SELECT applies_to_all_sakhas FROM nss.finance_head WHERE finance_head_pk = %s", (str(head_pk),))
         if not cur.fetchone()[0]:
-            raise F._invalid("Only a contribution that applies to all Sakhas has copies to update.")
+            raise F._invalid("Only a Pranami that applies to all Sakhas has copies to update.")
         result = FC.sync_copies(cur, user, head_pk)
         F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Updated the Sakha copies of {head['head_code']}", result)
         return result

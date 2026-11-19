@@ -69,6 +69,7 @@ GATED: list[tuple[str, str, dict | None]] = [
     ("POST", f"{BASE}/events", {"organization_pk": FAKE_UUID, "event_name": "x", "collection_account_pk": FAKE_UUID}),
     ("POST", f"{BASE}/contributions", {"organization_pk": FAKE_UUID, "head_name": "x"}),
     ("POST", f"{BASE}/heads/{FAKE_UUID}/sync-copies", None),
+    ("POST", f"{BASE}/heads/{FAKE_UUID}/portal", {"open": True}),
     ("GET", f"{BASE}/heads/{FAKE_UUID}", None),
     ("PATCH", f"{BASE}/heads/{FAKE_UUID}", {"head_name": "x"}),
     ("POST", f"{BASE}/heads/{FAKE_UUID}/transition", {"status": "INACTIVE"}),
@@ -86,6 +87,9 @@ MEMBER = [
     ("POST", f"{BASE}/my-pranami/pay", {"finance_head_pk": FAKE_UUID, "amount": "10"}),
     ("POST", f"{BASE}/my-pranami/pay-multiple", {"items": [{"finance_head_pk": FAKE_UUID, "amount": "10"}]}),
     ("GET", f"{BASE}/my-pranami/requests/{FAKE_UUID}", None),
+    ("POST", f"{BASE}/my-pranami/requests/{FAKE_UUID}/demo-pay", None),
+    ("POST", f"{BASE}/my-pranami/requests/{FAKE_UUID}/cancel", None),
+    ("GET", f"{BASE}/my-pranami/requests", None),
 ]
 # Booking a held UPI payment is an APPROVE decision; configuring (heads, accounts, contributions, events, limits) is FINANCE_CONFIGURE,
 # which a Sakha admin holds for ITS OWN Sakha (owner 2026-11-17) - so it is no longer approve-only.
@@ -117,7 +121,7 @@ def test_endpoint_table_covers_every_route():
     # the webhook is listed with the MOCK provider; the real route takes any provider name
     listed = {(m, p.replace("/gateway/webhook/MOCK", f"/gateway/webhook/{FAKE_UUID}")) for m, p in listed}
     assert routes == listed
-    assert len(setup.routes) + len(upi.routes) == 26
+    assert len(setup.routes) + len(upi.routes) == 30
 
 
 def test_every_gated_route_declares_a_permission_dependency():

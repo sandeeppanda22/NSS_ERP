@@ -96,7 +96,14 @@ class Settings:
     #   (a member paying their own Pranami).
     # UPI_WEBHOOK_RATE_LIMIT — per-IP limit on the (unauthenticated, signature-
     #   verified) gateway webhook; UPI_WEBHOOK_MAX_BYTES — body size cap.
-    UPI_GATEWAY_ENABLED_PROVIDERS: str = os.environ.get("UPI_GATEWAY_ENABLED_PROVIDERS", "")
+    # Owner 2026-11-18 ("add it by default"): when the variable is NOT SET and the database is on this machine (a development / demo
+    #   install), the MOCK demo gateway is on, so the whole pay flow works with no setup (api/.env is rewritten by the setup script, so
+    #   a hand-added line kept vanishing). A remote database (Render / Neon = production) never gets this default, and an explicit value -
+    #   including an empty one, which switches UPI collection OFF - always wins.
+    UPI_GATEWAY_ENABLED_PROVIDERS: str = (
+        os.environ["UPI_GATEWAY_ENABLED_PROVIDERS"] if "UPI_GATEWAY_ENABLED_PROVIDERS" in os.environ
+        else ("MOCK" if DB_HOST.strip().lower() in ("localhost", "127.0.0.1", "::1") else "")
+    )
     UPI_REQUEST_EXPIRY_MINUTES: int = int(os.environ.get("UPI_REQUEST_EXPIRY_MINUTES", "30"))
     UPI_PAY_RATE_LIMIT: str = os.environ.get("UPI_PAY_RATE_LIMIT", "10/minute")
     UPI_WEBHOOK_RATE_LIMIT: str = os.environ.get("UPI_WEBHOOK_RATE_LIMIT", "300/minute")

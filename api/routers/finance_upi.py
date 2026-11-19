@@ -138,8 +138,10 @@ def _member_view(cur, row: dict) -> dict:
 
 
 def _member_view_fields(row: dict) -> dict:
-    return {k: row[k] for k in ("upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status",
-                                "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk")}
+    out = {k: row[k] for k in ("upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status",
+                               "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk")}
+    out["demo_payable"] = bool(row.get("provider") == "MOCK" and "MOCK" in upi_gateway.enabled_providers() and row["status"] in _UNPAID)
+    return out
 
 
 @router.get("/payment-requests", response_model=S.PaymentRequestListResponse)
@@ -236,7 +238,7 @@ def _open_order_and_store(cur, *, account: dict, head: dict, scope: dict, fund: 
     _check_amount_limits(amount)                       # the last line of defence: every way of creating a request ends here
     try:
         provider = upi_gateway.get_provider(account["gateway_provider"])
-        creds = upi_gateway.credentials_for(account["gateway_credential_ref"])
+        creds = upi_gateway.credentials_for(account["gateway_credential_ref"], account["gateway_provider"])
     except upi_gateway.GatewayUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"UPI collection is not available: {exc}")
     cur.execute("SELECT organization_name FROM nss.organization WHERE organization_pk = %s", (str(head["organization_pk"]),))
@@ -289,7 +291,7 @@ def _create_multi_request(cur, *, items: list[tuple], payer_person_pk, payer_sev
     gateway order for the total with one line per contribution. Returns the request pk.
     """
     if len({str(h) for h, _ in items}) != len(items):
-        raise F._invalid("Each contribution can be paid once in a single payment.")
+        raise F._invalid("Each Pranami can be paid once in a single payment.")
     total = sum((a for _, a in items), Decimal("0"))
     if total > _max_amount():
         raise F._invalid(f"A single UPI payment is limited to {_max_amount():,.2f}; pay fewer items together.")
@@ -297,7 +299,7 @@ def _create_multi_request(cur, *, items: list[tuple], payer_person_pk, payer_sev
     prepared = [_prepare_collection(cur, h) for h, _ in items]
     accounts = {str(p[3]["financial_account_pk"]) for p in prepared}
     if len(accounts) != 1:
-        raise F._invalid("These contributions are collected into different accounts (different Sangha): pay each Sangha's contributions separately.")
+        raise F._invalid("These Pranami are collected into different accounts (different Sangha): pay each Sangha's Pranami separately.")
     head, scope, fund, account = prepared[0]
     request_pk = _open_order_and_store(
         cur, account=account, head=head, scope=scope, fund=fund, amount=total, description=f"{len(items)} contributions",
@@ -533,7 +535,7 @@ def handle_webhook(cur, provider_name: str, headers: dict, raw_body: bytes) -> t
     if req_pk is None:
         return 200, "UNKNOWN_REQUEST"              # not stored: strangers must not be able to grow our tables
     req = _load_request(cur, req_pk, lock=True)
-    creds = upi_gateway.credentials_for(req["gateway_credential_ref"])      # GatewayUnavailable -> 503, gateway retries later
+    creds = upi_gateway.credentials_for(req["gateway_credential_ref"], req["provider"])      # GatewayUnavailable -> 503, gateway retries later
     try:
         event = provider.parse_event(headers, payload, raw_body)
     except (KeyError, TypeError, AttributeError, ValueError):
@@ -598,7 +600,7 @@ def refresh_payment_request(request_pk: UUID, user: UserContext = Depends(_MANAG
             return _request_response(cur, request_pk)
         try:
             provider = upi_gateway.get_provider(req["provider"])
-            creds = upi_gateway.credentials_for(req["gateway_credential_ref"])
+            creds = upi_gateway.credentials_for(req["gateway_credential_ref"], req["provider"])
             event = provider.fetch_order_status(creds=creds, provider_order_id=req["provider_order_id"], merchant_ref=req["gateway_merchant_ref"])
         except upi_gateway.GatewayUnavailable as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
@@ -655,7 +657,7 @@ def mock_pay(request_pk: UUID, outcome: str = Query("paid", pattern="^(paid|fail
         if req["provider"] != "MOCK":
             raise F._invalid("Only a request created through the MOCK gateway can be simulated.")
         try:
-            creds = upi_gateway.credentials_for(req["gateway_credential_ref"])
+            creds = upi_gateway.credentials_for(req["gateway_credential_ref"], req["provider"])
         except upi_gateway.GatewayUnavailable as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
         kind = {"paid": "payment.paid", "failed": "payment.failed", "expired": "order.expired"}[outcome]
@@ -734,6 +736,7 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
     today = cur.fetchone()[0]
     paid: dict = {}
     pending: dict = {}
+    pending_req: dict = {}
     if heads:
         pks = [str(h["finance_head_pk"]) for h in heads]
         cur.execute(
@@ -748,13 +751,13 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
         txns = cur.fetchall()
         cur.execute(
             """
-            SELECT head_pk, SUM(amt) FROM (
-                SELECT r.finance_head_pk AS head_pk, r.amount AS amt FROM nss.upi_payment_request r
+            SELECT head_pk, SUM(amt), (ARRAY_AGG(req_pk ORDER BY ts DESC))[1] FROM (
+                SELECT r.finance_head_pk AS head_pk, r.amount AS amt, r.upi_payment_request_pk AS req_pk, r.created_at AS ts FROM nss.upi_payment_request r
                  WHERE r.finance_head_pk = ANY(%s::uuid[]) AND r.payer_person_pk = %s AND r.status IN ('CREATED', 'PENDING')
                    AND r.expires_at > NOW() AND r.is_active = TRUE
                    AND NOT EXISTS (SELECT 1 FROM nss.upi_payment_request_line x WHERE x.upi_payment_request_pk = r.upi_payment_request_pk AND x.is_active = TRUE)
                 UNION ALL
-                SELECT l.finance_head_pk, l.amount FROM nss.upi_payment_request_line l
+                SELECT l.finance_head_pk, l.amount, r.upi_payment_request_pk, r.created_at FROM nss.upi_payment_request_line l
                   JOIN nss.upi_payment_request r ON r.upi_payment_request_pk = l.upi_payment_request_pk
                  WHERE l.finance_head_pk = ANY(%s::uuid[]) AND l.is_active = TRUE AND r.payer_person_pk = %s
                    AND r.status IN ('CREATED', 'PENDING') AND r.expires_at > NOW() AND r.is_active = TRUE
@@ -762,7 +765,9 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
             """,
             (pks, str(user.person_pk), pks, str(user.person_pk)),
         )
-        pending = {str(r[0]): r[1] for r in cur.fetchall()}
+        rows = cur.fetchall()
+        pending = {str(r[0]): r[1] for r in rows}
+        pending_req = {str(r[0]): r[2] for r in rows}
         for head in heads:
             window = FC.period_window(head["due_period"], today)
             total = sum((amt for pk, d, amt in txns if str(pk) == str(head["finance_head_pk"])
@@ -773,11 +778,12 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
         key = str(h["finance_head_pk"])
         card = {k: h[k] for k in _CARD_FIELDS}
         card.update(FC.card_state(h["fixed_amount"], paid.get(key, Decimal("0")), pending.get(key, Decimal("0"))))
+        card["pending_request_pk"] = pending_req.get(key)
         card["period_label"] = FC.period_label(h["due_period"], today)
         ready = bool(h["allow_upi"] and h["scope_active"] and h["financial_account_pk"] and account_ready(h))
         card["payable"] = ready
         card["unavailable_reason"] = None if ready else (
-            "Online payment is not set up for this contribution yet." if not (h["allow_upi"] and h["financial_account_pk"])
+            "Online payment is not set up for this Pranami yet." if not (h["allow_upi"] and h["financial_account_pk"])
             else "Online payment is temporarily unavailable.")
         cards.append(card)
     return cards
@@ -856,7 +862,7 @@ def pay_my_pranami_multiple(request: Request, body: S.MyPayMultipleRequest, user
     """
     heads = [str(i.finance_head_pk) for i in body.items]
     if len(set(heads)) != len(heads):
-        raise F._invalid("Each contribution can be paid once in a single payment.")
+        raise F._invalid("Each Pranami can be paid once in a single payment.")
     with conn.cursor() as cur:
         for head in sorted(heads):                                    # sorted: two overlapping payments can never lock in opposite order
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"upi-pay:{user.person_pk}:{head}",))
@@ -873,6 +879,90 @@ def pay_my_pranami_multiple(request: Request, body: S.MyPayMultipleRequest, user
                   detail={"amount": str(total), "self_service": True, "multiple": True,
                           "items": [{"finance_head_pk": str(i.finance_head_pk), "amount": str(i.amount)} for i in body.items]})
         return _member_view(cur, _request_response(cur, pk))
+
+
+@router.get("/my-pranami/requests", response_model=list[S.MyPaymentRequest])
+def my_open_requests(user: UserContext = Depends(get_current_user), conn=Depends(get_connection)):
+    """
+    The signed-in member's OWN unpaid, unexpired payment requests, newest first - including the ones a treasurer / admin created FOR them
+    (``asked_by_name`` says who), so a request typed against a member's name shows in their Pranami tab at once. No id parameter.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT r.upi_payment_request_pk, r.note,
+                   (SELECT CONCAT_WS(' ', cp.first_name, cp.last_name)
+                      FROM nss.sangha_sevi cs JOIN nss.person cp ON cp.person_pk = cs.person_pk
+                     WHERE cs.sangha_sevi_pk = r.created_by_sangha_sevi_pk
+                       AND r.created_by_sangha_sevi_pk IS DISTINCT FROM r.payer_sangha_sevi_pk) AS asked_by_name
+              FROM nss.upi_payment_request r
+             WHERE r.is_active = TRUE AND r.payer_person_pk = %s
+               AND ({_EFFECTIVE_STATUS}) IN ('CREATED', 'PENDING')
+             ORDER BY r.created_at DESC
+            """,
+            (str(user.person_pk),),
+        )
+        rows = cur.fetchall()
+        out = []
+        for pk, note, asked_by in rows:
+            view = _member_view(cur, _request_response(cur, pk))
+            view.update(note=note, asked_by_name=asked_by)
+            out.append(view)
+        return out
+
+
+@router.post("/my-pranami/requests/{request_pk}/cancel", response_model=S.MyPayment)
+def cancel_my_request(request_pk: UUID, user: UserContext = Depends(get_current_user), conn=Depends(get_write_connection)):
+    """
+    The signed-in member cancels their OWN unpaid request (anyone else's is a plain 404), so it stops counting as "waiting for the bank"
+    and they can start again. Nothing is booked. A real gateway's link may stay payable until it expires: should the member pay through
+    it anyway, the payment is recorded as PAID and held for review, never auto-booked (same rule as a treasurer's cancellation).
+    """
+    with conn.cursor() as cur:
+        req = _load_request(cur, request_pk, lock=True)
+        if str(req["payer_person_pk"] or "") != str(user.person_pk):
+            raise F._not_found("Payment request")
+        if req["status"] in _UNPAID:
+            F._update_row(cur, user, "upi_payment_request", "upi_payment_request_pk", request_pk,
+                          {"status": "CANCELLED", "failure_reason": "Cancelled by the payer"})
+            log_audit(cur, action="STATUS_CHANGE", table_name="upi_payment_request", record_pk=str(request_pk), actor_pk=user.actor_pk,
+                      actor_user_account_pk=str(user.user_account_pk), module="finance",
+                      summary=f"Member cancelled payment {req['request_reference']}", detail={"from": req["status"], "to": "CANCELLED", "self_service": True})
+        return _member_view(cur, _request_response(cur, request_pk))
+
+
+@router.post("/my-pranami/requests/{request_pk}/demo-pay", response_model=S.MyPayment)
+def demo_pay_my_request(request_pk: UUID, outcome: str = Query("paid", pattern="^(paid|failed)$"),
+                        user: UserContext = Depends(get_current_user), conn=Depends(get_write_connection)):
+    """
+    DEMO ONLY - completes the member's OWN waiting payment through the MOCK gateway, so a demo / development install has a full pay flow
+    with no real gateway: it builds the gateway's signed callback and feeds it through the same handle_webhook() the live endpoint uses
+    (booking, receipt and audit are the real ones). 404 unless the MOCK provider is enabled on this server; refuses a request that is not
+    the caller's own or not a MOCK request. No money moves.
+    """
+    if "MOCK" not in upi_gateway.enabled_providers():
+        raise F._not_found("Not found")
+    with conn.cursor() as cur:
+        req = _load_request(cur, request_pk, lock=True)
+        if req["payer_person_pk"] is None or str(req["payer_person_pk"]) != str(user.person_pk):
+            raise F._not_found("Payment request")                  # somebody else's request is indistinguishable from none
+        if req["provider"] != "MOCK":
+            raise F._invalid("Only a demo (MOCK gateway) payment can be completed this way.")
+        if req["status"] not in _UNPAID:
+            return _member_view(cur, _request_response(cur, request_pk))
+        try:
+            creds = upi_gateway.credentials_for(req["gateway_credential_ref"], req["provider"])
+        except upi_gateway.GatewayUnavailable as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+        raw, headers = upi_gateway.build_mock_event(secret=creds.webhook_secret, order_id=req["provider_order_id"],
+                                                    kind="payment.paid" if outcome == "paid" else "payment.failed", amount=req["amount"])
+        code, result = handle_webhook(cur, "MOCK", headers, raw)
+        if code >= 400:
+            raise HTTPException(status_code=code, detail=result)
+        log_audit(cur, action="STATUS_CHANGE", table_name="upi_payment_request", record_pk=str(request_pk), actor_pk=user.actor_pk,
+                  actor_user_account_pk=str(user.user_account_pk), module="finance",
+                  summary=f"Member simulated a {outcome} demo payment {req['request_reference']}: {result}", detail={"demo": True, "outcome": outcome})
+        return _member_view(cur, _request_response(cur, request_pk))
 
 
 @router.get("/my-pranami/requests/{request_pk}", response_model=S.MyPayment)
