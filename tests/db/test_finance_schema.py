@@ -737,3 +737,12 @@ class TestDisbursementAuthorityParity:
             assert "13_finance_disbursement_authority.sql" in src and "03_finance_disbursement_purpose_patch.sql" in src, rel
             assert src.index("13_finance_disbursement_authority.sql") < src.index("03_finance_disbursement_purpose_patch.sql"), rel
             assert src.index("03_finance_disbursement_purpose_patch.sql") < src.rindex("02_live_change_triggers.sql"), rel     # (the name also appears in an earlier comment)
+
+
+@pytest.mark.parametrize("rel", ["database/scripts/03_validate.sh", "database/scripts/03_validate.ps1"])
+def test_validate_does_not_count_a_scope_that_spans_years_as_an_orphan(rel):
+    """financial_scope.financial_year_pk is NULLABLE (a scope may span years; the Sangha's general scope has none), so only a NON-NULL value
+    that matches no year is an orphan. The unguarded check reported every such scope as '[FAIL] financial_scope -> financial_year'."""
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    line = next(l for l in text.splitlines() if "financial_scope c LEFT JOIN nss.financial_year" in l)
+    assert "c.financial_year_pk IS NOT NULL AND p.financial_year_pk IS NULL" in line

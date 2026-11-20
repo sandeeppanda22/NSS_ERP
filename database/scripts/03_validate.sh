@@ -814,7 +814,7 @@ check_column_exists "finance_approval_policy" "default_treasurer_limit"
 check_column_exists "upi_payment_request_line" "upi_payment_request_pk"
 
 check_fk_integrity "financial_scope -> financial_year" \
-    "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
+    "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE c.financial_year_pk IS NOT NULL AND p.financial_year_pk IS NULL;"   # nullable: a scope may span years
 check_fk_integrity "fund_master -> financial_scope" \
     "SELECT COUNT(*) FROM nss.fund_master c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
 check_fk_integrity "financial_transaction -> financial_year" \

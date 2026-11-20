@@ -609,7 +609,7 @@ Check-ColumnExists "finance_approval_policy" "default_treasurer_limit"
 Check-ColumnExists "upi_payment_request_line" "upi_payment_request_pk"
 
 Write-Host "  FK integrity (no orphans - vacuously true until used):"
-Check-FkIntegrity "financial_scope -> financial_year" "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
+Check-FkIntegrity "financial_scope -> financial_year" "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE c.financial_year_pk IS NOT NULL AND p.financial_year_pk IS NULL;"
 Check-FkIntegrity "fund_master -> financial_scope" "SELECT COUNT(*) FROM nss.fund_master c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
 Check-FkIntegrity "financial_transaction -> financial_year" "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE p.financial_year_pk IS NULL;"
 Check-FkIntegrity "financial_transaction -> financial_scope" "SELECT COUNT(*) FROM nss.financial_transaction c LEFT JOIN nss.financial_scope p ON c.financial_scope_pk = p.financial_scope_pk WHERE p.financial_scope_pk IS NULL;"
