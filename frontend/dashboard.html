@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="/assets/css/nss-layout.css">
     <link rel="stylesheet" href="/assets/css/nss-datepicker.css">
     <link rel="stylesheet" href="/assets/css/nss-combobox.css">
+    <link rel="stylesheet" href="/assets/css/nss-theme.css">
     <script src="/assets/js/nss-config.js"></script>
     <script src="/assets/js/nss-location.js"></script>
     <script src="/assets/js/nss-dialog.js"></script>
@@ -797,7 +798,7 @@
         }
     </style>
 </head>
-<body x-data="dashboardApp()">
+<body class="nss-theme" x-data="dashboardApp()">
 
     <!-- Mobile overlay -->
     <div class="sidebar-overlay" :class="{ open: sidebarOpen }" @click="sidebarOpen = false"></div>
@@ -1319,8 +1320,8 @@
                             <div class="personal-col">
                             <!-- Personal Information -->
                             <div class="data-card">
-                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                    <h2 class="data-card-title" style="padding: 0;">Personal Information</h2>
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Personal Information</h2>
                                     <button class="btn-action" x-show="!editingProfile" @click="startEditProfile()">Edit</button>
                                 </div>
 
@@ -1428,8 +1429,8 @@
 
                             <!-- Address -->
                             <div class="data-card">
-                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                    <h2 class="data-card-title" style="padding: 0;">Address</h2>
+                                <div class="data-card-header">
+                                    <h2 class="data-card-title">Address</h2>
                                     <button class="btn-action" x-show="!addrForm.show" @click="startAddAddress()" data-testid="addr-add">Add address</button>
                                 </div>
                                 <!-- Add / edit address form (member self-service) -->
@@ -1614,7 +1615,7 @@
 
                             <!-- Membership Snapshot -->
                             <div class="data-card">
-                                <h2 class="data-card-title">Membership Snapshot</h2>
+                                <div class="data-card-header"><h2 class="data-card-title">Membership Snapshot</h2></div>
                                 <div class="data-rows">
                                     <div class="data-row">
                                         <span class="data-label">Sangha Sevi ID</span>
@@ -1660,13 +1661,14 @@
                              Transfer / MBR-049 Apply for Darshak) — opens
                              the shared Change Request modal below. -->
                         <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                            <button x-show="member?.membership_type_code !== 'PROBATIONARY'" @click="applyDarshak()" class="nss-hover-fade inline-flex" style="align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/></svg>
-                                Apply for Darshak (at another Sangha)
+                            <button x-show="member?.membership_type_code !== 'PROBATIONARY'" @click="applyDarshak()" class="mbr-action">
+                                <span class="mbr-action__icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/></svg></span>
+                                <span class="mbr-action__text"><strong>Apply for Darshak</strong><small>Attend at another Sangha</small></span>
                             </button>
-                            <button @click="requestSakhaTransfer()" class="nss-hover-fade" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
-                                Request Sakha Transfer
+                            <button @click="requestSakhaTransfer()" class="mbr-action">
+                                <span class="mbr-action__icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg></span>
+                                <span class="mbr-action__text"><strong>Request Sakha Transfer</strong><small>Move your home Sakha</small></span>
+                            </button>
                             </button>
                             <!-- Correspondence Register (Tier 6, SOL-ADMIN-009) — the
                                  member self-service "Send Application" feature has its
@@ -1677,7 +1679,7 @@
                         <div class="card-grid">
                             <!-- Membership Details -->
                             <div class="data-card">
-                                <h2 class="data-card-title">Membership Details</h2>
+                                <div class="data-card-header"><h2 class="data-card-title">Membership Details</h2></div>
                                 <div class="data-rows">
                                     <div class="data-row">
                                         <span class="data-label">Sangha Sevi ID</span>
@@ -1728,7 +1730,7 @@
 
                             <!-- Account Info -->
                             <div class="data-card">
-                                <h2 class="data-card-title">Account Information</h2>
+                                <div class="data-card-header"><h2 class="data-card-title">Account Information</h2></div>
                                 <div class="data-rows">
                                     <div class="data-row">
                                         <span class="data-label">Account Status</span>
@@ -1754,8 +1756,8 @@
 
                         <!-- Sakha Affiliations -->
                         <div class="data-card" style="margin-top: 1rem;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Sakha Affiliations</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Sakha Affiliations</h2>
                                 <span class="badge badge-xs badge-muted" x-text="affiliations.length + ' record' + (affiliations.length !== 1 ? 's' : '')"></span>
                             </div>
                             <div class="data-rows" x-show="affiliations.length > 0">
@@ -1781,8 +1783,8 @@
 
                         <!-- Journey Timeline -->
                         <div class="data-card" style="margin-top: 1rem;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Journey Timeline</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Journey Timeline</h2>
                                 <span class="badge badge-xs badge-muted" x-text="journeyEvents.length + ' event' + (journeyEvents.length !== 1 ? 's' : '')"></span>
                             </div>
                             <div class="data-rows" x-show="journeyEvents.length > 0">
@@ -1804,8 +1806,8 @@
 
                         <!-- My Change Requests (Sakha Transfer / Apply for Darshak) -->
                         <div class="data-card" style="margin-top: 1rem;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">My Change Requests</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">My Change Requests</h2>
                                 <span class="badge badge-xs badge-muted" x-text="myChangeRequests.length + ' request' + (myChangeRequests.length !== 1 ? 's' : '')"></span>
                             </div>
                             <div class="data-rows" x-show="myChangeRequests.length > 0">
@@ -1841,7 +1843,7 @@
                                 </svg>
                                 <h3>No Family Record</h3>
                                 <p>You are not currently linked to any family group.</p>
-                                <button @click="showCreateFamilyModal = true; _loadSakhaList()" class="nss-hover-fade" style="margin-top:1rem;display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                                <button @click="showCreateFamilyModal = true; _loadSakhaList()" class="btn-action primary" style="margin-top:1rem;padding:0.55rem 1.2rem;font-size:0.85rem;">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                                     Create My Family
                                 </button>
@@ -1862,9 +1864,9 @@
                             <div class="family-grid">
 
                                 <!-- ═══ LEFT: Family Tree ═══ -->
-                                <div style="background:#fff;border-radius:0.75rem;box-shadow:0 1px 3px rgba(0,0,0,0.06);border:1px solid #e2e8f0;padding:1rem;">
+                                <div class="fam-panel">
                                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-                                        <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Family Tree</span>
+                                        <span class="fam-label">Family Tree</span>
                                         <span style="font-size:0.75rem;color:#64748b;" x-text="family.family_name"></span>
                                     </div>
 
@@ -1907,11 +1909,11 @@
                                 </div>
 
                                 <!-- ═══ RIGHT: Detail Panel ═══ -->
-                                <div style="background:#fff;border-radius:0.75rem;box-shadow:0 1px 3px rgba(0,0,0,0.06);border:1px solid #e2e8f0;padding:0.75rem;display:flex;flex-direction:column;gap:0.75rem;">
+                                <div class="fam-panel fam-panel--side">
 
                                     <!-- Family Info -->
                                     <div>
-                                        <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Family Info</span>
+                                        <span class="fam-label">Family Info</span>
                                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.375rem 0.75rem;font-size:0.75rem;margin-top:0.5rem;">
                                             <div>
                                                 <span class="detail-label">ID</span>
@@ -2153,7 +2155,7 @@
                                     <!-- Members compact list -->
                                     <div>
                                         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem;">
-                                            <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Members</span>
+                                            <span class="fam-label">Members</span>
                                             <div style="display:flex;align-items:center;gap:0.5rem;">
                                                 <span style="font-size:0.75rem;font-family:ui-monospace,monospace;color:#64748b;" x-text="familyMembers.length"></span>
                                                 <!-- Add is head/admin-only: the API refuses a plain
@@ -2231,7 +2233,7 @@
 
                                     <!-- Head History -->
                                     <div>
-                                        <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Head History</span>
+                                        <span class="fam-label">Head History</span>
                                         <template x-if="familyHeadHistory.length > 0">
                                             <div style="display:flex;flex-direction:column;gap:0.25rem;margin-top:0.375rem;">
                                                 <template x-for="h in familyHeadHistory" :key="h.family_head_history_pk">
@@ -2258,11 +2260,11 @@
 
                         <!-- ═══ Create Family Modal ═══ -->
                         <template x-if="showCreateFamilyModal">
-                            <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
+                            <div class="nss-modal">
                                 <!-- Backdrop -->
-                                <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="showCreateFamilyModal = false"></div>
+                                <div class="nss-modal__backdrop" @click="showCreateFamilyModal = false"></div>
                                 <!-- Modal -->
-                                <div style="position:relative;background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.15);width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+                                <div class="nss-modal__panel" style="max-width:460px;max-height:90vh;">
                                     <!-- Header -->
                                     <div style="padding:1.25rem 1.5rem;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
                                         <div>
@@ -2347,9 +2349,9 @@
                                         </template>
                                     </div>
                                     <!-- Footer -->
-                                    <div style="padding:1rem 1.5rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;">
+                                    <div class="nss-modal__foot">
                                         <button @click="showCreateFamilyModal = false" style="padding:0.5rem 1rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;color:#64748b;cursor:pointer;">Cancel</button>
-                                        <button @click="submitCreateFamily()" :disabled="createFamilySubmitting || !createFamilyName.trim() || !createFamilySakhaPk" style="padding:0.5rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer;opacity:1;transition:opacity 0.15s;" :style="(!createFamilyName.trim() || !createFamilySakhaPk || createFamilySubmitting) ? 'opacity:0.5;cursor:not-allowed;' : ''">
+                                        <button @click="submitCreateFamily()" :disabled="createFamilySubmitting || !createFamilyName.trim() || !createFamilySakhaPk" class="btn-action primary">
                                             <span x-show="!createFamilySubmitting">Create Family</span>
                                             <span x-show="createFamilySubmitting">Creating...</span>
                                         </button>
@@ -2360,14 +2362,14 @@
 
                         <!-- ═══ Add Member Modal ═══ -->
                         <template x-if="showAddMemberModal">
-                            <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
+                            <div class="nss-modal">
                                 <!-- Backdrop -->
-                                <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeAddMemberModal()"></div>
+                                <div class="nss-modal__backdrop" @click="closeAddMemberModal()"></div>
 
                                 <!-- Modal content -->
-                                <div style="position:relative;width:100%;max-width:520px;background:#fff;border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.15);overflow:hidden;">
+                                <div class="nss-modal__panel" style="max-width:520px;">
                                     <!-- Header -->
-                                    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+                                    <div class="nss-modal__bar">
                                         <span style="font-size:0.85rem;font-weight:700;color:#1e293b;">Add Member to Family</span>
                                         <button @click="closeAddMemberModal()" style="background:none;border:none;cursor:pointer;color:#64748b;padding:0.25rem;">
                                             <svg style="width:18px;height:18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -2647,14 +2649,14 @@
                              (overlay + card + header/body/footer), accented amber
                              to match badge-role-head. -->
                         <template x-if="transferHeadTarget">
-                            <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
+                            <div class="nss-modal">
                                 <!-- Backdrop -->
-                                <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeTransferHeadModal()"></div>
+                                <div class="nss-modal__backdrop" @click="closeTransferHeadModal()"></div>
 
                                 <!-- Modal content -->
-                                <div style="position:relative;width:100%;max-width:420px;background:#fff;border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.15);overflow:hidden;">
+                                <div class="nss-modal__panel" style="max-width:420px;">
                                     <!-- Header -->
-                                    <div style="display:flex;align-items:center;gap:0.65rem;padding:1rem 1.25rem;border-bottom:1px solid #f1f5f9;">
+                                    <div class="nss-modal__bar">
                                         <div style="width:34px;height:34px;flex-shrink:0;border-radius:999px;background:linear-gradient(135deg,#f59e0b,#fbbf24);display:flex;align-items:center;justify-content:center;">
                                             <svg style="width:18px;height:18px;color:#fff;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 1.5c-1.5 3-3.75 4.5-6 4.5 0 6 2.25 10.5 6 12 3.75-1.5 6-6 6-12-2.25 0-4.5-1.5-6-4.5Z"/></svg>
                                         </div>
@@ -2711,14 +2713,14 @@
                              Themed replacement for the plain NSSDialog.confirm() —
                              accented violet to match badge-role-admin. -->
                         <template x-if="assignAdminTarget">
-                            <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
+                            <div class="nss-modal">
                                 <!-- Backdrop -->
-                                <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeAssignAdminModal()"></div>
+                                <div class="nss-modal__backdrop" @click="closeAssignAdminModal()"></div>
 
                                 <!-- Modal content -->
-                                <div style="position:relative;width:100%;max-width:420px;background:#fff;border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.15);overflow:hidden;">
+                                <div class="nss-modal__panel" style="max-width:420px;">
                                     <!-- Header -->
-                                    <div style="display:flex;align-items:center;gap:0.65rem;padding:1rem 1.25rem;border-bottom:1px solid #f1f5f9;">
+                                    <div class="nss-modal__bar">
                                         <div style="width:34px;height:34px;flex-shrink:0;border-radius:999px;background:linear-gradient(135deg,#7c3aed,#a78bfa);display:flex;align-items:center;justify-content:center;">
                                             <svg style="width:18px;height:18px;color:#fff;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"/></svg>
                                         </div>
@@ -2782,48 +2784,41 @@
                          a tab other than Family. Must stay outside all tab-scoped divs so it
                          shows regardless of which tab is active when the button is clicked. -->
                     <template x-if="showChangeRequestModal">
-                        <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
-                            <!-- Backdrop -->
-                            <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeChangeRequestModal()"></div>
-                            <!-- Modal -->
-                            <div style="position:relative;background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.15);width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
-                                <!-- Header -->
-                                <div style="padding:1.25rem 1.5rem;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
-                                    <div>
-                                        <h3 style="margin:0;font-size:1rem;font-weight:700;color:#1B2A4A;" x-text="changeRequestType === 'DARSHAK' ? 'Apply for Darshak' : 'Request Sakha Transfer'"></h3>
-                                        <p style="margin:0.25rem 0 0;font-size:0.75rem;color:#6b7280;" x-text="changeRequestType === 'DARSHAK' ? 'Attend another Sangha without transferring your membership — you keep your current Sakha and Local Sakha ERP ID.' : 'Move your affiliation to another Sakha, subject to its approval and your current Sakha\'s release.'"></p>
+                        <div class="nss-modal" role="dialog" aria-modal="true" @keydown.escape.window="closeChangeRequestModal()">
+                            <div class="nss-modal__backdrop" @click="closeChangeRequestModal()"></div>
+                            <div class="nss-modal__panel">
+                                <div class="nss-modal__head">
+                                    <div class="nss-modal__icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
                                     </div>
-                                    <button @click="closeChangeRequestModal()" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:1.25rem;padding:0.25rem;">✕</button>
+                                    <div class="nss-modal__titles">
+                                        <h3 class="nss-modal__title" x-text="changeRequestType === 'DARSHAK' ? 'Apply for Darshak' : 'Request Sakha Transfer'"></h3>
+                                        <p class="nss-modal__sub" x-text="changeRequestType === 'DARSHAK' ? 'Attend another Sangha without transferring your membership — you keep your current Sakha and Local Sakha ERP ID.' : 'Move your affiliation to another Sakha, subject to its approval and your current Sakha\'s release.'"></p>
+                                    </div>
+                                    <button type="button" class="nss-modal__close" @click="closeChangeRequestModal()" aria-label="Close">&#10005;</button>
                                 </div>
-                                <!-- Body -->
-                                <div style="padding:1.25rem 1.5rem;">
-                                    <!-- Error -->
+                                <div class="nss-modal__body">
                                     <template x-if="changeRequestError">
-                                        <div style="padding:0.5rem 0.75rem;border-radius:0.375rem;background:#fef2f2;border:1px solid #fecaca;font-size:0.75rem;color:#991b1b;margin-bottom:0.75rem;" x-text="changeRequestError"></div>
+                                        <div class="alert-msg alert-error" x-text="changeRequestError"></div>
                                     </template>
-
-                                    <!-- Destination Sakha -->
-                                    <div style="margin-bottom:1rem;">
-                                        <label style="display:block;font-size:0.75rem;font-weight:600;color:#374151;margin-bottom:0.35rem;" x-text="changeRequestType === 'DARSHAK' ? 'Sakha to attend' : 'Destination Sakha'"></label>
+                                    <div class="nss-modal__field">
+                                        <label class="form-label" x-text="changeRequestType === 'DARSHAK' ? 'Sakha to attend' : 'Destination Sakha'"></label>
                                         <select x-model="changeRequestOrgPk" class="nss-select">
                                             <option value="">Select Sakha...</option>
                                             <template x-for="s in changeRequestSakhaList" :key="s.organization_pk">
                                                 <option :value="s.organization_pk" x-text="s.organization_name"></option>
                                             </template>
                                         </select>
-                                        <p x-show="changeRequestSakhaList.length === 0 && !changeRequestSakhaLoading" style="font-size:0.7rem;color:#94a3b8;margin:0.25rem 0 0;">No Sakhas found.</p>
+                                        <p class="form-hint" x-show="changeRequestSakhaList.length === 0 && !changeRequestSakhaLoading">No Sakhas found.</p>
                                     </div>
-
-                                    <!-- Reason -->
-                                    <div style="margin-bottom:1rem;">
-                                        <label style="display:block;font-size:0.75rem;font-weight:600;color:#374151;margin-bottom:0.35rem;">Reason</label>
-                                        <textarea x-model="changeRequestReason" rows="3" placeholder="Optional notes for the reviewing Sakha..." style="width:100%;padding:0.5rem 0.75rem;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;outline:none;resize:vertical;box-sizing:border-box;"></textarea>
+                                    <div class="nss-modal__field">
+                                        <label class="form-label">Reason <span class="form-hint">(optional)</span></label>
+                                        <textarea x-model="changeRequestReason" rows="3" class="form-input nss-modal__textarea" placeholder="Optional notes for the reviewing Sakha..."></textarea>
                                     </div>
                                 </div>
-                                <!-- Footer -->
-                                <div style="padding:1rem 1.5rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;">
-                                    <button @click="closeChangeRequestModal()" style="padding:0.5rem 1rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;color:#64748b;cursor:pointer;">Cancel</button>
-                                    <button @click="submitChangeRequest()" :disabled="changeRequestSaving || !changeRequestOrgPk" style="padding:0.5rem 1.25rem;background:linear-gradient(135deg,#C8960C,#DC7831);color:#fff;border:none;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer;opacity:1;transition:opacity 0.15s;" :style="(!changeRequestOrgPk || changeRequestSaving) ? 'opacity:0.5;cursor:not-allowed;' : ''">
+                                <div class="nss-modal__foot">
+                                    <button type="button" class="btn-action" @click="closeChangeRequestModal()">Cancel</button>
+                                    <button type="button" class="btn-action primary" @click="submitChangeRequest()" :disabled="changeRequestSaving || !changeRequestOrgPk">
                                         <span x-show="!changeRequestSaving">Submit Request</span>
                                         <span x-show="changeRequestSaving">Submitting...</span>
                                     </button>
@@ -3255,7 +3250,7 @@
                             </div>
                             <div class="data-card-body">
                                 <!-- Type toggle -->
-                                <div style="display: flex; gap: 1.25rem; align-items: center; margin-bottom: 0.9rem; flex-wrap: wrap;">
+                                <div class="search-bar" style="display: flex; gap: 1.25rem; align-items: center; margin-bottom: 0.9rem; flex-wrap: wrap;">
                                     <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #1B2A4A; cursor: pointer;">
                                         <input type="checkbox" x-model="findOrgIncludeSakha" @change="onFindOrgTypeToggle()">
                                         Sakha Sangha
@@ -3370,7 +3365,7 @@
                                 <span class="badge badge-xs badge-muted" x-text="memberDirResults.length + ' of ' + memberDirTotal"></span>
                             </div>
                             <div class="data-card-body">
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+                                <div class="search-bar" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
                                     <div class="form-group" style="margin: 0;">
                                         <label class="form-label">Search</label>
                                         <input type="text" class="form-input" placeholder="Name, Sangha Sevi ID, mobile, email…"
@@ -3475,10 +3470,13 @@
                         </template>
                         <template x-if="member && member.sangha_sevi_pk">
                             <div>
-                                <h1 class="text-2xl font-bold mb-1">Attendance</h1>
-                                <p class="text-sm text-base-content/60 mb-6">Your Weekly Sangha Puja attendance history.</p>
-
                                 <div class="data-card" style="margin-bottom:1rem;">
+                                    <div class="data-card-header">
+                                        <div>
+                                            <h2 class="data-card-title">My Attendance</h2>
+                                            <div class="data-card-subtitle">Your Weekly Sangha Puja record</div>
+                                        </div>
+                                    </div>
                                     <div class="data-card-body">
                                         <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="myAttStatsLoading">
                                             <div class="spinner"></div>
@@ -3486,14 +3484,30 @@
                                         <div class="alert-msg alert-error" x-show="myAttStatsError" x-text="myAttStatsError"></div>
                                         <template x-if="myAttStats">
                                             <div>
-                                                <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
-                                                    <div><span class="text-2xl font-bold" x-text="(myAttStats.attendance_percentage ?? '—') + (myAttStats.attendance_percentage !== null ? '%' : '')"></span><div class="text-xs text-base-content/50">Attendance</div></div>
-                                                    <div><span class="text-lg font-semibold" style="color:#16a34a;" x-text="myAttStats.present_count"></span><div class="text-xs text-base-content/50">Present</div></div>
-                                                    <div><span class="text-lg font-semibold" style="color:#dc2626;" x-text="myAttStats.absent_count"></span><div class="text-xs text-base-content/50">Absent</div></div>
-                                                    <div><span class="text-lg font-semibold" style="color:#d97706;" x-text="myAttStats.excused_count"></span><div class="text-xs text-base-content/50">Excused</div></div>
-                                                    <div><span class="text-lg font-semibold" x-text="myAttStats.current_consecutive_absences"></span><div class="text-xs text-base-content/50">Current Streak</div></div>
+                                                <div class="att-tiles">
+                                                    <div class="att-tile att-tile--main">
+                                                        <div class="att-tile__label">Attendance</div>
+                                                        <div class="att-tile__value" x-text="myAttStats.attendance_percentage !== null ? myAttStats.attendance_percentage + '%' : '—'"></div>
+                                                    </div>
+                                                    <div class="att-tile att-tile--present">
+                                                        <div class="att-tile__label">Present</div>
+                                                        <div class="att-tile__value" x-text="myAttStats.present_count"></div>
+                                                    </div>
+                                                    <div class="att-tile att-tile--absent">
+                                                        <div class="att-tile__label">Absent</div>
+                                                        <div class="att-tile__value" x-text="myAttStats.absent_count"></div>
+                                                    </div>
+                                                    <div class="att-tile att-tile--excused">
+                                                        <div class="att-tile__label">Excused</div>
+                                                        <div class="att-tile__value" x-text="myAttStats.excused_count"></div>
+                                                    </div>
+                                                    <div class="att-tile">
+                                                        <div class="att-tile__label">Current streak</div>
+                                                        <div class="att-tile__value" x-text="myAttStats.current_consecutive_absences"></div>
+                                                        <div class="att-tile__hint">consecutive absences</div>
+                                                    </div>
                                                 </div>
-                                                <div class="att-bar" style="margin-top:0.75rem;" x-show="myAttStats.attendance_percentage !== null"><div class="att-bar-fill" :style="'width:' + (myAttStats.attendance_percentage || 0) + '%'"></div></div>
+                                                <div class="att-bar" style="margin-top:1rem;" x-show="myAttStats.attendance_percentage !== null"><div class="att-bar-fill" :style="'width:' + (myAttStats.attendance_percentage || 0) + '%'"></div></div>
                                             </div>
                                         </template>
                                     </div>
@@ -3501,7 +3515,10 @@
 
                                 <div class="data-card">
                                     <div class="data-card-header">
-                                        <h2 class="data-card-title">Puja History</h2>
+                                        <div>
+                                            <h2 class="data-card-title">Puja History</h2>
+                                            <div class="data-card-subtitle" x-show="!myAttRecordsLoading && myAttRecords.length" x-text="myAttRecords.length + ' recorded'"></div>
+                                        </div>
                                     </div>
                                     <div class="data-card-body">
                                         <div class="flex" style="align-items:center; justify-content:center; padding:1rem;" x-show="myAttRecordsLoading">
@@ -3523,8 +3540,8 @@
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <div x-show="!myAttRecordsLoading && !myAttRecords.length" style="padding:1rem; color:#6b7280; font-size:0.85rem;">
-                                            No attendance recorded yet.
+                                        <div class="att-empty" x-show="!myAttRecordsLoading && !myAttRecords.length && !myAttRecordsError">
+                                            No attendance recorded yet. Your Puja attendance will appear here once it is marked.
                                         </div>
                                     </div>
                                 </div>
@@ -4467,10 +4484,10 @@
                         <!-- Item 9: Advisory Board "Show all" — full member list with a
                              Sakha-name filter (client-side over the loaded members). -->
                         <template x-if="govAllMembers.open">
-                            <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
-                                <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeGovAllMembers()"></div>
-                                <div style="position:relative;width:100%;max-width:820px;max-height:85vh;display:flex;flex-direction:column;background:#fff;border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.15);overflow:hidden;">
-                                    <div style="display:flex;align-items:center;gap:0.65rem;padding:1rem 1.25rem;border-bottom:1px solid #f1f5f9;">
+                            <div class="nss-modal">
+                                <div class="nss-modal__backdrop" @click="closeGovAllMembers()"></div>
+                                <div class="nss-modal__panel" style="max-width:820px;max-height:85vh;display:flex;flex-direction:column;">
+                                    <div class="nss-modal__bar">
                                         <div style="flex:1;min-width:0;">
                                             <h3 style="margin:0;font-size:0.95rem;font-weight:700;color:#1B2A4A;" x-text="govAllMembers.body ? govAllMembers.body.body_name : ''"></h3>
                                             <p style="margin:0.1rem 0 0;font-size:0.72rem;color:#6b7280;" x-text="govAllMembersFiltered().length + ' of ' + (govAllMembers.body && govAllMembers.body.members ? govAllMembers.body.members.length : 0) + ' members'"></p>
@@ -4532,8 +4549,8 @@
                         </div>
 
                         <div class="data-card" x-show="pranami.view === 'history'">
-                            <div style="padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Payment history</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Payment history</h2>
                                 <p style="font-size: 0.78rem; color: #6b7280; margin-top: 0.2rem;">Your Pranami paid, once your Sakha or the Kendra has recorded it. Download a receipt for any payment.</p>
                             </div>
                             <div style="padding: 0.85rem 1.25rem 0.5rem;">
@@ -4589,8 +4606,8 @@
 
                         <!-- Payment requests a treasurer / admin made for this member: shown here as soon as they are created -->
                         <div class="data-card" x-show="pranami.view === 'pay' && !pranamiPay.result && pranamiPay.requests.length > 0" x-cloak>
-                            <div style="padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Payment requests for you</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Payment requests for you</h2>
                                 <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem;">Your Sakha or the Kendra has asked you to pay these. Pay now, or decline one you do not want to pay.</p>
                             </div>
                             <div style="padding: 0.75rem 1.25rem 1rem;">
@@ -4829,8 +4846,8 @@
                          President is seated). The server checks the seat on every decision; this page only shows and sends. -->
                     <div x-show="tab === 'finApprovals'">
                         <div class="data-card">
-                            <div style="padding: 0.85rem 1.25rem;">
-                                <h2 class="data-card-title" style="padding: 0;">Finance approvals</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Finance approvals</h2>
                                 <p style="font-size: 0.78rem; color: #6b7280; margin-top: 0.2rem;">Entries of your Sakha that wait for you. Check the bills, then approve or reject. Your decision is recorded against your office.</p>
                             </div>
                             <div class="alert-msg alert-error" style="margin: 0 1.25rem 0.75rem;" x-show="finApprovals.error" x-text="finApprovals.error"></div>
@@ -4890,13 +4907,13 @@
                     <div x-show="tab === 'documents'">
                         <!-- Parichaya Patra -->
                         <div class="data-card">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Parichaya Patra</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Parichaya Patra</h2>
                                 <span class="badge badge-xs badge-muted" x-text="parichayaPatras.length + ' record' + (parichayaPatras.length !== 1 ? 's' : '')"></span>
                             </div>
                             <div class="data-rows" x-show="parichayaPatras.length > 0">
                                 <template x-for="pp in parichayaPatras" :key="pp.parichaya_patra_pk">
-                                    <div style="padding: 0.65rem 0; border-bottom: 1px solid #f3f4f6;">
+                                    <div class="doc-row">
                                         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                             <span style="font-size: 0.8rem; font-weight: 600; color: #1B2A4A;">Kendra #</span>
                                             <span class="data-kendra-no" x-text="pp.document_number"></span>
@@ -4926,13 +4943,13 @@
 
                         <!-- Anumati Patra (Darshaka only — not applicable to Associate per MBR-019A/B) -->
                         <div class="data-card" style="margin-top: 1rem;" x-show="NSS.showAnumatiPatra(member.membership_type_code)">
-                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem 0;">
-                                <h2 class="data-card-title" style="padding: 0;">Anumati Patra</h2>
+                            <div class="data-card-header">
+                                <h2 class="data-card-title">Anumati Patra</h2>
                                 <span class="badge badge-xs badge-muted" x-text="anumatiPatras.length + ' record' + (anumatiPatras.length !== 1 ? 's' : '')"></span>
                             </div>
                             <div class="data-rows" x-show="anumatiPatras.length > 0">
                                 <template x-for="ap in anumatiPatras" :key="ap.anumati_patra_pk">
-                                    <div style="padding: 0.65rem 0; border-bottom: 1px solid #f3f4f6;">
+                                    <div class="doc-row">
                                         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                             <span class="data-value mono" style="font-weight: 600;" x-text="ap.document_number"></span>
                                             <span class="badge badge-xs" :class="NSS.statusBadgeClass(ap.status)" x-text="ap.status"></span>
@@ -4958,7 +4975,7 @@
                             <div class="data-card" style="border-top: 3px solid #C8960C;">
                                 <div style="padding: 1.25rem 1.25rem 1rem;">
                                     <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                        <div style="width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#C8960C,#DC7831);display:flex;align-items:center;justify-content:center;">
+                                        <div style="width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#0D7377,#14919b);display:flex;align-items:center;justify-content:center;">
                                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#fff" width="22" height="22">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
@@ -4978,21 +4995,21 @@
                             <!-- Org-Level Stats Grid (hidden for roles with no stats source,
                                  e.g. NSS_ERP_ADVISORY_BOARD_ADMIN — no adminStats entry) -->
                             <div class="grid" x-show="adminStats[at.roleCode]" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-top:1rem;">
-                                <div style="background:#eef2ff;border-radius:0.75rem;padding:1rem;text-align:center;">
-                                    <div style="font-size:1.75rem;font-weight:700;color:#4338ca;" x-text="adminStats[at.roleCode]?.members ?? '—'"></div>
-                                    <div style="font-size:0.7rem;color:#6b7280;margin-top:0.25rem;">Active Members</div>
+                                <div class="kpi-tile" style="--kpi:#4338ca;">
+                                    <div class="kpi-tile__value" x-text="adminStats[at.roleCode]?.members ?? '—'"></div>
+                                    <div class="kpi-tile__label">Active Members</div>
                                 </div>
-                                <div style="background:#ecfdf5;border-radius:0.75rem;padding:1rem;text-align:center;">
-                                    <div style="font-size:1.75rem;font-weight:700;color:#059669;" x-text="adminStats[at.roleCode]?.families ?? '—'"></div>
-                                    <div style="font-size:0.7rem;color:#6b7280;margin-top:0.25rem;">Families</div>
+                                <div class="kpi-tile" style="--kpi:#059669;">
+                                    <div class="kpi-tile__value" x-text="adminStats[at.roleCode]?.families ?? '—'"></div>
+                                    <div class="kpi-tile__label">Families</div>
                                 </div>
-                                <div style="background:#fff7ed;border-radius:0.75rem;padding:1rem;text-align:center;">
-                                    <div style="font-size:1.75rem;font-weight:700;color:#c2410c;" x-text="adminStats[at.roleCode]?.orgs ?? '—'"></div>
-                                    <div style="font-size:0.7rem;color:#6b7280;margin-top:0.25rem;" x-text="adminStats[at.roleCode]?.orgsLabel ?? 'Organizations'"></div>
+                                <div class="kpi-tile" style="--kpi:#c2410c;">
+                                    <div class="kpi-tile__value" x-text="adminStats[at.roleCode]?.orgs ?? '—'"></div>
+                                    <div class="kpi-tile__label" x-text="adminStats[at.roleCode]?.orgsLabel ?? 'Organizations'"></div>
                                 </div>
-                                <div style="background:#fdf2f8;border-radius:0.75rem;padding:1rem;text-align:center;">
-                                    <div style="font-size:1.75rem;font-weight:700;color:#be185d;" x-text="adminStats[at.roleCode]?.extra ?? '—'"></div>
-                                    <div style="font-size:0.7rem;color:#6b7280;margin-top:0.25rem;" x-text="adminStats[at.roleCode]?.extraLabel ?? 'Renewals Due'"></div>
+                                <div class="kpi-tile" style="--kpi:#be185d;">
+                                    <div class="kpi-tile__value" x-text="adminStats[at.roleCode]?.extra ?? '—'"></div>
+                                    <div class="kpi-tile__label" x-text="adminStats[at.roleCode]?.extraLabel ?? 'Renewals Due'"></div>
                                 </div>
                             </div>
 
@@ -5002,9 +5019,9 @@
                             <template x-if="(adminStats[at.roleCode]?.moreTiles || []).length">
                                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-top:0.75rem;">
                                     <template x-for="mt in adminStats[at.roleCode].moreTiles" :key="mt.label">
-                                        <div style="background:#f0fdf4;border-radius:0.75rem;padding:1rem;text-align:center;">
-                                            <div style="font-size:1.75rem;font-weight:700;color:#15803d;" x-text="mt.value ?? '—'"></div>
-                                            <div style="font-size:0.7rem;color:#6b7280;margin-top:0.25rem;" x-text="mt.label"></div>
+                                        <div class="kpi-tile" style="--kpi:#15803d;">
+                                            <div class="kpi-tile__value" x-text="mt.value ?? '—'"></div>
+                                            <div class="kpi-tile__label" x-text="mt.label"></div>
                                         </div>
                                     </template>
                                 </div>
@@ -5012,7 +5029,7 @@
 
                             <!-- Quick Actions -->
                             <div class="data-card" style="margin-top:1rem;">
-                                <h2 class="data-card-title">Quick Actions</h2>
+                                <div class="data-card-header"><h2 class="data-card-title">Quick Actions</h2></div>
                                 <div style="padding:0.75rem 1.25rem 1rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
                                     <a :href="at.adminUrl" style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.5rem 1rem;background:#eef2ff;border-radius:6px;font-size:0.8rem;font-weight:500;color:#4338ca;text-decoration:none;border:1px solid #c7d2fe;">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
@@ -5063,7 +5080,7 @@
                                  GET /api/v1/audit/change-log (api/routers/audit.py). -->
                             <template x-if="at.roleCode === 'NSS_ERP_AUDITOR'">
                                 <div class="data-card" style="margin-top:1rem;">
-                                    <h2 class="data-card-title">Recent Changes</h2>
+                                    <div class="data-card-header"><h2 class="data-card-title">Recent Changes</h2></div>
                                     <div style="padding:0.75rem 1.25rem 1rem;">
                                         <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
                                             <input type="text" x-model="adminAudit.tableFilter"
@@ -5135,7 +5152,7 @@
                                  reporting feature. -->
                             <template x-if="at.roleCode === 'NSS_ERP_REPORT_VIEWER'">
                                 <div class="data-card" style="margin-top:1rem;">
-                                    <h2 class="data-card-title">Membership &amp; Growth Report</h2>
+                                    <div class="data-card-header"><h2 class="data-card-title">Membership &amp; Growth Report</h2></div>
                                     <div style="padding:0.75rem 1.25rem 1rem;">
                                         <p style="font-size:0.78rem;color:#6b7280;margin:0 0 0.75rem;">
                                             A dedicated Reports module (filters, exports, saved reports) does not
@@ -5170,7 +5187,7 @@
 
                             <!-- ═══ MEMBER SEARCH ═══ -->
                             <div class="data-card" style="margin-top:1rem;">
-                                <h2 class="data-card-title">Member Search</h2>
+                                <div class="data-card-header"><h2 class="data-card-title">Member Search</h2></div>
                                 <div style="padding:0.75rem 1.25rem 1rem;">
                                     <div style="display:flex;gap:0.5rem;align-items:center;">
                                         <input type="text" x-model="memberSearchQuery"
@@ -5419,9 +5436,9 @@
                                                     <div class="family-grid">
 
                                                         <!-- LEFT: Family Tree -->
-                                                        <div style="background:#fff;border-radius:0.75rem;box-shadow:0 1px 3px rgba(0,0,0,0.06);border:1px solid #e2e8f0;padding:1rem;">
+                                                        <div class="fam-panel">
                                                             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-                                                                <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Family Tree</span>
+                                                                <span class="fam-label">Family Tree</span>
                                                             </div>
 
                                                             <!-- Graph loading -->
@@ -5453,7 +5470,7 @@
                                                         </div>
 
                                                         <!-- RIGHT: Detail Panel (Family Info + clicked person only) -->
-                                                        <div style="background:#fff;border-radius:0.75rem;box-shadow:0 1px 3px rgba(0,0,0,0.06);border:1px solid #e2e8f0;padding:0.75rem;display:flex;flex-direction:column;gap:0.75rem;">
+                                                        <div class="fam-panel fam-panel--side">
 
                                                             <!-- Prompt when no person selected -->
                                                             <template x-if="!orgSelectedPerson">
@@ -5563,7 +5580,7 @@
                                                             <!-- Head History -->
                                                             <template x-if="orgFamilyHeadHistory.length > 0">
                                                                 <div>
-                                                                    <span style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;">Head History</span>
+                                                                    <span class="fam-label">Head History</span>
                                                                     <div style="margin-top:0.375rem;display:flex;flex-direction:column;gap:2px;">
                                                                         <template x-for="hh in orgFamilyHeadHistory" :key="hh.family_head_history_pk || hh.person_pk">
                                                                             <div style="display:flex;align-items:center;justify-content:space-between;padding:0.25rem 0.5rem;font-size:0.7rem;">
@@ -6380,10 +6397,10 @@
                                     <!-- Show-all modal + Sakha-name filter — same pattern as the
                                          member dashboard's own Governance tab (dashboard.js). -->
                                     <template x-if="govAllMembers.open">
-                                        <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;">
-                                            <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" @click="closeGovAllMembers()"></div>
-                                            <div style="position:relative;width:100%;max-width:820px;max-height:85vh;display:flex;flex-direction:column;background:#fff;border-radius:0.75rem;box-shadow:0 20px 60px rgba(0,0,0,0.15);overflow:hidden;">
-                                                <div style="display:flex;align-items:center;gap:0.65rem;padding:1rem 1.25rem;border-bottom:1px solid #f1f5f9;">
+                                        <div class="nss-modal">
+                                            <div class="nss-modal__backdrop" @click="closeGovAllMembers()"></div>
+                                            <div class="nss-modal__panel" style="max-width:820px;max-height:85vh;display:flex;flex-direction:column;">
+                                                <div class="nss-modal__bar">
                                                     <div style="flex:1;min-width:0;">
                                                         <h3 style="margin:0;font-size:0.95rem;font-weight:700;color:#1B2A4A;" x-text="govAllMembers.body ? govAllMembers.body.body_name : ''"></h3>
                                                         <p style="margin:0.1rem 0 0;font-size:0.72rem;color:#6b7280;" x-text="govAllMembersFiltered().length + ' of ' + (govAllMembers.body && govAllMembers.body.members ? govAllMembers.body.members.length : 0) + ' members'"></p>

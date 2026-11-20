@@ -12,4 +12,5 @@ Page-level detail: [`../../README.md`](../../README.md); deep doc: `docs/PROJECT
 | `nss-layout.css` | Authenticated-page layout: sidebar, topbar, user info, shared page components, the `.pw-reveal-*` password-toggle styles (`../js/nss-password.js`) (largest file). |
 | `nss-datepicker.css` | Styles for the shared DD/MM/YYYY picker (`../js/nss-datepicker.js`). |
 | `nss-combobox.css` | Styles for the select-or-propose combobox (`../js/nss-combobox.js`). |
+| `nss-theme.css` | The shared look (owner 2026-11-19): outlined cards with a tinted header, tidy tables, aligned filter panels, form controls, buttons and detail lists in the Finance pages' style. Loaded LAST on `admin.html` and `dashboard.html` and scoped under `body.nss-theme` so it out-ranks the older inline styles without `!important`; it restyles shared components only (no layout, no markup). Per-feature styles stay in `style.css`. |
 | `style.css` | Tier 0 leftovers: small project-specific overrides (e.g. `[x-cloak]`). |

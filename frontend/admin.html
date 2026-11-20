@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="/assets/css/nss-layout.css">
     <link rel="stylesheet" href="/assets/css/nss-datepicker.css">
     <link rel="stylesheet" href="/assets/css/nss-combobox.css">
+    <link rel="stylesheet" href="/assets/css/nss-theme.css">
     <script src="/assets/js/nss-config.js"></script>
     <script src="/assets/js/nss-location.js"></script>
     <script src="/assets/js/nss-dialog.js"></script>
@@ -428,7 +429,7 @@
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
-<body x-data="adminApp()">
+<body class="nss-theme" x-data="adminApp()">
 
     <!-- Mobile overlay -->
     <div class="sidebar-overlay" :class="{ open: sidebarOpen }" @click="sidebarOpen = false"></div>
@@ -1024,12 +1025,12 @@
                     <img src="/assets/img/nss-logo.png" alt="NSS" class="topbar-logo">
                     <div class="topbar-heading">
                         <div class="topbar-title">Nilachala Saraswata Sangha</div>
-                        <div class="topbar-breadcrumb" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', properties: 'Properties', assets: 'Assets', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
+                        <div class="topbar-breadcrumb" x-text="currentTabLabel"></div>
                     </div>
                 </div>
                 <!-- Desktop: sidebar brand is always visible, so just show the
                      current tab here instead of repeating logo + name. -->
-                <div class="topbar-breadcrumb-desktop" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
+                <div class="topbar-breadcrumb-desktop" x-text="currentTabLabel"></div>
             </div>
             <div class="topbar-user-info" x-show="currentUser" x-html="topbarUserInfo()"></div>
         </div>
@@ -1055,7 +1056,7 @@
                             <div class="data-card-header">
                                 <h2 class="data-card-title">User Accounts</h2>
                                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <span style="font-size: 0.75rem; color: #6b7280;" x-text="usersTotal + ' total'"></span>
+                                    <span class="count-chip" x-text="usersTotal + ' total'"></span>
                                     <button class="btn-action primary" x-show="canCreateAccounts"
                                             @click="openCreateAccountModal()">
                                         + Create Account
@@ -1192,7 +1193,7 @@
 
                                 <!-- Empty -->
                                 <template x-if="!usersLoading && !usersError && users.length === 0">
-                                    <p style="font-size: 0.85rem; color: #6b7280; padding: 1.5rem 0;">No user accounts found.</p>
+                                    <p class="empty-note">No user accounts found.</p>
                                 </template>
                             </div>
                         </div>
@@ -1215,7 +1216,7 @@
                         </template>
 
                         <template x-if="!detailLoading && !detailError && selectedUser">
-                            <div class="card-grid">
+                            <div class="card-grid card-grid--detail">
                                 <!-- Account info -->
                                 <div class="data-card">
                                     <div class="data-card-header">
@@ -1334,211 +1335,12 @@
                                                 </template>
                                             </template>
                                             <button class="btn-action" @click="openResetModal(selectedUser)">Reset Password</button>
+                                            <button class="btn-action" @click="openProfile(selectedUser.person_pk, selectedUser.person_name)">Profile details</button>
                                             <template x-if="selectedUser.user_account_pk !== currentUser?.user_account_pk">
                                                 <button class="btn-action danger"
                                                         @click="deleteUser(selectedUser.user_account_pk, selectedUser.sangha_sevi_id || selectedUser.person_name || 'User')">Delete Account</button>
                                             </template>
                                         </div>
-                                    </div>
-                                </div>
-
-                                <!-- Profile Details (editable personal-info fields) -->
-                                <div class="data-card">
-                                    <div class="data-card-header">
-                                        <h3 class="data-card-title">Profile Details</h3>
-                                        <button class="btn-action" x-show="canManageUsers && !profileEdit.editing"
-                                                :disabled="profileEdit.loading"
-                                                @click="startEditProfile()">Edit</button>
-                                        <button class="btn-action" x-show="canManageUsers && profileEdit.editing"
-                                                @click="cancelEditProfile()">Cancel</button>
-                                    </div>
-                                    <div class="data-card-body">
-                                        <template x-if="profileEdit.loading">
-                                            <div style="display: flex; justify-content: center; padding: 1.5rem 0;">
-                                                <div class="spinner"></div>
-                                            </div>
-                                        </template>
-
-                                        <template x-if="profileEdit.error">
-                                            <div class="alert-msg alert-error" x-text="profileEdit.error"></div>
-                                        </template>
-
-                                        <!-- Read-only view -->
-                                        <template x-if="!profileEdit.loading && !profileEdit.error && !profileEdit.editing">
-                                            <div class="data-rows">
-                                                <div class="data-row">
-                                                    <span class="data-label">Full Name</span>
-                                                    <span class="data-value" x-text="[profileEdit.form.first_name, profileEdit.form.middle_name, profileEdit.form.last_name].filter(Boolean).join(' ') || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Date of Birth</span>
-                                                    <span class="data-value" x-text="formatDate(profileEdit.form.date_of_birth) || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Gender</span>
-                                                    <span class="data-value" x-text="(genders.find(g => g.master_data_pk === profileEdit.form.gender_master_data_pk) || {}).value_name || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Marital Status</span>
-                                                    <span class="data-value" x-text="(maritalStatuses.find(g => g.master_data_pk === profileEdit.form.marital_status_master_data_pk) || {}).value_name || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Blood Group</span>
-                                                    <span class="data-value" x-text="(bloodGroups.find(g => g.master_data_pk === profileEdit.form.blood_group_master_data_pk) || {}).value_name || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Mobile</span>
-                                                    <span class="data-value mono" x-text="profileEdit.form.mobile_number ? (profileEdit.form.country_phone_code + ' ' + profileEdit.form.mobile_number) : '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Email</span>
-                                                    <span class="data-value" x-text="profileEdit.form.email || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Emergency Contact</span>
-                                                    <span class="data-value">
-                                                        <span x-text="profileEdit.form.emergency_contact_name || '—'"></span>
-                                                        <template x-if="profileEdit.form.emergency_contact_phone">
-                                                            <span class="mono" x-text="' (' + profileEdit.form.emergency_contact_phone + ')'"></span>
-                                                        </template>
-                                                        <template x-if="profileEdit.form.emergency_relationship_master_data_pk">
-                                                            <span style="font-size: 0.75rem; color: #6b7280;" x-text="' — ' + ((relationships.find(g => g.master_data_pk === profileEdit.form.emergency_relationship_master_data_pk) || {}).value_name || '')"></span>
-                                                        </template>
-                                                    </span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Remarks</span>
-                                                    <span class="data-value" x-text="profileEdit.form.remarks || '—'"></span>
-                                                </div>
-                                                <div class="data-row" x-show="profileEdit.aadhaar.last4">
-                                                    <span class="data-label">Aadhaar</span>
-                                                    <span class="data-value">
-                                                        <span class="mono" x-text="NSS.aadhaar.mask(profileEdit.aadhaar.last4)"></span>
-                                                        <span style="font-size: 0.75rem; color: #6b7280;" x-show="profileEdit.aadhaar.fullOnFile"> (full number on file)</span>
-                                                        <button type="button" class="btn-action" style="margin-left: 0.5rem;"
-                                                                x-show="canViewSensitive && profileEdit.aadhaar.fullOnFile"
-                                                                @click="revealAadhaar(selectedUser.person_pk, selectedUser.person_name)">Reveal Aadhaar</button>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </template>
-
-                                        <!-- Edit form -->
-                                        <template x-if="!profileEdit.loading && profileEdit.editing">
-                                            <div>
-                                                <template x-if="profileEdit.saveError">
-                                                    <div class="alert-msg alert-error" x-text="profileEdit.saveError"></div>
-                                                </template>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">First Name *</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.first_name">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Middle Name</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.middle_name">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Last Name</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.last_name">
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem; position: relative;" x-data="nssDatePicker('profileEdit.form.date_of_birth', { maxToday: true })">
-                                                        <label class="form-label">Date of Birth</label>
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Gender</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.gender_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in genders" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Marital Status</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.marital_status_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in maritalStatuses" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Blood Group</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.blood_group_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in bloodGroups" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Country Code</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.country_phone_code" placeholder="+91">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Mobile</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.mobile_number">
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Email</label>
-                                                        <input type="email" class="form-input" x-model="profileEdit.form.email">
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Emergency Contact Name</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_name">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Emergency Contact Phone</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_phone">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Relationship</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.emergency_relationship_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in relationships" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
-                                                    <label class="form-label">Remarks</label>
-                                                    <textarea class="form-input" rows="2" x-model="profileEdit.form.remarks"></textarea>
-                                                </div>
-                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
-                                                    <label class="form-label">Aadhaar number (optional)</label>
-                                                    <div class="form-hint" x-show="profileEdit.aadhaar.last4" x-text="'Currently on file: ' + NSS.aadhaar.mask(profileEdit.aadhaar.last4) + (profileEdit.aadhaar.fullOnFile ? ' (full number on file). Leave blank to keep it.' : '')"></div>
-                                                    <input type="text" class="form-input" x-model="profileEdit.aadhaar.input"
-                                                           @input="profileEdit.aadhaar.input = NSS.aadhaar.group(profileEdit.aadhaar.input)"
-                                                           inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="profileEdit.aadhaar.clear">
-                                                    <div class="form-hint" x-show="!NSS.aadhaar.validate(profileEdit.aadhaar.input)">Stored encrypted and used only by authorised administrators.</div>
-                                                    <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(profileEdit.aadhaar.input)" x-text="NSS.aadhaar.validate(profileEdit.aadhaar.input)"></div>
-                                                    <label class="remember-label" style="margin-top: 0.35rem;">
-                                                        <input type="checkbox" class="nss-checkbox" x-model="profileEdit.aadhaar.clear">
-                                                        Clear stored Aadhaar
-                                                    </label>
-                                                </div>
-                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
-                                                    <label class="form-label">Reason for Correction (optional, recorded in audit log)</label>
-                                                    <input type="text" class="form-input" x-model="profileEdit.reason" placeholder="e.g. corrected spelling per Aadhaar">
-                                                </div>
-                                                <button class="btn-action primary" style="margin-top: 0.5rem;"
-                                                        :disabled="profileEdit.saving || !profileEdit.form.first_name.trim()"
-                                                        @click="saveProfile()">
-                                                    <div class="spinner-sm" x-show="profileEdit.saving"></div>
-                                                    Save
-                                                </button>
-                                            </div>
-                                        </template>
                                     </div>
                                 </div>
 
@@ -1551,7 +1353,7 @@
                                     </div>
                                     <div class="data-card-body">
                                         <template x-if="selectedUser.roles.length === 0">
-                                            <p style="font-size: 0.85rem; color: #6b7280;">No roles assigned.</p>
+                                            <p class="empty-note">No roles assigned.</p>
                                         </template>
 
                                         <template x-if="selectedUser.roles.length > 0">
@@ -1607,7 +1409,7 @@
                                      member) — read-only, nothing here is a stored user_role row,
                                      so there is no Revoke action. It disappears automatically the
                                      moment the person leaves the position. -->
-                                <div class="data-card" x-show="selectedUser.auto_granted_scopes && selectedUser.auto_granted_scopes.length > 0">
+                                <div class="data-card card-span" x-show="selectedUser.auto_granted_scopes && selectedUser.auto_granted_scopes.length > 0">
                                     <div class="data-card-header">
                                         <h3 class="data-card-title">Auto-Granted Access (§63)</h3>
                                     </div>
@@ -2560,7 +2362,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Organizations</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="orgsTotal + ' total'"></span>
+                                <span class="count-chip" x-text="orgsTotal + ' total'"></span>
                             </div>
                             <div class="data-card-body">
                                 <!-- Search + type filter -->
@@ -2830,7 +2632,7 @@
 
                                 <!-- Empty -->
                                 <template x-if="!orgsLoading && orgsList.length === 0">
-                                    <p style="font-size: 0.85rem; color: #6b7280; padding: 1.5rem 0;">No organizations found.</p>
+                                    <p class="empty-note">No organizations found.</p>
                                 </template>
 
                                 <!-- Pagination -->
@@ -2871,7 +2673,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title" x-text="claimsStatusFilter + ' Registration Claims'"></h2>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <span style="font-size: 0.75rem; color: #6b7280;" x-text="claimsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="claimsTotal + ' total'"></span>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -3237,7 +3039,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title" x-text="changeRequestsStatusFilterLabel + ' Change Requests'"></h2>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <span style="font-size: 0.75rem; color: #6b7280;" x-text="changeRequestsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="changeRequestsTotal + ' total'"></span>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -3452,7 +3254,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Member Credentials</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="credsTotal + ' total'"></span>
+                                <span class="count-chip" x-text="credsTotal + ' total'"></span>
                             </div>
                             <div class="data-card-body">
                                 <p style="font-size: 0.8rem; color: #6b7280; margin: 0 0 1rem 0;">
@@ -3573,7 +3375,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Person Directory</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="pdPersons.length + (pdTotal > pdPersons.length ? ' of ' + pdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
+                                <span class="count-chip" x-text="pdPersons.length + (pdTotal > pdPersons.length ? ' of ' + pdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
                                 <div class="search-bar dir-toolbar">
@@ -3662,12 +3464,22 @@
                                                 <!-- Detail — opens directly below the selected row, not at the end of the list -->
                                                 <div x-show="pdSelected && pdSelected.person_pk === p.person_pk" style="margin: 0.25rem 0 1.25rem 0;">
                                                     <div class="data-card">
-                                                        <div class="data-card-header">
-                                                            <h3 class="data-card-title" x-text="pdSelected ? pdFullName(pdSelected) : ''"></h3>
-                                                            <div class="spinner-sm" x-show="pdDetailLoading"></div>
+                                                        <div class="md-head">
+                                                            <span class="dir-avatar md-head__avatar" aria-hidden="true" x-text="pdSelected ? NSS.initials(pdFullName(pdSelected)) : ''"></span>
+                                                            <div class="md-head__id">
+                                                                <h3 class="md-head__name" x-text="pdSelected ? pdFullName(pdSelected) : ''"></h3>
+                                                                <div class="md-head__meta">
+                                                                    <span class="mono" x-text="pdSelected && pdSelected.person_id"></span>
+                                                                    <span x-show="pdSelected && pdSelected.gender_name" x-text="pdSelected && pdSelected.gender_name"></span>
+                                                                    <div class="spinner-sm" x-show="pdDetailLoading"></div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="md-head__actions">
+                                                                <button class="btn-action" x-show="canManageUsers && pdSelected" @click="openProfile(pdSelected.person_pk, pdFullName(pdSelected))">Edit details</button>
+                                                            </div>
                                                         </div>
-                                                        <div class="data-card-body">
-                                                            <div class="data-rows">
+<div class="data-card-body md-body">
+                                                            <div class="data-rows md-facts">
                                                                 <div class="data-row"><span class="data-label">Person ID</span><span class="data-value mono" x-text="pdSelected && pdSelected.person_id"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.date_of_birth"><span class="data-label">Date of Birth</span><span class="data-value" x-text="pdSelected && NSS.formatDate ? NSS.formatDate(pdSelected.date_of_birth) : (pdSelected && pdSelected.date_of_birth)"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.gender_name"><span class="data-label">Gender</span><span class="data-value" x-text="pdSelected && pdSelected.gender_name"></span></div>
@@ -3680,10 +3492,11 @@
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.remarks"><span class="data-label">Remarks</span><span class="data-value" x-text="pdSelected && pdSelected.remarks"></span></div>
                                                             </div>
 
-                                                            <div style="margin-top: 1rem;" x-show="pdAddresses.length">
-                                                                <div class="nav-section-label" style="padding-left: 0;">Addresses</div>
+                                                            <div class="md-section" x-show="pdAddresses.length">
+                                                                <div class="md-section__title">Addresses</div>
+                                                                <div class="md-cards">
                                                                 <template x-for="a in pdAddresses" :key="a.person_address_pk">
-                                                                    <div class="data-card" style="margin-bottom: 0.5rem;">
+                                                                    <div class="data-card">
                                                                         <div class="data-card-body" style="padding: 0.6rem 0.9rem;">
                                                                             <div style="display: flex; justify-content: space-between;">
                                                                                 <span style="font-weight: 600; font-size: 0.8rem;" x-text="a.address_type_name"></span>
@@ -3696,6 +3509,7 @@
                                                                         </div>
                                                                     </div>
                                                                 </template>
+                                                            </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -3716,9 +3530,21 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Member Directory</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="mdMembers.length + (mdTotal > mdMembers.length ? ' of ' + mdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
+                                <span class="count-chip" x-text="mdMembers.length + (mdTotal > mdMembers.length ? ' of ' + mdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
+                                <div class="count-tiles" x-show="mdStatusTiles.length">
+                                    <button type="button" class="count-tile count-tile--total" :class="{ active: !mdStatusFilter }" @click="mdStatusFilter = ''; fetchMemberDirectory()">
+                                        <span class="count-tile__value" x-text="mdAllStatusesTotal"></span>
+                                        <span class="count-tile__label">Total members</span>
+                                    </button>
+                                    <template x-for="c in mdStatusTiles" :key="c.status_code">
+                                        <button type="button" class="count-tile" :class="[{ active: mdStatusFilter === c.status_code }, 'count-tile--' + c.status_code.toLowerCase()]" @click="mdPickStatus(c.status_code)">
+                                            <span class="count-tile__value" x-text="c.count"></span>
+                                            <span class="count-tile__label" x-text="c.status_name"></span>
+                                        </button>
+                                    </template>
+                                </div>
                                 <div class="search-bar dir-toolbar" :class="{ 'has-hint': mdOrgSelectHint }">
                                     <div class="form-group dir-search">
                                         <label class="form-label">Search</label>
@@ -3826,12 +3652,26 @@
                                                 <!-- Detail — opens directly below the selected row, not at the end of the list -->
                                                 <div x-show="mdSelected && mdSelected.sangha_sevi_pk === m.sangha_sevi_pk" style="margin: 0.25rem 0 1.25rem 0;">
                                                     <div class="data-card">
-                                                        <div class="data-card-header">
-                                                            <h3 class="data-card-title" x-text="mdSelected ? mdMemberName(mdSelected) : ''"></h3>
-                                                            <div class="spinner-sm" x-show="mdDetailLoading"></div>
+                                                        <div class="md-head">
+                                                            <span class="dir-avatar md-head__avatar" aria-hidden="true" x-text="mdSelected ? NSS.initials(mdMemberName(mdSelected)) : ''"></span>
+                                                            <div class="md-head__id">
+                                                                <h3 class="md-head__name" x-text="mdSelected ? mdMemberName(mdSelected) : ''"></h3>
+                                                                <div class="md-head__meta">
+                                                                    <span class="mono" x-text="mdSelected && mdSelected.sangha_sevi_id"></span>
+                                                                    <span class="badge badge-xs" :class="NSS.statusBadgeClass(mdSelected && mdSelected.status_code)" x-text="mdSelected && mdSelected.status_name"></span>
+                                                                    <span class="md-head__type" x-text="mdSelected && mdSelected.membership_type_name"></span>
+                                                                    <div class="spinner-sm" x-show="mdDetailLoading"></div>
+                                                                </div>
+                                                            </div>
+                                                            <!-- Membership-change entry points. Workflow (eligibility, approval, ERP-ID handling) lives in the Governance module. -->
+                                                            <div class="md-head__actions">
+                                                                <button class="btn-action" x-show="canManageUsers && mdSelected && mdSelected.person_pk" @click="openProfile(mdSelected.person_pk, mdMemberName(mdSelected))">Edit details</button>
+                                                                <button class="btn-action" @click="requestSakhaTransfer(mdSelected)">Sakha Transfer</button>
+                                                                <button class="btn-action" @click="applyDarshak(mdSelected)">Apply for Darshak</button>
+                                                            </div>
                                                         </div>
-                                                        <div class="data-card-body">
-                                                            <div class="data-rows">
+<div class="data-card-body md-body">
+                                                            <div class="data-rows md-facts">
                                                                 <div class="data-row"><span class="data-label">Sangha Sevi ID</span><span class="data-value mono" x-text="mdSelected && mdSelected.sangha_sevi_id"></span></div>
                                                                 <div class="data-row"><span class="data-label">Person ID</span><span class="data-value mono" x-text="mdSelected && mdSelected.person_id"></span></div>
                                                                 <div class="data-row"><span class="data-label">Type</span><span class="data-value" x-text="mdSelected && mdSelected.membership_type_name"></span></div>
@@ -3844,15 +3684,13 @@
                                                                 <div class="data-row" x-show="mdSelected && mdSelected.renewal_due_date"><span class="data-label">Renewal Due</span><span class="data-value" x-text="mdSelected && NSS.formatDate ? NSS.formatDate(mdSelected.renewal_due_date) : (mdSelected && mdSelected.renewal_due_date)"></span></div>
                                                             </div>
 
-                                                            <!-- Membership-change entry points. Workflow (eligibility,
-                                                                 approval, ERP-ID handling) lives in the Governance
-                                                                 module — these announce the request against this
-                                                                 specific member rather than posting to a missing endpoint. -->
-                                                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;">
-                                                                <button class="btn-action" @click="requestSakhaTransfer(mdSelected)">Sakha Transfer</button>
-                                                                <button class="btn-action" @click="applyDarshak(mdSelected)">Apply for Darshak</button>
-                                                            </div>
-
+                                                            <div class="md-tabs" role="tablist">
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'status' }" @click="mdTab = 'status'">Membership Status</button>
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'sakha' }" @click="mdTab = 'sakha'">Sakha Affiliations <span class="md-tab__n" x-text="mdAffiliations.length"></span></button>
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'credentials' }" @click="mdTab = 'credentials'">Credentials <span class="md-tab__n" x-text="mdParichaya.length + mdAnumati.length"></span></button>
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'journey' }" @click="mdTab = 'journey'">Journey <span class="md-tab__n" x-text="mdJourney.length"></span></button>
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'status'">
                                                             <!-- Membership Status: request -> Parichalak / Kendra President approval -->
                                                             <div class="ms-panel" x-show="msOverview" x-cloak>
                                                                 <div class="ms-panel__head">
@@ -3921,7 +3759,8 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
-
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'sakha'">
                                                             <!-- Affiliations -->
                                                             <div style="margin-top: 1rem;" x-show="mdAffiliations.length">
                                                                 <div class="nav-section-label" style="padding-left: 0;">Sakha Affiliations</div>
@@ -3938,7 +3777,9 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
-
+                                                            <div class="empty-note" x-show="!mdAffiliations.length">No Sakha affiliations recorded.</div>
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'credentials'">
                                                             <!-- Parichaya Patra -->
                                                             <div style="margin-top: 0.75rem;" x-show="mdParichaya.length">
                                                                 <div class="nav-section-label" style="padding-left: 0;">Parichaya Patra</div>
@@ -4017,7 +3858,9 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
-
+                                                            <div class="empty-note" x-show="!mdParichaya.length && !mdAnumati.length">No Parichaya or Anumati Patra on record.</div>
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'journey'">
                                                             <!-- Journey -->
                                                             <div style="margin-top: 0.75rem;" x-show="mdJourney.length">
                                                                 <div class="nav-section-label" style="padding-left: 0;">Membership Journey</div>
@@ -4032,6 +3875,9 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
+                                                            <div class="empty-note" x-show="!mdJourney.length">No journey events recorded.</div>
+                                                        </div>
+
                                                         </div>
                                                     </div>
                                                 </div>
@@ -4051,7 +3897,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Organization Hierarchy</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="orgLevelNodes().length + (orgDrillPath.length ? ' under ' + orgDrillPath[orgDrillPath.length-1].organization_name : ' at top level')"></span>
+                                <span class="count-chip" x-text="orgLevelNodes().length + (orgDrillPath.length ? ' under ' + orgDrillPath[orgDrillPath.length-1].organization_name : ' at top level')"></span>
                             </div>
                             <div class="data-card-body">
                                 <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="orgTreeLoading">
@@ -4119,7 +3965,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Assign Sakhas to Anchalika/Zilla Sangha</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="assignSakhaList.length + ' Sakha Sangha / Sakha Asana(s)'"></span>
+                                <span class="count-chip" x-text="assignSakhaList.length + ' Sakha Sangha / Sakha Asana(s)'"></span>
                             </div>
                             <div class="data-card-body">
                                 <p class="form-hint" style="margin-bottom: 1rem;">
@@ -6913,7 +6759,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Correspondence Register</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size: 0.75rem; color: #6b7280;" x-text="corrTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="corrTotal + ' total'"></span>
                                         <!-- Two quick-action entry points into the same create
                                              form, which opens as its own focused card below with
                                              direction already fixed — Send is always OUTWARD and
@@ -7493,7 +7339,7 @@
                             <div class="data-card-header">
                                 <h2 class="data-card-title" x-text="apPluralTitle"></h2>
                                 <div style="display:flex; gap:0.5rem; align-items:center;">
-                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="apTotal + ' total'"></span>
+                                    <span class="count-chip" x-text="apTotal + ' total'"></span>
                                     <button class="btn-action primary" x-show="canManageAssets" @click="apOpenCreate()"
                                             x-text="'+ New ' + apNoun"></button>
                                 </div>
@@ -8142,7 +7988,7 @@
                                             </div>
 
                                             <h3 class="form-section-title">Fund balances</h3>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finSummary.by_fund.length === 0">No active funds yet.</div>
+                                            <div class="empty-note" x-show="finSummary.by_fund.length === 0">No active funds yet.</div>
                                             <div style="overflow-x:auto;" x-show="finSummary.by_fund.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Fund</th><th>Scope</th><th>Income</th><th>Expense</th><th>Transfers in</th><th>Transfers out</th><th>Balance</th></tr></thead>
@@ -8214,7 +8060,7 @@
                                         <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finYearForm.error" x-text="finYearForm.error"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="finYearsError" x-text="finYearsError"></div>
-                                    <div style="padding:0.75rem; color:#6b7280;" x-show="finYears.length === 0 && !finYearsError">No financial year yet.</div>
+                                    <div class="empty-note" x-show="finYears.length === 0 && !finYearsError">No financial year yet.</div>
                                     <div style="overflow-x:auto;" x-show="finYears.length > 0">
                                         <table class="admin-table">
                                             <thead><tr><th>Year</th><th>From</th><th>To</th><th>Status</th><th>Transactions</th><th></th></tr></thead>
@@ -8304,7 +8150,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Financial scopes</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finScopesTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finScopesTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canManageFinance" @click="finOpenScopeForm()">+ New scope</button>
                                     </div>
                                 </div>
@@ -8337,7 +8183,7 @@
                                     <div class="alert-msg alert-error" x-show="finScopesError" x-text="finScopesError"></div>
                                     <template x-if="!finScopesLoading && !finScopesError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finScopes.length === 0">No financial scopes found.</div>
+                                            <div class="empty-note" x-show="finScopes.length === 0">No financial scopes found.</div>
                                             <div style="overflow-x:auto;" x-show="finScopes.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Organization</th><th>Funds</th><th>Status</th></tr></thead>
@@ -8462,7 +8308,7 @@
                                                 </div>
                                             </div>
                                             <div class="alert-msg alert-error" x-show="finFundsError" x-text="finFundsError"></div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finFunds.length === 0 && !finFundsError">No funds in this scope yet.</div>
+                                            <div class="empty-note" x-show="finFunds.length === 0 && !finFundsError">No funds in this scope yet.</div>
                                             <div style="overflow-x:auto;" x-show="finFunds.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Balance</th><th>Status</th><th></th></tr></thead>
@@ -8659,7 +8505,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Transactions</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finTxnsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finTxnsTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canManageFinance" @click="finOpenTxnForm()">+ New transaction</button>
                                     </div>
                                 </div>
@@ -8714,7 +8560,7 @@
                                     <div class="alert-msg alert-error" x-show="finTxnsError" x-text="finTxnsError"></div>
                                     <template x-if="!finTxnsLoading && !finTxnsError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finTxns.length === 0">No transactions found.</div>
+                                            <div class="empty-note" x-show="finTxns.length === 0">No transactions found.</div>
                                             <div style="overflow-x:auto;" x-show="finTxns.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Reference</th><th>Date</th><th>Scope</th><th>Finance head</th><th>Amount</th><th>Status</th></tr></thead>
@@ -8826,7 +8672,7 @@
                                                     <button class="btn-action" :disabled="finBillForm.saving" @click="finCancelBillForm()">Cancel</button>
                                                 </div>
                                             </div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finBills.count === 0">No bills yet.</div>
+                                            <div class="empty-note" x-show="finBills.count === 0">No bills yet.</div>
                                             <div style="overflow-x:auto;" x-show="finBills.count > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Issued by</th><th>Number</th><th>Date</th><th>Amount</th><th>Link</th><th></th></tr></thead>
@@ -8880,7 +8726,7 @@
                                                     <button class="btn-action" :disabled="finReceiptForm.saving" @click="finReceiptForm = { ...finReceiptForm, show: false }">Cancel</button>
                                                 </div>
                                             </div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finReceipts.length === 0">No receipts yet.</div>
+                                            <div class="empty-note" x-show="finReceipts.length === 0">No receipts yet.</div>
                                             <div style="overflow-x:auto;" x-show="finReceipts.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Receipt no.</th><th>Date</th><th>Amount</th><th>From</th><th>Via</th><th>Status</th><th></th></tr></thead>
@@ -8944,7 +8790,7 @@
                                                     <button class="btn-action" :disabled="finPaymentForm.saving" @click="finPaymentForm = { ...finPaymentForm, show: false }">Cancel</button>
                                                 </div>
                                             </div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finPayments.length === 0">No payments yet.</div>
+                                            <div class="empty-note" x-show="finPayments.length === 0">No payments yet.</div>
                                             <div style="overflow-x:auto;" x-show="finPayments.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Reference</th><th>Date</th><th>Amount</th><th>Paid to</th><th>Via</th><th>Status</th><th></th></tr></thead>
@@ -9047,7 +8893,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Transfers</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finTransfersTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finTransfersTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canManageFinance" @click="finOpenTransferForm()">+ New transfer</button>
                                     </div>
                                 </div>
@@ -9087,7 +8933,7 @@
                                     <div class="alert-msg alert-error" x-show="finTransfersError" x-text="finTransfersError"></div>
                                     <template x-if="!finTransfersLoading && !finTransfersError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finTransfers.length === 0">No transfers found.</div>
+                                            <div class="empty-note" x-show="finTransfers.length === 0">No transfers found.</div>
                                             <div style="overflow-x:auto;" x-show="finTransfers.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Reference</th><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Status</th></tr></thead>
@@ -9710,13 +9556,13 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Receiving accounts</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finAccountsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finAccountsTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canConfigureFinance" @click="finAcctOpenCreate()">+ New account</button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
                                     <div class="alert-msg alert-error" x-show="finAcctsError" x-text="finAcctsError"></div>
-                                    <div style="padding:1rem; color:#6b7280;" x-show="finAccounts.length === 0 && !finAcctsLoading && !finAcctsError">No receiving accounts yet.</div>
+                                    <div class="empty-note" x-show="finAccounts.length === 0 && !finAcctsLoading && !finAcctsError">No receiving accounts yet.</div>
                                     <div style="overflow-x:auto;" x-show="finAccounts.length > 0">
                                         <table class="admin-table">
                                             <thead><tr><th>Account</th><th>Sangha</th><th>Bank</th><th>UPI id</th><th>Payment gateway</th><th>Heads</th><th>Status</th><th></th></tr></thead>
@@ -10017,7 +9863,7 @@
                             <div class="data-card-header">
                                 <h2 class="data-card-title">System Event Log</h2>
                                 <div style="display:flex; gap:0.5rem; align-items:center;">
-                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="aeTotalLabel"></span>
+                                    <span class="count-chip" x-text="aeTotalLabel"></span>
                                     <label class="form-hint" style="display:flex; align-items:center; gap:0.3rem; margin:0;">
                                         <input type="checkbox" :checked="aeAuto" @change="aeSetAuto($event.target.checked)">
                                         Auto-refresh (15 s)
@@ -11188,6 +11034,218 @@
             &copy; 2026 Nilachala Saraswata Sangha. All rights reserved.
         </footer>
     </div>
+
+    <!-- ═══════════════════════════════════════════
+         MODAL: Profile Details - any person, with or without an account (opened from User Detail, Person Directory, Member Directory)
+         ═══════════════════════════════════════════ -->
+    <template x-if="profileEdit.open">
+        <div class="modal-overlay" @click.self="closeProfile()" @keydown.escape.window="closeProfile()">
+            <div class="modal-card" style="max-width: 720px;">
+                <div class="modal-card-header" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                    <div>
+                        <h3>Profile Details</h3>
+                        <p x-text="profileEdit.personName"></p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn-action" x-show="canManageUsers && !profileEdit.editing"
+                                :disabled="profileEdit.loading"
+                                @click="startEditProfile()">Edit</button>
+                        <button class="btn-action" x-show="canManageUsers && profileEdit.editing"
+                                @click="cancelEditProfile()">Cancel</button>
+                        <button class="btn-action" @click="closeProfile()">Close</button>
+                    </div>
+                </div>
+                                    <div class="modal-card-body">
+                                        <template x-if="profileEdit.loading">
+                                            <div style="display: flex; justify-content: center; padding: 1.5rem 0;">
+                                                <div class="spinner"></div>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="profileEdit.error">
+                                            <div class="alert-msg alert-error" x-text="profileEdit.error"></div>
+                                        </template>
+
+                                        <!-- Read-only view -->
+                                        <template x-if="!profileEdit.loading && !profileEdit.error && !profileEdit.editing">
+                                            <div class="data-rows">
+                                                <div class="data-row">
+                                                    <span class="data-label">Full Name</span>
+                                                    <span class="data-value" x-text="[profileEdit.form.first_name, profileEdit.form.middle_name, profileEdit.form.last_name].filter(Boolean).join(' ') || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Date of Birth</span>
+                                                    <span class="data-value" x-text="formatDate(profileEdit.form.date_of_birth) || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Gender</span>
+                                                    <span class="data-value" x-text="(genders.find(g => g.master_data_pk === profileEdit.form.gender_master_data_pk) || {}).value_name || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Marital Status</span>
+                                                    <span class="data-value" x-text="(maritalStatuses.find(g => g.master_data_pk === profileEdit.form.marital_status_master_data_pk) || {}).value_name || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Blood Group</span>
+                                                    <span class="data-value" x-text="(bloodGroups.find(g => g.master_data_pk === profileEdit.form.blood_group_master_data_pk) || {}).value_name || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Mobile</span>
+                                                    <span class="data-value mono" x-text="profileEdit.form.mobile_number ? (profileEdit.form.country_phone_code + ' ' + profileEdit.form.mobile_number) : '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Email</span>
+                                                    <span class="data-value" x-text="profileEdit.form.email || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Emergency Contact</span>
+                                                    <span class="data-value">
+                                                        <span x-text="profileEdit.form.emergency_contact_name || '—'"></span>
+                                                        <template x-if="profileEdit.form.emergency_contact_phone">
+                                                            <span class="mono" x-text="' (' + profileEdit.form.emergency_contact_phone + ')'"></span>
+                                                        </template>
+                                                        <template x-if="profileEdit.form.emergency_relationship_master_data_pk">
+                                                            <span style="font-size: 0.75rem; color: #6b7280;" x-text="' — ' + ((relationships.find(g => g.master_data_pk === profileEdit.form.emergency_relationship_master_data_pk) || {}).value_name || '')"></span>
+                                                        </template>
+                                                    </span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Remarks</span>
+                                                    <span class="data-value" x-text="profileEdit.form.remarks || '—'"></span>
+                                                </div>
+                                                <div class="data-row" x-show="profileEdit.aadhaar.last4">
+                                                    <span class="data-label">Aadhaar</span>
+                                                    <span class="data-value">
+                                                        <span class="mono" x-text="NSS.aadhaar.mask(profileEdit.aadhaar.last4)"></span>
+                                                        <span style="font-size: 0.75rem; color: #6b7280;" x-show="profileEdit.aadhaar.fullOnFile"> (full number on file)</span>
+                                                        <button type="button" class="btn-action" style="margin-left: 0.5rem;"
+                                                                x-show="canViewSensitive && profileEdit.aadhaar.fullOnFile"
+                                                                @click="revealAadhaar(profileEdit.personPk, profileEdit.personName)">Reveal Aadhaar</button>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Edit form -->
+                                        <template x-if="!profileEdit.loading && profileEdit.editing">
+                                            <div>
+                                                <template x-if="profileEdit.saveError">
+                                                    <div class="alert-msg alert-error" x-text="profileEdit.saveError"></div>
+                                                </template>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">First Name *</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.first_name">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Middle Name</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.middle_name">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Last Name</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.last_name">
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem; position: relative;" x-data="nssDatePicker('profileEdit.form.date_of_birth', { maxToday: true })">
+                                                        <label class="form-label">Date of Birth</label>
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Gender</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.gender_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in genders" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Marital Status</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.marital_status_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in maritalStatuses" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Blood Group</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.blood_group_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in bloodGroups" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Country Code</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.country_phone_code" placeholder="+91">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Mobile</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.mobile_number">
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Email</label>
+                                                        <input type="email" class="form-input" x-model="profileEdit.form.email">
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Emergency Contact Name</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_name">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Emergency Contact Phone</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_phone">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Relationship</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.emergency_relationship_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in relationships" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Remarks</label>
+                                                    <textarea class="form-input" rows="2" x-model="profileEdit.form.remarks"></textarea>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Aadhaar number (optional)</label>
+                                                    <div class="form-hint" x-show="profileEdit.aadhaar.last4" x-text="'Currently on file: ' + NSS.aadhaar.mask(profileEdit.aadhaar.last4) + (profileEdit.aadhaar.fullOnFile ? ' (full number on file). Leave blank to keep it.' : '')"></div>
+                                                    <input type="text" class="form-input" x-model="profileEdit.aadhaar.input"
+                                                           @input="profileEdit.aadhaar.input = NSS.aadhaar.group(profileEdit.aadhaar.input)"
+                                                           inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="profileEdit.aadhaar.clear">
+                                                    <div class="form-hint" x-show="!NSS.aadhaar.validate(profileEdit.aadhaar.input)">Stored encrypted and used only by authorised administrators.</div>
+                                                    <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(profileEdit.aadhaar.input)" x-text="NSS.aadhaar.validate(profileEdit.aadhaar.input)"></div>
+                                                    <label class="remember-label" style="margin-top: 0.35rem;">
+                                                        <input type="checkbox" class="nss-checkbox" x-model="profileEdit.aadhaar.clear">
+                                                        Clear stored Aadhaar
+                                                    </label>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Reason for Correction (optional, recorded in audit log)</label>
+                                                    <input type="text" class="form-input" x-model="profileEdit.reason" placeholder="e.g. corrected spelling per Aadhaar">
+                                                </div>
+                                                <button class="btn-action primary" style="margin-top: 0.5rem;"
+                                                        :disabled="profileEdit.saving || !profileEdit.form.first_name.trim()"
+                                                        @click="saveProfile()">
+                                                    <div class="spinner-sm" x-show="profileEdit.saving"></div>
+                                                    Save
+                                                </button>
+                                            </div>
+                                        </template>
+                                    </div>
+            </div>
+        </div>
+    </template>
 
     <!-- ═══════════════════════════════════════════
          MODAL: Reset Password
