@@ -421,3 +421,41 @@ class TestAnotherLevelIsUntouched:
         move(client, admin_h, "transactions", t, "PENDING_APPROVAL")
         approver = move(client, admin_h, "transactions", t, "APPROVED")            # the super administrator's ordinary approval still works there
         assert approver["status"] == "APPROVED"
+
+
+class TestTheSeatedTreasurerRecordsTheSakhasFinance:
+    """Owner 2026-11-20: the Treasurer is the finance administrator of their own Sakha: they view and RECORD its finance without any admin role
+    (the live seat grants NSS_ERP_SAKHA_TREASURER = FINANCE_VIEW + FINANCE_MANAGE, scoped to the Sakha). It confers no configuration and no
+    approval by permission, and it ends with the seat."""
+
+    def test_the_treasurer_records_an_entry_and_sees_it_in_the_list(self, client, cw):
+        t = login(client, cw["people"]["treasurer"])
+        txn = record(client, t, cw, "income", "125.00")
+        got = client.get(f"{BASE}/transactions/{pk(txn)}", headers=t)
+        assert got.status_code == 200 and got.json()["amount"] in ("125.00", "125")
+
+    def test_the_treasurer_sees_only_their_own_sakhas_scopes(self, client, cw, other_org_pk, admin_h):
+        from tests.finance_support import make_scope
+
+        theirs = make_scope(client, admin_h, other_org_pk, activate_with=admin_h)
+        t = login(client, cw["people"]["treasurer"])
+        items = client.get(f"{BASE}/scopes", headers=t, params={"page_size": 100}).json()["items"]
+        assert items and all(i["organization_pk"] == cw["org_pk"] for i in items)
+        assert theirs["financial_scope_pk"] not in {i["financial_scope_pk"] for i in items}
+
+    def test_the_treasurer_still_cannot_configure_or_approve_by_permission(self, client, cw, register_org_pk):
+        t = login(client, cw["people"]["treasurer"])
+        txn = record(client, t, cw, "income", "50.00")
+        assert client.post(f"{BASE}/contributions", headers=t, json={"organization_pk": str(register_org_pk), "head_name": "Mine"}).status_code == 403
+        assert client.post(f"{BASE}/transactions/{pk(txn)}/transition", headers=t, json={"status": "APPROVED"}).status_code in (403, 422)
+
+    def test_the_president_secretary_and_a_plain_member_are_unchanged(self, client, cw, plain_member_h):
+        assert client.get(f"{BASE}/transactions", headers=plain_member_h).status_code == 403          # a member is no finance user
+        p = login(client, cw["people"]["president"])
+        assert client.get(f"{BASE}/transactions", headers=p).status_code == 200                      # the President is the Sakha admin by SEAT, as before
+
+    def test_the_access_ends_with_the_seat(self, client, cw, write_conn, register_org_pk):
+        t = login(client, cw["people"]["treasurer"])
+        assert client.get(f"{BASE}/transactions", headers=t).status_code == 200
+        vacate(write_conn, register_org_pk, "TREASURER")
+        assert client.get(f"{BASE}/transactions", headers=t).status_code == 403

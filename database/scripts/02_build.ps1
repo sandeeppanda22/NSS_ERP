@@ -278,6 +278,7 @@ Invoke-Sql "assets_property permissions revoke patch" "$SeedBase\00_bootstrap\06
 Invoke-Sql "person_view_sensitive auditor revoke patch" "$SeedBase\00_bootstrap\07_person_view_sensitive_auditor_revoke_patch.sql"
 Invoke-Sql "finance permissions patch" "$SeedBase\00_bootstrap\08_finance_permissions_patch.sql"
 Invoke-Sql "finance configure permission patch" "$SeedBase\00_bootstrap\09_finance_configure_permission_patch.sql"
+Invoke-Sql "sakha treasurer role patch" "$SeedBase\00_bootstrap\10_sakha_treasurer_role_patch.sql"
 Write-Host ""
 
 # Phase 1: Foundation DDL

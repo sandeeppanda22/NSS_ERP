@@ -126,6 +126,7 @@
 #             ddl/11_assets_property/12_assets_property_terminal_custody_patch.sql
 #   Phase 0   seed/00_bootstrap/08_finance_permissions_patch.sql
 #             seed/00_bootstrap/09_finance_configure_permission_patch.sql (FINANCE_CONFIGURE)
+#             seed/00_bootstrap/10_sakha_treasurer_role_patch.sql (NSS_ERP_SAKHA_TREASURER: view + record, held by the seated Treasurer)
 #   Phase 11i seed/12_finance/01_finance_reference_data_patch.sql
 #             seed/12_finance/02_finance_head_templates_patch.sql
 #             ddl/14_finance/12_finance_heads_patch.sql (AFTER the templates: maps existing transactions onto heads)
@@ -349,6 +350,7 @@ run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/
 # Idempotent patch (2026-11-10, Finance Tier 12, PROPOSED grants - owner to confirm): FINANCE_VIEW / FINANCE_MANAGE / FINANCE_APPROVE permissions + 14 grants.
 run_sql "finance permissions patch" "${SEED_BASE}/00_bootstrap/08_finance_permissions_patch.sql"
 run_sql "finance configure permission patch" "${SEED_BASE}/00_bootstrap/09_finance_configure_permission_patch.sql"
+run_sql "sakha treasurer role patch" "${SEED_BASE}/00_bootstrap/10_sakha_treasurer_role_patch.sql"
 echo ""
 
 # -------------------------------------------------

@@ -354,6 +354,8 @@ def load_user_context(conn, user_account_pk: UUID) -> UserContext | None:
 
 
 # ── §63 composite auto-grant (Tier 6 governance) ─────────────────────────
+# Owner 2026-11-20: the TREASURER of a Sakha's Governing Body also holds the finance-only NSS_ERP_SAKHA_TREASURER role (view + record the
+# Sakha's finance; configuration is the Sakha admin's, approvals stay with the seats), on top of the grants below.
 # Certain governance body positions carry automatic RBAC authority — this is
 # the deferred §63 composite rule: "every admin role will get auto assigned
 # to its concerned body's President, Secretary — except Kendra GB, where all
@@ -389,6 +391,8 @@ _COMPOSITE_GRANT_RULES_SQL = """
                 'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
             ('SAKHA_GOVERNING_BODY',        NULL,  ARRAY['PRESIDENT','SECRETARY'],
                 'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
+            ('SAKHA_GOVERNING_BODY',        NULL,  ARRAY['TREASURER'],
+                'NSS_ERP_SAKHA_TREASURER',            'BODY_ORG'),
             ('SEVAK_SANGHA_EXECUTIVE',      NULL,  ARRAY['PRESIDENT','SECRETARY'],
                 'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
             ('ANCHALIKA_GOVERNING_BODY',    NULL,  ARRAY['PRESIDENT','SECRETARY'],

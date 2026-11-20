@@ -63,6 +63,13 @@ const ADMIN_TAB_MAP = {
         description: "Manage Advisory Board office-bearers, acting cover and correspondence",
         adminUrl: "/admin#govAssignments",
     },
+    // The seated (or acting) Treasurer of a Sakha: finance only (view + record; configuration is the Sakha admin's, approvals stay with the seats). Held automatically from the seat
+    // (rbac_service composite rule), scoped to that Sakha. No stat tiles (like the Advisory Board admin: nothing here is a member count).
+    NSS_ERP_SAKHA_TREASURER: {
+        label: "Sakha Finance",
+        description: "Record your Sakha's receipts, payments and transfers and follow its finance",
+        adminUrl: "/admin#finOverview",
+    },
     NSS_ERP_AUDITOR: {
         label: "Audit & Compliance",
         description: "View audit trails, compliance reports",

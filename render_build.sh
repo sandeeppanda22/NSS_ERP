@@ -349,6 +349,7 @@ run_sql "assets_property permissions revoke patch" "${SEED_BASE}/00_bootstrap/06
 run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/07_person_view_sensitive_auditor_revoke_patch.sql"
 run_sql "finance permissions patch" "${SEED_BASE}/00_bootstrap/08_finance_permissions_patch.sql"
 run_sql "finance configure permission patch" "${SEED_BASE}/00_bootstrap/09_finance_configure_permission_patch.sql"
+run_sql "sakha treasurer role patch" "${SEED_BASE}/00_bootstrap/10_sakha_treasurer_role_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
