@@ -539,6 +539,7 @@ class HeadResponse(BaseModel):
     allow_upi: bool
     collection_scope_pk: UUID | None
     collection_scope_code: str | None
+    collection_scope_name: str | None = None
     collection_fund_pk: UUID | None
     collection_fund_code: str | None
     collection_account_pk: UUID | None
@@ -585,6 +586,8 @@ class ContributionCreate(BaseModel):
     due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; required with an amount")
     allow_part_payment: bool = False
     collection_account_pk: UUID | None = Field(None, description="Omit to use the Sangha's default receiving account; ignored for ALL_SAKHAS")
+    collection_scope_pk: UUID | None = Field(None, description="The Sangha's ACTIVE financial scope the money is booked into; omit for its general scope (created when it has none). Not for ALL_SAKHAS (each Sakha uses its own)")
+    collection_fund_pk: UUID | None = Field(None, description="Optional ACTIVE fund of that scope; needs collection_scope_pk")
     display_order: int = Field(100, ge=0, le=10000)
     open_portal: bool = Field(True, description="False: create the head with its payment portal CLOSED (not in members' Pranami tab); open it later with POST /heads/{pk}/portal")
 

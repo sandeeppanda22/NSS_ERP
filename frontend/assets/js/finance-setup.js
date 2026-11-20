@@ -33,6 +33,7 @@
         head_code: "", head_name: "", description: "", direction: "INCOME", is_restricted: false, restriction_purpose: "",
         required_fund_type: "", is_pranami: false, allow_upi: false, collection_scope_pk: "", collection_fund_pk: "",
         collection_account_pk: "", display_order: 100, lockedShape: false,
+        kind: "normal",            // edit only: "copy" = a Sakha's copy of a Kendra head (only its account changes), "source" = a head for all Sakhas (no collection targets)
         fixed_amount: "", due_period: "", allow_part_payment: false,
         skips_approval: false, treasurer_limit: "", requires_member: false,
     });
@@ -41,6 +42,7 @@
     const newContribForm = () => ({
         show: false, saving: false, error: "", organization: emptyPicker(), applies_to: "ORGANIZATION", head_name: "", description: "",
         fixed_amount: "", due_period: "YEARLY", allow_part_payment: false, collection_account_pk: "",
+        collection_scope_pk: "", collection_fund_pk: "",     // optional: left empty the server uses the Sangha's general scope and no fund
         direction: "INCOME",       // INCOME: members pay it in; EXPENSE: money the Sangha spends
     });
     const newPolicy = () => ({ loaded: false, saving: false, error: "", current: null, input: "" });
@@ -196,6 +198,7 @@
             async finHeadOpenEdit(h) {
                 this.finHeadForm = {
                     ...newHeadForm(), show: true, mode: "edit", pk: h.finance_head_pk, template: h.is_template, lockedShape: true,
+                    kind: h.is_kendra_copy ? "copy" : (h.applies_to_all_sakhas ? "source" : "normal"),
                     organization: { ...emptyPicker(), selected: h.organization_pk ? { organization_pk: h.organization_pk, organization_name: h.organization_name } : null },
                     head_code: h.head_code, head_name: h.head_name, description: h.description || "", direction: h.direction,
                     is_restricted: h.is_restricted, restriction_purpose: h.restriction_purpose || "", required_fund_type: h.required_fund_type || "",
@@ -206,6 +209,8 @@
                     requires_member: !!h.requires_member,
                 };
                 await this.finHeadFormOrgChanged(true);
+                // the form is above the list: bring it into view
+                this.$nextTick(() => { const el = document.getElementById("head-form-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); });
             },
             finHeadCancel() { this.finHeadForm = { ...this.finHeadForm, show: false }; },
 
@@ -244,7 +249,7 @@
                     if (!f.template && !f.organization.selected) { f.error = "Choose the Sangha this head belongs to."; return; }
                 }
                 if (f.is_restricted && !blank(f.restriction_purpose)) { f.error = "A restricted head must state what it is restricted to."; return; }
-                if (f.allow_upi && (!f.collection_scope_pk || !f.collection_account_pk)) { f.error = "UPI collection needs a collection scope and a receiving account."; return; }
+                if (f.kind === "normal" && f.allow_upi && (!f.collection_scope_pk || !f.collection_account_pk)) { f.error = "UPI collection needs a collection scope and a receiving account."; return; }
                 const amount = blank(f.fixed_amount);
                 if (edit && amount && !MONEY_RE.test(amount)) { f.error = "The amount must be a number with at most two decimals."; return; }
                 if (edit && amount && !f.due_period) { f.error = "Choose how often the amount is due."; return; }
@@ -264,7 +269,11 @@
                         is_pranami: f.is_pranami, allow_upi: f.allow_upi, collection_scope_pk: f.collection_scope_pk || null,
                         collection_fund_pk: f.collection_fund_pk || null, collection_account_pk: f.collection_account_pk || null,
                     };
-                    if (edit) {
+                    if (edit && f.kind === "copy") {
+                        // a Sakha's copy of a Kendra head: name, amount and schedule follow the Kendra; only the receiving account is the Sakha's
+                        await this._finSend("PATCH", `/heads/${f.pk}`, { collection_account_pk: f.collection_account_pk || null });
+                    } else if (edit) {
+                        if (f.kind === "source") for (const k of ["allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk"]) delete targets[k];
                         await this._finSend("PATCH", `/heads/${f.pk}`, {
                             head_name: f.head_name.trim(), description: blank(f.description), display_order: Number(f.display_order) || 0,
                             ...(f.is_restricted ? { restriction_purpose: f.restriction_purpose.trim() } : {}), ...targets, ...fixed,
@@ -289,10 +298,10 @@
             },
 
             // ── Contributions: the simple way to add a head ───────────────────────
-            finContribForm: newContribForm(), finContribAccounts: [],
+            finContribForm: newContribForm(), finContribAccounts: [], finContribScopes: [], finContribFunds: [],
             finContribOpenCreate() {
                 this.finContribForm = { ...newContribForm(), show: true };
-                this.finContribAccounts = [];
+                this.finContribAccounts = []; this.finContribScopes = []; this.finContribFunds = [];
                 if (this.finSetupOrg.selected) {
                     this.finContribForm.organization = { ...emptyPicker(), selected: this.finSetupOrg.selected, query: this.finSetupOrg.selected.organization_name };
                     return this.finContribOrgChanged();
@@ -411,12 +420,26 @@
             async finContribOrgChanged() {
                 const f = this.finContribForm;
                 const org = f.organization.selected ? f.organization.selected.organization_pk : "";
-                f.collection_account_pk = ""; this.finContribAccounts = [];
+                f.collection_account_pk = ""; f.collection_scope_pk = ""; f.collection_fund_pk = "";
+                this.finContribAccounts = []; this.finContribScopes = []; this.finContribFunds = [];
                 if (!this.finContribIsKendra) f.applies_to = "ORGANIZATION";
                 if (!org) return;
                 try {
-                    this.finContribAccounts = (await this._finGet("/accounts", { organization_pk: org, status: "ACTIVE", page_size: 100 })).items;
-                } catch { /* the list stays empty; the default account is used */ }
+                    const [accounts, scopes] = await Promise.all([
+                        this._finGet("/accounts", { organization_pk: org, status: "ACTIVE", page_size: 100 }),
+                        this._finGet("/scopes", { organization_pk: org, status: "ACTIVE", page_size: 100 }),
+                    ]);
+                    this.finContribAccounts = accounts.items; this.finContribScopes = scopes.items;
+                } catch { /* the lists stay empty; the server uses the default account and the general scope */ }
+            },
+            // The funds offered are those of the chosen scope; none chosen = the Sangha's general scope is used and no fund.
+            async finContribScopeChanged() {
+                const f = this.finContribForm;
+                f.collection_fund_pk = ""; this.finContribFunds = [];
+                if (!f.collection_scope_pk) return;
+                try {
+                    this.finContribFunds = (await this._finGet("/funds", { financial_scope_pk: f.collection_scope_pk, status: "ACTIVE", page_size: 100 })).items;
+                } catch { /* ignore */ }
             },
             async finContribSubmit() {
                 const f = this.finContribForm;
@@ -431,6 +454,7 @@
                         await this._finSend("POST", "/heads", {
                             organization_pk: f.organization.selected.organization_pk, head_code: `HEAD_${Date.now().toString(36).toUpperCase()}`,
                             head_name: f.head_name.trim(), description: blank(f.description), direction: "EXPENSE",
+                            collection_scope_pk: f.collection_scope_pk || null, collection_fund_pk: f.collection_fund_pk || null,
                         });
                         this.finContribForm = newContribForm();
                         this._finNote("Finance head created.");
@@ -443,6 +467,7 @@
                         description: blank(f.description), fixed_amount: amount, due_period: amount ? f.due_period : null,
                         allow_part_payment: amount ? f.allow_part_payment : false,
                         collection_account_pk: null, open_portal: false,
+                        collection_scope_pk: allSakhas ? null : (f.collection_scope_pk || null), collection_fund_pk: allSakhas ? null : (f.collection_fund_pk || null),
                     });
                     this.finContribForm = newContribForm();
                     this._finNote("Finance head created. Open its payment portal from the list when members should pay it.");

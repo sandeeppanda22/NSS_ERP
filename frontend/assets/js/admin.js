@@ -81,7 +81,7 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
 // Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
-const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers", "finSetup", "finCollections"];
+const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"];
 
 // The title in the top banner for every admin-console tab (one list: it used to be written out twice in admin.html, and eighteen tabs were in neither).
 // orgDashboard is named after the organization on screen (currentTabLabel below); a tab missing here falls back to "Administration".
@@ -94,7 +94,7 @@ const ADMIN_TAB_LABELS = {
     govBodies: "Governance Bodies", govAssignments: "Governance Assignments", govElections: "Elections", govCatalog: "Body Types & Positions",
     attPujas: "Weekly Sangha Puja", attReviews: "Attendance Reviews", attWatchList: "Watch List & Stats",
     properties: "Properties", assets: "Assets",
-    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
+    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finFunds: "Finance Funds", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
     finCollections: "UPI Collections", finSetup: "Finance Heads",
     auditEvents: "System Event Log", liveMarkers: "Live Change Markers",
 };
@@ -130,8 +130,8 @@ const LIVE_TABLE_TABS = {
     asset_document: ["assets"],
     // Finance (Tier 12)
     financial_year: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
-    financial_scope: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
-    fund_master: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    financial_scope: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
+    fund_master: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     financial_transaction: ["finOverview", "finTransactions"],
     financial_receipt: ["finTransactions"],
     financial_payment: ["finTransactions"],
@@ -231,6 +231,7 @@ const LIVE_REFRESH_CONFIG = {
         assets: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
         finOverview: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finFunds: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finSetup: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
@@ -319,7 +320,7 @@ function adminApp() {
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -1797,6 +1798,7 @@ function adminApp() {
                     assets: () => { if (this.canViewAssets) this.apEnterTab(); },
                     finOverview: () => { if (this.canViewFinance) this.finEnterTab("finOverview"); },
                     finStructure: () => { if (this.canViewFinance) this.finEnterTab("finStructure"); },
+                    finFunds: () => { if (this.canViewFinance) this.finEnterTab("finFunds"); },
                     finTransactions: () => { if (this.canViewFinance) this.finEnterTab("finTransactions"); },
                     finTransfers: () => { if (this.canViewFinance) this.finEnterTab("finTransfers"); },
                     finSetup: () => { if (this.canViewFinance) this.finEnterTab("finSetup"); },
@@ -9506,5 +9508,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    }))))), LIVE_REFRESH_CONFIG);
+    })))))), LIVE_REFRESH_CONFIG);
 }

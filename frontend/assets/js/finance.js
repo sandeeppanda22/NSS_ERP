@@ -60,6 +60,7 @@
     const newScopeEdit = () => ({ show: false, saving: false, error: "", name: "" });
     const newFundForm = () => ({
         show: false, saving: false, error: "", fund_code: "", fund_name: "", fund_type: "GENERAL",
+        financial_scope_pk: "",      // the Funds tab picks the scope here; inside a scope's detail it is that scope
         is_restricted: false, restriction_purpose: "", organization: emptyPicker({ typeCodes: NSS.SAKHA_LIKE_ORG_TYPES }),
     });
     const newFundEdit = () => ({ pk: "", saving: false, error: "", name: "", purpose: "" });
@@ -224,6 +225,7 @@
                 if (entity === "head" || entity === "account") { await this.finSetupReload(); return; }
                 if (entity === "payment_request") { await this.finReqReload(); return; }
                 if (entity === "year") { await this.finLoadYears(); if (this.activeTab === "finOverview") await this.finLoadSummary(); return; }
+                if (entity === "fund" && this.activeTab === "finFunds") { await this.finFundsReload(); return; }      // finance-funds.js
                 if (entity === "scope" || entity === "fund") {
                     await this.finLoadScopes({ silent: true });
                     if (this.finScope) await this.finReloadScope();
@@ -308,6 +310,8 @@
                 } else if (this.activeTab === "finStructure") {
                     this.finScope = null; this.finScopeForm = newScopeForm(); this.finYearForm = newYearForm();
                     await Promise.all([this.finLoadYears(), this.finLoadScopes()]);
+                } else if (this.activeTab === "finFunds") {
+                    await this.finFundsEnter();                      // finance-funds.js
                 } else if (this.activeTab === "finTransactions") {
                     this.finTxn = null; this.finTxnForm = newTxnForm();
                     await Promise.all([this.finLoadYears(), this.finLoadScopeOptions(), this.finLoadTxns()]);
@@ -334,6 +338,8 @@
                 else if (tab === "finStructure") {
                     await this.finLoadYears();
                     if (this.finScope) await this.finReloadScope(); else await this.finLoadScopes({ silent: true });
+                } else if (tab === "finFunds") {
+                    await this.finFundsReload();
                 } else if (tab === "finTransactions") {
                     if (this.finTxn) await this.finReloadTxn(); else await this.finLoadTxns({ silent: true });
                 } else if (tab === "finTransfers") {
@@ -544,18 +550,20 @@
                 if (!blank(f.fund_code) || !blank(f.fund_name)) { f.error = "Fund code and name are required."; return; }
                 if (f.is_restricted && !blank(f.restriction_purpose)) { f.error = "A restricted fund must state its purpose."; return; }
                 if (this.finFundNeedsSakha && !f.organization.selected) { f.error = "A Sinking Fund must name its Sakha."; return; }
+                const scopePk = f.financial_scope_pk || (this.finScope && this.finScope.financial_scope_pk);
+                if (!scopePk) { f.error = "Choose the financial scope this fund belongs to."; return; }
                 f.saving = true; f.error = "";
                 try {
                     const created = await this._finSend("POST", "/funds", {
                         fund_code: f.fund_code.trim(), fund_name: f.fund_name.trim(), fund_type: f.fund_type,
-                        financial_scope_pk: this.finScope.financial_scope_pk, is_restricted: f.is_restricted,
+                        financial_scope_pk: scopePk, is_restricted: f.is_restricted,
                         restriction_purpose: f.is_restricted ? f.restriction_purpose.trim() : null,
                         organization_pk: f.organization.selected ? f.organization.selected.organization_pk : null,
                     });
                     this.finFundForm = newFundForm();
                     this._finNote(`Fund ${created.fund_code} created (Draft). Activate it to use it.`);
                     this.finFundOptions = {};
-                    await this.finReloadScope();
+                    await this._finReloadAfter("fund");
                 } catch (err) {
                     f.error = err.message || "Could not create the fund.";
                 } finally {
@@ -574,7 +582,7 @@
                     await this._finSend("PATCH", `/funds/${e.pk}`, { fund_name: e.name.trim(), restriction_purpose: e.restricted ? e.purpose.trim() : null });
                     this.finFundEdit = newFundEdit();
                     this.finFundOptions = {};
-                    await this.finLoadFunds();
+                    if (this.activeTab === "finFunds") await this.finFundsReload(); else await this.finLoadFunds();
                 } catch (err) {
                     e.error = err.message || "Could not save the fund.";
                 } finally {

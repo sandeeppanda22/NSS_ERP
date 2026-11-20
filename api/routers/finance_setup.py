@@ -290,7 +290,7 @@ _HEAD_FROM = """
 _HEAD_SELECT = """
     SELECT h.finance_head_pk, h.organization_pk, o.organization_name, (h.organization_pk IS NULL) AS is_template,
            h.head_code, h.head_name, h.description, h.direction, h.is_restricted, h.restriction_purpose,
-           h.required_fund_type, h.is_pranami, h.allow_upi, h.collection_scope_pk, cs.scope_code AS collection_scope_code,
+           h.required_fund_type, h.is_pranami, h.allow_upi, h.collection_scope_pk, cs.scope_code AS collection_scope_code, cs.scope_name AS collection_scope_name,
            h.collection_fund_pk, cf.fund_code AS collection_fund_code, h.collection_account_pk,
            ca.account_label AS collection_account_label, h.template_head_pk, h.display_order, h.status,
            (SELECT COUNT(*) FROM nss.financial_transaction t WHERE t.finance_head_pk = h.finance_head_pk AND t.is_active = TRUE) AS transaction_count,
@@ -555,6 +555,13 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
                         "ON md.master_data_pk = o.organization_type_master_data_pk WHERE o.organization_pk = %s", (str(body.organization_pk),))
             if cur.fetchone()[0] != "KENDRA":
                 raise F._invalid("Only the Kendra can add a Pranami that applies to all Sakhas.")
+        chosen_scope = str(body.collection_scope_pk) if body.collection_scope_pk else None
+        chosen_fund = str(body.collection_fund_pk) if body.collection_fund_pk else None
+        if all_sakhas and (chosen_scope or chosen_fund):
+            raise F._invalid("A Pranami for all Sakhas books into each Sakha's own scope: leave the scope and fund empty.")
+        if chosen_scope or chosen_fund:        # the scope / fund the person picked must belong to this Sangha and be ACTIVE
+            _validate_collection(cur, org_pk=body.organization_pk, direction="INCOME", is_restricted=False, required_fund_type=None,
+                                 allow_upi=False, scope_pk=chosen_scope, fund_pk=chosen_fund, account_pk=None)
         account_pk = scope_pk = None
         if not all_sakhas and body.open_portal:
             if body.collection_account_pk is not None:
@@ -563,19 +570,19 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
                 default = FC.default_account(cur, body.organization_pk) or FC.ensure_demo_account(cur, user, body.organization_pk)
                 account_pk = default["financial_account_pk"] if default else None
             if account_pk:
-                scope_pk = FC.ensure_org_scope(cur, user, body.organization_pk)
+                scope_pk = chosen_scope or FC.ensure_org_scope(cur, user, body.organization_pk)
                 _validate_collection(cur, org_pk=body.organization_pk, direction="INCOME", is_restricted=False, required_fund_type=None,
-                                     allow_upi=True, scope_pk=scope_pk, fund_pk=None, account_pk=account_pk)
+                                     allow_upi=True, scope_pk=scope_pk, fund_pk=chosen_fund, account_pk=account_pk)
         code = f"CONTRIB_{uuid4().hex[:8].upper()}"
         cur.execute(
             """
             INSERT INTO nss.finance_head
                 (organization_pk, head_code, head_name, description, direction, is_pranami, skips_approval, allow_upi,
-                 collection_scope_pk, collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas,
+                 collection_scope_pk, collection_fund_pk, collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas,
                  display_order, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, 'INCOME', %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+            VALUES (%s, %s, %s, %s, 'INCOME', %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
             """,
-            (str(body.organization_pk), code, name, F._clean(body.description), body.open_portal, account_pk is not None, scope_pk, account_pk,
+            (str(body.organization_pk), code, name, F._clean(body.description), body.open_portal, account_pk is not None, scope_pk or chosen_scope, chosen_fund, account_pk,
              body.fixed_amount, body.due_period, body.allow_part_payment, all_sakhas, body.display_order, user.actor_pk),
         )
         pk = cur.fetchone()[0]
@@ -633,7 +640,8 @@ def set_head_portal(head_pk: UUID, body: S.PortalToggle, user: UserContext = Dep
             account = FC.default_account(cur, head["organization_pk"]) or FC.ensure_demo_account(cur, user, head["organization_pk"])
             if account is None:
                 raise F._invalid("Add a receiving account with a payment gateway for this Sangha first; the portal collects into it.")
-            scope_pk = FC.ensure_org_scope(cur, user, head["organization_pk"])
+            # the scope chosen for the head (when it was created or edited) is kept; only a head with none gets the Sangha's general scope
+            scope_pk = head["collection_scope_pk"] or FC.ensure_org_scope(cur, user, head["organization_pk"])
             _validate_collection(cur, org_pk=head["organization_pk"], direction="INCOME", is_restricted=head["is_restricted"],
                                  required_fund_type=head["required_fund_type"], allow_upi=True, scope_pk=scope_pk,
                                  fund_pk=head["collection_fund_pk"], account_pk=account["financial_account_pk"])

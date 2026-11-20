@@ -28,6 +28,7 @@
     <script src="/assets/js/assets-property.js"></script>
     <script src="/assets/js/finance.js"></script>
     <script src="/assets/js/finance-setup.js"></script>
+    <script src="/assets/js/finance-funds.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
     <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
@@ -903,6 +904,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
                                 </svg>
                                 Years &amp; Scopes
+                            </a>
+                            <a class="nav-item" :class="{ active: activeTab === 'finFunds' }" @click="finEnterTab('finFunds')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+                                </svg>
+                                Funds
                             </a>
                             <a class="nav-item" :class="{ active: activeTab === 'finTransactions' }" @click="finEnterTab('finTransactions')">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -7907,7 +7914,7 @@
                          come from the server's own table (GET /finance/reference).
                          Four tabs: finOverview, finStructure, finTransactions, finTransfers.
                          ═══════════════════════════════════════════ -->
-                    <div x-show="['finOverview','finStructure','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
+                    <div x-show="['finOverview','finStructure','finFunds','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
 
                         <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
 
@@ -8428,6 +8435,184 @@
                                 </template>
                             </div>
                         </div>
+
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: Finance - Funds (every fund across all scopes; finance-funds.js. Create / edit / lifecycle reuse finance.js)
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="activeTab === 'finFunds'" x-cloak>
+                        <div class="data-card">
+                            <div class="data-card-header">
+                                <div>
+                                    <h2 class="data-card-title">Funds</h2>
+                                    <div class="data-card-subtitle">A fund is a labelled part of a scope's money, for example a Sinking Fund or a restricted donation. Every entry can name the fund it belongs to.</div>
+                                </div>
+                                <button class="btn-action primary" x-show="canManageFinance && !finFundForm.show" @click="finFundsOpenNew()">+ New fund</button>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="count-tiles">
+                                    <div class="count-tile count-tile--total"><span class="count-tile__value" x-text="finFundsAllTotal"></span><span class="count-tile__label" x-text="finFundsFiltered ? 'Funds found' : 'Total funds'"></span></div>
+                                    <div class="count-tile count-tile--active"><span class="count-tile__value" x-text="finFundsActiveCount"></span><span class="count-tile__label">Active<span x-show="finFundsPartial"> (this page)</span></span></div>
+                                    <div class="count-tile count-tile--suspended"><span class="count-tile__value" x-text="finFundsRestrictedCount"></span><span class="count-tile__label">Restricted<span x-show="finFundsPartial"> (this page)</span></span></div>
+                                    <div class="count-tile"><span class="count-tile__value" x-text="finMoney(finFundsBalance)"></span><span class="count-tile__label">Balance<span x-show="finFundsPartial"> (this page)</span></span></div>
+                                </div>
+
+                                <!-- New fund: the shared fund form (finance.js), with the scope chosen here -->
+                                <div class="form-section" x-show="finFundForm.show">
+                                    <h4 class="form-section-title">New fund</h4>
+                                    <div class="form-grid-2">
+                                        <div class="span-all" style="grid-column:span 2;">
+                                            <label class="form-label">Financial scope</label>
+                                            <select class="nss-select" x-model="finFundForm.financial_scope_pk">
+                                                <option value="">Select the scope this fund belongs to…</option>
+                                                <template x-for="sc in finFundScopesOpen" :key="sc.financial_scope_pk"><option :value="sc.financial_scope_pk" x-text="sc.scope_code + ' — ' + sc.scope_name + (sc.status === 'DRAFT' ? ' (draft)' : '')"></option></template>
+                                            </select>
+                                            <p class="form-hint">A fund lives in exactly one scope. Only draft and active scopes can take new funds.</p>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund code</label>
+                                            <input type="text" class="form-input" maxlength="50" x-model="finFundForm.fund_code" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund name</label>
+                                            <input type="text" class="form-input" maxlength="200" x-model="finFundForm.fund_name" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund type</label>
+                                            <select class="nss-select" x-model="finFundForm.fund_type">
+                                                <template x-for="t in finFundTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Restriction</label>
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
+                                                <input type="checkbox" x-model="finFundForm.is_restricted"> Restricted — may be spent only for its stated purpose
+                                            </label>
+                                        </div>
+                                        <div class="span-all" x-show="finFundForm.is_restricted" style="grid-column:span 2;">
+                                            <label class="form-label">Purpose</label>
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finFundForm.restriction_purpose" placeholder="What this money may be used for" autocomplete="off">
+                                        </div>
+                                        <div class="typeahead-wrap" x-show="finFundNeedsSakha">
+                                            <label class="form-label">Sakha (Sinking Fund)</label>
+                                            <input type="text" class="form-input" x-model="finFundForm.organization.query"
+                                                   @input="corrOnOrgQueryInput(finFundForm.organization)" placeholder="Search by Sakha name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="finFundForm.organization.results.length > 0">
+                                                <template x-for="org in finFundForm.organization.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(finFundForm.organization, org)">
+                                                        <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <p class="form-hint" x-show="finFundForm.organization.selected">
+                                                <span x-text="finFundForm.organization.selected && finFundForm.organization.selected.organization_name"></span>
+                                                <button type="button" class="link-action" @click="corrClearPicker(finFundForm.organization)">Clear</button>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finFundForm.error" x-text="finFundForm.error"></div>
+                                    <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                        <button class="btn-action primary" :disabled="finFundForm.saving" @click="finSubmitFund()" x-text="finFundForm.saving ? 'Saving…' : 'Create fund'"></button>
+                                        <button class="btn-action" :disabled="finFundForm.saving" @click="finFundForm = { ...finFundForm, show: false }">Cancel</button>
+                                    </div>
+                                </div>
+
+                                <div class="search-bar dir-toolbar">
+                                    <div class="form-group dir-search">
+                                        <label class="form-label">Search</label>
+                                        <input type="search" class="form-input" x-model="finFundsFilter.q" placeholder="Fund code or name" @input.debounce.300ms="finFundsApply()" autocomplete="off">
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Scope</label>
+                                        <select class="nss-select" x-model="finFundsFilter.scope" @change="finFundsApply()">
+                                            <option value="">All scopes</option>
+                                            <template x-for="sc in finFundScopes" :key="sc.financial_scope_pk"><option :value="sc.financial_scope_pk" x-text="sc.scope_code + ' — ' + sc.scope_name"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Type</label>
+                                        <select class="nss-select" x-model="finFundsFilter.type" @change="finFundsApply()">
+                                            <option value="">All types</option>
+                                            <template x-for="t in finFundTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Status</label>
+                                        <select class="nss-select" x-model="finFundsFilter.status" @change="finFundsApply()">
+                                            <option value="">All statuses</option>
+                                            <option value="DRAFT">Draft</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Restriction</label>
+                                        <select class="nss-select" x-model="finFundsFilter.restricted" @change="finFundsApply()">
+                                            <option value="">Any</option><option value="yes">Restricted</option><option value="no">Not restricted</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0; align-self: end;">
+                                        <button type="button" class="btn-action" x-show="finFundsFiltered" @click="finFundsClear()">Clear filters</button>
+                                    </div>
+                                </div>
+
+                                <div class="alert-msg alert-error" x-show="finFundsAllError" x-text="finFundsAllError"></div>
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finFundsAllLoading"><div class="spinner"></div></div>
+                                <div class="empty-note" x-show="!finFundsAllLoading && !finFundsAllError && finFundsAll.length === 0">
+                                    <span x-show="!finFundsFiltered">No funds yet. Use "+ New fund" to add one.</span>
+                                    <span x-show="finFundsFiltered">No fund matches these filters.</span>
+                                </div>
+                                <div style="overflow-x:auto;" x-show="!finFundsAllLoading && finFundsAll.length > 0">
+                                    <table class="admin-table">
+                                        <thead><tr><th>Fund</th><th>Scope</th><th>Type</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+                                        <tbody>
+                                            <template x-for="f in finFundsAll" :key="f.fund_master_pk">
+                                                <tr>
+                                                    <td>
+                                                        <template x-if="finFundEdit.pk === f.fund_master_pk">
+                                                            <div>
+                                                                <input type="text" class="form-input" maxlength="200" x-model="finFundEdit.name">
+                                                                <input type="text" class="form-input" style="margin-top:0.3rem;" maxlength="2000" x-model="finFundEdit.purpose" x-show="finFundEdit.restricted" placeholder="Purpose">
+                                                                <div class="alert-msg alert-error" style="margin-top:0.3rem;" x-show="finFundEdit.error" x-text="finFundEdit.error"></div>
+                                                                <button class="link-action" :disabled="finFundEdit.saving" @click="finSaveFundEdit()">Save</button>
+                                                                <button class="link-action" :disabled="finFundEdit.saving" @click="finFundEdit = { pk: '', saving: false, error: '', name: '', purpose: '' }">Cancel</button>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="finFundEdit.pk !== f.fund_master_pk">
+                                                            <div>
+                                                                <div class="fh-name" x-text="f.fund_name"></div>
+                                                                <div class="fh-sub"><span class="mono" x-text="f.fund_code"></span>
+                                                                    <span class="badge badge-xs badge-fin-pending" x-show="f.is_restricted">Restricted</span></div>
+                                                                <div class="fh-sub" x-show="f.restriction_purpose" x-text="'Purpose: ' + f.restriction_purpose"></div>
+                                                                <div class="fh-sub" x-show="f.organization_name" x-text="'Sakha: ' + f.organization_name"></div>
+                                                            </div>
+                                                        </template>
+                                                    </td>
+                                                    <td>
+                                                        <div class="fh-name mono" x-text="f.scope_code"></div>
+                                                        <div class="fh-sub" x-text="f.scope_name"></div>
+                                                    </td>
+                                                    <td style="font-size:0.78rem;" x-text="finCode(f.fund_type)"></td>
+                                                    <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(f.balance)"></td>
+                                                    <td><span class="badge badge-xs" :class="finBadge(f.status)" x-text="finLabel(f.status)"></span></td>
+                                                    <td>
+                                                        <button class="link-action" x-show="canManageFinance && f.status !== 'INACTIVE' && finFundEdit.pk !== f.fund_master_pk" @click="finStartFundEdit(f)">Edit</button>
+                                                        <template x-for="a in finActions('fund', f.status)" :key="a.to">
+                                                            <button class="link-action" @click="finAskTransition('fund', f.fund_master_pk, 'Fund ' + f.fund_code, a)" x-text="a.label"></button>
+                                                        </template>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="pagination-bar" x-show="finFundsPages > 1">
+                                    <span x-text="'Page ' + finFundsPage + ' of ' + finFundsPages"></span>
+                                    <div style="display: flex; gap: 0.35rem;">
+                                        <button class="btn-action" :disabled="finFundsPage <= 1" @click="finFundsGo(finFundsPage - 1)">Prev</button>
+                                        <button class="btn-action" :disabled="finFundsPage >= finFundsPages" @click="finFundsGo(finFundsPage + 1)">Next</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                         <!-- ═════════ Transactions ═════════ -->
                         <div x-show="activeTab === 'finTransactions'" x-cloak>
@@ -9106,6 +9291,22 @@
                                             <label class="form-label">Note <span class="optional">(optional; members see it for a head they can pay)</span></label>
                                             <input type="text" class="form-input" maxlength="2000" x-model="finContribForm.description" autocomplete="off">
                                         </div>
+                                        <div x-show="finContribForm.applies_to !== 'ALL_SAKHAS'">
+                                            <label class="form-label">Scope <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finContribForm.collection_scope_pk" @change="finContribScopeChanged()" :disabled="!finContribForm.organization.selected">
+                                                <option value="">Automatic — the Sangha's general scope</option>
+                                                <template x-for="sc in finContribScopes" :key="sc.financial_scope_pk"><option :value="sc.financial_scope_pk" x-text="sc.scope_code + ' — ' + sc.scope_name"></option></template>
+                                            </select>
+                                            <p class="form-hint">The books this money is recorded in. Leave it automatic unless this head belongs to an event or a special purpose.</p>
+                                        </div>
+                                        <div x-show="finContribForm.applies_to !== 'ALL_SAKHAS'">
+                                            <label class="form-label">Fund <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finContribForm.collection_fund_pk" :disabled="!finContribForm.collection_scope_pk">
+                                                <option value="">No specific fund</option>
+                                                <template x-for="fd in finContribFunds" :key="fd.fund_master_pk"><option :value="fd.fund_master_pk" x-text="fd.fund_code + ' — ' + fd.fund_name + (fd.is_restricted ? ' (restricted)' : '')"></option></template>
+                                            </select>
+                                            <p class="form-hint" x-show="!finContribForm.collection_scope_pk">Pick a scope first to choose one of its funds.</p>
+                                        </div>
                                     </div>
                                     <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finContribForm.error" x-text="finContribForm.error"></div>
                                     <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
@@ -9176,10 +9377,12 @@
                             </div>
 
                             <!-- Head form -->
-                            <div class="data-card" x-show="finHeadForm.show" x-cloak>
+                            <div class="data-card" id="head-form-card" x-show="finHeadForm.show" x-cloak>
                                 <div class="data-card-header"><h2 class="data-card-title" x-text="finHeadForm.mode === 'create' ? (finHeadForm.template ? 'New Kendra template head' : 'New finance head') : 'Edit finance head'"></h2></div>
                                 <div class="data-card-body">
-                                    <div class="form-grid-2">
+                                    <div class="alert-msg alert-info" x-show="finHeadForm.mode === 'edit' && finHeadForm.kind === 'copy'">This Pranami comes from the Kendra: its name, amount and schedule are set there. You can only choose which of your receiving accounts collects it.</div>
+                                    <div class="alert-msg alert-info" x-show="finHeadForm.mode === 'edit' && finHeadForm.kind === 'source'">This Pranami is for all Sakhas. Changes to the name, amount and schedule reach every Sakha's copy; each Sakha picks its own receiving account.</div>
+                                    <div class="form-grid-2" x-show="finHeadForm.kind !== 'copy'">
                                         <div class="typeahead-wrap" x-show="!finHeadForm.template">
                                             <label class="form-label">Sangha</label>
                                             <input type="text" class="form-input" x-model="finHeadForm.organization.query" :disabled="finHeadForm.mode === 'edit'"
@@ -9266,18 +9469,18 @@
                                         </div>
                                     </div>
 
-                                    <div class="form-section" x-show="finHeadForm.allow_upi && !finHeadForm.template">
+                                    <div class="form-section" x-show="(finHeadForm.allow_upi || finHeadForm.kind === 'copy') && !finHeadForm.template && finHeadForm.kind !== 'source'">
                                         <h4 class="form-section-title">Where UPI collections go</h4>
                                         <p class="form-hint" x-show="!finHeadForm.organization.selected">Choose the Sangha first.</p>
                                         <div class="form-grid-2">
-                                            <div>
+                                            <div x-show="finHeadForm.kind !== 'copy'">
                                                 <label class="form-label">Book into scope</label>
                                                 <select class="nss-select" x-model="finHeadForm.collection_scope_pk" @change="finHeadFormScopeChanged()">
                                                     <option value="">Select…</option>
                                                     <template x-for="s in finHeadScopes" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
                                                 </select>
                                             </div>
-                                            <div>
+                                            <div x-show="finHeadForm.kind !== 'copy'">
                                                 <label class="form-label">Fund <span class="optional">(optional)</span></label>
                                                 <select class="nss-select" x-model="finHeadForm.collection_fund_pk">
                                                     <option value="">No specific fund</option>
@@ -9405,7 +9608,7 @@
                                             </div>
                                             <div class="fh-table" x-show="finHeadsShown().length > 0">
                                                 <table class="admin-table">
-                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Amount members pay</th><th>Payment portal</th><th class="hist-right"></th></tr></thead>
+                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Scope</th><th>Amount members pay</th><th>Payment portal</th><th class="hist-right"></th></tr></thead>
                                                     <tbody>
                                                         <template x-for="h in finHeadsShown()" :key="h.finance_head_pk">
                                                             <tr>
@@ -9414,6 +9617,16 @@
                                                                     <div class="fh-sub"><span x-text="h.direction === 'INCOME' ? 'Money in' : 'Money out'"></span> · <span class="mono" x-text="h.head_code"></span></div>
                                                                 </td>
                                                                 <td class="fh-sub" x-show="finHeadsMultiOrg()" x-text="h.organization_name || '—'"></td>
+                                                                <td>
+                                                                    <template x-if="h.collection_scope_code">
+                                                                        <div>
+                                                                            <div class="fh-name mono" x-text="h.collection_scope_code"></div>
+                                                                            <div class="fh-sub" x-text="h.collection_scope_name"></div>
+                                                                        </div>
+                                                                    </template>
+                                                                    <span class="fh-sub" x-show="!h.collection_scope_code && h.applies_to_all_sakhas">Each Sakha's own scope</span>
+                                                                    <span class="fh-sub" x-show="!h.collection_scope_code && !h.applies_to_all_sakhas">None yet</span>
+                                                                </td>
                                                                 <td>
                                                                     <div class="fh-amount" x-text="finHeadAmountLabel(h)"></div>
                                                                     <div class="fh-sub" x-show="h.due_date" x-text="'Due by ' + NSS.formatDate(h.due_date)"></div>
@@ -9426,6 +9639,7 @@
                                                                     <span class="fh-state fh-state--off" x-show="h.status !== 'ACTIVE'" x-text="finLabel(h.status)"></span>
                                                                 </td>
                                                                 <td class="hist-right">
+                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE'" @click="finHeadOpenEdit(h)">Edit</button>
                                                                     <button class="btn-action primary" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === false" @click="finHeadPortalOpenForm(h)">Open payment portal</button>
                                                                     <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === true && !h.applies_to_all_sakhas" @click="finHeadPortal(h, false)">Close portal</button>
                                                                 </td>
