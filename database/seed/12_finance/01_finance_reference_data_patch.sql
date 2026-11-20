@@ -49,7 +49,10 @@ JOIN (VALUES
     ('PAYMENT_METHOD', 'BANK_TRANSFER', 'Bank Transfer (NEFT/RTGS/IMPS)', 3),
     ('PAYMENT_METHOD', 'UPI',           'UPI',                          4),
     ('PAYMENT_METHOD', 'DEMAND_DRAFT',  'Demand Draft',                 5),
-    ('PAYMENT_METHOD', 'OTHER',         'Other',                        6)
+    ('PAYMENT_METHOD', 'OTHER',         'Other',                        6),
+    ('PAYMENT_METHOD', 'CARD',          'Card (credit / debit)',        7),
+    ('PAYMENT_METHOD', 'NET_BANKING',   'Net Banking',                  8),
+    ('PAYMENT_METHOD', 'WALLET',        'Wallet',                       9)
 ) AS v (category_code, value_code, value_name, display_order)
   ON v.category_code = mc.category_code
 ON CONFLICT (master_category_pk, value_code) DO NOTHING;

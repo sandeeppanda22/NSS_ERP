@@ -170,7 +170,7 @@ def list_accounts(
         where_sql = " AND ".join(where)
         cur.execute(f"SELECT COUNT(*) {_ACCOUNT_FROM} WHERE {where_sql}", params)
         total = cur.fetchone()[0]
-        cur.execute(_ACCOUNT_SELECT + f" WHERE {where_sql} ORDER BY o.organization_name, a.is_default DESC, a.account_label LIMIT %s OFFSET %s",
+        cur.execute(_ACCOUNT_SELECT + f" WHERE {where_sql} ORDER BY LOWER(o.organization_name), a.is_default DESC, LOWER(a.account_label) LIMIT %s OFFSET %s",
                     params + [page_size, (page - 1) * page_size])
         items = F._fetch_all(cur)
     for row in items:
@@ -291,8 +291,8 @@ _HEAD_SELECT = """
     SELECT h.finance_head_pk, h.organization_pk, o.organization_name, (h.organization_pk IS NULL) AS is_template,
            h.head_code, h.head_name, h.description, h.direction, h.is_restricted, h.restriction_purpose,
            h.required_fund_type, h.is_pranami, h.allow_upi, h.collection_scope_pk, cs.scope_code AS collection_scope_code, cs.scope_name AS collection_scope_name,
-           h.collection_fund_pk, cf.fund_code AS collection_fund_code, h.collection_account_pk,
-           ca.account_label AS collection_account_label, h.template_head_pk, h.display_order, h.status,
+           h.collection_fund_pk, cf.fund_code AS collection_fund_code, cf.fund_name AS collection_fund_name, h.collection_account_pk,
+           ca.account_label AS collection_account_label, h.template_head_pk, h.status,
            (SELECT COUNT(*) FROM nss.financial_transaction t WHERE t.finance_head_pk = h.finance_head_pk AND t.is_active = TRUE) AS transaction_count,
            h.fixed_amount, h.due_period, h.due_date, h.allow_part_payment, h.applies_to_all_sakhas,
            h.skips_approval, h.treasurer_limit, h.requires_member,
@@ -454,7 +454,7 @@ def list_heads(
         where_sql = " AND ".join(where)
         cur.execute(f"SELECT COUNT(*) {_HEAD_FROM} WHERE {where_sql}", params)
         total = cur.fetchone()[0]
-        cur.execute(_HEAD_SELECT + f" WHERE {where_sql} ORDER BY h.display_order, h.head_name LIMIT %s OFFSET %s",
+        cur.execute(_HEAD_SELECT + f" WHERE {where_sql} ORDER BY LOWER(h.head_name), h.head_code LIMIT %s OFFSET %s",
                     params + [page_size, (page - 1) * page_size])
         return F._paged(F._fetch_all(cur), total, page, page_size)
 
@@ -478,6 +478,8 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_CONFIGURE), con
         raise F._invalid("Pranami and UPI collection apply to INCOME heads only.")
     if body.direction == "EXPENSE" and body.skips_approval:
         raise F._invalid("Only an INCOME head can skip approval.")
+    if body.is_pranami and body.organization_pk is not None and not body.allow_upi:      # owner 2026-11-20: every Pranami is payable online
+        raise F._invalid("A Pranami must be payable online (UPI or card): turn on online collection and choose a scope and a receiving account.")
     if body.direction == "INCOME" and (body.treasurer_limit is not None or body.requires_member):
         raise F._invalid("The Treasurer's limit and the reimbursement flag apply to EXPENSE heads only.")
     with conn.cursor() as cur:
@@ -496,14 +498,14 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_CONFIGURE), con
             INSERT INTO nss.finance_head
                 (organization_pk, head_code, head_name, description, direction, is_restricted, restriction_purpose,
                  required_fund_type, is_pranami, allow_upi, collection_scope_pk, collection_fund_pk,
-                 collection_account_pk, display_order, skips_approval, treasurer_limit, requires_member, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+                 collection_account_pk, skips_approval, treasurer_limit, requires_member, created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
             """,
             (str(body.organization_pk) if body.organization_pk else None, code, name, F._clean(body.description), body.direction,
              body.is_restricted, purpose, body.required_fund_type, body.is_pranami, body.allow_upi,
              str(body.collection_scope_pk) if body.collection_scope_pk else None,
              str(body.collection_fund_pk) if body.collection_fund_pk else None,
-             str(body.collection_account_pk) if body.collection_account_pk else None, body.display_order,
+             str(body.collection_account_pk) if body.collection_account_pk else None,
              body.skips_approval, body.treasurer_limit, body.requires_member, user.actor_pk),
         )
         pk = cur.fetchone()[0]
@@ -579,11 +581,11 @@ def create_contribution(body: S.ContributionCreate, user: UserContext = Depends(
             INSERT INTO nss.finance_head
                 (organization_pk, head_code, head_name, description, direction, is_pranami, skips_approval, allow_upi,
                  collection_scope_pk, collection_fund_pk, collection_account_pk, fixed_amount, due_period, allow_part_payment, applies_to_all_sakhas,
-                 display_order, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, 'INCOME', %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
+                 created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, 'INCOME', %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING finance_head_pk
             """,
             (str(body.organization_pk), code, name, F._clean(body.description), body.open_portal, account_pk is not None, scope_pk or chosen_scope, chosen_fund, account_pk,
-             body.fixed_amount, body.due_period, body.allow_part_payment, all_sakhas, body.display_order, user.actor_pk),
+             body.fixed_amount, body.due_period, body.allow_part_payment, all_sakhas, user.actor_pk),
         )
         pk = cur.fetchone()[0]
         F._audit(cur, user, "CREATE", "finance_head", pk, f"Added contribution {name}",
@@ -707,11 +709,11 @@ def create_event(body: S.EventCreate, user: UserContext = Depends(_CONFIGURE), c
                 """
                 INSERT INTO nss.finance_head
                     (organization_pk, head_code, head_name, description, direction, is_restricted, is_pranami, skips_approval,
-                     allow_upi, collection_scope_pk, collection_account_pk, display_order, created_by_sangha_sevi_pk)
-                VALUES (%s, %s, %s, %s, 'INCOME', FALSE, TRUE, TRUE, TRUE, %s, %s, %s, %s) RETURNING finance_head_pk
+                     allow_upi, collection_scope_pk, collection_account_pk, created_by_sangha_sevi_pk)
+                VALUES (%s, %s, %s, %s, 'INCOME', FALSE, TRUE, TRUE, TRUE, %s, %s, %s) RETURNING finance_head_pk
                 """,
                 (str(body.organization_pk), head_code, name, F._clean(body.description), str(scope_pk),
-                 str(body.collection_account_pk), body.display_order, user.actor_pk),
+                 str(body.collection_account_pk), user.actor_pk),
             )
             pk = cur.fetchone()[0]
             F._audit(cur, user, "CREATE", "finance_head", pk, f"Created event head {head_code} ({name})",
@@ -736,7 +738,7 @@ def adopt_templates(body: S.AdoptTemplates, user: UserContext = Depends(_CONFIGU
         if body.template_pks is not None:
             where += " AND finance_head_pk = ANY(%s::uuid[])"; params.append([str(t) for t in body.template_pks])
         cur.execute(f"SELECT finance_head_pk, head_code, head_name, description, direction, is_restricted, restriction_purpose, "
-                    f"required_fund_type, is_pranami, skips_approval, requires_member, display_order FROM nss.finance_head WHERE {where} ORDER BY display_order, head_code", params)
+                    f"required_fund_type, is_pranami, skips_approval, requires_member, display_order FROM nss.finance_head WHERE {where} ORDER BY LOWER(head_name), head_code", params)
         templates = F._fetch_all(cur)
         if body.template_pks is not None and len(templates) != len(set(body.template_pks)):
             raise F._invalid("Some of the chosen templates do not exist or are not active templates.")
@@ -823,8 +825,6 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
             if head["is_restricted"] and not purpose:
                 raise F._invalid("A restricted head must keep its restriction_purpose (FIN-BR-020).")
             values["restriction_purpose"] = purpose
-        if "display_order" in sent and sent["display_order"] is not None:
-            values["display_order"] = sent["display_order"]
         if sent.get("skips_approval") is not None:
             if sent["skips_approval"] and head["direction"] != "INCOME":
                 raise F._invalid("Only an INCOME head can skip approval.")
@@ -841,6 +841,10 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
             if sent["is_pranami"] and head["direction"] != "INCOME":
                 raise F._invalid("Only an INCOME head can be a Pranami head.")
             values["is_pranami"] = sent["is_pranami"]
+        # Owner 2026-11-20: every Pranami is payable online (UPI or card). Turning Pranami ON therefore turns online collection on too (which needs a
+        # scope and a receiving account, and says so when it has none). A Pranami whose portal is CLOSED stays as it is: saving other changes never re-opens it.
+        if sent.get("is_pranami") and not head["is_pranami"] and not is_source and head["organization_pk"] is not None:
+            sent["allow_upi"] = True
         collection = {k: sent[k] for k in ("allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk") if k in sent}
         if collection:
             merged = {"allow_upi": head["allow_upi"], "collection_scope_pk": head["collection_scope_pk"],
@@ -872,6 +876,55 @@ def sync_head_copies(head_pk: UUID, user: UserContext = Depends(_CONFIGURE), con
         result = FC.sync_copies(cur, user, head_pk)
         F._audit(cur, user, "UPDATE", "finance_head", head_pk, f"Updated the Sakha copies of {head['head_code']}", result)
         return result
+
+
+def _head_money_count(cur, head_pks: list) -> int:
+    """How many transactions, UPI payment requests and request lines name any of these heads (active or not: money history is never lost)."""
+    if not head_pks:
+        return 0
+    arr = [str(p) for p in head_pks]
+    cur.execute(
+        "SELECT (SELECT COUNT(*) FROM nss.financial_transaction WHERE finance_head_pk = ANY(%s::uuid[]))"
+        " + (SELECT COUNT(*) FROM nss.upi_payment_request WHERE finance_head_pk = ANY(%s::uuid[]))"
+        " + (SELECT COUNT(*) FROM nss.upi_payment_request_line WHERE finance_head_pk = ANY(%s::uuid[]))", (arr, arr, arr))
+    return cur.fetchone()[0]
+
+
+@router.delete("/heads/{head_pk}", response_model=S.HeadDeleteResult)
+def delete_head(head_pk: UUID, user: UserContext = Depends(_CONFIGURE), conn=Depends(get_write_connection)):
+    """
+    Remove a finance head that was never used. A SOFT delete (``is_active = FALSE`` + deleted_at/by, audited; history is never erased).
+    Refused while any transaction or UPI payment request names the head - money that came or went through a head keeps it; switch
+    such a head OFF (``/transition``) instead. A Sakha's copy of a Kendra head cannot be deleted (switch it off); deleting a Kendra head
+    for all Sakhas removes its copies too, and only when none of them has been used. FINANCE_CONFIGURE + admin scope on the Sangha.
+    """
+    with conn.cursor() as cur:
+        head = F._head_row(cur, head_pk)
+        _head_access(cur, user, head, "delete this finance head", write=True)
+        cur.execute("SELECT h.template_head_pk, h.applies_to_all_sakhas, COALESCE(src.applies_to_all_sakhas, FALSE) "
+                    "FROM nss.finance_head h LEFT JOIN nss.finance_head src ON src.finance_head_pk = h.template_head_pk "
+                    "WHERE h.finance_head_pk = %s", (str(head_pk),))
+        _tpl, is_source, is_copy = cur.fetchone()
+        if is_copy:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="This Pranami comes from the Kendra: it cannot be deleted here. Switch it off instead.")
+        copies: list = []
+        if is_source:
+            cur.execute("SELECT finance_head_pk FROM nss.finance_head WHERE template_head_pk = %s AND is_active = TRUE", (str(head_pk),))
+            copies = [r[0] for r in cur.fetchall()]
+        if _head_money_count(cur, [head_pk, *copies]):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="Money has already been recorded or requested on this head" + (" (or on a Sakha's copy of it)" if is_source else "")
+                                       + ", so it cannot be deleted. Switch it off instead; its history stays.")
+        for pk in [head_pk, *copies]:
+            cur.execute("UPDATE nss.finance_head SET is_active = FALSE, status = 'INACTIVE', deleted_at = NOW(), deleted_by_sangha_sevi_pk = %s, "
+                        "updated_at = NOW(), updated_by_sangha_sevi_pk = %s WHERE finance_head_pk = %s", (user.actor_pk, user.actor_pk, str(pk)))
+        F._audit(cur, user, "DELETE", "finance_head", head_pk, f"Deleted finance head {head['head_code']}",
+                 {"head_code": head["head_code"], "copies_deleted": len(copies)})
+        for pk in copies:
+            F._audit(cur, user, "DELETE", "finance_head", pk, f"Deleted with the Kendra head {head['head_code']}",
+                     {"source_head_pk": str(head_pk), "automatic": True})
+        return {"deleted": True, "head_code": head["head_code"], "copies_deleted": len(copies)}
 
 
 @router.post("/heads/{head_pk}/transition", response_model=S.HeadResponse)

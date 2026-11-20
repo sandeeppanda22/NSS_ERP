@@ -127,8 +127,6 @@ class TestInputIsHostileSafe:
         {"fixed_amount": "Infinity", "due_period": "YEARLY"},
         {"description": "x" * 2001},
         {"head_name": "y" * 151},
-        {"display_order": -1},
-        {"display_order": 10001},
         {"organization_pk": "not-a-uuid"},
         {"fixed_amount": "5", "due_period": "yearly"},                    # the value list is exact
     ])
@@ -171,7 +169,7 @@ class TestTheCopyIsTheKendrasToDefine:
         copy = _copy(client, admin_h, _all_sakhas(client, admin_h, write_conn)["finance_head_pk"], register_org_pk)
         for body in ({"fixed_amount": "1", "due_period": "YEARLY"}, {"fixed_amount": None}, {"due_period": "MONTHLY"}, {"allow_part_payment": True},
                      {"head_name": "Cheaper"}, {"description": "x"}, {"is_pranami": False}, {"allow_upi": False},
-                     {"collection_scope_pk": FAKE_UUID}, {"display_order": 1}):
+                     {"collection_scope_pk": FAKE_UUID}):
             r = client.patch(f"{BASE}/heads/{copy['finance_head_pk']}", json=body, headers=admin_h)
             assert r.status_code == 403, body
         after = client.get(f"{BASE}/heads/{copy['finance_head_pk']}", headers=admin_h).json()

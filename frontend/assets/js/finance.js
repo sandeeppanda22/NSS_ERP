@@ -466,9 +466,14 @@
             finClearScopeFilters() { this.finScopeQ = ""; this.finScopeTypeFilter = ""; this.finScopeStatusFilter = ""; return this.finApplyScopeFilters(); },
             finScopesPageBy(d) { this.finScopesPage = Math.min(Math.max(1, this.finScopesPage + d), this.finScopesTotalPages); return this.finLoadScopes(); },
 
+            // A Sakha admin's admin scope names exactly one Sangha (finSetupScopeOrg, finance-setup.js): it is chosen for them and cannot be changed.
+            _finOwnOrgPicker(extra) {
+                const own = this.finSetupScopeOrg;
+                return own ? { ...emptyPicker(extra), selected: own, query: own.organization_name } : emptyPicker(extra);
+            },
             finOpenScopeForm() {
                 this.finScope = null;
-                this.finScopeForm = { ...newScopeForm(), show: true };
+                this.finScopeForm = { ...newScopeForm(), show: true, organization: this._finOwnOrgPicker() };
             },
             async finSubmitScope() {
                 const f = this.finScopeForm;
@@ -478,7 +483,7 @@
                 try {
                     const body = {
                         scope_code: f.scope_code.trim(), scope_name: f.scope_name.trim(), scope_type: f.scope_type,
-                        organization_pk: f.organization.selected ? f.organization.selected.organization_pk : null,
+                        organization_pk: this.finSetupScopeOrg ? this.finSetupScopeOrg.organization_pk : (f.organization.selected ? f.organization.selected.organization_pk : null),
                         financial_year_pk: f.financial_year_pk || null, parent_scope_pk: f.parent_scope_pk || null,
                     };
                     const created = await this._finSend("POST", "/scopes", body);
@@ -544,7 +549,7 @@
                 }
             },
             get finFundNeedsSakha() { return this.finFundForm.fund_type === "SINKING_FUND"; },
-            finOpenFundForm() { this.finFundForm = { ...newFundForm(), show: true }; },
+            finOpenFundForm() { this.finFundForm = { ...newFundForm(), show: true, organization: this._finOwnOrgPicker({ typeCodes: NSS.SAKHA_LIKE_ORG_TYPES }) }; },
             async finSubmitFund() {
                 const f = this.finFundForm;
                 if (!blank(f.fund_code) || !blank(f.fund_name)) { f.error = "Fund code and name are required."; return; }

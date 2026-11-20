@@ -72,3 +72,14 @@ def test_member_directory_count_tiles_use_the_server_counts_and_filter_on_click(
     assert 'x-for="c in mdStatusTiles"' in html and 'mdPickStatus(c.status_code)' in html
     assert "this.mdStatusCounts = data.status_counts || [];" in js
     assert "get mdAllStatusesTotal()" in js and "mdPickStatus(code)" in js
+
+
+def test_a_sakha_scoped_admin_sees_the_sakha_name_in_the_create_person_and_member_forms():
+    """Owner 2026-11-20: the locked Sakha is shown BY NAME in a read-only box (not a select that read "Select..." until its options loaded)."""
+    root = Path(__file__).resolve().parents[2] / "frontend"
+    html = (root / "admin.html").read_text(encoding="utf-8")
+    js = (root / "assets/js/admin.js").read_text(encoding="utf-8")
+    assert html.count(':value="sakhaLockedName" disabled x-show="sakhaScope.mode === \'locked\'"') == 2          # Create Person & Account, Create Sangha Sevi
+    for form in ("createForm", "ssForm"):
+        assert f'<select class="nss-select" x-model="{form}.organization_pk" x-show="sakhaScope.mode !== \'locked\'">' in html
+    assert "get sakhaLockedName()" in js and "this.sakhaScope.auto_select_pk" in js

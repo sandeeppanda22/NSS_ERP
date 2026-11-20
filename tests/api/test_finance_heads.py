@@ -124,9 +124,9 @@ class TestTemplates:
 
 class TestHeads:
     def test_create_a_custom_head(self, client, admin_h, register_org_pk):
-        h = make_head(client, admin_h, register_org_pk, head_name="Festival donation", description="Janmautsaba donations", display_order=5)
+        h = make_head(client, admin_h, register_org_pk, head_name="Festival donation", description="Janmautsaba donations")
         assert h["status"] == "ACTIVE" and not h["is_template"] and h["organization_pk"] == str(register_org_pk)
-        assert h["direction"] == "INCOME" and h["transaction_count"] == 0 and h["display_order"] == 5
+        assert h["direction"] == "INCOME" and h["transaction_count"] == 0
 
     def test_a_lowercase_code_is_normalised_to_upper_case(self, client, admin_h, register_org_pk):
         code = new_code("low").lower()
@@ -180,12 +180,12 @@ class TestHeads:
     def test_patch_edits_the_presentation_only(self, client, admin_h, register_org_pk):
         h = make_head(client, admin_h, register_org_pk, is_restricted=True, restriction_purpose="Temple repair")
         r = client.patch(f"{BASE}/heads/{h['finance_head_pk']}", headers=admin_h, json={
-            "head_name": "Renamed", "description": "New text", "display_order": 7, "is_pranami": True, "restriction_purpose": "Temple roof",
+            "head_name": "Renamed", "description": "New text", "restriction_purpose": "Temple roof",
             # none of these may change after creation; unknown to the update model, so they are ignored
             "head_code": "HACKED", "direction": "EXPENSE", "is_restricted": False, "organization_pk": FAKE_UUID})
         assert r.status_code == 200, r.text
         got = r.json()
-        assert (got["head_name"], got["description"], got["display_order"], got["is_pranami"], got["restriction_purpose"]) == ("Renamed", "New text", 7, True, "Temple roof")
+        assert (got["head_name"], got["description"], got["restriction_purpose"]) == ("Renamed", "New text", "Temple roof")
         assert got["head_code"] == h["head_code"] and got["direction"] == "INCOME" and got["is_restricted"] is True
         assert got["organization_pk"] == str(register_org_pk)
 
@@ -229,8 +229,8 @@ class TestHeadVisibilityAndScope:
         assert client.get(f"{BASE}/heads/{tmpl['finance_head_pk']}", headers=sakha_admin_h).status_code == 200
         assert client.patch(f"{BASE}/heads/{tmpl['finance_head_pk']}", json={"head_name": "x"}, headers=sakha_admin_h).status_code == 403
 
-    def test_filters(self, client, admin_h, register_org_pk):
-        h = make_head(client, admin_h, register_org_pk, is_pranami=True, head_name="Searchable Zebra Pranami")
+    def test_filters(self, client, admin_h, register_org_pk, mock_gateway):
+        h = upi_world(client, admin_h, register_org_pk, mock_gateway, head_name="Searchable Zebra Pranami")["head"]
         exp = make_head(client, admin_h, register_org_pk, direction="EXPENSE")
         got = {x["finance_head_pk"] for x in heads_of(client, admin_h, organization_pk=str(register_org_pk), q="Zebra", is_pranami="true")["items"]}
         assert got == {h["finance_head_pk"]}
@@ -381,6 +381,7 @@ class TestHeadCollectionSettings:
         assert h["allow_upi"] and h["is_pranami"]
         assert h["collection_scope_code"] == u["world"]["scope"]["scope_code"] and h["collection_account_label"] == u["account"]["account_label"]
         assert h["collection_scope_name"] == u["world"]["scope"]["scope_name"]      # the list shows the scope name beside its code
+        assert "collection_fund_name" in h                                          # and the fund name beside its code (null when no fund)
 
     def test_upi_needs_a_scope_and_an_account(self, client, admin_h, register_org_pk, mock_gateway):
         w, acct = self._ingredients(client, admin_h, register_org_pk, mock_gateway)
@@ -557,3 +558,60 @@ class TestAccounts:
         a = make_account(client, admin_h, register_org_pk, bank_name="Zebra Bank Unique")
         got = client.get(f"{BASE}/accounts", params={"q": "Zebra Bank Unique"}, headers=admin_h).json()
         assert [x["financial_account_pk"] for x in got["items"]] == [a["financial_account_pk"]]
+
+
+class TestFundsListFollowsTheSangha:
+    """GET /finance/funds?organization_pk= : the funds of one Sangha's scopes, still inside the caller's admin scope."""
+
+    def test_filter_by_sangha_returns_only_its_funds(self, client, admin_h, register_org_pk, other_org_pk):
+        from tests.finance_support import make_fund, make_scope
+
+        mine = make_scope(client, admin_h, register_org_pk, activate_with=admin_h)
+        theirs = make_scope(client, admin_h, other_org_pk, activate_with=admin_h)
+        f1 = make_fund(client, admin_h, mine["financial_scope_pk"], activate_with=admin_h)
+        f2 = make_fund(client, admin_h, theirs["financial_scope_pk"], activate_with=admin_h)
+        r = client.get("/api/v1/finance/funds", headers=admin_h, params={"organization_pk": str(register_org_pk), "page_size": 100})
+        assert r.status_code == 200, r.text
+        pks = {f["fund_master_pk"] for f in r.json()["items"]}
+        assert f1["fund_master_pk"] in pks and f2["fund_master_pk"] not in pks
+        assert all(f["scope_code"] for f in r.json()["items"])
+
+    def test_a_sakha_admin_never_sees_another_sakhas_funds_even_when_asking(self, client, sakha_admin_h, other_admin_h, other_org_pk):
+        from tests.finance_support import make_fund, make_scope
+
+        scope = make_scope(client, other_admin_h, other_org_pk, activate_with=other_admin_h)
+        fund = make_fund(client, other_admin_h, scope["financial_scope_pk"], activate_with=other_admin_h)
+        r = client.get("/api/v1/finance/funds", headers=sakha_admin_h, params={"organization_pk": str(other_org_pk), "page_size": 100})
+        assert r.status_code == 200
+        assert fund["fund_master_pk"] not in {f["fund_master_pk"] for f in r.json()["items"]}
+
+
+class TestEveryPranamiIsPayableOnline:
+    """Owner 2026-11-20: a Pranami can always be paid online (UPI or card): it cannot be created, or turned on, without online collection."""
+
+    def test_a_pranami_cannot_be_created_without_online_collection(self, client, admin_h, register_org_pk):
+        r = client.post(f"{BASE}/heads", headers=admin_h, json={"organization_pk": str(register_org_pk), "head_code": new_code("PRN"),
+                                                                 "head_name": "No UPI Pranami", "direction": "INCOME", "is_pranami": True})
+        assert r.status_code == 422 and "payable online" in r.text
+
+    def test_turning_pranami_on_needs_a_scope_and_an_account(self, client, admin_h, register_org_pk):
+        h = make_head(client, admin_h, register_org_pk)
+        r = client.patch(f"{BASE}/heads/{h['finance_head_pk']}", json={"is_pranami": True}, headers=admin_h)
+        assert r.status_code == 422                                   # online collection is switched on with it and has no scope / account
+
+    def test_turning_pranami_on_switches_online_collection_on_with_it(self, client, admin_h, register_org_pk, mock_gateway):
+        w = upi_world(client, admin_h, register_org_pk, mock_gateway)
+        h = make_head(client, admin_h, register_org_pk)
+        r = client.patch(f"{BASE}/heads/{h['finance_head_pk']}", headers=admin_h, json={
+            "is_pranami": True, "collection_scope_pk": w["world"]["scope"]["financial_scope_pk"],
+            "collection_account_pk": w["account"]["financial_account_pk"]})
+        assert r.status_code == 200, r.text
+        assert r.json()["is_pranami"] is True and r.json()["allow_upi"] is True
+
+    def test_saving_other_changes_never_reopens_a_closed_pranami(self, client, admin_h, register_org_pk, mock_gateway):
+        from tests.finance_support import closed_pranami
+
+        h = closed_pranami(client, admin_h, register_org_pk, mock_gateway)
+        r = client.patch(f"{BASE}/heads/{h['finance_head_pk']}", json={"description": "still closed", "is_pranami": True}, headers=admin_h)
+        assert r.status_code == 200, r.text
+        assert r.json()["allow_upi"] is False and r.json()["is_pranami"] is True

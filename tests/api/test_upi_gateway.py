@@ -250,12 +250,12 @@ class TestRazorpayAdapterAgainstAFake:
                               description="Annual Pranami", payer_name="Ram", expires_at=NOW + timedelta(minutes=30),
                               vpa=None, payee_name="Sakha", merchant_ref=merchant_ref)
 
-    def test_create_sends_paise_a_upi_only_link_and_basic_auth(self, monkeypatch):
+    def test_create_sends_paise_a_link_for_every_payment_method_and_basic_auth(self, monkeypatch):
         p = self._p(monkeypatch, _FakeResponse(200, {"id": "plink_1", "short_url": "https://rzp.io/i/abc"}))
         order = self._order(p)
         method, url, body, auth, headers = _FakeHttp.calls[0]
         assert url == "https://api.razorpay.com/v1/payment_links" and auth == ("kid", "ksec")
-        assert body["amount"] == 50050 and body["currency"] == "INR" and body["upi_link"] is True and body["accept_partial"] is False
+        assert body["amount"] == 50050 and body["currency"] == "INR" and "upi_link" not in body and body["accept_partial"] is False   # not UPI-only: cards and net banking too
         assert body["reference_id"] == "PRQ7" and body["expire_by"] == int((NOW + timedelta(minutes=30)).timestamp())
         assert (order.provider_order_id, order.pay_url) == ("plink_1", "https://rzp.io/i/abc")
         assert headers == {}

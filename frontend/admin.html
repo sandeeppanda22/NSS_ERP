@@ -1666,8 +1666,9 @@
                                             </div>
                                             <div class="form-group">
                                                 <label class="form-label">Organization (Sakha) *</label>
-                                                <select class="nss-select" x-model="createForm.organization_pk"
-                                                        :disabled="sakhaScope.mode === 'locked'">
+                                                <!-- Scoped to one Sakha: its NAME is shown in a read-only box (a select showed "Select..." until its options had loaded) -->
+                                                <input type="text" class="form-input" :value="sakhaLockedName" disabled x-show="sakhaScope.mode === 'locked'">
+                                                <select class="nss-select" x-model="createForm.organization_pk" x-show="sakhaScope.mode !== 'locked'">
                                                     <option value="">Select...</option>
                                                     <template x-for="org in sakhaOrgs" :key="org.organization_pk">
                                                         <option :value="org.organization_pk"
@@ -1931,8 +1932,9 @@
                                             </div>
                                             <div class="form-group">
                                                 <label class="form-label">Organization (Sakha) *</label>
-                                                <select class="nss-select" x-model="ssForm.organization_pk"
-                                                        :disabled="sakhaScope.mode === 'locked'">
+                                                <!-- Scoped to one Sakha: its NAME is shown in a read-only box (a select showed "Select..." until its options had loaded) -->
+                                                <input type="text" class="form-input" :value="sakhaLockedName" disabled x-show="sakhaScope.mode === 'locked'">
+                                                <select class="nss-select" x-model="ssForm.organization_pk" x-show="sakhaScope.mode !== 'locked'">
                                                     <option value="">Select...</option>
                                                     <template x-for="org in sakhaOrgs" :key="org.organization_pk">
                                                         <option :value="org.organization_pk"
@@ -8121,7 +8123,7 @@
                                         </div>
                                         <div class="typeahead-wrap">
                                             <label class="form-label">Organization <span class="optional" x-show="finScopeForm.scope_type !== 'ORGANIZATION'">(optional)</span></label>
-                                            <input type="text" class="form-input" x-model="finScopeForm.organization.query"
+                                            <input type="text" class="form-input" x-model="finScopeForm.organization.query" :disabled="finSetupOrgLocked"
                                                    @input="corrOnOrgQueryInput(finScopeForm.organization)" placeholder="Search by organization name…" autocomplete="off">
                                             <div class="typeahead-menu" x-show="finScopeForm.organization.results.length > 0">
                                                 <template x-for="org in finScopeForm.organization.results" :key="org.organization_pk">
@@ -8132,9 +8134,10 @@
                                             </div>
                                             <p class="form-hint" x-show="finScopeForm.organization.selected">
                                                 Owned by <span x-text="finScopeForm.organization.selected && finScopeForm.organization.selected.organization_name"></span>.
-                                                <button type="button" class="link-action" @click="corrClearPicker(finScopeForm.organization)">Clear</button>
+                                                <button type="button" class="link-action" x-show="!finSetupOrgLocked" @click="corrClearPicker(finScopeForm.organization)">Clear</button>
                                             </p>
-                                            <p class="form-hint">Who may see and manage this scope's money follows this organization. Without one, only NSS-wide administrators can.</p>
+                                            <p class="form-hint" x-show="finSetupOrgLocked">Your administration is limited to this Sangha, so its scopes belong to it.</p>
+                                            <p class="form-hint" x-show="!finSetupOrgLocked">Who may see and manage this scope's money follows this organization. Without one, only NSS-wide administrators can.</p>
                                         </div>
                                         <div>
                                             <label class="form-label">Parent scope <span class="optional">(optional)</span></label>
@@ -8293,7 +8296,7 @@
                                                     </div>
                                                     <div class="typeahead-wrap" x-show="finFundNeedsSakha">
                                                         <label class="form-label">Sakha (Sinking Fund)</label>
-                                                        <input type="text" class="form-input" x-model="finFundForm.organization.query"
+                                                        <input type="text" class="form-input" x-model="finFundForm.organization.query" :disabled="finSetupOrgLocked"
                                                                @input="corrOnOrgQueryInput(finFundForm.organization)" placeholder="Search by Sakha name…" autocomplete="off">
                                                         <div class="typeahead-menu" x-show="finFundForm.organization.results.length > 0">
                                                             <template x-for="org in finFundForm.organization.results" :key="org.organization_pk">
@@ -8304,7 +8307,7 @@
                                                         </div>
                                                         <p class="form-hint" x-show="finFundForm.organization.selected">
                                                             <span x-text="finFundForm.organization.selected && finFundForm.organization.selected.organization_name"></span>
-                                                            <button type="button" class="link-action" @click="corrClearPicker(finFundForm.organization)">Clear</button>
+                                                            <button type="button" class="link-action" x-show="!finSetupOrgLocked" @click="corrClearPicker(finFundForm.organization)">Clear</button>
                                                         </p>
                                                     </div>
                                                 </div>
@@ -8449,6 +8452,27 @@
                                 <button class="btn-action primary" x-show="canManageFinance && !finFundForm.show" @click="finFundsOpenNew()">+ New fund</button>
                             </div>
                             <div class="data-card-body">
+                                <!-- The Sangha: a Sakha admin's admin scope names one, so it is shown, not asked; wider admins may search one Sangha or see all in their scope -->
+                                <div class="fh-chip" style="margin-bottom:0.9rem;" x-show="finFundsOrgLocked && finFundsOrg.selected" x-cloak>
+                                    <span class="fh-chip__label">Sangha</span>
+                                    <span class="fh-chip__value" x-text="finFundsOrg.selected && finFundsOrg.selected.organization_name"></span>
+                                </div>
+                                <div class="typeahead-wrap" style="margin-bottom:0.9rem; max-width:34rem;" x-show="!finFundsOrgLocked" x-cloak>
+                                    <label class="form-label">Sangha <span class="optional">(optional: leave empty to see every Sangha in your scope)</span></label>
+                                    <input type="text" class="form-input" x-model="finFundsOrg.query" @input="corrOnOrgQueryInput(finFundsOrg)" placeholder="Search by Sangha name…" autocomplete="off">
+                                    <div class="typeahead-menu" x-show="finFundsOrg.results.length > 0">
+                                        <template x-for="org in finFundsOrg.results" :key="org.organization_pk">
+                                            <div class="typeahead-item" @click="corrSelectOrg(finFundsOrg, org); finFundsOrgChanged()">
+                                                <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <p class="form-hint" x-show="finFundsOrg.selected">
+                                        Showing <span x-text="finFundsOrg.selected && finFundsOrg.selected.organization_name"></span> only.
+                                        <button type="button" class="link-action" @click="finFundsClearOrg()">Show all</button>
+                                    </p>
+                                </div>
+
                                 <div class="count-tiles">
                                     <div class="count-tile count-tile--total"><span class="count-tile__value" x-text="finFundsAllTotal"></span><span class="count-tile__label" x-text="finFundsFiltered ? 'Funds found' : 'Total funds'"></span></div>
                                     <div class="count-tile count-tile--active"><span class="count-tile__value" x-text="finFundsActiveCount"></span><span class="count-tile__label">Active<span x-show="finFundsPartial"> (this page)</span></span></div>
@@ -8494,7 +8518,7 @@
                                         </div>
                                         <div class="typeahead-wrap" x-show="finFundNeedsSakha">
                                             <label class="form-label">Sakha (Sinking Fund)</label>
-                                            <input type="text" class="form-input" x-model="finFundForm.organization.query"
+                                            <input type="text" class="form-input" x-model="finFundForm.organization.query" :disabled="finSetupOrgLocked"
                                                    @input="corrOnOrgQueryInput(finFundForm.organization)" placeholder="Search by Sakha name…" autocomplete="off">
                                             <div class="typeahead-menu" x-show="finFundForm.organization.results.length > 0">
                                                 <template x-for="org in finFundForm.organization.results" :key="org.organization_pk">
@@ -8505,7 +8529,7 @@
                                             </div>
                                             <p class="form-hint" x-show="finFundForm.organization.selected">
                                                 <span x-text="finFundForm.organization.selected && finFundForm.organization.selected.organization_name"></span>
-                                                <button type="button" class="link-action" @click="corrClearPicker(finFundForm.organization)">Clear</button>
+                                                <button type="button" class="link-action" x-show="!finSetupOrgLocked" @click="corrClearPicker(finFundForm.organization)">Clear</button>
                                             </p>
                                         </div>
                                     </div>
@@ -9242,7 +9266,7 @@
                                     <div class="form-grid-2">
                                         <div class="typeahead-wrap">
                                             <label class="form-label">Sangha</label>
-                                            <input type="text" class="form-input" x-model="finContribForm.organization.query"
+                                            <input type="text" class="form-input" x-model="finContribForm.organization.query" :disabled="finSetupOrgLocked"
                                                    @input="corrOnOrgQueryInput(finContribForm.organization)" placeholder="Search by Sangha name…" autocomplete="off">
                                             <div class="typeahead-menu" x-show="finContribForm.organization.results.length > 0">
                                                 <template x-for="org in finContribForm.organization.results" :key="org.organization_pk">
@@ -9342,7 +9366,7 @@
                                     <div class="form-grid-2">
                                         <div class="typeahead-wrap">
                                             <label class="form-label">Sangha running the event</label>
-                                            <input type="text" class="form-input" x-model="finEventForm.organization.query"
+                                            <input type="text" class="form-input" x-model="finEventForm.organization.query" :disabled="finSetupOrgLocked"
                                                    @input="corrOnOrgQueryInput(finEventForm.organization)" placeholder="Search by Sangha name…" autocomplete="off">
                                             <div class="typeahead-menu" x-show="finEventForm.organization.results.length > 0">
                                                 <template x-for="org in finEventForm.organization.results" :key="org.organization_pk">
@@ -9382,10 +9406,11 @@
                                 <div class="data-card-body">
                                     <div class="alert-msg alert-info" x-show="finHeadForm.mode === 'edit' && finHeadForm.kind === 'copy'">This Pranami comes from the Kendra: its name, amount and schedule are set there. You can only choose which of your receiving accounts collects it.</div>
                                     <div class="alert-msg alert-info" x-show="finHeadForm.mode === 'edit' && finHeadForm.kind === 'source'">This Pranami is for all Sakhas. Changes to the name, amount and schedule reach every Sakha's copy; each Sakha picks its own receiving account.</div>
-                                    <div class="form-grid-2" x-show="finHeadForm.kind !== 'copy'">
+                                    <div x-show="finHeadForm.kind !== 'copy'">
+                                    <div class="form-grid-2">
                                         <div class="typeahead-wrap" x-show="!finHeadForm.template">
                                             <label class="form-label">Sangha</label>
-                                            <input type="text" class="form-input" x-model="finHeadForm.organization.query" :disabled="finHeadForm.mode === 'edit'"
+                                            <input type="text" class="form-input" x-model="finHeadForm.organization.query" :disabled="finHeadForm.mode === 'edit' || finSetupOrgLocked"
                                                    @input="corrOnOrgQueryInput(finHeadForm.organization)" placeholder="Search by Sangha name…" autocomplete="off">
                                             <div class="typeahead-menu" x-show="finHeadForm.organization.results.length > 0">
                                                 <template x-for="org in finHeadForm.organization.results" :key="org.organization_pk">
@@ -9394,7 +9419,7 @@
                                                     </div>
                                                 </template>
                                             </div>
-                                            <p class="form-hint" x-show="finHeadForm.organization.selected">Belongs to <span x-text="finHeadForm.organization.selected && finHeadForm.organization.selected.organization_name"></span>.</p>
+                                            <p class="form-hint" x-show="finHeadForm.organization.selected && finHeadForm.mode !== 'edit' && !finSetupOrgLocked">Belongs to <span x-text="finHeadForm.organization.selected && finHeadForm.organization.selected.organization_name"></span>.</p>
                                         </div>
                                         <div>
                                             <label class="form-label">Code <span class="optional" x-show="finHeadForm.mode === 'edit'">(fixed)</span></label>
@@ -9415,6 +9440,11 @@
                                             <label class="form-label">Description <span class="optional">(optional)</span></label>
                                             <input type="text" class="form-input" maxlength="2000" x-model="finHeadForm.description" autocomplete="off">
                                         </div>
+                                    </div>
+
+                                    <div class="form-section">
+                                        <h4 class="form-section-title">Rules</h4>
+                                        <div class="form-grid-2">
                                         <div>
                                             <label class="form-label">Restriction <span class="optional" x-show="finHeadForm.mode === 'edit'">(fixed)</span></label>
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
@@ -9432,68 +9462,103 @@
                                                 <template x-for="t in finFundTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
                                             </select>
                                         </div>
-                                        <div>
-                                            <label class="form-label">Display order</label>
-                                            <input type="number" min="0" max="10000" class="form-input" x-model="finHeadForm.display_order">
                                         </div>
+                                    </div>
+
+                                    <div class="form-section" x-show="finHeadForm.direction === 'INCOME' && finHeadForm.mode === 'edit'">
+                                        <h4 class="form-section-title">What members pay</h4>
+                                        <div class="form-grid-2">
                                         <div x-show="finHeadForm.mode === 'edit' && finHeadForm.direction === 'INCOME'">
                                             <label class="form-label">Fixed amount <span class="optional">(empty = any amount)</span></label>
                                             <input type="text" inputmode="decimal" class="form-input" x-model="finHeadForm.fixed_amount" autocomplete="off">
                                         </div>
-                                        <div x-show="finHeadForm.mode === 'edit' && finHeadForm.direction === 'INCOME' && finHeadForm.fixed_amount.trim() !== ''">
+                                        <div x-show="finHeadForm.mode === 'edit' && finHeadForm.direction === 'INCOME'">
                                             <label class="form-label">How often</label>
-                                            <select class="nss-select" x-model="finHeadForm.due_period">
+                                            <select class="nss-select" x-model="finHeadForm.due_period" :disabled="finHeadForm.fixed_amount.trim() === ''">
                                                 <option value="YEARLY">Every financial year</option><option value="MONTHLY">Every month</option><option value="ONE_TIME">One time</option>
                                             </select>
-                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.allow_part_payment"> Members may pay in parts</label>
+                                        </div>
+                                        <div x-show="finHeadForm.mode === 'edit' && finHeadForm.direction === 'INCOME'">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.allow_part_payment" :disabled="finHeadForm.fixed_amount.trim() === ''"> Members may pay in parts</label>
                                         </div>
                                         <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
                                                 <input type="checkbox" x-model="finHeadForm.skips_approval"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)
                                             </label>
                                         </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-section" x-show="finHeadForm.direction === 'INCOME' && finHeadForm.mode === 'create'">
+                                        <div class="form-grid-2">
+                                        <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
+                                                <input type="checkbox" x-model="finHeadForm.skips_approval"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)
+                                            </label>
+                                        </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-section" x-show="finHeadForm.direction === 'EXPENSE'">
+                                        <h4 class="form-section-title">Spending rules</h4>
+                                        <div class="form-grid-2">
                                         <div x-show="finHeadForm.direction === 'EXPENSE'">
                                             <label class="form-label">Treasurer's limit (₹) <span class="optional">(empty = the Sakha default)</span></label>
                                             <input type="text" inputmode="decimal" class="form-input" x-model="finHeadForm.treasurer_limit" autocomplete="off">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.requires_member"> Repays a member (the member who paid must be named)</label>
                                         </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-section" x-show="finHeadForm.direction === 'INCOME'">
+                                        <h4 class="form-section-title">Members and UPI</h4>
+                                        <div class="form-grid-2">
                                         <div x-show="finHeadForm.direction === 'INCOME'">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
-                                                <input type="checkbox" x-model="finHeadForm.is_pranami"> Show this as Pranami in the member's own "Pranami" tab
+                                                <input type="checkbox" x-model="finHeadForm.is_pranami" @change="if (finHeadForm.is_pranami && !finHeadForm.template) { finHeadForm.allow_upi = true; finHeadFormOrgChanged(true); }"> Show this as Pranami (always payable online — UPI or card) in the member's own "Pranami" tab
                                             </label>
                                         </div>
                                         <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
-                                                <input type="checkbox" x-model="finHeadForm.allow_upi" @change="finHeadFormOrgChanged(true)"> Can be collected by UPI
+                                                <input type="checkbox" x-model="finHeadForm.allow_upi" @change="finHeadFormOrgChanged(true)"> Payable online (UPI or card)
                                             </label>
                                         </div>
+                                        </div>
                                     </div>
+                                </div>
 
-                                    <div class="form-section" x-show="(finHeadForm.allow_upi || finHeadForm.kind === 'copy') && !finHeadForm.template && finHeadForm.kind !== 'source'">
-                                        <h4 class="form-section-title">Where UPI collections go</h4>
+                                    <!-- Scope and fund: always choosable (a Sakha's copy of a Kendra head and a head for all Sakhas have none of their own) -->
+                                    <div class="form-section" x-show="!finHeadForm.template && finHeadForm.kind === 'normal'">
+                                        <h4 class="form-section-title">Books into</h4>
                                         <p class="form-hint" x-show="!finHeadForm.organization.selected">Choose the Sangha first.</p>
                                         <div class="form-grid-2">
-                                            <div x-show="finHeadForm.kind !== 'copy'">
-                                                <label class="form-label">Book into scope</label>
+                                            <div>
+                                                <label class="form-label">Scope</label>
                                                 <select class="nss-select" x-model="finHeadForm.collection_scope_pk" @change="finHeadFormScopeChanged()">
-                                                    <option value="">Select…</option>
+                                                    <option value="" x-text="finHeadForm.allow_upi ? 'Select…' : 'Automatic — the Sangha\'s general scope'"></option>
                                                     <template x-for="s in finHeadScopes" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
                                                 </select>
+                                                <p class="form-hint">The books the money of this head is recorded in. Changing it affects new payments only; entries already made keep theirs.</p>
                                             </div>
-                                            <div x-show="finHeadForm.kind !== 'copy'">
+                                            <div>
                                                 <label class="form-label">Fund <span class="optional">(optional)</span></label>
-                                                <select class="nss-select" x-model="finHeadForm.collection_fund_pk">
+                                                <select class="nss-select" x-model="finHeadForm.collection_fund_pk" :disabled="!finHeadForm.collection_scope_pk">
                                                     <option value="">No specific fund</option>
                                                     <template x-for="f in finHeadFunds" :key="f.fund_master_pk"><option :value="f.fund_master_pk" x-text="f.fund_code + ' — ' + f.fund_name + (f.is_restricted ? ' (restricted)' : '')"></option></template>
                                                 </select>
+                                                <p class="form-hint" x-show="!finHeadForm.collection_scope_pk">Pick a scope first to choose one of its funds.</p>
                                             </div>
-                                            <div class="span-all" style="grid-column:span 2;">
-                                                <label class="form-label">Money lands in account</label>
-                                                <select class="nss-select" x-model="finHeadForm.collection_account_pk">
-                                                    <option value="">Select…</option>
-                                                    <template x-for="a in finHeadAccounts" :key="a.financial_account_pk"><option :value="a.financial_account_pk" x-text="a.account_label + (a.upi_vpa ? ' — ' + a.upi_vpa : '') + (a.gateway_provider ? '' : ' (no payment gateway)')"></option></template>
-                                                </select>
-                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="form-section" x-show="(finHeadForm.allow_upi || finHeadForm.kind === 'copy') && !finHeadForm.template && finHeadForm.kind !== 'source'">
+                                        <h4 class="form-section-title">Where UPI collections go</h4>
+                                        <p class="form-hint" x-show="!finHeadForm.organization.selected">Choose the Sangha first.</p>
+                                        <div>
+                                            <label class="form-label">Money lands in account</label>
+                                            <select class="nss-select" x-model="finHeadForm.collection_account_pk">
+                                                <option value="">Select…</option>
+                                                <template x-for="a in finHeadAccounts" :key="a.financial_account_pk"><option :value="a.financial_account_pk" x-text="a.account_label + (a.upi_vpa ? ' — ' + a.upi_vpa : '') + (a.gateway_provider ? '' : ' (no payment gateway)')"></option></template>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finHeadForm.error" x-text="finHeadForm.error"></div>
@@ -9608,7 +9673,7 @@
                                             </div>
                                             <div class="fh-table" x-show="finHeadsShown().length > 0">
                                                 <table class="admin-table">
-                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Scope</th><th>Amount members pay</th><th>Payment portal</th><th class="hist-right"></th></tr></thead>
+                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Scope</th><th>Fund</th><th>Members pay</th><th>Portal</th><th class="hist-right"></th></tr></thead>
                                                     <tbody>
                                                         <template x-for="h in finHeadsShown()" :key="h.finance_head_pk">
                                                             <tr>
@@ -9628,7 +9693,18 @@
                                                                     <span class="fh-sub" x-show="!h.collection_scope_code && !h.applies_to_all_sakhas">None yet</span>
                                                                 </td>
                                                                 <td>
-                                                                    <div class="fh-amount" x-text="finHeadAmountLabel(h)"></div>
+                                                                    <template x-if="h.collection_fund_code">
+                                                                        <div>
+                                                                            <div class="fh-name mono" x-text="h.collection_fund_code"></div>
+                                                                            <div class="fh-sub" x-text="h.collection_fund_name"></div>
+                                                                        </div>
+                                                                    </template>
+                                                                    <span class="fh-sub" x-show="!h.collection_fund_code && !h.applies_to_all_sakhas">No specific fund</span>
+                                                                    <span class="fh-sub" x-show="!h.collection_fund_code && h.applies_to_all_sakhas">—</span>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="fh-amount" x-text="finHeadAmountMain(h)"></div>
+                                                                    <div class="fh-sub" x-show="finHeadAmountPer(h)" x-text="finHeadAmountPer(h)"></div>
                                                                     <div class="fh-sub" x-show="h.due_date" x-text="'Due by ' + NSS.formatDate(h.due_date)"></div>
                                                                     <div class="fh-sub" x-show="h.fixed_amount != null && h.allow_part_payment">Part payments allowed</div>
                                                                 </td>
@@ -9638,10 +9714,11 @@
                                                                     <span class="fh-sub" x-show="finHeadPortalOpen(h) === null">Not applicable</span>
                                                                     <span class="fh-state fh-state--off" x-show="h.status !== 'ACTIVE'" x-text="finLabel(h.status)"></span>
                                                                 </td>
-                                                                <td class="hist-right">
+                                                                <td class="hist-right"><div class="fh-actions">
                                                                     <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE'" @click="finHeadOpenEdit(h)">Edit</button>
+                                                                    <button class="btn-action danger" x-show="canConfigureFinance && !h.is_kendra_copy && !h.transaction_count" @click="finHeadDelete(h)">Delete</button>
                                                                     <button class="btn-action primary" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === false" @click="finHeadPortalOpenForm(h)">Open payment portal</button>
-                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === true && !h.applies_to_all_sakhas" @click="finHeadPortal(h, false)">Close portal</button>
+                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === true && !h.applies_to_all_sakhas" @click="finHeadPortal(h, false)">Close portal</button></div>
                                                                 </td>
                                                             </tr>
                                                         </template>
@@ -9661,7 +9738,7 @@
                                     <div class="form-grid-2">
                                         <div class="typeahead-wrap">
                                             <label class="form-label">Sangha</label>
-                                            <input type="text" class="form-input" x-model="finAcctForm.organization.query" :disabled="finAcctForm.mode === 'edit'"
+                                            <input type="text" class="form-input" x-model="finAcctForm.organization.query" :disabled="finAcctForm.mode === 'edit' || finSetupOrgLocked"
                                                    @input="corrOnOrgQueryInput(finAcctForm.organization)" placeholder="Search by Sangha name…" autocomplete="off">
                                             <div class="typeahead-menu" x-show="finAcctForm.organization.results.length > 0">
                                                 <template x-for="org in finAcctForm.organization.results" :key="org.organization_pk">

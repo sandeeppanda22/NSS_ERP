@@ -22,6 +22,8 @@
     "use strict";
 
     const emptyPicker = (extra) => ({ query: "", results: [], searching: false, selected: null, ...(extra || {}) });
+    // A picker already holding its Sangha (edit forms): the name goes in the text box too, not only in the "Belongs to" hint under it.
+    const pickerWith = (pk, name) => ({ ...emptyPicker(), selected: pk ? { organization_pk: pk, organization_name: name } : null, query: pk ? (name || "") : "" });
     const blank = (v) => {
         const t = (v == null ? "" : String(v)).trim();
         return t === "" ? null : t;
@@ -32,7 +34,7 @@
         show: false, mode: "create", pk: "", saving: false, error: "", template: false, organization: emptyPicker(),
         head_code: "", head_name: "", description: "", direction: "INCOME", is_restricted: false, restriction_purpose: "",
         required_fund_type: "", is_pranami: false, allow_upi: false, collection_scope_pk: "", collection_fund_pk: "",
-        collection_account_pk: "", display_order: 100, lockedShape: false,
+        collection_account_pk: "", lockedShape: false,
         kind: "normal",            // edit only: "copy" = a Sakha's copy of a Kendra head (only its account changes), "source" = a head for all Sakhas (no collection targets)
         fixed_amount: "", due_period: "", allow_part_payment: false,
         skips_approval: false, treasurer_limit: "", requires_member: false,
@@ -199,18 +201,42 @@
                 this.finHeadForm = {
                     ...newHeadForm(), show: true, mode: "edit", pk: h.finance_head_pk, template: h.is_template, lockedShape: true,
                     kind: h.is_kendra_copy ? "copy" : (h.applies_to_all_sakhas ? "source" : "normal"),
-                    organization: { ...emptyPicker(), selected: h.organization_pk ? { organization_pk: h.organization_pk, organization_name: h.organization_name } : null },
+                    organization: pickerWith(h.organization_pk, h.organization_name),
                     head_code: h.head_code, head_name: h.head_name, description: h.description || "", direction: h.direction,
                     is_restricted: h.is_restricted, restriction_purpose: h.restriction_purpose || "", required_fund_type: h.required_fund_type || "",
                     is_pranami: h.is_pranami, allow_upi: h.allow_upi, collection_scope_pk: h.collection_scope_pk || "",
-                    collection_fund_pk: h.collection_fund_pk || "", collection_account_pk: h.collection_account_pk || "", display_order: h.display_order,
+                    collection_fund_pk: h.collection_fund_pk || "", collection_account_pk: h.collection_account_pk || "",
                     fixed_amount: h.fixed_amount == null ? "" : String(h.fixed_amount), due_period: h.due_period || "", allow_part_payment: !!h.allow_part_payment,
                     skips_approval: !!h.skips_approval, treasurer_limit: h.treasurer_limit == null ? "" : String(h.treasurer_limit),
                     requires_member: !!h.requires_member,
                 };
                 await this.finHeadFormOrgChanged(true);
+                if (h.collection_scope_pk && !this.finHeadScopes.some((sc) => sc.financial_scope_pk === h.collection_scope_pk)) {
+                    this.finHeadScopes = [...this.finHeadScopes, { financial_scope_pk: h.collection_scope_pk, scope_code: h.collection_scope_code, scope_name: h.collection_scope_name }];
+                }
+                if (h.collection_fund_pk && !this.finHeadFunds.some((fd) => fd.fund_master_pk === h.collection_fund_pk)) {
+                    this.finHeadFunds = [...this.finHeadFunds, { fund_master_pk: h.collection_fund_pk, fund_code: h.collection_fund_code, fund_name: h.collection_fund_name, is_restricted: false }];
+                }
                 // the form is above the list: bring it into view
                 this.$nextTick(() => { const el = document.getElementById("head-form-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); });
+            },
+            // Delete a head that was never used (a soft delete on the server: it refuses while money has been recorded or requested on it).
+            async finHeadDelete(h) {
+                const ok = await NSSDialog.confirm(
+                    `Delete "${h.head_name}"? It has no payments or entries, so it is simply removed. ` +
+                    (h.applies_to_all_sakhas ? "The copies the Sakhas received are removed with it. " : "") +
+                    "A head that has been used can only be switched off.",
+                    { title: "Delete finance head", confirmText: "Delete", confirmClass: "danger" });
+                if (!ok) return;
+                this.finHeadsError = "";
+                try {
+                    await this._finSend("DELETE", `/heads/${h.finance_head_pk}`);
+                    if (this.finHeadForm.pk === h.finance_head_pk) this.finHeadForm = newHeadForm();
+                    this._finNote(`Finance head "${h.head_name}" deleted.`);
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    this.finHeadsError = err.message || "Could not delete the finance head.";
+                }
             },
             finHeadCancel() { this.finHeadForm = { ...this.finHeadForm, show: false }; },
 
@@ -275,7 +301,7 @@
                     } else if (edit) {
                         if (f.kind === "source") for (const k of ["allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk"]) delete targets[k];
                         await this._finSend("PATCH", `/heads/${f.pk}`, {
-                            head_name: f.head_name.trim(), description: blank(f.description), display_order: Number(f.display_order) || 0,
+                            head_name: f.head_name.trim(), description: blank(f.description),
                             ...(f.is_restricted ? { restriction_purpose: f.restriction_purpose.trim() } : {}), ...targets, ...fixed,
                         });
                     } else {
@@ -283,7 +309,7 @@
                             organization_pk: f.template ? null : f.organization.selected.organization_pk,
                             head_code: f.head_code.trim().toUpperCase(), head_name: f.head_name.trim(), description: blank(f.description),
                             direction: f.direction, is_restricted: f.is_restricted, restriction_purpose: f.is_restricted ? f.restriction_purpose.trim() : null,
-                            required_fund_type: f.required_fund_type || null, display_order: Number(f.display_order) || 100, ...targets,
+                            required_fund_type: f.required_fund_type || null, ...targets,
                         });
                     }
                     this.finHeadForm = newHeadForm();
@@ -399,10 +425,17 @@
             finHeadsMultiOrg() { return new Set(this.finHeads.map((h) => h.organization_pk)).size > 1; },
             // "₹110.00 yearly" / "Any amount" for an income head with no fixed amount / "—" for money out.
             finHeadAmountLabel(h) {
+                const per = this.finHeadAmountPer(h);
+                return this.finHeadAmountMain(h) + (per ? " · " + per : "");
+            },
+            // The same label in two parts for the list (the figure on one line, "per financial year" under it)
+            finHeadAmountMain(h) {
                 if (h.direction !== "INCOME") return "—";
-                if (h.fixed_amount == null) return "Any amount";
-                const per = { YEARLY: "per financial year", MONTHLY: "per month", ONE_TIME: "one time" }[h.due_period] || "";
-                return NSS.formatMoney(h.fixed_amount) + (per ? " · " + per : "");
+                return h.fixed_amount == null ? "Any amount" : NSS.formatMoney(h.fixed_amount);
+            },
+            finHeadAmountPer(h) {
+                if (h.direction !== "INCOME" || h.fixed_amount == null) return "";
+                return { YEARLY: "per financial year", MONTHLY: "per month", ONE_TIME: "one time" }[h.due_period] || "";
             },
             async finHeadPortal(h, open) {
                 this.finHeadsError = "";
@@ -624,7 +657,7 @@
             finAcctOpenEdit(a) {
                 this.finAcctForm = {
                     ...newAcctForm(), show: true, mode: "edit", pk: a.financial_account_pk,
-                    organization: { ...emptyPicker(), selected: { organization_pk: a.organization_pk, organization_name: a.organization_name } },
+                    organization: pickerWith(a.organization_pk, a.organization_name),
                     account_label: a.account_label, account_type: a.account_type, bank_name: a.bank_name || "", branch_name: a.branch_name || "",
                     account_holder_name: a.account_holder_name, account_number_last4: a.account_number_last4 || "", ifsc_code: a.ifsc_code || "",
                     upi_vpa: a.upi_vpa || "", gateway_provider: a.gateway_provider || "", gateway_credential_ref: a.gateway_credential_ref || "",

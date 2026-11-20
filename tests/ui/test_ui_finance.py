@@ -187,10 +187,9 @@ class TestApiUsage:
             "FundCreate": ["fund_code", "fund_name", "fund_type", "financial_scope_pk", "is_restricted", "restriction_purpose", "organization_pk"],
             "YearCreate": ["start_year"],
             "HeadCreate": ["organization_pk", "head_code", "head_name", "description", "direction", "is_restricted", "restriction_purpose",
-                           "required_fund_type", "is_pranami", "allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk",
-                           "display_order"],
+                           "required_fund_type", "is_pranami", "allow_upi", "collection_scope_pk", "collection_fund_pk", "collection_account_pk"],
             "HeadUpdate": ["head_name", "description", "restriction_purpose", "is_pranami", "allow_upi", "collection_scope_pk",
-                           "collection_fund_pk", "collection_account_pk", "display_order"],
+                           "collection_fund_pk", "collection_account_pk"],
             "AccountCreate": ["organization_pk", "account_label", "account_type", "bank_name", "branch_name", "account_holder_name",
                               "account_number_last4", "ifsc_code", "upi_vpa", "gateway_provider", "gateway_credential_ref",
                               "gateway_merchant_ref", "is_default"],
@@ -410,7 +409,7 @@ class TestCustomizationAndCollectionScreens:
         pay = DASH_JS.split("async pranamiPayStart(h)")[1].split("_pranamiPayPoll(pk, tries) {")[0]
         assert "/api/v1/finance/my-pranami/pay" in pay and "sangha_sevi" not in pay and "person" not in pay
         card = _pranami_panel()
-        assert "Pay by UPI" in card and "x-show=\"pranami.view === 'pay' && pranamiPay.heads.length > 0 && !pranamiPay.result\"" in card
+        assert "Pay online" in card and "x-show=\"pranami.view === 'pay' && pranamiPay.heads.length > 0 && !pranamiPay.result\"" in card
 
 
 NODE = shutil.which("node")
@@ -539,6 +538,7 @@ class TestHeadsListScopeAndEdit:
         setup = _screen("finSetup")
         assert "<th>Scope</th>" in setup and 'x-text="h.collection_scope_code"' in setup and 'x-text="h.collection_scope_name"' in setup
         assert "Each Sakha's own scope" in setup and "finHeadOpenEdit(h)" in setup
+        assert "<th>Fund</th>" in setup and 'x-text="h.collection_fund_code"' in setup and 'x-text="h.collection_fund_name"' in setup
 
     def test_edit_sends_only_what_each_kind_of_head_may_change(self):
         js = (FE / "assets/js/finance-setup.js").read_text(encoding="utf-8")
@@ -588,3 +588,46 @@ class TestFundsTab:
     def test_creating_a_fund_names_its_scope_and_refreshes_the_tab_on_screen(self):
         assert 'financial_scope_pk: scopePk' in FIN_JS and "Choose the financial scope this fund belongs to." in FIN_JS
         assert 'if (entity === "fund" && this.activeTab === "finFunds")' in FIN_JS
+
+    def test_the_funds_tab_follows_the_admin_scope_sangha(self):
+        """A Sakha admin's admin scope names one Sangha: it is selected and locked (never asked); wider admins may search one Sangha."""
+        assert "const own = this.finSetupScopeOrg;" in FUNDS_JS and "this.corrSelectOrg(this.finFundsOrg, own)" in FUNDS_JS
+        assert "get finFundsOrgLocked() { return !!this.finSetupScopeOrg; }" in FUNDS_JS
+        assert "params.organization_pk = this.finFundsOrgPk" in FUNDS_JS and FUNDS_JS.count("organization_pk") >= 3
+        panel = ADMIN_HTML[ADMIN_HTML.index("activeTab === 'finFunds'\" x-cloak"):]
+        panel = panel[:panel.index("activeTab === 'finTransactions'")]
+        assert 'x-show="finFundsOrgLocked && finFundsOrg.selected"' in panel and 'x-show="!finFundsOrgLocked"' in panel
+        assert "finFundsOrgChanged()" in panel and "finFundsClearOrg()" in panel
+        assert "get finFundsDefaultScope()" in FUNDS_JS and "financial_scope_pk: this.finFundsDefaultScope" in FUNDS_JS
+
+    def test_a_single_sakha_admin_has_the_sangha_chosen_and_locked_in_every_finance_form(self):
+        """Owner 2026-11-20: an admin scoped to one Sakha has the Sangha selected for them, with no way to change it."""
+        for form in ("finScopeForm", "finFundForm", "finContribForm", "finEventForm"):
+            assert f'x-model="{form}.organization.query" :disabled="finSetupOrgLocked"' in ADMIN_HTML, form
+        assert "finHeadForm.mode === 'edit' || finSetupOrgLocked" in ADMIN_HTML and "finAcctForm.mode === 'edit' || finSetupOrgLocked" in ADMIN_HTML
+        assert ADMIN_HTML.count('x-show="!finSetupOrgLocked" @click="corrClearPicker(') == 3
+        assert "_finOwnOrgPicker(extra)" in FIN_JS and "organization: this._finOwnOrgPicker() }" in FIN_JS       # the scope form is prefilled
+        assert "this.finSetupScopeOrg ? this.finSetupScopeOrg.organization_pk" in FIN_JS                          # and the submit never trusts the picker
+
+    def test_an_edit_form_shows_the_sangha_name_in_its_text_box(self):
+        """Owner 2026-11-20: the Sangha name sits IN the box (query), not only in the hint under it."""
+        assert "const pickerWith = (pk, name) =>" in SETUP_JS and "query: pk ? (name || \"\") : \"\"" in SETUP_JS
+        assert "organization: pickerWith(h.organization_pk, h.organization_name)" in SETUP_JS        # edit finance head
+        assert "organization: pickerWith(a.organization_pk, a.organization_name)" in SETUP_JS        # edit receiving account
+        assert "selected: { organization_pk: a.organization_pk" not in SETUP_JS
+
+    def test_the_edit_form_always_offers_scope_and_fund_and_no_display_order(self):
+        """Owner 2026-11-20: scope and fund can be changed when editing a head (not only with UPI on); Display order is gone and lists sort by name."""
+        setup = _screen("finSetup")
+        assert "<h4 class=\"form-section-title\">Books into</h4>" in setup
+        assert "finHeadForm.kind === 'normal'" in setup                     # a copy / an all-Sakhas head have no scope of their own
+        assert 'x-model="finHeadForm.collection_scope_pk"' in setup and 'x-model="finHeadForm.collection_fund_pk"' in setup
+        assert "Where UPI collections go" in setup and "Money lands in account" in setup
+        assert "display_order" not in setup and "display_order" not in SETUP_JS and "Display order" not in setup
+
+    def test_a_head_can_be_deleted_only_when_unused_and_through_the_server(self):
+        setup = _screen("finSetup")
+        line = next(l for l in setup.splitlines() if "finHeadDelete(h)" in l)
+        assert "canConfigureFinance" in line and "!h.is_kendra_copy" in line and "!h.transaction_count" in line
+        assert 'this._finSend("DELETE", `/heads/${h.finance_head_pk}`)' in SETUP_JS
+        assert "NSSDialog.confirm(" in SETUP_JS.split("async finHeadDelete(h)", 1)[1].split("finHeadCancel()", 1)[0]

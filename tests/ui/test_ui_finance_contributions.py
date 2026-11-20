@@ -344,7 +344,7 @@ class TestThePaymentPageIsACheckout:
 
     def test_it_shows_the_summary_the_steps_and_every_outcome(self):
         panel = self._panel()
-        for needle in ("Amount to pay", "Paying to", "Paid by", "Payment reference", "Valid for", "Pay with your UPI app",
+        for needle in ("Amount to pay", "Paying to", "Paid by", "Payment reference", "Valid for", "Pay with UPI, a card or net banking",
                        "Payment received. Thank you!", "Payment did not go through", "Review", "Receipt", "pranamiExpiresIn()"):
             assert needle in panel, needle
 
@@ -418,13 +418,13 @@ class TestTheHeadsPageLayout:
 
     def test_the_table_shows_amount_and_portal_not_rule_badges(self):
         page = self._page()
-        for header in ("Head", "Amount members pay", "Payment portal"):
+        for header in ("Head", "Scope", "Fund", "Members pay", "Portal"):
             assert f"<th>{header}</th>" in page, header
         assert "finHeadRules(h)" not in page and "No approval needed" not in page
-        assert "finHeadAmountLabel(h)" in page and "Part payments allowed" in page
+        assert "finHeadAmountMain(h)" in page and "finHeadAmountPer(h)" in page and "Part payments allowed" in page
 
     def test_the_helpers_exist(self):
-        for fn in ("finHeadsShown()", "finHeadsPortalCount(open)", "finHeadsMultiOrg()", "finHeadAmountLabel(h)"):
+        for fn in ("finHeadsShown()", "finHeadsPortalCount(open)", "finHeadsMultiOrg()", "finHeadAmountLabel(h)", "finHeadAmountMain(h)", "finHeadAmountPer(h)"):
             assert fn in SETUP_JS, fn
 
 
@@ -589,3 +589,17 @@ class TestTheOpenPortalFormAsksForADueDate:
     def test_members_see_the_date_and_an_overdue_mark_and_admins_see_it_in_the_list(self):
         assert "(h.overdue ? 'Overdue — was due by ' : 'Due by ') + formatDate(h.due_date)" in DASH_HTML
         assert "'Due by ' + NSS.formatDate(h.due_date)" in ADMIN_HTML
+
+
+class TestAnUnfinishedPaymentHasClearButtons:
+    """Owner 2026-11-20: Resume payment and Cancel payment are real buttons in a visible panel, not small text links."""
+
+    def test_the_pending_panel_has_primary_resume_and_danger_cancel_buttons(self):
+        html = (FE / "dashboard.html").read_text(encoding="utf-8")
+        box = html[html.index('class="pend-box"'):]
+        box = box[:box.index("Pay together with others")]
+        assert 'class="btn-action primary" @click="pranamiResume(h)">Resume payment</button>' in box
+        assert 'class="btn-action danger"' in box and ">Cancel payment</button>" in box and "pranamiCancelRequest(h.pending_request_pk)" in box
+        assert 'class="link-action" @click="pranamiResume(h)"' not in html
+        # the waiting screen's Cancel is a danger button too
+        assert 'class="btn-action danger pay-btn" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(pranamiPay.result.upi_payment_request_pk)"' in html

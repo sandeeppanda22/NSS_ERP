@@ -14,13 +14,19 @@
     "use strict";
 
     const PAGE_SIZE = 25;
+    const emptyPicker = () => ({ query: "", results: [], searching: false, selected: null });
     const newFilters = () => ({ q: "", scope: "", type: "", status: "", restricted: "" });
 
     function financeFundsMixin() {
         return {
             finFundsAll: [], finFundsAllTotal: 0, finFundsAllLoading: false, finFundsAllError: "",
             finFundsFilter: newFilters(), finFundsPage: 1,
-            finFundScopes: [],                 // every scope the admin can see (the filter) - a new fund needs a DRAFT / ACTIVE one
+            finFundScopes: [],                 // the scopes of the chosen Sangha (or every scope the admin can see): the filter + a new fund's scope
+            // The Sangha whose funds are shown. A Sakha admin's admin scope names exactly one (finSetupScopeOrg, finance-setup.js): it is selected and
+            // locked, so the admin never picks (or can pick) another; wider admins may search one Sangha or leave it empty for all in their scope.
+            finFundsOrg: emptyPicker(),
+            get finFundsOrgPk() { return this.finFundsOrg.selected ? this.finFundsOrg.selected.organization_pk : ""; },
+            get finFundsOrgLocked() { return !!this.finSetupScopeOrg; },
 
             get finFundsPages() { return Math.max(1, Math.ceil(this.finFundsAllTotal / PAGE_SIZE)); },
             get finFundScopesOpen() { return this.finFundScopes.filter((s) => s.status === "DRAFT" || s.status === "ACTIVE"); },
@@ -33,21 +39,39 @@
                 const f = this.finFundsFilter;
                 return !!(f.q.trim() || f.scope || f.type || f.status || f.restricted);
             },
+            // The scope a new fund defaults to: the one being filtered on; else the Sangha's general scope (an ACTIVE ORGANIZATION one); else the only open scope.
+            get finFundsDefaultScope() {
+                if (this.finFundsFilter.scope) return this.finFundsFilter.scope;
+                const open = this.finFundScopesOpen;
+                const general = open.find((s) => s.status === "ACTIVE" && s.scope_type === "ORGANIZATION");
+                return general ? general.financial_scope_pk : (open.length === 1 ? open[0].financial_scope_pk : "");
+            },
 
             async finFundsEnter() {
                 this.finFundsFilter = newFilters(); this.finFundsPage = 1;
                 this.finFundForm = { ...this.finFundForm, show: false };
+                const own = this.finSetupScopeOrg;
+                if (own && this.finFundsOrgPk !== own.organization_pk) this.corrSelectOrg(this.finFundsOrg, own);
                 await Promise.all([this.finFundsLoadScopes(), this.finFundsLoadAll()]);
             },
             async finFundsLoadScopes() {
-                try { this.finFundScopes = (await this._finGet("/scopes", { page_size: 100 })).items; }
+                const params = { page_size: 100 };
+                if (this.finFundsOrgPk) params.organization_pk = this.finFundsOrgPk;
+                try { this.finFundScopes = (await this._finGet("/scopes", params)).items; }
                 catch { /* the filter and the form list stay empty; the server explains on save */ }
             },
+            // The Sangha was picked or cleared: its scopes replace the list, the scope filter resets, the funds are re-read.
+            async finFundsOrgChanged() {
+                this.finFundsFilter.scope = ""; this.finFundsPage = 1;
+                await Promise.all([this.finFundsLoadScopes(), this.finFundsLoadAll()]);
+            },
+            finFundsClearOrg() { this.corrClearPicker(this.finFundsOrg); return this.finFundsOrgChanged(); },
             async finFundsLoadAll(opts = {}) {
                 if (!opts.silent) { this.finFundsAllLoading = true; this.finFundsAllError = ""; }
                 const f = this.finFundsFilter;
                 const params = { page: this.finFundsPage, page_size: PAGE_SIZE };
                 if (f.q.trim()) params.q = f.q.trim();
+                if (this.finFundsOrgPk) params.organization_pk = this.finFundsOrgPk;
                 if (f.scope) params.financial_scope_pk = f.scope;
                 if (f.type) params.fund_type = f.type;
                 if (f.status) params.status = f.status;
@@ -69,7 +93,7 @@
 
             // "+ New fund": the shared fund form, with the scope chosen here (a fund belongs to exactly one scope)
             finFundsOpenNew() {
-                this.finFundForm = { ...this.finFundForm, show: true, financial_scope_pk: this.finFundsFilter.scope || "", error: "" };
+                this.finFundForm = { ...this.finFundForm, show: true, financial_scope_pk: this.finFundsDefaultScope, error: "", organization: this._finOwnOrgPicker({ typeCodes: NSS.SAKHA_LIKE_ORG_TYPES }) };
             },
         };
     }

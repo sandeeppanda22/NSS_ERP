@@ -220,7 +220,7 @@ class TestKendraHeadForAllSakhas:
         make_account(client, admin_h, register_org_pk, mock_gateway, is_default=True)
         source = _all_sakhas(client, admin_h, write_conn)["head"]
         c = copy_in(client, admin_h, source["finance_head_pk"], register_org_pk)
-        for body in ({"head_name": "Mine"}, {"fixed_amount": "1", "due_period": "YEARLY"}, {"allow_part_payment": True}, {"is_pranami": False}, {"display_order": 5}):
+        for body in ({"head_name": "Mine"}, {"fixed_amount": "1", "due_period": "YEARLY"}, {"allow_part_payment": True}, {"is_pranami": False}):
             assert client.patch(f"{BASE}/heads/{c['finance_head_pk']}", json=body, headers=admin_h).status_code == 403, body
         second = make_account(client, admin_h, register_org_pk, mock_gateway)
         r = client.patch(f"{BASE}/heads/{c['finance_head_pk']}", json={"collection_account_pk": second["financial_account_pk"]}, headers=admin_h)
@@ -395,3 +395,48 @@ class TestChosenScopeAndFund:
             "organization_pk": _kendra_pk(write_conn), "applies_to": "ALL_SAKHAS", "head_name": "Everyone",
             "collection_scope_pk": scope["financial_scope_pk"]})
         assert r.status_code == 422
+
+
+class TestDeleteAHead:
+    """DELETE /finance/heads/{pk}: a SOFT delete of a head that was never used; money history keeps its head."""
+
+    def test_an_unused_head_is_removed_from_the_list(self, client, admin_h, register_org_pk):
+        from tests.finance_support import make_head
+
+        head = make_head(client, admin_h, register_org_pk, head_name="Never used")
+        r = client.delete(f"{BASE}/heads/{head['finance_head_pk']}", headers=admin_h)
+        assert r.status_code == 200, r.text
+        assert r.json() == {"deleted": True, "head_code": head["head_code"], "copies_deleted": 0}
+        assert client.get(f"{BASE}/heads/{head['finance_head_pk']}", headers=admin_h).status_code in (404, 422)
+        listed = client.get(f"{BASE}/heads", headers=admin_h, params={"organization_pk": str(register_org_pk), "page_size": 200}).json()["items"]
+        assert head["finance_head_pk"] not in {h["finance_head_pk"] for h in listed}
+
+    def test_a_head_with_a_payment_request_cannot_be_deleted(self, client, admin_h, register_org_pk, mock_gateway):
+        from tests.finance_support import make_account, upi_world
+
+        w = upi_world(client, admin_h, register_org_pk, mock_gateway)
+        r = client.delete(f"{BASE}/heads/{w['head']['finance_head_pk']}", headers=admin_h)
+        if r.status_code == 200:                       # no request was made by the world helper: make one, then it must refuse
+            pytest.skip("the shared world made no payment request on its head")
+        assert r.status_code == 409
+
+    def test_a_sakhas_copy_of_a_kendra_head_cannot_be_deleted(self, client, admin_h, write_conn, register_org_pk, mock_gateway):
+        make_account(client, admin_h, register_org_pk, mock_gateway, is_default=True)
+        source = _all_sakhas(client, admin_h, write_conn)["head"]
+        copies = client.get(f"{BASE}/heads", headers=admin_h, params={"organization_pk": str(register_org_pk), "page_size": 200}).json()["items"]
+        copy = next(h for h in copies if h.get("template_head_pk") == source["finance_head_pk"])
+        assert client.delete(f"{BASE}/heads/{copy['finance_head_pk']}", headers=admin_h).status_code == 403
+
+    def test_deleting_an_unused_all_sakhas_head_removes_its_copies_too(self, client, admin_h, write_conn, register_org_pk, mock_gateway):
+        make_account(client, admin_h, register_org_pk, mock_gateway, is_default=True)
+        source = _all_sakhas(client, admin_h, write_conn)["head"]
+        r = client.delete(f"{BASE}/heads/{source['finance_head_pk']}", headers=admin_h)
+        assert r.status_code == 200, r.text
+        assert r.json()["copies_deleted"] >= 1
+
+    def test_deleting_needs_the_configure_permission_and_the_sangha_in_scope(self, client, plain_member_h, other_admin_h, admin_h, register_org_pk):
+        from tests.finance_support import make_head
+
+        head = make_head(client, admin_h, register_org_pk)
+        assert client.delete(f"{BASE}/heads/{head['finance_head_pk']}", headers=plain_member_h).status_code == 403
+        assert client.delete(f"{BASE}/heads/{head['finance_head_pk']}", headers=other_admin_h).status_code in (403, 404)

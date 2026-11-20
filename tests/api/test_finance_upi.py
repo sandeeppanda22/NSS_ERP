@@ -46,6 +46,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     sakha_admin,
     sakha_admin_h,
     sakha_pks,
+    closed_pranami,
     upi_world,
     viewer_h,
     viewer_user,
@@ -95,7 +96,7 @@ def event_rows(write_conn, request_pk):
 def booked_for(write_conn, request_reference):
     cur = write_conn.cursor()
     cur.execute("SELECT financial_transaction_pk, status, amount, created_by_sangha_sevi_pk, finance_head_pk, person_pk FROM nss.financial_transaction "
-                "WHERE description LIKE %s", (f"UPI {request_reference}%",))
+                "WHERE description LIKE %s", (f"Online payment {request_reference}%",))
     return cur.fetchall()
 
 
@@ -540,7 +541,7 @@ class TestMemberSelfService:
     def test_the_member_sees_the_contribution_cards_of_their_own_sakha_only(self, client, admin_h, register_org_pk, other_org_pk, mock_gateway, plain_member_h):
         mine = upi_world(client, admin_h, register_org_pk, mock_gateway)
         theirs = upi_world(client, admin_h, other_org_pk, mock_gateway)                                       # another Sakha
-        no_upi = make_head(client, admin_h, register_org_pk, is_pranami=True)                                  # Pranami but not UPI
+        no_upi = closed_pranami(client, admin_h, register_org_pk, mock_gateway)                                  # a Pranami whose portal is closed
         not_pranami = make_head(client, admin_h, register_org_pk, allow_upi=True, collection_scope_pk=mine["world"]["scope"]["financial_scope_pk"],
                                 collection_account_pk=mine["account"]["financial_account_pk"])                 # UPI but not Pranami
         cards = {h["finance_head_pk"]: h for h in client.get(f"{BASE}/my-pranami/heads", headers=plain_member_h).json()}

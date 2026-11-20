@@ -358,6 +358,29 @@ def transition_payment_request(request_pk: UUID, body: S.TransitionRequest, user
 # Turning a paid request into a posted transaction + receipt
 # ═══════════════════════════════════════════════════════════════════════
 
+# The method the payer used, as the gateway names it in its signed event -> our PAYMENT_METHOD value (UPI when nothing was reported, e.g. the MOCK
+# gateway; a method we have no value for is OTHER). CARD / NET_BANKING / WALLET come from seed/12_finance/01_finance_reference_data_patch.sql.
+_GATEWAY_METHODS = {"upi": "UPI", "card": "CARD", "netbanking": "NET_BANKING", "wallet": "WALLET"}
+
+
+def _paid_method_code(cur, request_pk) -> str:
+    cur.execute(
+        "SELECT payload->'payload'->'payment'->'entity'->>'method' FROM nss.finance_gateway_event "
+        "WHERE upi_payment_request_pk = %s AND signature_valid = TRUE AND event_type LIKE %s ORDER BY received_at DESC LIMIT 1",
+        (str(request_pk), "%paid%"))
+    row = cur.fetchone()
+    method = (row[0] or "").strip().lower() if row else ""
+    return _GATEWAY_METHODS.get(method, "OTHER") if method else "UPI"
+
+
+def _payment_method_pk(cur, code: str) -> str:
+    """The master-data row for *code*; OTHER when this database has not got the value yet (a build that predates CARD / NET_BANKING / WALLET)."""
+    try:
+        return get_master_data_pk(cur, "PAYMENT_METHOD", code)
+    except HTTPException:
+        return get_master_data_pk(cur, "PAYMENT_METHOD", "OTHER")
+
+
 def _book_one(cur, req: dict, year_pk, txn_date, *, head_pk, scope_pk, fund_pk, amount: Decimal, actor_pk, label: str = "") -> tuple:
     """
     Book ONE amount of a paid request: the books' own rules (open year, active scope, the head's rules), the POSTED transaction and its
@@ -367,7 +390,7 @@ def _book_one(cur, req: dict, year_pk, txn_date, *, head_pk, scope_pk, fund_pk, 
         cur, year_pk=year_pk, scope_pk=scope_pk, fund_pk=fund_pk, txn_date=txn_date, txn_type="INCOME", head_pk=head_pk, amount=amount,
     )
     reference = next_id(cur, "FINANCIAL_TRANSACTION")
-    description = f"UPI {req['request_reference']}{label}" + (f" - {req['note']}" if req["note"] else "")
+    description = f"Online payment {req['request_reference']}{label}" + (f" - {req['note']}" if req["note"] else "")
     cur.execute(
         """
         INSERT INTO nss.financial_transaction
@@ -390,7 +413,7 @@ def _book_one(cur, req: dict, year_pk, txn_date, *, head_pk, scope_pk, fund_pk, 
              payment_method_master_data_pk, instrument_reference, person_pk, status, created_by_sangha_sevi_pk)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'ISSUED', %s) RETURNING financial_receipt_pk
         """,
-        (receipt_number, str(txn_pk), txn_date, amount, req["payer_name"], get_master_data_pk(cur, "PAYMENT_METHOD", "UPI"),
+        (receipt_number, str(txn_pk), txn_date, amount, req["payer_name"], _payment_method_pk(cur, _paid_method_code(cur, req["upi_payment_request_pk"])),
          req["provider_payment_id"], str(req["payer_person_pk"]) if req["payer_person_pk"] else None, actor_pk),
     )
     receipt_pk = cur.fetchone()[0]
@@ -723,7 +746,7 @@ _CARDS_SQL = """
      WHERE h.is_active = TRUE AND h.status = 'ACTIVE' AND h.is_pranami = TRUE AND h.direction = 'INCOME' AND h.allow_upi = TRUE
        AND h.applies_to_all_sakhas = FALSE AND h.organization_pk = ANY(%s::uuid[])
        AND (h.collection_scope_pk IS NULL OR cs.financial_scope_pk IS NOT NULL)      -- a closed event / scope is hidden, not shown as unavailable
-     ORDER BY (h.organization_pk = %s::uuid) DESC, o.organization_name, h.display_order, h.head_name
+     ORDER BY (h.organization_pk = %s::uuid) DESC, LOWER(o.organization_name), LOWER(h.head_name), h.head_code
 """
 _CARD_FIELDS = ("finance_head_pk", "head_name", "description", "organization_pk", "organization_name", "is_kendra", "event_name",
                 "upi_vpa", "fixed_amount", "due_period", "due_date", "allow_part_payment")

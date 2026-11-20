@@ -146,7 +146,7 @@ def purposes(cur, basis: str | None = None) -> list[dict]:
           FROM nss.master_data md
           JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
          WHERE mc.category_code = %s AND md.is_active = TRUE
-         ORDER BY md.display_order, md.value_name
+         ORDER BY LOWER(md.value_name)
         """,
         (PURPOSE_CATEGORY,),
     )

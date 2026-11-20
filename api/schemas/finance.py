@@ -481,7 +481,6 @@ class HeadCreate(BaseModel):
     collection_scope_pk: UUID | None = None
     collection_fund_pk: UUID | None = None
     collection_account_pk: UUID | None = None
-    display_order: int = Field(100, ge=0, le=10000)
     skips_approval: bool = Field(False, description="INCOME only: a Sakha posts income on this head without the Treasurer / President approval")
     treasurer_limit: Amount | None = Field(None, description="EXPENSE only: what a Sakha's Treasurer may approve alone on this head")
     requires_member: bool = Field(False, description="EXPENSE only: a reimbursement head - the member who paid must be named on the entry")
@@ -497,7 +496,6 @@ class EventCreate(BaseModel):
     event_name: str = Field(..., min_length=1, max_length=150)
     description: str | None = Field(None, max_length=2000, description="Shown to members: dates, venue, what the contribution is for")
     collection_account_pk: UUID = Field(..., description="The Sangha's receiving account (with a gateway configured)")
-    display_order: int = Field(100, ge=0, le=10000)
 
 
 class HeadUpdate(BaseModel):
@@ -514,7 +512,6 @@ class HeadUpdate(BaseModel):
     collection_scope_pk: UUID | None = None
     collection_fund_pk: UUID | None = None
     collection_account_pk: UUID | None = None
-    display_order: int | None = Field(None, ge=0, le=10000)
     fixed_amount: Amount | None = None
     due_period: str | None = Field(None, description="YEARLY / MONTHLY / ONE_TIME; needed with a fixed amount")
     allow_part_payment: bool | None = None
@@ -542,10 +539,10 @@ class HeadResponse(BaseModel):
     collection_scope_name: str | None = None
     collection_fund_pk: UUID | None
     collection_fund_code: str | None
+    collection_fund_name: str | None = None
     collection_account_pk: UUID | None
     collection_account_label: str | None
     template_head_pk: UUID | None
-    display_order: int
     status: str
     transaction_count: int = 0
     fixed_amount: Decimal | None = None
@@ -559,6 +556,12 @@ class HeadResponse(BaseModel):
     is_kendra_copy: bool = False             # a Sakha's own copy of a Kendra all-Sakhas head (amount / name follow the Kendra)
     needs_account: bool = False              # a copy with no receiving account yet: members cannot pay it
     copy_count: int = 0                      # on an all-Sakhas source: how many Sakhas hold a copy
+
+
+class HeadDeleteResult(BaseModel):
+    deleted: bool = True
+    head_code: str
+    copies_deleted: int = Field(0, description="For a Kendra head for all Sakhas: how many Sakha copies were removed with it")
 
 
 class HeadListResponse(BaseModel):
@@ -588,7 +591,6 @@ class ContributionCreate(BaseModel):
     collection_account_pk: UUID | None = Field(None, description="Omit to use the Sangha's default receiving account; ignored for ALL_SAKHAS")
     collection_scope_pk: UUID | None = Field(None, description="The Sangha's ACTIVE financial scope the money is booked into; omit for its general scope (created when it has none). Not for ALL_SAKHAS (each Sakha uses its own)")
     collection_fund_pk: UUID | None = Field(None, description="Optional ACTIVE fund of that scope; needs collection_scope_pk")
-    display_order: int = Field(100, ge=0, le=10000)
     open_portal: bool = Field(True, description="False: create the head with its payment portal CLOSED (not in members' Pranami tab); open it later with POST /heads/{pk}/portal")
 
 

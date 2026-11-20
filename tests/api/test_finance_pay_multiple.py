@@ -32,6 +32,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     sakha_admin,
     sakha_admin_h,
     sakha_pks,
+    closed_pranami,
     upi_world,
     webhook,
 )
@@ -148,7 +149,7 @@ class TestTheRules:
 
     def test_one_unavailable_item_stops_the_whole_payment_and_creates_nothing(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h):
         a, b, _ = shared_heads(client, admin_h, register_org_pk, mock_gateway)["heads"]
-        no_upi = make_head(client, admin_h, register_org_pk, is_pranami=True)                  # a Pranami head that has no payment set up
+        no_upi = closed_pranami(client, admin_h, register_org_pk, mock_gateway)                  # a Pranami whose payment portal is closed
         before = client.get(f"{BASE}/payment-requests", params={"page_size": 100}, headers=admin_h).json()["total"]
         pay_multiple(client, plain_member_h, (a, "10.00"), (no_upi, "10.00"), expect=422)
         pay_multiple(client, plain_member_h, (a, "10.00"), (FAKE_UUID, "10.00"), expect=422)

@@ -287,6 +287,15 @@ def upi_world(client, admin_h_, org_pk, gw, *, restricted=False, **head_over) ->
     return {"world": w, "account": account, "head": head, "fund": fund}
 
 
+def closed_pranami(client, admin_h_, org_pk, gw) -> dict:
+    """A Pranami head whose payment portal was CLOSED (still member-visible history, not payable): every Pranami is created payable online
+    (owner 2026-11-20), so the only way to have one that is not is to open it and close the portal."""
+    head = upi_world(client, admin_h_, org_pk, gw)["head"]
+    r = client.post(f"{BASE}/heads/{head['finance_head_pk']}/portal", json={"open": False}, headers=admin_h_)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def ensure_open_year_covering_today(write_conn) -> None:
     """UPI payments are booked on the day they are paid, so an OPEN financial year must cover today (the seeded one lapses)."""
     today = _dt.date.today()

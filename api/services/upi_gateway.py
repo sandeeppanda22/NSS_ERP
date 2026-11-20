@@ -230,7 +230,7 @@ def build_mock_event(*, secret: str, order_id: str, kind: str = "payment.paid", 
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# RAZORPAY - Payment Links (UPI-only). UNVERIFIED against the live/sandbox API.
+# RAZORPAY - Payment Links (UPI, cards, net banking, wallets as enabled on the account). UNVERIFIED against the live/sandbox API.
 # ═══════════════════════════════════════════════════════════════════════
 
 class RazorpayProvider(Provider):
@@ -255,7 +255,7 @@ class RazorpayProvider(Provider):
     def create_order(self, *, creds, reference, amount, description, payer_name, expires_at, vpa, payee_name, merchant_ref):
         body = {
             "amount": to_paise(amount), "currency": "INR", "accept_partial": False, "reference_id": reference,
-            "description": description[:2000], "upi_link": True,
+            "description": description[:2000],      # no "upi_link": the hosted page offers every method enabled on the account (UPI, cards, net banking)
             "expire_by": int(expires_at.timestamp()),
             "notify": {"sms": False, "email": False}, "reminder_enable": False,
         }

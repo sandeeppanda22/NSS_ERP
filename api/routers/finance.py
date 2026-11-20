@@ -369,7 +369,7 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
               FROM nss.master_data md
               JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
              WHERE mc.category_code = 'PAYMENT_METHOD' AND md.is_active = TRUE
-             ORDER BY md.display_order, md.value_name
+             ORDER BY LOWER(md.value_name)
             """
         )
         methods = [{"code": r[0], "name": r[1]} for r in cur.fetchall()]
@@ -493,7 +493,7 @@ def summary(
               FROM nss.fund_master fm
               JOIN nss.financial_scope fs ON fs.financial_scope_pk = fm.financial_scope_pk
              WHERE {' AND '.join(fund_where)}
-             ORDER BY fs.scope_code, fm.fund_code
+             ORDER BY LOWER(fm.fund_name), fm.fund_code
             """,
             fund_params,
         )
@@ -725,7 +725,7 @@ def list_scopes(
         where_sql = " AND ".join(where)
         cur.execute(f"SELECT COUNT(*) {_SCOPE_FROM} WHERE {where_sql}", params)
         total = cur.fetchone()[0]
-        cur.execute(_SCOPE_SELECT + f" WHERE {where_sql} ORDER BY fs.scope_code LIMIT %s OFFSET %s",
+        cur.execute(_SCOPE_SELECT + f" WHERE {where_sql} ORDER BY LOWER(fs.scope_name), fs.scope_code LIMIT %s OFFSET %s",
                     params + [page_size, (page - 1) * page_size])
         return _paged(_fetch_all(cur), total, page, page_size)
 
@@ -857,6 +857,7 @@ def _require_sakha(cur, organization_pk) -> None:
 def list_funds(
     q: str | None = Query(None, description="Matches fund code or name"),
     financial_scope_pk: UUID | None = Query(None),
+    organization_pk: UUID | None = Query(None, description="Only the funds of this Sangha's financial scopes (still inside the caller's admin scope)"),
     fund_type: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
     is_restricted: bool | None = Query(None),
@@ -870,6 +871,8 @@ def list_funds(
         where = ["fm.is_active = TRUE", vis]
         if financial_scope_pk:
             where.append("fm.financial_scope_pk = %s"); params.append(str(financial_scope_pk))
+        if organization_pk:
+            where.append("fs.organization_pk = %s"); params.append(str(organization_pk))
         if fund_type:
             where.append("fm.fund_type = %s"); params.append(fund_type)
         if status_filter:
@@ -881,7 +884,7 @@ def list_funds(
         where_sql = " AND ".join(where)
         cur.execute(f"SELECT COUNT(*) {_FUND_FROM} WHERE {where_sql}", params)
         total = cur.fetchone()[0]
-        cur.execute(_FUND_SELECT + f" WHERE {where_sql} ORDER BY fs.scope_code, fm.fund_code LIMIT %s OFFSET %s",
+        cur.execute(_FUND_SELECT + f" WHERE {where_sql} ORDER BY LOWER(fm.fund_name), fm.fund_code LIMIT %s OFFSET %s",
                     params + [page_size, (page - 1) * page_size])
         return _paged(_fetch_all(cur), total, page, page_size)
 

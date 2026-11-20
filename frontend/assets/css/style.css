@@ -225,3 +225,20 @@
 .seg button:last-child { border-right: 0; }
 .seg button:hover { background: #f1f5f9; }
 .seg button.is-on { background: #0D7377; color: #fff; font-weight: 600; }
+/* Heads list (owner 2026-11-20): keep the figure and the buttons on one line each and let a narrow screen scroll sideways instead of squeezing */
+.fh-table .admin-table { min-width: 46rem; }
+.fh-table .admin-table th { white-space: nowrap; }
+.fh-amount { white-space: nowrap; }
+.fh-actions { display: flex; justify-content: flex-end; flex-wrap: nowrap; gap: 0.4rem; }
+.fh-actions .btn-action { white-space: nowrap; }
+
+/* A payment the member started and did not finish: a clear amber panel with Resume (primary) and Cancel (red) as real buttons (owner 2026-11-20) */
+.pend-box { margin-top: 0.7rem; padding: 0.85rem 1rem; background: #fffbeb; border: 1px solid #fcd34d; border-left: 4px solid #f59e0b; border-radius: 0.6rem;
+            display: flex; flex-direction: column; gap: 0.7rem; }
+.pend-box__msg { display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.8rem; color: #78350f; }
+.pend-box__msg > div { display: flex; flex-direction: column; gap: 0.1rem; }
+.pend-box__msg strong { font-size: 0.9rem; color: #78350f; }
+.pend-box__actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.pend-box__actions .btn-action { flex: 1 1 8rem; justify-content: center; padding: 0.55rem 1rem; font-size: 0.85rem; font-weight: 600; }
+.pend-box .btn-action.danger, .pay-buttons .btn-action.danger { color: #b91c1c; border-color: #fca5a5; background: #fff; }
+.pend-box .btn-action.danger:hover, .pay-buttons .btn-action.danger:hover { background: #fef2f2; border-color: #f87171; }

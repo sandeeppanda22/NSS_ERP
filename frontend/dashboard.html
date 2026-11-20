@@ -4662,11 +4662,21 @@
                                                 <div style="font-size: 0.78rem; color: #374151; margin-top: 0.3rem;" x-show="h.fixed_amount == null && Number(h.paid_amount) > 0">
                                                     Paid so far <b x-text="NSS.formatMoney(h.paid_amount)"></b>
                                                 </div>
-                                                <div style="font-size: 0.72rem; color: #b45309; margin-top: 0.3rem;" x-show="Number(h.pending_amount) > 0"
+                                                <div style="font-size: 0.72rem; color: #b45309; margin-top: 0.3rem;" x-show="Number(h.pending_amount) > 0 && !h.pending_request_pk"
                                                      x-text="NSS.formatMoney(h.pending_amount) + ' is waiting for the bank to confirm.'"></div>
-                                                <div class="pay-card-links" x-show="Number(h.pending_amount) > 0 && h.pending_request_pk">
-                                                    <button type="button" class="link-action" @click="pranamiResume(h)">Resume payment</button>
-                                                    <button type="button" class="link-action" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(h.pending_request_pk)">Cancel this payment</button>
+                                                <!-- A payment started but not finished: the two things the member can do about it, as real buttons -->
+                                                <div class="pend-box" x-show="Number(h.pending_amount) > 0 && h.pending_request_pk">
+                                                    <div class="pend-box__msg">
+                                                        <span class="pay-pulse"></span>
+                                                        <div>
+                                                            <strong x-text="NSS.formatMoney(h.pending_amount) + ' payment in progress'"></strong>
+                                                            <span>It is waiting for the bank to confirm. Finish it, or cancel it to start again.</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="pend-box__actions">
+                                                        <button type="button" class="btn-action primary" @click="pranamiResume(h)">Resume payment</button>
+                                                        <button type="button" class="btn-action danger" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(h.pending_request_pk)">Cancel payment</button>
+                                                    </div>
                                                 </div>
                                                 <label class="flex items-center gap-2" style="font-size: 0.75rem; color: #374151; margin-top: 0.5rem;" x-show="pranamiCardCanPay(h)">
                                                     <input type="checkbox" :checked="!!pranamiPay.selected[h.finance_head_pk]" :disabled="pranamiSelectDisabled(h)" @change="pranamiToggle(h)">
@@ -4680,7 +4690,7 @@
                                                                @keydown.enter="pranamiPayStart(h)">
                                                     </div>
                                                     <button class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiPayStart(h)"
-                                                            x-text="pranamiPay.saving ? 'Starting…' : (pranamiCardAsksAmount(h) ? 'Pay by UPI' : 'Pay ' + NSS.formatMoney(h.due_amount))"></button>
+                                                            x-text="pranamiPay.saving ? 'Starting…' : (pranamiCardAsksAmount(h) ? 'Pay online' : 'Pay ' + NSS.formatMoney(h.due_amount))"></button>
                                                 </div>
                                                 <p style="font-size: 0.72rem; color: #9ca3af; margin-top: 0.5rem;" x-show="!h.payable" x-text="h.unavailable_reason"></p>
                                             </div>
@@ -4748,12 +4758,12 @@
                                 <div class="pay-action">
                                     <!-- WAITING -->
                                     <div x-show="pranamiPay.result && ['CREATED','PENDING'].includes(pranamiPay.result.status)">
-                                        <h3 class="pay-title">Pay with your UPI app</h3>
-                                        <p class="pay-muted">Open any UPI app (Google Pay, PhonePe, Paytm, BHIM ...), approve the request and enter your UPI PIN. This page updates by itself once the bank confirms.</p>
+                                        <h3 class="pay-title">Pay with UPI, a card or net banking</h3>
+                                        <p class="pay-muted">Use a UPI app (Google Pay, PhonePe, Paytm, BHIM ...) or open the payment page to pay by card or net banking. This page updates by itself once the bank confirms.</p>
                                         <div class="pay-buttons">
                                             <template x-if="pranamiSafeUpi(pranamiPay.result && pranamiPay.result.upi_uri)"><a class="btn-action primary pay-btn" :href="pranamiSafeUpi(pranamiPay.result.upi_uri)">Pay with UPI app</a></template>
                                             <template x-if="pranamiSafeUrl(pranamiPay.result && pranamiPay.result.pay_url)"><a class="btn-action primary pay-btn" :href="pranamiSafeUrl(pranamiPay.result.pay_url)" target="_blank" rel="noopener noreferrer">Open payment page</a></template>
-                                            <button type="button" class="btn-action" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(pranamiPay.result.upi_payment_request_pk)">Cancel payment</button>
+                                            <button type="button" class="btn-action danger pay-btn" :disabled="pranamiPay.saving" @click="pranamiCancelRequest(pranamiPay.result.upi_payment_request_pk)">Cancel payment</button>
                                         </div>
                                         <div class="pay-waiting"><span class="pay-pulse"></span> Waiting for confirmation from your bank…</div>
 

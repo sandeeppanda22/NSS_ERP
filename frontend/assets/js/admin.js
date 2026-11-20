@@ -3699,6 +3699,13 @@ function adminApp() {
             return mt.value_code === "PROBATIONARY" ? "Anumati Patra" : "Parichaya Patra";
         },
 
+        // The one Sakha a scoped admin is locked to, by name (shown in a read-only box on the member-attach forms).
+        get sakhaLockedName() {
+            const pk = this.sakhaScope.auto_select_pk;
+            const hit = (this.sakhaScope.sakhas || []).find(o => o.organization_pk === pk);
+            return hit ? hit.organization_name : "";
+        },
+
         // Sakha orgs only (for SS creation dropdown), scoped by admin's org
         get sakhaOrgs() {
             const allSakha = this.organizations.filter(
