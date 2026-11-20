@@ -165,6 +165,57 @@ $total = 0
 $failed = 0
 $skipped = 0
 
+# -- Table report (twin of database/scripts/schema_report.sh) --
+# The build summary says which tables this run created / skipped / altered: compare the schema before and after.
+# A snapshot is one line per table of schema nss (columns, constraints, indexes, triggers) from schema_snapshot.sql. Information only: a
+# snapshot that cannot be taken is empty and never fails the build.
+$SchemaSnapshotSql = Join-Path $PSScriptRoot "schema_snapshot.sql"
+function Get-SchemaSnapshot {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $out = & psql -h $DbHost -p $DbPort -U $DbUser -d $DbName -v ON_ERROR_STOP=1 -qAtX -F '|' -f $SchemaSnapshotSql 2>$null
+    $ok = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prevEap
+    $snap = @{}
+    if ($ok) {
+        foreach ($line in $out) {
+            $p = "$line".Split('|')
+            if ($p.Count -ge 5) { $snap[$p[0]] = @([int]$p[1], [int]$p[2], [int]$p[3], [int]$p[4]) }
+        }
+    }
+    return $snap
+}
+
+function Write-SchemaReport {
+    param($Before, $After, [int]$Limit = 40)
+    $created = @($After.Keys | Where-Object { -not $Before.ContainsKey($_) } | Sort-Object)
+    $altered = @()
+    $words = @(@('column', 'columns'), @('constraint', 'constraints'), @('index', 'indexes'), @('trigger', 'triggers'))
+    foreach ($t in ($After.Keys | Sort-Object)) {
+        if (-not $Before.ContainsKey($t)) { continue }
+        $d = @()
+        for ($i = 0; $i -lt 4; $i++) {
+            $n = $After[$t][$i] - $Before[$t][$i]
+            if ($n -ne 0) {
+                $w = if ([math]::Abs($n) -eq 1) { $words[$i][0] } else { $words[$i][1] }
+                $sign = if ($n -gt 0) { "+" } else { "" }
+                $d += "$sign$n $w"
+            }
+        }
+        if ($d.Count -gt 0) { $altered += "$t  ($($d -join ', '))" }
+    }
+    Write-Host "  Tables in schema nss: $($After.Count) (before this run: $($Before.Count))"
+    Write-Host "  Tables created now:   $($created.Count)"
+    $created | Select-Object -First $Limit | ForEach-Object { Write-Host "      + $_" }
+    if ($created.Count -gt $Limit) { Write-Host "      ... and $($created.Count - $Limit) more" }
+    Write-Host "  Tables already there: $($Before.Count)  (DDL skipped, data preserved)"
+    Write-Host "  Tables altered:       $($altered.Count)  (columns / constraints / indexes / triggers added by the patches)"
+    $altered | Select-Object -First $Limit | ForEach-Object { Write-Host "      ~ $_" }
+    if ($altered.Count -gt $Limit) { Write-Host "      ... and $($altered.Count - $Limit) more" }
+}
+
+$SchemaBefore = Get-SchemaSnapshot
+
 function Invoke-Sql {
     param([string]$Label, [string]$File)
     $script:total++
@@ -814,6 +865,9 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "  Scripts executed: $total"
 Write-Host "  Skipped:          $skipped  (already existed)"
 Write-Host "  Failed:           $failed"
+Write-Host ""
+Write-Host "  TABLES" -ForegroundColor Cyan
+Write-SchemaReport $SchemaBefore (Get-SchemaSnapshot)
 Write-Host ""
 
 if ($failed -eq 0) {

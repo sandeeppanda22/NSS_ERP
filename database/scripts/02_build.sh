@@ -188,6 +188,13 @@ total=0
 failed=0
 skipped=0
 
+# The build summary reports which tables this run created / skipped / altered: compare the schema before and after (schema_report.sh).
+# shellcheck source=schema_report.sh
+. "${SCRIPT_DIR}/schema_report.sh"
+SCHEMA_BEFORE="$(mktemp)"; SCHEMA_AFTER="$(mktemp)"
+trap 'rm -f "${SCHEMA_BEFORE}" "${SCHEMA_AFTER}"' EXIT
+schema_snapshot_to "${SCHEMA_BEFORE}"
+
 run_sql() {
     local label="$1"
     local file="$2"
@@ -933,6 +940,10 @@ echo -e "${CYAN}=============================================${NC}"
 echo -e "  Scripts executed: ${total}"
 echo -e "  Skipped:          ${skipped}  (already existed)"
 echo -e "  Failed:           ${failed}"
+echo ""
+schema_snapshot_to "${SCHEMA_AFTER}"
+echo -e "${CYAN}  TABLES${NC}"
+schema_report "${SCHEMA_BEFORE}" "${SCHEMA_AFTER}"
 echo ""
 
 if [ "$failed" -eq 0 ]; then

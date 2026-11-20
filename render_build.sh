@@ -239,6 +239,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DDL_BASE="${REPO_ROOT}/database/ddl"
 SEED_BASE="${REPO_ROOT}/database/seed"
 
+# The build log ends with which tables this run created / skipped / altered: compare the schema before and after (schema_report.sh).
+# shellcheck source=database/scripts/schema_report.sh
+. "${REPO_ROOT}/database/scripts/schema_report.sh"
+SCHEMA_BEFORE="$(mktemp)"; SCHEMA_AFTER="$(mktemp)"
+trap 'rm -f "${SCHEMA_BEFORE}" "${SCHEMA_AFTER}"' EXIT
+schema_snapshot_to "${SCHEMA_BEFORE}"
+
 run_sql() {
     local label="$1"
     local file="$2"
@@ -695,5 +702,9 @@ run_sql "audit_trigger"     "${DDL_BASE}/01_foundation/15_audit_trigger.sql"
 
 echo ""
 echo "=== Database bootstrap complete (Neon.dev) ==="
+echo ""
+echo "--- Tables: created / already present / altered by this run ---"
+schema_snapshot_to "${SCHEMA_AFTER}"
+schema_report "${SCHEMA_BEFORE}" "${SCHEMA_AFTER}"
 echo ""
 echo "=== Build finished ==="
