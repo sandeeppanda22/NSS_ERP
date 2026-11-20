@@ -59,12 +59,14 @@ class TestAdminContributionForm:
         body = _between(SETUP_JS, "async finContribSubmit()", "// A Sakha's copy of a Kendra contribution")
         assert '"/contributions"' in body
         contribution = body.split('"/contributions"', 1)[1]            # the income path; the expense path posts a plain head first
-        sent = set(re.findall(r"\b(organization_pk|applies_to|head_name|description|fixed_amount|due_period|allow_part_payment|collection_account_pk|open_portal):", contribution))
-        assert sent == {"organization_pk", "applies_to", "head_name", "description", "fixed_amount", "due_period", "allow_part_payment", "collection_account_pk", "open_portal"}
+        sent = set(re.findall(r"\b(organization_pk|applies_to|head_name|description|fixed_amount|due_period|allow_part_payment|collection_account_pk|collection_scope_pk|collection_fund_pk|open_portal):", contribution))
+        assert sent == {"organization_pk", "applies_to", "head_name", "description", "fixed_amount", "due_period", "allow_part_payment", "collection_account_pk",
+                        "collection_scope_pk", "collection_fund_pk", "open_portal"}
         assert sent <= set(ContributionCreate.model_fields)
         assert "open_portal: false" in contribution, "a new head starts with its payment portal closed"
-        # no scope or UPI flag from the browser: the server decides those
-        for forbidden in ("collection_scope_pk", "allow_upi", "is_pranami", "is_restricted"):
+        # the scope / fund are the person's OPTIONAL choice (empty = the server uses the Sangha's general scope; owner 2026-11-20); the UPI and
+        # Pranami flags stay the server's decision
+        for forbidden in ("allow_upi", "is_pranami", "is_restricted"):
             assert forbidden not in body, forbidden
         expense = body.split('"/contributions"', 1)[0]
         assert 'direction: "EXPENSE"' in expense and "/heads" in expense

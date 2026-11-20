@@ -126,6 +126,23 @@ class TestMemberList:
         data = client.get(f"{BASE}/members").json()
         assert data["total"] >= len(data["members"])
 
+    def test_status_counts_add_up_to_the_total(self, client):
+        """The Member Directory tiles: one count per status, and together they equal `total` when no status filter is set."""
+        data = client.get(f"{BASE}/members").json()
+        counts = data["status_counts"]
+        assert all(set(c) == {"status_code", "status_name", "count"} for c in counts)
+        assert sum(c["count"] for c in counts) == data["total"]
+
+    def test_status_counts_ignore_the_status_filter(self, client):
+        """Filtering by one status narrows `total` and the rows but not the tiles (they show the whole distribution)."""
+        everyone = client.get(f"{BASE}/members").json()
+        if not everyone["status_counts"]:
+            pytest.skip("no members in this database")
+        code = everyone["status_counts"][0]["status_code"]
+        narrowed = client.get(f"{BASE}/members", params={"status_code": code}).json()
+        assert narrowed["status_counts"] == everyone["status_counts"]
+        assert narrowed["total"] == everyone["status_counts"][0]["count"]
+
     def test_list_total_unaffected_by_limit(self, client):
         """Asking for a smaller page must not shrink the reported total."""
         full = client.get(f"{BASE}/members").json()

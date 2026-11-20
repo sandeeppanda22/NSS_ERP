@@ -81,7 +81,23 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
 // Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
-const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers", "finSetup", "finCollections"];
+const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"];
+
+// The title in the top banner for every admin-console tab (one list: it used to be written out twice in admin.html, and eighteen tabs were in neither).
+// orgDashboard is named after the organization on screen (currentTabLabel below); a tab missing here falls back to "Administration".
+const ADMIN_TAB_LABELS = {
+    users: "User Accounts", detail: "User Detail", create: "Create Person & Account", createSS: "Create Sangha Sevi", password: "Change Password",
+    organizations: "Organizations", createOrg: "Create Organization", claims: "Registration Approvals", changeRequests: "Sakha Transfer / Darshak",
+    personDir: "Person Directory", memberDir: "Member Directory", orgHierarchy: "Organization Hierarchy", assignSakha: "Assign Sakhas to Anchalika/Zilla",
+    refData: "Reference Data", geography: "Geography", geoApprovals: "Location Approvals", sysSettings: "System Settings", credentials: "Member Credentials",
+    correspondence: "Correspondence",
+    govBodies: "Governance Bodies", govAssignments: "Governance Assignments", govElections: "Elections", govCatalog: "Body Types & Positions",
+    attPujas: "Weekly Sangha Puja", attReviews: "Attendance Reviews", attWatchList: "Watch List & Stats",
+    properties: "Properties", assets: "Assets",
+    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finFunds: "Finance Funds", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
+    finCollections: "UPI Collections", finSetup: "Finance Heads",
+    auditEvents: "System Event Log", liveMarkers: "Live Change Markers",
+};
 
 // LIVE_TABLE_TABS:begin
 const LIVE_TABLE_TABS = {
@@ -114,8 +130,8 @@ const LIVE_TABLE_TABS = {
     asset_document: ["assets"],
     // Finance (Tier 12)
     financial_year: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
-    financial_scope: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
-    fund_master: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    financial_scope: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
+    fund_master: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     financial_transaction: ["finOverview", "finTransactions"],
     financial_receipt: ["finTransactions"],
     financial_payment: ["finTransactions"],
@@ -215,6 +231,7 @@ const LIVE_REFRESH_CONFIG = {
         assets: { reload: (h) => h.apLiveReload(), busy: (h) => h.apLiveBusy() },
         finOverview: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finFunds: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finSetup: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
@@ -303,7 +320,7 @@ function adminApp() {
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -398,7 +415,10 @@ function adminApp() {
         relationships: [],
 
         // ── Profile Details edit (admin Detail view) ──────────
+        mdTab: "status",                // Member Directory: which pane of the opened member is showing
         profileEdit: {
+            // `open` + `personPk`/`personName`: ONE Profile Details dialog for any person (User Detail, Person Directory, Member Directory) - a person need not have an account
+            open: false, personPk: null, personName: "",
             loading: false, saving: false, editing: false,
             error: null, saveError: null,
             form: {
@@ -1778,6 +1798,7 @@ function adminApp() {
                     assets: () => { if (this.canViewAssets) this.apEnterTab(); },
                     finOverview: () => { if (this.canViewFinance) this.finEnterTab("finOverview"); },
                     finStructure: () => { if (this.canViewFinance) this.finEnterTab("finStructure"); },
+                    finFunds: () => { if (this.canViewFinance) this.finEnterTab("finFunds"); },
                     finTransactions: () => { if (this.canViewFinance) this.finEnterTab("finTransactions"); },
                     finTransfers: () => { if (this.canViewFinance) this.finEnterTab("finTransfers"); },
                     finSetup: () => { if (this.canViewFinance) this.finEnterTab("finSetup"); },
@@ -1979,7 +2000,6 @@ function adminApp() {
                 const res = await NSSAuth.apiFetch(`/api/v1/admin/users/${userAccountPk}`);
                 if (!res.ok) throw new Error(await NSS.extractError(res));
                 this.selectedUser = await res.json();
-                this.loadProfileEdit(this.selectedUser.person_pk);
             } catch (err) {
                 this.detailError = err.message || "Failed to load user detail.";
             } finally {
@@ -3007,6 +3027,21 @@ function adminApp() {
 
         // ── Profile Details edit (admin Detail view) ──────────
 
+        // Opens the shared Profile Details dialog for any person.
+        openProfile(personPk, personName) {
+            this.profileEdit.open = true;
+            this.profileEdit.personPk = personPk;
+            this.profileEdit.personName = personName || "";
+            this.loadProfileEdit(personPk);
+        },
+
+        closeProfile() {
+            this.profileEdit.open = false;
+            this.profileEdit.editing = false;
+            this.profileEdit.aadhaar.input = "";
+            this.profileEdit.aadhaar.clear = false;
+        },
+
         async loadProfileEdit(personPk) {
             this.profileEdit.loading = true;
             this.profileEdit.error = null;
@@ -3056,11 +3091,11 @@ function adminApp() {
             this.profileEdit.saveError = null;
             this.profileEdit.aadhaar.input = "";
             this.profileEdit.aadhaar.clear = false;
-            if (this.selectedUser) this.loadProfileEdit(this.selectedUser.person_pk);
+            if (this.profileEdit.personPk) this.loadProfileEdit(this.profileEdit.personPk);
         },
 
         async saveProfile() {
-            if (!this.selectedUser) return;
+            if (!this.profileEdit.personPk) return;
             const f = this.profileEdit.form;
             if (!f.first_name || !f.first_name.trim()) {
                 this.profileEdit.saveError = "First name is required.";
@@ -3094,7 +3129,7 @@ function adminApp() {
                 // Blank = no change (key omitted); "Clear stored Aadhaar" sends "".
                 const aadhaarValue = NSS.aadhaar.payloadValue(this.profileEdit.aadhaar.input, this.profileEdit.aadhaar.clear);
                 if (aadhaarValue !== undefined) payload.aadhaar_number = aadhaarValue;
-                const res = await NSSAuth.apiFetch(`/api/v1/admin/persons/${this.selectedUser.person_pk}`, {
+                const res = await NSSAuth.apiFetch(`/api/v1/admin/persons/${this.profileEdit.personPk}`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload),
@@ -3103,10 +3138,12 @@ function adminApp() {
                 this.profileEdit.editing = false;
                 this.profileEdit.aadhaar.input = "";
                 this.profileEdit.aadhaar.clear = false;
-                // Name/contact also surface on the Account Details card and
-                // the Users list — viewUser() refreshes both, and triggers
-                // loadProfileEdit() itself for this card too.
-                await this.viewUser(this.selectedUser.user_account_pk);
+                // The name/contact also show in the open User Detail, the Users list and the directories: re-read what is on screen
+                // (the directories follow the live feed on their own).
+                const personPk = this.profileEdit.personPk;
+                await this.loadProfileEdit(personPk);
+                this.profileEdit.personName = [this.profileEdit.form.first_name, this.profileEdit.form.middle_name, this.profileEdit.form.last_name].filter(Boolean).join(" ");
+                if (this.selectedUser && this.selectedUser.person_pk === personPk) await this.viewUser(this.selectedUser.user_account_pk);
                 this.fetchUsers();
                 this.showToast("Profile updated.");
             } catch (err) {
@@ -3593,6 +3630,12 @@ function adminApp() {
             return DASHBOARD_LEVELS
                 .map(lvl => ({ ...lvl, orgs: this.dashboardOrgsFor(lvl.typeCode) }))
                 .filter(lvl => lvl.orgs.length > 0);
+        },
+
+        // The top banner's title for whichever tab is open (both the mobile and the desktop banner read this).
+        get currentTabLabel() {
+            if (this.activeTab === "orgDashboard") return this.viewingOrgDashboardLabel;
+            return ADMIN_TAB_LABELS[this.activeTab] || "Administration";
         },
 
         // Topbar title for the org-dashboard tab — named after the org
@@ -4835,6 +4878,7 @@ function adminApp() {
         mdSearch: "",
         mdTypeFilter: "",
         mdStatusFilter: "",
+        mdStatusCounts: [],              // [{status_code, status_name, count}] under the current filters except the status one
         mdOrgTypeFilter: "",
         mdOrgFilter: "",
         mdTypeOptions: [],
@@ -5035,12 +5079,35 @@ function adminApp() {
                 if (seq !== this._mdSeq) return;
                 this.mdMembers = data.members;
                 this.mdTotal = data.total;
+                this.mdStatusCounts = data.status_counts || [];
                 if (opts.silent && this.mdSelected) await this._mdReloadSelected();
             } catch (err) {
                 if (!opts.silent && seq === this._mdSeq) this.mdError = err.message || "Failed to load members.";
             } finally {
                 if (seq === this._mdSeq && !opts.silent) this.mdLoading = false;
             }
+        },
+
+        // Count tiles above the Member Directory: the total of all statuses plus one tile per status, in the filter dropdown's order.
+        get mdAllStatusesTotal() {
+            return this.mdStatusCounts.reduce((n, c) => n + c.count, 0);
+        },
+        get mdStatusTiles() {
+            // Every status of the filter dropdown gets a tile, with 0 when nobody holds it; a status the server counted that is not in the
+            // dropdown (should not happen) still gets its own tile after them.
+            const counted = new Map(this.mdStatusCounts.map(c => [c.status_code, c]));
+            const tiles = this.mdStatusOptions.map(o => ({
+                status_code: o.value_code,
+                status_name: o.value_name,
+                count: counted.has(o.value_code) ? counted.get(o.value_code).count : 0,
+            }));
+            const known = new Set(tiles.map(t => t.status_code));
+            return tiles.concat(this.mdStatusCounts.filter(c => !known.has(c.status_code)));
+        },
+        // Clicking a tile filters the list to that status (the "Total" tile clears the filter).
+        mdPickStatus(code) {
+            this.mdStatusFilter = this.mdStatusFilter === code ? "" : code;
+            this.fetchMemberDirectory();
         },
 
         // Live refresh of the open Member Directory detail row (keeps it open).
@@ -5142,6 +5209,7 @@ function adminApp() {
             }
             this.msOverview = null;
             this.msForm.show = false;
+            this.mdTab = "status";
             this.mdSelected = member;
             this.msLoad(member.sangha_sevi_pk);
             this.mdAffiliations = [];
@@ -9440,5 +9508,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    }))))), LIVE_REFRESH_CONFIG);
+    })))))), LIVE_REFRESH_CONFIG);
 }

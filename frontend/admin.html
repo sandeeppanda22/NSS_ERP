@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="/assets/css/nss-layout.css">
     <link rel="stylesheet" href="/assets/css/nss-datepicker.css">
     <link rel="stylesheet" href="/assets/css/nss-combobox.css">
+    <link rel="stylesheet" href="/assets/css/nss-theme.css">
     <script src="/assets/js/nss-config.js"></script>
     <script src="/assets/js/nss-location.js"></script>
     <script src="/assets/js/nss-dialog.js"></script>
@@ -27,6 +28,7 @@
     <script src="/assets/js/assets-property.js"></script>
     <script src="/assets/js/finance.js"></script>
     <script src="/assets/js/finance-setup.js"></script>
+    <script src="/assets/js/finance-funds.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
     <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
@@ -428,7 +430,7 @@
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
-<body x-data="adminApp()">
+<body class="nss-theme" x-data="adminApp()">
 
     <!-- Mobile overlay -->
     <div class="sidebar-overlay" :class="{ open: sidebarOpen }" @click="sidebarOpen = false"></div>
@@ -903,6 +905,12 @@
                                 </svg>
                                 Years &amp; Scopes
                             </a>
+                            <a class="nav-item" :class="{ active: activeTab === 'finFunds' }" @click="finEnterTab('finFunds')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+                                </svg>
+                                Funds
+                            </a>
                             <a class="nav-item" :class="{ active: activeTab === 'finTransactions' }" @click="finEnterTab('finTransactions')">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
@@ -1024,12 +1032,12 @@
                     <img src="/assets/img/nss-logo.png" alt="NSS" class="topbar-logo">
                     <div class="topbar-heading">
                         <div class="topbar-title">Nilachala Saraswata Sangha</div>
-                        <div class="topbar-breadcrumb" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', properties: 'Properties', assets: 'Assets', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
+                        <div class="topbar-breadcrumb" x-text="currentTabLabel"></div>
                     </div>
                 </div>
                 <!-- Desktop: sidebar brand is always visible, so just show the
                      current tab here instead of repeating logo + name. -->
-                <div class="topbar-breadcrumb-desktop" x-text="({users: 'User Accounts', detail: 'User Detail', create: 'Create Person & Account', createSS: 'Create Sangha Sevi', password: 'Change Password', organizations: 'Organizations', createOrg: 'Create Organization', claims: 'Registration Approvals', personDir: 'Person Directory', memberDir: 'Member Directory', orgHierarchy: 'Organization Hierarchy', assignSakha: 'Assign Sakhas to Anchalika/Zilla', refData: 'Reference Data', geography: 'Geography', sysSettings: 'System Settings', credentials: 'Member Credentials', orgDashboard: viewingOrgDashboardLabel})[activeTab] || 'Administration'"></div>
+                <div class="topbar-breadcrumb-desktop" x-text="currentTabLabel"></div>
             </div>
             <div class="topbar-user-info" x-show="currentUser" x-html="topbarUserInfo()"></div>
         </div>
@@ -1055,7 +1063,7 @@
                             <div class="data-card-header">
                                 <h2 class="data-card-title">User Accounts</h2>
                                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <span style="font-size: 0.75rem; color: #6b7280;" x-text="usersTotal + ' total'"></span>
+                                    <span class="count-chip" x-text="usersTotal + ' total'"></span>
                                     <button class="btn-action primary" x-show="canCreateAccounts"
                                             @click="openCreateAccountModal()">
                                         + Create Account
@@ -1192,7 +1200,7 @@
 
                                 <!-- Empty -->
                                 <template x-if="!usersLoading && !usersError && users.length === 0">
-                                    <p style="font-size: 0.85rem; color: #6b7280; padding: 1.5rem 0;">No user accounts found.</p>
+                                    <p class="empty-note">No user accounts found.</p>
                                 </template>
                             </div>
                         </div>
@@ -1215,7 +1223,7 @@
                         </template>
 
                         <template x-if="!detailLoading && !detailError && selectedUser">
-                            <div class="card-grid">
+                            <div class="card-grid card-grid--detail">
                                 <!-- Account info -->
                                 <div class="data-card">
                                     <div class="data-card-header">
@@ -1334,211 +1342,12 @@
                                                 </template>
                                             </template>
                                             <button class="btn-action" @click="openResetModal(selectedUser)">Reset Password</button>
+                                            <button class="btn-action" @click="openProfile(selectedUser.person_pk, selectedUser.person_name)">Profile details</button>
                                             <template x-if="selectedUser.user_account_pk !== currentUser?.user_account_pk">
                                                 <button class="btn-action danger"
                                                         @click="deleteUser(selectedUser.user_account_pk, selectedUser.sangha_sevi_id || selectedUser.person_name || 'User')">Delete Account</button>
                                             </template>
                                         </div>
-                                    </div>
-                                </div>
-
-                                <!-- Profile Details (editable personal-info fields) -->
-                                <div class="data-card">
-                                    <div class="data-card-header">
-                                        <h3 class="data-card-title">Profile Details</h3>
-                                        <button class="btn-action" x-show="canManageUsers && !profileEdit.editing"
-                                                :disabled="profileEdit.loading"
-                                                @click="startEditProfile()">Edit</button>
-                                        <button class="btn-action" x-show="canManageUsers && profileEdit.editing"
-                                                @click="cancelEditProfile()">Cancel</button>
-                                    </div>
-                                    <div class="data-card-body">
-                                        <template x-if="profileEdit.loading">
-                                            <div style="display: flex; justify-content: center; padding: 1.5rem 0;">
-                                                <div class="spinner"></div>
-                                            </div>
-                                        </template>
-
-                                        <template x-if="profileEdit.error">
-                                            <div class="alert-msg alert-error" x-text="profileEdit.error"></div>
-                                        </template>
-
-                                        <!-- Read-only view -->
-                                        <template x-if="!profileEdit.loading && !profileEdit.error && !profileEdit.editing">
-                                            <div class="data-rows">
-                                                <div class="data-row">
-                                                    <span class="data-label">Full Name</span>
-                                                    <span class="data-value" x-text="[profileEdit.form.first_name, profileEdit.form.middle_name, profileEdit.form.last_name].filter(Boolean).join(' ') || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Date of Birth</span>
-                                                    <span class="data-value" x-text="formatDate(profileEdit.form.date_of_birth) || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Gender</span>
-                                                    <span class="data-value" x-text="(genders.find(g => g.master_data_pk === profileEdit.form.gender_master_data_pk) || {}).value_name || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Marital Status</span>
-                                                    <span class="data-value" x-text="(maritalStatuses.find(g => g.master_data_pk === profileEdit.form.marital_status_master_data_pk) || {}).value_name || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Blood Group</span>
-                                                    <span class="data-value" x-text="(bloodGroups.find(g => g.master_data_pk === profileEdit.form.blood_group_master_data_pk) || {}).value_name || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Mobile</span>
-                                                    <span class="data-value mono" x-text="profileEdit.form.mobile_number ? (profileEdit.form.country_phone_code + ' ' + profileEdit.form.mobile_number) : '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Email</span>
-                                                    <span class="data-value" x-text="profileEdit.form.email || '—'"></span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Emergency Contact</span>
-                                                    <span class="data-value">
-                                                        <span x-text="profileEdit.form.emergency_contact_name || '—'"></span>
-                                                        <template x-if="profileEdit.form.emergency_contact_phone">
-                                                            <span class="mono" x-text="' (' + profileEdit.form.emergency_contact_phone + ')'"></span>
-                                                        </template>
-                                                        <template x-if="profileEdit.form.emergency_relationship_master_data_pk">
-                                                            <span style="font-size: 0.75rem; color: #6b7280;" x-text="' — ' + ((relationships.find(g => g.master_data_pk === profileEdit.form.emergency_relationship_master_data_pk) || {}).value_name || '')"></span>
-                                                        </template>
-                                                    </span>
-                                                </div>
-                                                <div class="data-row">
-                                                    <span class="data-label">Remarks</span>
-                                                    <span class="data-value" x-text="profileEdit.form.remarks || '—'"></span>
-                                                </div>
-                                                <div class="data-row" x-show="profileEdit.aadhaar.last4">
-                                                    <span class="data-label">Aadhaar</span>
-                                                    <span class="data-value">
-                                                        <span class="mono" x-text="NSS.aadhaar.mask(profileEdit.aadhaar.last4)"></span>
-                                                        <span style="font-size: 0.75rem; color: #6b7280;" x-show="profileEdit.aadhaar.fullOnFile"> (full number on file)</span>
-                                                        <button type="button" class="btn-action" style="margin-left: 0.5rem;"
-                                                                x-show="canViewSensitive && profileEdit.aadhaar.fullOnFile"
-                                                                @click="revealAadhaar(selectedUser.person_pk, selectedUser.person_name)">Reveal Aadhaar</button>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </template>
-
-                                        <!-- Edit form -->
-                                        <template x-if="!profileEdit.loading && profileEdit.editing">
-                                            <div>
-                                                <template x-if="profileEdit.saveError">
-                                                    <div class="alert-msg alert-error" x-text="profileEdit.saveError"></div>
-                                                </template>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">First Name *</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.first_name">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Middle Name</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.middle_name">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Last Name</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.last_name">
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem; position: relative;" x-data="nssDatePicker('profileEdit.form.date_of_birth', { maxToday: true })">
-                                                        <label class="form-label">Date of Birth</label>
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Gender</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.gender_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in genders" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Marital Status</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.marital_status_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in maritalStatuses" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Blood Group</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.blood_group_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in bloodGroups" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Country Code</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.country_phone_code" placeholder="+91">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Mobile</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.mobile_number">
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Email</label>
-                                                        <input type="email" class="form-input" x-model="profileEdit.form.email">
-                                                    </div>
-                                                </div>
-                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Emergency Contact Name</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_name">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Emergency Contact Phone</label>
-                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_phone">
-                                                    </div>
-                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
-                                                        <label class="form-label">Relationship</label>
-                                                        <select class="nss-select" x-model="profileEdit.form.emergency_relationship_master_data_pk">
-                                                            <option value="">Select...</option>
-                                                            <template x-for="g in relationships" :key="g.master_data_pk">
-                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
-                                                            </template>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
-                                                    <label class="form-label">Remarks</label>
-                                                    <textarea class="form-input" rows="2" x-model="profileEdit.form.remarks"></textarea>
-                                                </div>
-                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
-                                                    <label class="form-label">Aadhaar number (optional)</label>
-                                                    <div class="form-hint" x-show="profileEdit.aadhaar.last4" x-text="'Currently on file: ' + NSS.aadhaar.mask(profileEdit.aadhaar.last4) + (profileEdit.aadhaar.fullOnFile ? ' (full number on file). Leave blank to keep it.' : '')"></div>
-                                                    <input type="text" class="form-input" x-model="profileEdit.aadhaar.input"
-                                                           @input="profileEdit.aadhaar.input = NSS.aadhaar.group(profileEdit.aadhaar.input)"
-                                                           inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="profileEdit.aadhaar.clear">
-                                                    <div class="form-hint" x-show="!NSS.aadhaar.validate(profileEdit.aadhaar.input)">Stored encrypted and used only by authorised administrators.</div>
-                                                    <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(profileEdit.aadhaar.input)" x-text="NSS.aadhaar.validate(profileEdit.aadhaar.input)"></div>
-                                                    <label class="remember-label" style="margin-top: 0.35rem;">
-                                                        <input type="checkbox" class="nss-checkbox" x-model="profileEdit.aadhaar.clear">
-                                                        Clear stored Aadhaar
-                                                    </label>
-                                                </div>
-                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
-                                                    <label class="form-label">Reason for Correction (optional, recorded in audit log)</label>
-                                                    <input type="text" class="form-input" x-model="profileEdit.reason" placeholder="e.g. corrected spelling per Aadhaar">
-                                                </div>
-                                                <button class="btn-action primary" style="margin-top: 0.5rem;"
-                                                        :disabled="profileEdit.saving || !profileEdit.form.first_name.trim()"
-                                                        @click="saveProfile()">
-                                                    <div class="spinner-sm" x-show="profileEdit.saving"></div>
-                                                    Save
-                                                </button>
-                                            </div>
-                                        </template>
                                     </div>
                                 </div>
 
@@ -1551,7 +1360,7 @@
                                     </div>
                                     <div class="data-card-body">
                                         <template x-if="selectedUser.roles.length === 0">
-                                            <p style="font-size: 0.85rem; color: #6b7280;">No roles assigned.</p>
+                                            <p class="empty-note">No roles assigned.</p>
                                         </template>
 
                                         <template x-if="selectedUser.roles.length > 0">
@@ -1607,7 +1416,7 @@
                                      member) — read-only, nothing here is a stored user_role row,
                                      so there is no Revoke action. It disappears automatically the
                                      moment the person leaves the position. -->
-                                <div class="data-card" x-show="selectedUser.auto_granted_scopes && selectedUser.auto_granted_scopes.length > 0">
+                                <div class="data-card card-span" x-show="selectedUser.auto_granted_scopes && selectedUser.auto_granted_scopes.length > 0">
                                     <div class="data-card-header">
                                         <h3 class="data-card-title">Auto-Granted Access (§63)</h3>
                                     </div>
@@ -2560,7 +2369,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Organizations</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="orgsTotal + ' total'"></span>
+                                <span class="count-chip" x-text="orgsTotal + ' total'"></span>
                             </div>
                             <div class="data-card-body">
                                 <!-- Search + type filter -->
@@ -2830,7 +2639,7 @@
 
                                 <!-- Empty -->
                                 <template x-if="!orgsLoading && orgsList.length === 0">
-                                    <p style="font-size: 0.85rem; color: #6b7280; padding: 1.5rem 0;">No organizations found.</p>
+                                    <p class="empty-note">No organizations found.</p>
                                 </template>
 
                                 <!-- Pagination -->
@@ -2871,7 +2680,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title" x-text="claimsStatusFilter + ' Registration Claims'"></h2>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <span style="font-size: 0.75rem; color: #6b7280;" x-text="claimsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="claimsTotal + ' total'"></span>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -3237,7 +3046,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title" x-text="changeRequestsStatusFilterLabel + ' Change Requests'"></h2>
                                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <span style="font-size: 0.75rem; color: #6b7280;" x-text="changeRequestsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="changeRequestsTotal + ' total'"></span>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -3452,7 +3261,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Member Credentials</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="credsTotal + ' total'"></span>
+                                <span class="count-chip" x-text="credsTotal + ' total'"></span>
                             </div>
                             <div class="data-card-body">
                                 <p style="font-size: 0.8rem; color: #6b7280; margin: 0 0 1rem 0;">
@@ -3573,7 +3382,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Person Directory</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="pdPersons.length + (pdTotal > pdPersons.length ? ' of ' + pdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
+                                <span class="count-chip" x-text="pdPersons.length + (pdTotal > pdPersons.length ? ' of ' + pdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
                                 <div class="search-bar dir-toolbar">
@@ -3662,12 +3471,22 @@
                                                 <!-- Detail — opens directly below the selected row, not at the end of the list -->
                                                 <div x-show="pdSelected && pdSelected.person_pk === p.person_pk" style="margin: 0.25rem 0 1.25rem 0;">
                                                     <div class="data-card">
-                                                        <div class="data-card-header">
-                                                            <h3 class="data-card-title" x-text="pdSelected ? pdFullName(pdSelected) : ''"></h3>
-                                                            <div class="spinner-sm" x-show="pdDetailLoading"></div>
+                                                        <div class="md-head">
+                                                            <span class="dir-avatar md-head__avatar" aria-hidden="true" x-text="pdSelected ? NSS.initials(pdFullName(pdSelected)) : ''"></span>
+                                                            <div class="md-head__id">
+                                                                <h3 class="md-head__name" x-text="pdSelected ? pdFullName(pdSelected) : ''"></h3>
+                                                                <div class="md-head__meta">
+                                                                    <span class="mono" x-text="pdSelected && pdSelected.person_id"></span>
+                                                                    <span x-show="pdSelected && pdSelected.gender_name" x-text="pdSelected && pdSelected.gender_name"></span>
+                                                                    <div class="spinner-sm" x-show="pdDetailLoading"></div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="md-head__actions">
+                                                                <button class="btn-action" x-show="canManageUsers && pdSelected" @click="openProfile(pdSelected.person_pk, pdFullName(pdSelected))">Edit details</button>
+                                                            </div>
                                                         </div>
-                                                        <div class="data-card-body">
-                                                            <div class="data-rows">
+<div class="data-card-body md-body">
+                                                            <div class="data-rows md-facts">
                                                                 <div class="data-row"><span class="data-label">Person ID</span><span class="data-value mono" x-text="pdSelected && pdSelected.person_id"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.date_of_birth"><span class="data-label">Date of Birth</span><span class="data-value" x-text="pdSelected && NSS.formatDate ? NSS.formatDate(pdSelected.date_of_birth) : (pdSelected && pdSelected.date_of_birth)"></span></div>
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.gender_name"><span class="data-label">Gender</span><span class="data-value" x-text="pdSelected && pdSelected.gender_name"></span></div>
@@ -3680,10 +3499,11 @@
                                                                 <div class="data-row" x-show="pdSelected && pdSelected.remarks"><span class="data-label">Remarks</span><span class="data-value" x-text="pdSelected && pdSelected.remarks"></span></div>
                                                             </div>
 
-                                                            <div style="margin-top: 1rem;" x-show="pdAddresses.length">
-                                                                <div class="nav-section-label" style="padding-left: 0;">Addresses</div>
+                                                            <div class="md-section" x-show="pdAddresses.length">
+                                                                <div class="md-section__title">Addresses</div>
+                                                                <div class="md-cards">
                                                                 <template x-for="a in pdAddresses" :key="a.person_address_pk">
-                                                                    <div class="data-card" style="margin-bottom: 0.5rem;">
+                                                                    <div class="data-card">
                                                                         <div class="data-card-body" style="padding: 0.6rem 0.9rem;">
                                                                             <div style="display: flex; justify-content: space-between;">
                                                                                 <span style="font-weight: 600; font-size: 0.8rem;" x-text="a.address_type_name"></span>
@@ -3696,6 +3516,7 @@
                                                                         </div>
                                                                     </div>
                                                                 </template>
+                                                            </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -3716,9 +3537,21 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Member Directory</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="mdMembers.length + (mdTotal > mdMembers.length ? ' of ' + mdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
+                                <span class="count-chip" x-text="mdMembers.length + (mdTotal > mdMembers.length ? ' of ' + mdTotal + ' shown — refine filters to see the rest' : ' shown')"></span>
                             </div>
                             <div class="data-card-body">
+                                <div class="count-tiles" x-show="mdStatusTiles.length">
+                                    <button type="button" class="count-tile count-tile--total" :class="{ active: !mdStatusFilter }" @click="mdStatusFilter = ''; fetchMemberDirectory()">
+                                        <span class="count-tile__value" x-text="mdAllStatusesTotal"></span>
+                                        <span class="count-tile__label">Total members</span>
+                                    </button>
+                                    <template x-for="c in mdStatusTiles" :key="c.status_code">
+                                        <button type="button" class="count-tile" :class="[{ active: mdStatusFilter === c.status_code }, 'count-tile--' + c.status_code.toLowerCase()]" @click="mdPickStatus(c.status_code)">
+                                            <span class="count-tile__value" x-text="c.count"></span>
+                                            <span class="count-tile__label" x-text="c.status_name"></span>
+                                        </button>
+                                    </template>
+                                </div>
                                 <div class="search-bar dir-toolbar" :class="{ 'has-hint': mdOrgSelectHint }">
                                     <div class="form-group dir-search">
                                         <label class="form-label">Search</label>
@@ -3826,12 +3659,26 @@
                                                 <!-- Detail — opens directly below the selected row, not at the end of the list -->
                                                 <div x-show="mdSelected && mdSelected.sangha_sevi_pk === m.sangha_sevi_pk" style="margin: 0.25rem 0 1.25rem 0;">
                                                     <div class="data-card">
-                                                        <div class="data-card-header">
-                                                            <h3 class="data-card-title" x-text="mdSelected ? mdMemberName(mdSelected) : ''"></h3>
-                                                            <div class="spinner-sm" x-show="mdDetailLoading"></div>
+                                                        <div class="md-head">
+                                                            <span class="dir-avatar md-head__avatar" aria-hidden="true" x-text="mdSelected ? NSS.initials(mdMemberName(mdSelected)) : ''"></span>
+                                                            <div class="md-head__id">
+                                                                <h3 class="md-head__name" x-text="mdSelected ? mdMemberName(mdSelected) : ''"></h3>
+                                                                <div class="md-head__meta">
+                                                                    <span class="mono" x-text="mdSelected && mdSelected.sangha_sevi_id"></span>
+                                                                    <span class="badge badge-xs" :class="NSS.statusBadgeClass(mdSelected && mdSelected.status_code)" x-text="mdSelected && mdSelected.status_name"></span>
+                                                                    <span class="md-head__type" x-text="mdSelected && mdSelected.membership_type_name"></span>
+                                                                    <div class="spinner-sm" x-show="mdDetailLoading"></div>
+                                                                </div>
+                                                            </div>
+                                                            <!-- Membership-change entry points. Workflow (eligibility, approval, ERP-ID handling) lives in the Governance module. -->
+                                                            <div class="md-head__actions">
+                                                                <button class="btn-action" x-show="canManageUsers && mdSelected && mdSelected.person_pk" @click="openProfile(mdSelected.person_pk, mdMemberName(mdSelected))">Edit details</button>
+                                                                <button class="btn-action" @click="requestSakhaTransfer(mdSelected)">Sakha Transfer</button>
+                                                                <button class="btn-action" @click="applyDarshak(mdSelected)">Apply for Darshak</button>
+                                                            </div>
                                                         </div>
-                                                        <div class="data-card-body">
-                                                            <div class="data-rows">
+<div class="data-card-body md-body">
+                                                            <div class="data-rows md-facts">
                                                                 <div class="data-row"><span class="data-label">Sangha Sevi ID</span><span class="data-value mono" x-text="mdSelected && mdSelected.sangha_sevi_id"></span></div>
                                                                 <div class="data-row"><span class="data-label">Person ID</span><span class="data-value mono" x-text="mdSelected && mdSelected.person_id"></span></div>
                                                                 <div class="data-row"><span class="data-label">Type</span><span class="data-value" x-text="mdSelected && mdSelected.membership_type_name"></span></div>
@@ -3844,15 +3691,13 @@
                                                                 <div class="data-row" x-show="mdSelected && mdSelected.renewal_due_date"><span class="data-label">Renewal Due</span><span class="data-value" x-text="mdSelected && NSS.formatDate ? NSS.formatDate(mdSelected.renewal_due_date) : (mdSelected && mdSelected.renewal_due_date)"></span></div>
                                                             </div>
 
-                                                            <!-- Membership-change entry points. Workflow (eligibility,
-                                                                 approval, ERP-ID handling) lives in the Governance
-                                                                 module — these announce the request against this
-                                                                 specific member rather than posting to a missing endpoint. -->
-                                                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;">
-                                                                <button class="btn-action" @click="requestSakhaTransfer(mdSelected)">Sakha Transfer</button>
-                                                                <button class="btn-action" @click="applyDarshak(mdSelected)">Apply for Darshak</button>
-                                                            </div>
-
+                                                            <div class="md-tabs" role="tablist">
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'status' }" @click="mdTab = 'status'">Membership Status</button>
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'sakha' }" @click="mdTab = 'sakha'">Sakha Affiliations <span class="md-tab__n" x-text="mdAffiliations.length"></span></button>
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'credentials' }" @click="mdTab = 'credentials'">Credentials <span class="md-tab__n" x-text="mdParichaya.length + mdAnumati.length"></span></button>
+                                                            <button type="button" class="md-tab" :class="{ active: mdTab === 'journey' }" @click="mdTab = 'journey'">Journey <span class="md-tab__n" x-text="mdJourney.length"></span></button>
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'status'">
                                                             <!-- Membership Status: request -> Parichalak / Kendra President approval -->
                                                             <div class="ms-panel" x-show="msOverview" x-cloak>
                                                                 <div class="ms-panel__head">
@@ -3921,7 +3766,8 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
-
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'sakha'">
                                                             <!-- Affiliations -->
                                                             <div style="margin-top: 1rem;" x-show="mdAffiliations.length">
                                                                 <div class="nav-section-label" style="padding-left: 0;">Sakha Affiliations</div>
@@ -3938,7 +3784,9 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
-
+                                                            <div class="empty-note" x-show="!mdAffiliations.length">No Sakha affiliations recorded.</div>
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'credentials'">
                                                             <!-- Parichaya Patra -->
                                                             <div style="margin-top: 0.75rem;" x-show="mdParichaya.length">
                                                                 <div class="nav-section-label" style="padding-left: 0;">Parichaya Patra</div>
@@ -4017,7 +3865,9 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
-
+                                                            <div class="empty-note" x-show="!mdParichaya.length && !mdAnumati.length">No Parichaya or Anumati Patra on record.</div>
+                                                        </div>
+                                                        <div class="md-pane" x-show="mdTab === 'journey'">
                                                             <!-- Journey -->
                                                             <div style="margin-top: 0.75rem;" x-show="mdJourney.length">
                                                                 <div class="nav-section-label" style="padding-left: 0;">Membership Journey</div>
@@ -4032,6 +3882,9 @@
                                                                     </div>
                                                                 </template>
                                                             </div>
+                                                            <div class="empty-note" x-show="!mdJourney.length">No journey events recorded.</div>
+                                                        </div>
+
                                                         </div>
                                                     </div>
                                                 </div>
@@ -4051,7 +3904,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Organization Hierarchy</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="orgLevelNodes().length + (orgDrillPath.length ? ' under ' + orgDrillPath[orgDrillPath.length-1].organization_name : ' at top level')"></span>
+                                <span class="count-chip" x-text="orgLevelNodes().length + (orgDrillPath.length ? ' under ' + orgDrillPath[orgDrillPath.length-1].organization_name : ' at top level')"></span>
                             </div>
                             <div class="data-card-body">
                                 <div class="flex" style="align-items: center; justify-content: center; padding: 2rem;" x-show="orgTreeLoading">
@@ -4119,7 +3972,7 @@
                         <div class="data-card">
                             <div class="data-card-header">
                                 <h2 class="data-card-title">Assign Sakhas to Anchalika/Zilla Sangha</h2>
-                                <span style="font-size: 0.75rem; color: #6b7280;" x-text="assignSakhaList.length + ' Sakha Sangha / Sakha Asana(s)'"></span>
+                                <span class="count-chip" x-text="assignSakhaList.length + ' Sakha Sangha / Sakha Asana(s)'"></span>
                             </div>
                             <div class="data-card-body">
                                 <p class="form-hint" style="margin-bottom: 1rem;">
@@ -6913,7 +6766,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Correspondence Register</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size: 0.75rem; color: #6b7280;" x-text="corrTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="corrTotal + ' total'"></span>
                                         <!-- Two quick-action entry points into the same create
                                              form, which opens as its own focused card below with
                                              direction already fixed — Send is always OUTWARD and
@@ -7493,7 +7346,7 @@
                             <div class="data-card-header">
                                 <h2 class="data-card-title" x-text="apPluralTitle"></h2>
                                 <div style="display:flex; gap:0.5rem; align-items:center;">
-                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="apTotal + ' total'"></span>
+                                    <span class="count-chip" x-text="apTotal + ' total'"></span>
                                     <button class="btn-action primary" x-show="canManageAssets" @click="apOpenCreate()"
                                             x-text="'+ New ' + apNoun"></button>
                                 </div>
@@ -8061,7 +7914,7 @@
                          come from the server's own table (GET /finance/reference).
                          Four tabs: finOverview, finStructure, finTransactions, finTransfers.
                          ═══════════════════════════════════════════ -->
-                    <div x-show="['finOverview','finStructure','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
+                    <div x-show="['finOverview','finStructure','finFunds','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
 
                         <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
 
@@ -8142,7 +7995,7 @@
                                             </div>
 
                                             <h3 class="form-section-title">Fund balances</h3>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finSummary.by_fund.length === 0">No active funds yet.</div>
+                                            <div class="empty-note" x-show="finSummary.by_fund.length === 0">No active funds yet.</div>
                                             <div style="overflow-x:auto;" x-show="finSummary.by_fund.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Fund</th><th>Scope</th><th>Income</th><th>Expense</th><th>Transfers in</th><th>Transfers out</th><th>Balance</th></tr></thead>
@@ -8214,7 +8067,7 @@
                                         <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finYearForm.error" x-text="finYearForm.error"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="finYearsError" x-text="finYearsError"></div>
-                                    <div style="padding:0.75rem; color:#6b7280;" x-show="finYears.length === 0 && !finYearsError">No financial year yet.</div>
+                                    <div class="empty-note" x-show="finYears.length === 0 && !finYearsError">No financial year yet.</div>
                                     <div style="overflow-x:auto;" x-show="finYears.length > 0">
                                         <table class="admin-table">
                                             <thead><tr><th>Year</th><th>From</th><th>To</th><th>Status</th><th>Transactions</th><th></th></tr></thead>
@@ -8304,7 +8157,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Financial scopes</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finScopesTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finScopesTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canManageFinance" @click="finOpenScopeForm()">+ New scope</button>
                                     </div>
                                 </div>
@@ -8337,7 +8190,7 @@
                                     <div class="alert-msg alert-error" x-show="finScopesError" x-text="finScopesError"></div>
                                     <template x-if="!finScopesLoading && !finScopesError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finScopes.length === 0">No financial scopes found.</div>
+                                            <div class="empty-note" x-show="finScopes.length === 0">No financial scopes found.</div>
                                             <div style="overflow-x:auto;" x-show="finScopes.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Organization</th><th>Funds</th><th>Status</th></tr></thead>
@@ -8462,7 +8315,7 @@
                                                 </div>
                                             </div>
                                             <div class="alert-msg alert-error" x-show="finFundsError" x-text="finFundsError"></div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finFunds.length === 0 && !finFundsError">No funds in this scope yet.</div>
+                                            <div class="empty-note" x-show="finFunds.length === 0 && !finFundsError">No funds in this scope yet.</div>
                                             <div style="overflow-x:auto;" x-show="finFunds.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Balance</th><th>Status</th><th></th></tr></thead>
@@ -8583,6 +8436,184 @@
                             </div>
                         </div>
 
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: Finance - Funds (every fund across all scopes; finance-funds.js. Create / edit / lifecycle reuse finance.js)
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="activeTab === 'finFunds'" x-cloak>
+                        <div class="data-card">
+                            <div class="data-card-header">
+                                <div>
+                                    <h2 class="data-card-title">Funds</h2>
+                                    <div class="data-card-subtitle">A fund is a labelled part of a scope's money, for example a Sinking Fund or a restricted donation. Every entry can name the fund it belongs to.</div>
+                                </div>
+                                <button class="btn-action primary" x-show="canManageFinance && !finFundForm.show" @click="finFundsOpenNew()">+ New fund</button>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="count-tiles">
+                                    <div class="count-tile count-tile--total"><span class="count-tile__value" x-text="finFundsAllTotal"></span><span class="count-tile__label" x-text="finFundsFiltered ? 'Funds found' : 'Total funds'"></span></div>
+                                    <div class="count-tile count-tile--active"><span class="count-tile__value" x-text="finFundsActiveCount"></span><span class="count-tile__label">Active<span x-show="finFundsPartial"> (this page)</span></span></div>
+                                    <div class="count-tile count-tile--suspended"><span class="count-tile__value" x-text="finFundsRestrictedCount"></span><span class="count-tile__label">Restricted<span x-show="finFundsPartial"> (this page)</span></span></div>
+                                    <div class="count-tile"><span class="count-tile__value" x-text="finMoney(finFundsBalance)"></span><span class="count-tile__label">Balance<span x-show="finFundsPartial"> (this page)</span></span></div>
+                                </div>
+
+                                <!-- New fund: the shared fund form (finance.js), with the scope chosen here -->
+                                <div class="form-section" x-show="finFundForm.show">
+                                    <h4 class="form-section-title">New fund</h4>
+                                    <div class="form-grid-2">
+                                        <div class="span-all" style="grid-column:span 2;">
+                                            <label class="form-label">Financial scope</label>
+                                            <select class="nss-select" x-model="finFundForm.financial_scope_pk">
+                                                <option value="">Select the scope this fund belongs to…</option>
+                                                <template x-for="sc in finFundScopesOpen" :key="sc.financial_scope_pk"><option :value="sc.financial_scope_pk" x-text="sc.scope_code + ' — ' + sc.scope_name + (sc.status === 'DRAFT' ? ' (draft)' : '')"></option></template>
+                                            </select>
+                                            <p class="form-hint">A fund lives in exactly one scope. Only draft and active scopes can take new funds.</p>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund code</label>
+                                            <input type="text" class="form-input" maxlength="50" x-model="finFundForm.fund_code" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund name</label>
+                                            <input type="text" class="form-input" maxlength="200" x-model="finFundForm.fund_name" autocomplete="off">
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Fund type</label>
+                                            <select class="nss-select" x-model="finFundForm.fund_type">
+                                                <template x-for="t in finFundTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="form-label">Restriction</label>
+                                            <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
+                                                <input type="checkbox" x-model="finFundForm.is_restricted"> Restricted — may be spent only for its stated purpose
+                                            </label>
+                                        </div>
+                                        <div class="span-all" x-show="finFundForm.is_restricted" style="grid-column:span 2;">
+                                            <label class="form-label">Purpose</label>
+                                            <input type="text" class="form-input" maxlength="2000" x-model="finFundForm.restriction_purpose" placeholder="What this money may be used for" autocomplete="off">
+                                        </div>
+                                        <div class="typeahead-wrap" x-show="finFundNeedsSakha">
+                                            <label class="form-label">Sakha (Sinking Fund)</label>
+                                            <input type="text" class="form-input" x-model="finFundForm.organization.query"
+                                                   @input="corrOnOrgQueryInput(finFundForm.organization)" placeholder="Search by Sakha name…" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="finFundForm.organization.results.length > 0">
+                                                <template x-for="org in finFundForm.organization.results" :key="org.organization_pk">
+                                                    <div class="typeahead-item" @click="corrSelectOrg(finFundForm.organization, org)">
+                                                        <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <p class="form-hint" x-show="finFundForm.organization.selected">
+                                                <span x-text="finFundForm.organization.selected && finFundForm.organization.selected.organization_name"></span>
+                                                <button type="button" class="link-action" @click="corrClearPicker(finFundForm.organization)">Clear</button>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finFundForm.error" x-text="finFundForm.error"></div>
+                                    <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                                        <button class="btn-action primary" :disabled="finFundForm.saving" @click="finSubmitFund()" x-text="finFundForm.saving ? 'Saving…' : 'Create fund'"></button>
+                                        <button class="btn-action" :disabled="finFundForm.saving" @click="finFundForm = { ...finFundForm, show: false }">Cancel</button>
+                                    </div>
+                                </div>
+
+                                <div class="search-bar dir-toolbar">
+                                    <div class="form-group dir-search">
+                                        <label class="form-label">Search</label>
+                                        <input type="search" class="form-input" x-model="finFundsFilter.q" placeholder="Fund code or name" @input.debounce.300ms="finFundsApply()" autocomplete="off">
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Scope</label>
+                                        <select class="nss-select" x-model="finFundsFilter.scope" @change="finFundsApply()">
+                                            <option value="">All scopes</option>
+                                            <template x-for="sc in finFundScopes" :key="sc.financial_scope_pk"><option :value="sc.financial_scope_pk" x-text="sc.scope_code + ' — ' + sc.scope_name"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Type</label>
+                                        <select class="nss-select" x-model="finFundsFilter.type" @change="finFundsApply()">
+                                            <option value="">All types</option>
+                                            <template x-for="t in finFundTypes" :key="t"><option :value="t" x-text="finCode(t)"></option></template>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Status</label>
+                                        <select class="nss-select" x-model="finFundsFilter.status" @change="finFundsApply()">
+                                            <option value="">All statuses</option>
+                                            <option value="DRAFT">Draft</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label class="form-label">Restriction</label>
+                                        <select class="nss-select" x-model="finFundsFilter.restricted" @change="finFundsApply()">
+                                            <option value="">Any</option><option value="yes">Restricted</option><option value="no">Not restricted</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin: 0; align-self: end;">
+                                        <button type="button" class="btn-action" x-show="finFundsFiltered" @click="finFundsClear()">Clear filters</button>
+                                    </div>
+                                </div>
+
+                                <div class="alert-msg alert-error" x-show="finFundsAllError" x-text="finFundsAllError"></div>
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finFundsAllLoading"><div class="spinner"></div></div>
+                                <div class="empty-note" x-show="!finFundsAllLoading && !finFundsAllError && finFundsAll.length === 0">
+                                    <span x-show="!finFundsFiltered">No funds yet. Use "+ New fund" to add one.</span>
+                                    <span x-show="finFundsFiltered">No fund matches these filters.</span>
+                                </div>
+                                <div style="overflow-x:auto;" x-show="!finFundsAllLoading && finFundsAll.length > 0">
+                                    <table class="admin-table">
+                                        <thead><tr><th>Fund</th><th>Scope</th><th>Type</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+                                        <tbody>
+                                            <template x-for="f in finFundsAll" :key="f.fund_master_pk">
+                                                <tr>
+                                                    <td>
+                                                        <template x-if="finFundEdit.pk === f.fund_master_pk">
+                                                            <div>
+                                                                <input type="text" class="form-input" maxlength="200" x-model="finFundEdit.name">
+                                                                <input type="text" class="form-input" style="margin-top:0.3rem;" maxlength="2000" x-model="finFundEdit.purpose" x-show="finFundEdit.restricted" placeholder="Purpose">
+                                                                <div class="alert-msg alert-error" style="margin-top:0.3rem;" x-show="finFundEdit.error" x-text="finFundEdit.error"></div>
+                                                                <button class="link-action" :disabled="finFundEdit.saving" @click="finSaveFundEdit()">Save</button>
+                                                                <button class="link-action" :disabled="finFundEdit.saving" @click="finFundEdit = { pk: '', saving: false, error: '', name: '', purpose: '' }">Cancel</button>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="finFundEdit.pk !== f.fund_master_pk">
+                                                            <div>
+                                                                <div class="fh-name" x-text="f.fund_name"></div>
+                                                                <div class="fh-sub"><span class="mono" x-text="f.fund_code"></span>
+                                                                    <span class="badge badge-xs badge-fin-pending" x-show="f.is_restricted">Restricted</span></div>
+                                                                <div class="fh-sub" x-show="f.restriction_purpose" x-text="'Purpose: ' + f.restriction_purpose"></div>
+                                                                <div class="fh-sub" x-show="f.organization_name" x-text="'Sakha: ' + f.organization_name"></div>
+                                                            </div>
+                                                        </template>
+                                                    </td>
+                                                    <td>
+                                                        <div class="fh-name mono" x-text="f.scope_code"></div>
+                                                        <div class="fh-sub" x-text="f.scope_name"></div>
+                                                    </td>
+                                                    <td style="font-size:0.78rem;" x-text="finCode(f.fund_type)"></td>
+                                                    <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(f.balance)"></td>
+                                                    <td><span class="badge badge-xs" :class="finBadge(f.status)" x-text="finLabel(f.status)"></span></td>
+                                                    <td>
+                                                        <button class="link-action" x-show="canManageFinance && f.status !== 'INACTIVE' && finFundEdit.pk !== f.fund_master_pk" @click="finStartFundEdit(f)">Edit</button>
+                                                        <template x-for="a in finActions('fund', f.status)" :key="a.to">
+                                                            <button class="link-action" @click="finAskTransition('fund', f.fund_master_pk, 'Fund ' + f.fund_code, a)" x-text="a.label"></button>
+                                                        </template>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="pagination-bar" x-show="finFundsPages > 1">
+                                    <span x-text="'Page ' + finFundsPage + ' of ' + finFundsPages"></span>
+                                    <div style="display: flex; gap: 0.35rem;">
+                                        <button class="btn-action" :disabled="finFundsPage <= 1" @click="finFundsGo(finFundsPage - 1)">Prev</button>
+                                        <button class="btn-action" :disabled="finFundsPage >= finFundsPages" @click="finFundsGo(finFundsPage + 1)">Next</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                         <!-- ═════════ Transactions ═════════ -->
                         <div x-show="activeTab === 'finTransactions'" x-cloak>
 
@@ -8659,7 +8690,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Transactions</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finTxnsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finTxnsTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canManageFinance" @click="finOpenTxnForm()">+ New transaction</button>
                                     </div>
                                 </div>
@@ -8714,7 +8745,7 @@
                                     <div class="alert-msg alert-error" x-show="finTxnsError" x-text="finTxnsError"></div>
                                     <template x-if="!finTxnsLoading && !finTxnsError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finTxns.length === 0">No transactions found.</div>
+                                            <div class="empty-note" x-show="finTxns.length === 0">No transactions found.</div>
                                             <div style="overflow-x:auto;" x-show="finTxns.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Reference</th><th>Date</th><th>Scope</th><th>Finance head</th><th>Amount</th><th>Status</th></tr></thead>
@@ -8826,7 +8857,7 @@
                                                     <button class="btn-action" :disabled="finBillForm.saving" @click="finCancelBillForm()">Cancel</button>
                                                 </div>
                                             </div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finBills.count === 0">No bills yet.</div>
+                                            <div class="empty-note" x-show="finBills.count === 0">No bills yet.</div>
                                             <div style="overflow-x:auto;" x-show="finBills.count > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Issued by</th><th>Number</th><th>Date</th><th>Amount</th><th>Link</th><th></th></tr></thead>
@@ -8880,7 +8911,7 @@
                                                     <button class="btn-action" :disabled="finReceiptForm.saving" @click="finReceiptForm = { ...finReceiptForm, show: false }">Cancel</button>
                                                 </div>
                                             </div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finReceipts.length === 0">No receipts yet.</div>
+                                            <div class="empty-note" x-show="finReceipts.length === 0">No receipts yet.</div>
                                             <div style="overflow-x:auto;" x-show="finReceipts.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Receipt no.</th><th>Date</th><th>Amount</th><th>From</th><th>Via</th><th>Status</th><th></th></tr></thead>
@@ -8944,7 +8975,7 @@
                                                     <button class="btn-action" :disabled="finPaymentForm.saving" @click="finPaymentForm = { ...finPaymentForm, show: false }">Cancel</button>
                                                 </div>
                                             </div>
-                                            <div style="padding:0.75rem; color:#6b7280;" x-show="finPayments.length === 0">No payments yet.</div>
+                                            <div class="empty-note" x-show="finPayments.length === 0">No payments yet.</div>
                                             <div style="overflow-x:auto;" x-show="finPayments.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Reference</th><th>Date</th><th>Amount</th><th>Paid to</th><th>Via</th><th>Status</th><th></th></tr></thead>
@@ -9047,7 +9078,7 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Transfers</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finTransfersTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finTransfersTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canManageFinance" @click="finOpenTransferForm()">+ New transfer</button>
                                     </div>
                                 </div>
@@ -9087,7 +9118,7 @@
                                     <div class="alert-msg alert-error" x-show="finTransfersError" x-text="finTransfersError"></div>
                                     <template x-if="!finTransfersLoading && !finTransfersError">
                                         <div>
-                                            <div style="padding:1rem; color:#6b7280;" x-show="finTransfers.length === 0">No transfers found.</div>
+                                            <div class="empty-note" x-show="finTransfers.length === 0">No transfers found.</div>
                                             <div style="overflow-x:auto;" x-show="finTransfers.length > 0">
                                                 <table class="admin-table">
                                                     <thead><tr><th>Reference</th><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Status</th></tr></thead>
@@ -9260,6 +9291,22 @@
                                             <label class="form-label">Note <span class="optional">(optional; members see it for a head they can pay)</span></label>
                                             <input type="text" class="form-input" maxlength="2000" x-model="finContribForm.description" autocomplete="off">
                                         </div>
+                                        <div x-show="finContribForm.applies_to !== 'ALL_SAKHAS'">
+                                            <label class="form-label">Scope <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finContribForm.collection_scope_pk" @change="finContribScopeChanged()" :disabled="!finContribForm.organization.selected">
+                                                <option value="">Automatic — the Sangha's general scope</option>
+                                                <template x-for="sc in finContribScopes" :key="sc.financial_scope_pk"><option :value="sc.financial_scope_pk" x-text="sc.scope_code + ' — ' + sc.scope_name"></option></template>
+                                            </select>
+                                            <p class="form-hint">The books this money is recorded in. Leave it automatic unless this head belongs to an event or a special purpose.</p>
+                                        </div>
+                                        <div x-show="finContribForm.applies_to !== 'ALL_SAKHAS'">
+                                            <label class="form-label">Fund <span class="optional">(optional)</span></label>
+                                            <select class="nss-select" x-model="finContribForm.collection_fund_pk" :disabled="!finContribForm.collection_scope_pk">
+                                                <option value="">No specific fund</option>
+                                                <template x-for="fd in finContribFunds" :key="fd.fund_master_pk"><option :value="fd.fund_master_pk" x-text="fd.fund_code + ' — ' + fd.fund_name + (fd.is_restricted ? ' (restricted)' : '')"></option></template>
+                                            </select>
+                                            <p class="form-hint" x-show="!finContribForm.collection_scope_pk">Pick a scope first to choose one of its funds.</p>
+                                        </div>
                                     </div>
                                     <div class="alert-msg alert-error" style="margin-top:0.75rem;" x-show="finContribForm.error" x-text="finContribForm.error"></div>
                                     <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
@@ -9330,10 +9377,12 @@
                             </div>
 
                             <!-- Head form -->
-                            <div class="data-card" x-show="finHeadForm.show" x-cloak>
+                            <div class="data-card" id="head-form-card" x-show="finHeadForm.show" x-cloak>
                                 <div class="data-card-header"><h2 class="data-card-title" x-text="finHeadForm.mode === 'create' ? (finHeadForm.template ? 'New Kendra template head' : 'New finance head') : 'Edit finance head'"></h2></div>
                                 <div class="data-card-body">
-                                    <div class="form-grid-2">
+                                    <div class="alert-msg alert-info" x-show="finHeadForm.mode === 'edit' && finHeadForm.kind === 'copy'">This Pranami comes from the Kendra: its name, amount and schedule are set there. You can only choose which of your receiving accounts collects it.</div>
+                                    <div class="alert-msg alert-info" x-show="finHeadForm.mode === 'edit' && finHeadForm.kind === 'source'">This Pranami is for all Sakhas. Changes to the name, amount and schedule reach every Sakha's copy; each Sakha picks its own receiving account.</div>
+                                    <div class="form-grid-2" x-show="finHeadForm.kind !== 'copy'">
                                         <div class="typeahead-wrap" x-show="!finHeadForm.template">
                                             <label class="form-label">Sangha</label>
                                             <input type="text" class="form-input" x-model="finHeadForm.organization.query" :disabled="finHeadForm.mode === 'edit'"
@@ -9420,18 +9469,18 @@
                                         </div>
                                     </div>
 
-                                    <div class="form-section" x-show="finHeadForm.allow_upi && !finHeadForm.template">
+                                    <div class="form-section" x-show="(finHeadForm.allow_upi || finHeadForm.kind === 'copy') && !finHeadForm.template && finHeadForm.kind !== 'source'">
                                         <h4 class="form-section-title">Where UPI collections go</h4>
                                         <p class="form-hint" x-show="!finHeadForm.organization.selected">Choose the Sangha first.</p>
                                         <div class="form-grid-2">
-                                            <div>
+                                            <div x-show="finHeadForm.kind !== 'copy'">
                                                 <label class="form-label">Book into scope</label>
                                                 <select class="nss-select" x-model="finHeadForm.collection_scope_pk" @change="finHeadFormScopeChanged()">
                                                     <option value="">Select…</option>
                                                     <template x-for="s in finHeadScopes" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
                                                 </select>
                                             </div>
-                                            <div>
+                                            <div x-show="finHeadForm.kind !== 'copy'">
                                                 <label class="form-label">Fund <span class="optional">(optional)</span></label>
                                                 <select class="nss-select" x-model="finHeadForm.collection_fund_pk">
                                                     <option value="">No specific fund</option>
@@ -9559,7 +9608,7 @@
                                             </div>
                                             <div class="fh-table" x-show="finHeadsShown().length > 0">
                                                 <table class="admin-table">
-                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Amount members pay</th><th>Payment portal</th><th class="hist-right"></th></tr></thead>
+                                                    <thead><tr><th>Head</th><th x-show="finHeadsMultiOrg()">Sangha</th><th>Scope</th><th>Amount members pay</th><th>Payment portal</th><th class="hist-right"></th></tr></thead>
                                                     <tbody>
                                                         <template x-for="h in finHeadsShown()" :key="h.finance_head_pk">
                                                             <tr>
@@ -9568,6 +9617,16 @@
                                                                     <div class="fh-sub"><span x-text="h.direction === 'INCOME' ? 'Money in' : 'Money out'"></span> · <span class="mono" x-text="h.head_code"></span></div>
                                                                 </td>
                                                                 <td class="fh-sub" x-show="finHeadsMultiOrg()" x-text="h.organization_name || '—'"></td>
+                                                                <td>
+                                                                    <template x-if="h.collection_scope_code">
+                                                                        <div>
+                                                                            <div class="fh-name mono" x-text="h.collection_scope_code"></div>
+                                                                            <div class="fh-sub" x-text="h.collection_scope_name"></div>
+                                                                        </div>
+                                                                    </template>
+                                                                    <span class="fh-sub" x-show="!h.collection_scope_code && h.applies_to_all_sakhas">Each Sakha's own scope</span>
+                                                                    <span class="fh-sub" x-show="!h.collection_scope_code && !h.applies_to_all_sakhas">None yet</span>
+                                                                </td>
                                                                 <td>
                                                                     <div class="fh-amount" x-text="finHeadAmountLabel(h)"></div>
                                                                     <div class="fh-sub" x-show="h.due_date" x-text="'Due by ' + NSS.formatDate(h.due_date)"></div>
@@ -9580,6 +9639,7 @@
                                                                     <span class="fh-state fh-state--off" x-show="h.status !== 'ACTIVE'" x-text="finLabel(h.status)"></span>
                                                                 </td>
                                                                 <td class="hist-right">
+                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE'" @click="finHeadOpenEdit(h)">Edit</button>
                                                                     <button class="btn-action primary" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === false" @click="finHeadPortalOpenForm(h)">Open payment portal</button>
                                                                     <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === true && !h.applies_to_all_sakhas" @click="finHeadPortal(h, false)">Close portal</button>
                                                                 </td>
@@ -9710,13 +9770,13 @@
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Receiving accounts</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <span style="font-size:0.75rem; color:#6b7280;" x-text="finAccountsTotal + ' total'"></span>
+                                        <span class="count-chip" x-text="finAccountsTotal + ' total'"></span>
                                         <button class="btn-action primary" x-show="canConfigureFinance" @click="finAcctOpenCreate()">+ New account</button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
                                     <div class="alert-msg alert-error" x-show="finAcctsError" x-text="finAcctsError"></div>
-                                    <div style="padding:1rem; color:#6b7280;" x-show="finAccounts.length === 0 && !finAcctsLoading && !finAcctsError">No receiving accounts yet.</div>
+                                    <div class="empty-note" x-show="finAccounts.length === 0 && !finAcctsLoading && !finAcctsError">No receiving accounts yet.</div>
                                     <div style="overflow-x:auto;" x-show="finAccounts.length > 0">
                                         <table class="admin-table">
                                             <thead><tr><th>Account</th><th>Sangha</th><th>Bank</th><th>UPI id</th><th>Payment gateway</th><th>Heads</th><th>Status</th><th></th></tr></thead>
@@ -10017,7 +10077,7 @@
                             <div class="data-card-header">
                                 <h2 class="data-card-title">System Event Log</h2>
                                 <div style="display:flex; gap:0.5rem; align-items:center;">
-                                    <span style="font-size:0.75rem; color:#6b7280;" x-text="aeTotalLabel"></span>
+                                    <span class="count-chip" x-text="aeTotalLabel"></span>
                                     <label class="form-hint" style="display:flex; align-items:center; gap:0.3rem; margin:0;">
                                         <input type="checkbox" :checked="aeAuto" @change="aeSetAuto($event.target.checked)">
                                         Auto-refresh (15 s)
@@ -11188,6 +11248,218 @@
             &copy; 2026 Nilachala Saraswata Sangha. All rights reserved.
         </footer>
     </div>
+
+    <!-- ═══════════════════════════════════════════
+         MODAL: Profile Details - any person, with or without an account (opened from User Detail, Person Directory, Member Directory)
+         ═══════════════════════════════════════════ -->
+    <template x-if="profileEdit.open">
+        <div class="modal-overlay" @click.self="closeProfile()" @keydown.escape.window="closeProfile()">
+            <div class="modal-card" style="max-width: 720px;">
+                <div class="modal-card-header" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                    <div>
+                        <h3>Profile Details</h3>
+                        <p x-text="profileEdit.personName"></p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn-action" x-show="canManageUsers && !profileEdit.editing"
+                                :disabled="profileEdit.loading"
+                                @click="startEditProfile()">Edit</button>
+                        <button class="btn-action" x-show="canManageUsers && profileEdit.editing"
+                                @click="cancelEditProfile()">Cancel</button>
+                        <button class="btn-action" @click="closeProfile()">Close</button>
+                    </div>
+                </div>
+                                    <div class="modal-card-body">
+                                        <template x-if="profileEdit.loading">
+                                            <div style="display: flex; justify-content: center; padding: 1.5rem 0;">
+                                                <div class="spinner"></div>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="profileEdit.error">
+                                            <div class="alert-msg alert-error" x-text="profileEdit.error"></div>
+                                        </template>
+
+                                        <!-- Read-only view -->
+                                        <template x-if="!profileEdit.loading && !profileEdit.error && !profileEdit.editing">
+                                            <div class="data-rows">
+                                                <div class="data-row">
+                                                    <span class="data-label">Full Name</span>
+                                                    <span class="data-value" x-text="[profileEdit.form.first_name, profileEdit.form.middle_name, profileEdit.form.last_name].filter(Boolean).join(' ') || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Date of Birth</span>
+                                                    <span class="data-value" x-text="formatDate(profileEdit.form.date_of_birth) || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Gender</span>
+                                                    <span class="data-value" x-text="(genders.find(g => g.master_data_pk === profileEdit.form.gender_master_data_pk) || {}).value_name || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Marital Status</span>
+                                                    <span class="data-value" x-text="(maritalStatuses.find(g => g.master_data_pk === profileEdit.form.marital_status_master_data_pk) || {}).value_name || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Blood Group</span>
+                                                    <span class="data-value" x-text="(bloodGroups.find(g => g.master_data_pk === profileEdit.form.blood_group_master_data_pk) || {}).value_name || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Mobile</span>
+                                                    <span class="data-value mono" x-text="profileEdit.form.mobile_number ? (profileEdit.form.country_phone_code + ' ' + profileEdit.form.mobile_number) : '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Email</span>
+                                                    <span class="data-value" x-text="profileEdit.form.email || '—'"></span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Emergency Contact</span>
+                                                    <span class="data-value">
+                                                        <span x-text="profileEdit.form.emergency_contact_name || '—'"></span>
+                                                        <template x-if="profileEdit.form.emergency_contact_phone">
+                                                            <span class="mono" x-text="' (' + profileEdit.form.emergency_contact_phone + ')'"></span>
+                                                        </template>
+                                                        <template x-if="profileEdit.form.emergency_relationship_master_data_pk">
+                                                            <span style="font-size: 0.75rem; color: #6b7280;" x-text="' — ' + ((relationships.find(g => g.master_data_pk === profileEdit.form.emergency_relationship_master_data_pk) || {}).value_name || '')"></span>
+                                                        </template>
+                                                    </span>
+                                                </div>
+                                                <div class="data-row">
+                                                    <span class="data-label">Remarks</span>
+                                                    <span class="data-value" x-text="profileEdit.form.remarks || '—'"></span>
+                                                </div>
+                                                <div class="data-row" x-show="profileEdit.aadhaar.last4">
+                                                    <span class="data-label">Aadhaar</span>
+                                                    <span class="data-value">
+                                                        <span class="mono" x-text="NSS.aadhaar.mask(profileEdit.aadhaar.last4)"></span>
+                                                        <span style="font-size: 0.75rem; color: #6b7280;" x-show="profileEdit.aadhaar.fullOnFile"> (full number on file)</span>
+                                                        <button type="button" class="btn-action" style="margin-left: 0.5rem;"
+                                                                x-show="canViewSensitive && profileEdit.aadhaar.fullOnFile"
+                                                                @click="revealAadhaar(profileEdit.personPk, profileEdit.personName)">Reveal Aadhaar</button>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Edit form -->
+                                        <template x-if="!profileEdit.loading && profileEdit.editing">
+                                            <div>
+                                                <template x-if="profileEdit.saveError">
+                                                    <div class="alert-msg alert-error" x-text="profileEdit.saveError"></div>
+                                                </template>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">First Name *</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.first_name">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Middle Name</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.middle_name">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Last Name</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.last_name">
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem; position: relative;" x-data="nssDatePicker('profileEdit.form.date_of_birth', { maxToday: true })">
+                                                        <label class="form-label">Date of Birth</label>
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Gender</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.gender_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in genders" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Marital Status</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.marital_status_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in maritalStatuses" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Blood Group</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.blood_group_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in bloodGroups" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Country Code</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.country_phone_code" placeholder="+91">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Mobile</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.mobile_number">
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Email</label>
+                                                        <input type="email" class="form-input" x-model="profileEdit.form.email">
+                                                    </div>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Emergency Contact Name</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_name">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Emergency Contact Phone</label>
+                                                        <input type="text" class="form-input" x-model="profileEdit.form.emergency_contact_phone">
+                                                    </div>
+                                                    <div class="form-group" style="margin-bottom: 0.25rem;">
+                                                        <label class="form-label">Relationship</label>
+                                                        <select class="nss-select" x-model="profileEdit.form.emergency_relationship_master_data_pk">
+                                                            <option value="">Select...</option>
+                                                            <template x-for="g in relationships" :key="g.master_data_pk">
+                                                                <option :value="g.master_data_pk" x-text="g.value_name"></option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Remarks</label>
+                                                    <textarea class="form-input" rows="2" x-model="profileEdit.form.remarks"></textarea>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Aadhaar number (optional)</label>
+                                                    <div class="form-hint" x-show="profileEdit.aadhaar.last4" x-text="'Currently on file: ' + NSS.aadhaar.mask(profileEdit.aadhaar.last4) + (profileEdit.aadhaar.fullOnFile ? ' (full number on file). Leave blank to keep it.' : '')"></div>
+                                                    <input type="text" class="form-input" x-model="profileEdit.aadhaar.input"
+                                                           @input="profileEdit.aadhaar.input = NSS.aadhaar.group(profileEdit.aadhaar.input)"
+                                                           inputmode="numeric" autocomplete="off" maxlength="14" placeholder="XXXX XXXX XXXX" :disabled="profileEdit.aadhaar.clear">
+                                                    <div class="form-hint" x-show="!NSS.aadhaar.validate(profileEdit.aadhaar.input)">Stored encrypted and used only by authorised administrators.</div>
+                                                    <div class="form-hint" style="color:#b91c1c;" x-show="NSS.aadhaar.validate(profileEdit.aadhaar.input)" x-text="NSS.aadhaar.validate(profileEdit.aadhaar.input)"></div>
+                                                    <label class="remember-label" style="margin-top: 0.35rem;">
+                                                        <input type="checkbox" class="nss-checkbox" x-model="profileEdit.aadhaar.clear">
+                                                        Clear stored Aadhaar
+                                                    </label>
+                                                </div>
+                                                <div class="form-group" style="margin-bottom: 0.25rem; margin-top: 0.25rem;">
+                                                    <label class="form-label">Reason for Correction (optional, recorded in audit log)</label>
+                                                    <input type="text" class="form-input" x-model="profileEdit.reason" placeholder="e.g. corrected spelling per Aadhaar">
+                                                </div>
+                                                <button class="btn-action primary" style="margin-top: 0.5rem;"
+                                                        :disabled="profileEdit.saving || !profileEdit.form.first_name.trim()"
+                                                        @click="saveProfile()">
+                                                    <div class="spinner-sm" x-show="profileEdit.saving"></div>
+                                                    Save
+                                                </button>
+                                            </div>
+                                        </template>
+                                    </div>
+            </div>
+        </div>
+    </template>
 
     <!-- ═══════════════════════════════════════════
          MODAL: Reset Password

@@ -21,6 +21,8 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     kendra_admin,
     kendra_h,
     make_account,
+    make_fund,
+    make_scope,
     mock_gateway,
     new_member,
     other_admin,
@@ -354,3 +356,42 @@ class TestMemberCards:
         mine, _ = self._own_copy(client, admin_h, write_conn, register_org_pk, mock_gateway)
         r = client.post(f"{BASE}/my-pranami/pay", json={"finance_head_pk": mine["finance_head_pk"], "amount": "500.00"}, headers=plain_member_h).json()
         assert any(a == "CREATE" for a, _ in audit_rows(write_conn, "upi_payment_request", r["upi_payment_request_pk"]))
+
+
+class TestChosenScopeAndFund:
+    """The simple create form may name the scope (and a fund of it); empty keeps the Sangha's general scope."""
+
+    def test_a_chosen_scope_and_fund_are_kept_on_the_head(self, client, admin_h, register_org_pk):
+        scope = make_scope(client, admin_h, register_org_pk, activate_with=admin_h)
+        fund = make_fund(client, admin_h, scope["financial_scope_pk"], activate_with=admin_h)
+        r = client.post(f"{BASE}/contributions", headers=admin_h, json={
+            "organization_pk": str(register_org_pk), "head_name": "Chosen scope", "open_portal": False,
+            "collection_scope_pk": scope["financial_scope_pk"], "collection_fund_pk": fund["fund_master_pk"]})
+        assert r.status_code == 201, r.text
+        head = r.json()["head"]
+        assert head["collection_scope_code"] == scope["scope_code"] and head["collection_scope_name"] == scope["scope_name"]
+        assert head["collection_fund_code"] == fund["fund_code"]
+
+    def test_opening_the_portal_keeps_the_chosen_scope(self, client, admin_h, register_org_pk, mock_gateway):
+        scope = make_scope(client, admin_h, register_org_pk, activate_with=admin_h)
+        make_account(client, admin_h, register_org_pk, mock_gateway)
+        pk = client.post(f"{BASE}/contributions", headers=admin_h, json={
+            "organization_pk": str(register_org_pk), "head_name": "Keeps scope", "open_portal": False,
+            "collection_scope_pk": scope["financial_scope_pk"]}).json()["head"]["finance_head_pk"]
+        opened = client.post(f"{BASE}/heads/{pk}/portal", headers=admin_h, json={"open": True, "due_date": "2099-01-01"})
+        assert opened.status_code == 200, opened.text
+        assert opened.json()["collection_scope_code"] == scope["scope_code"]
+
+    def test_a_draft_scope_is_refused(self, client, admin_h, register_org_pk):
+        draft = make_scope(client, admin_h, register_org_pk)
+        r = client.post(f"{BASE}/contributions", headers=admin_h, json={
+            "organization_pk": str(register_org_pk), "head_name": "Draft scope", "open_portal": False,
+            "collection_scope_pk": draft["financial_scope_pk"]})
+        assert r.status_code == 422
+
+    def test_all_sakhas_refuses_a_scope(self, client, kendra_h, write_conn):
+        scope = make_scope(client, kendra_h, None, activate_with=kendra_h)
+        r = client.post(f"{BASE}/contributions", headers=kendra_h, json={
+            "organization_pk": _kendra_pk(write_conn), "applies_to": "ALL_SAKHAS", "head_name": "Everyone",
+            "collection_scope_pk": scope["financial_scope_pk"]})
+        assert r.status_code == 422

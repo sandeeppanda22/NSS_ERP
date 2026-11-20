@@ -380,6 +380,7 @@ class TestHeadCollectionSettings:
         h = u["head"]
         assert h["allow_upi"] and h["is_pranami"]
         assert h["collection_scope_code"] == u["world"]["scope"]["scope_code"] and h["collection_account_label"] == u["account"]["account_label"]
+        assert h["collection_scope_name"] == u["world"]["scope"]["scope_name"]      # the list shows the scope name beside its code
 
     def test_upi_needs_a_scope_and_an_account(self, client, admin_h, register_org_pk, mock_gateway):
         w, acct = self._ingredients(client, admin_h, register_org_pk, mock_gateway)

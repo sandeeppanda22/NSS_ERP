@@ -173,6 +173,18 @@ class MemberListResponse(BaseModel):
 
     members: list[MemberResponse]
     total: int
+    # GET /members only: how many members hold each membership status under the same filters EXCEPT the status filter itself
+    # (the Member Directory's count tiles). Empty for /search.
+    status_counts: list["MemberStatusCount"] = []
+
+
+class MemberStatusCount(BaseModel):
+    status_code: str
+    status_name: str
+    count: int
+
+
+MemberListResponse.model_rebuild()
 
 
 class MemberDirectoryResponse(BaseModel):

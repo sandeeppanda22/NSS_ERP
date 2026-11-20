@@ -131,6 +131,13 @@ const TAB_LABELS = {
     attendance: "Attendance",
     governance: "Governance",
     documents: "Documents",
+    sendApplication: "Applications",
+    pendingItems: "Pending Items",
+    pranami: "Pranami",
+    finApprovals: "Finance approvals",
+    attendanceRegister: "Attendance Register",
+    memberDirectory: "Member Directory",
+    findOrg: "Find a Sakha",
 };
 
 /* ── Roles that get the org-level family browser ──────────── */

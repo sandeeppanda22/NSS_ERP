@@ -53,6 +53,7 @@ from api.schemas.membership import (
     MemberDirectoryListResponse,
     MemberDirectoryResponse,
     MemberListResponse,
+    MemberStatusCount,
     MemberResponse,
     OrgDarshakSummaryResponse,
     ParichayaPatraResponse,
@@ -143,7 +144,7 @@ _MEMBER_COUNT_SELECT = f"""
 # MEMBERSHIP_VIEW, org/body-scoped) and /directory (any logged-in member,
 # NSS-wide self-service lookup, 2026-10-27) so the two don't carry two
 # independently-maintained copies of the same matching logic. Takes
-# exactly the 9 placeholders _member_search_params() below builds, in the
+# exactly the 11 placeholders _member_search_params() below builds, in the
 # same order.
 _MEMBER_SEARCH_PREDICATE_SQL = """
     (
@@ -152,6 +153,8 @@ _MEMBER_SEARCH_PREDICATE_SQL = """
         OR aff.local_sakha_erp_id ILIKE %s
         OR similarity(p.first_name, %s) > 0.45
         OR similarity(p.last_name, %s) > 0.45
+        OR p.first_name ILIKE %s
+        OR p.last_name ILIKE %s
         OR p.mobile_number ILIKE %s
         OR p.email ILIKE %s
         OR o.organization_name ILIKE %s
@@ -166,7 +169,7 @@ _MEMBER_SEARCH_PREDICATE_SQL = """
 
 def _member_search_params(q: str) -> tuple[str, tuple]:
     """
-    Build (name_q, params) for _MEMBER_SEARCH_PREDICATE_SQL's 9 placeholders.
+    Build (name_q, params) for _MEMBER_SEARCH_PREDICATE_SQL's 11 placeholders.
 
     If q contains '.' or '@' (email-like), trigram runs on the portion
     before the first separator to avoid false positives (e.g.
@@ -185,6 +188,7 @@ def _member_search_params(q: str) -> tuple[str, tuple]:
     return name_q, (
         prefix_pattern, prefix_pattern, prefix_pattern,
         name_q, name_q,
+        name_q + "%", name_q + "%",
         prefix_pattern, prefix_pattern,
         substring_pattern,
         prefix_pattern,
@@ -276,9 +280,6 @@ def list_members(
     if type_code is not None:
         where += " AND mt.value_code = %s"
         params.append(type_code)
-    if status_code is not None:
-        where += " AND ms.value_code = %s"
-        params.append(status_code)
     if org_code is not None:
         where += " AND o.organization_code = %s"
         params.append(org_code)
@@ -288,6 +289,11 @@ def list_members(
     if q is not None:
         where += " AND " + _MEMBER_SEARCH_PREDICATE_SQL
         params.extend(_member_search_params(q.strip())[1])
+    # The per-status counts are taken under every filter but the status one, so they show the whole distribution.
+    where_all_statuses, params_all_statuses = where, list(params)
+    if status_code is not None:
+        where += " AND ms.value_code = %s"
+        params.append(status_code)
 
     order_by = build_order_by(
         sort_by, sort_dir, _MEMBER_SORT_COLUMNS, "p.first_name, p.last_name"
@@ -305,6 +311,8 @@ def list_members(
                 return MemberListResponse(members=[], total=0)
             where += " AND ss.organization_pk = ANY(%s::uuid[])"
             params.append(list(allowed))
+            where_all_statuses += " AND ss.organization_pk = ANY(%s::uuid[])"
+            params_all_statuses.append(list(allowed))
 
         sql = _MEMBER_SELECT + where + f" ORDER BY {order_by} LIMIT %s OFFSET %s"
 
@@ -314,7 +322,17 @@ def list_members(
         cur.execute(sql, tuple(params + [limit, offset]))
         members = rows_to_models(cur, MemberResponse)
 
-    return MemberListResponse(members=members, total=total)
+        cur.execute(
+            "SELECT ms.value_code, ms.value_name, count(*) AS n"
+            " FROM nss.sangha_sevi ss " + MEMBER_JOINS_SQL + where_all_statuses
+            + " GROUP BY ms.value_code, ms.value_name ORDER BY n DESC, ms.value_name",
+            tuple(params_all_statuses),
+        )
+        status_counts = [
+            MemberStatusCount(status_code=c, status_name=n, count=k) for c, n, k in cur.fetchall() if c
+        ]
+
+    return MemberListResponse(members=members, total=total, status_counts=status_counts)
 
 
 @router.get(

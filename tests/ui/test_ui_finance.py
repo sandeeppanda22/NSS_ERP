@@ -21,13 +21,14 @@ ROOT = Path(__file__).resolve().parents[2]
 FE = ROOT / "frontend"
 FIN_JS = (FE / "assets/js/finance.js").read_text(encoding="utf-8")
 SETUP_JS = (FE / "assets/js/finance-setup.js").read_text(encoding="utf-8")
-ALL_JS = FIN_JS + "\n" + SETUP_JS
+FUNDS_JS = (FE / "assets/js/finance-funds.js").read_text(encoding="utf-8")
+ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS
 ADMIN_JS = (FE / "assets/js/admin.js").read_text(encoding="utf-8")
 ADMIN_HTML = (FE / "admin.html").read_text(encoding="utf-8")
 CONFIG_JS = (FE / "assets/js/nss-config.js").read_text(encoding="utf-8")
 BADGES = (FE / "assets/css/badges.css").read_text(encoding="utf-8")
 
-TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers", "finSetup", "finCollections"]
+TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"]
 
 
 def _panel() -> str:
@@ -67,6 +68,7 @@ class TestWiring:
         def names(src):
             return set(re.findall(r"^ {12}(?:async\s+|get\s+)?(_?fin[A-Za-z]*)\s*[(:]", src, re.M))
         assert not names(FIN_JS) & names(SETUP_JS), names(FIN_JS) & names(SETUP_JS)
+        assert not names(FUNDS_JS) & (names(FIN_JS) | names(SETUP_JS)), names(FUNDS_JS) & (names(FIN_JS) | names(SETUP_JS))
 
     def test_no_member_collides_with_another_mixin_or_the_host(self):
         others = "".join((FE / "assets/js" / f).read_text(encoding="utf-8") for f in (
@@ -247,7 +249,7 @@ class TestSharedMaps:
 
     def test_entry_guard_and_hash_routes(self):
         assert "!this.canViewFinance && !this.hasGeneralAdminAccess" in ADMIN_JS
-        assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
+        assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
                 in ADMIN_JS)
         for tab in TABS:
             assert f'{tab}: () => {{ if (this.canViewFinance) this.finEnterTab("{tab}"); }}' in ADMIN_JS
@@ -335,10 +337,10 @@ class TestCustomizationAndCollectionScreens:
     def test_configuration_controls_are_hidden_without_the_configure_permission(self):
         setup = _screen("finSetup")
         # Simple page (owner 2026-11-18): create a head, list heads, open / close a head's payment portal; accounts sit under "More".
-        for needle in ("+ New account", "finAcctOpenEdit(a)", "+ Create head", "finHeadPortalOpenForm(h)", "finHeadPortal(h, false)"):
+        for needle in ("+ New account", "finAcctOpenEdit(a)", "+ Create head", "finHeadPortalOpenForm(h)", "finHeadPortal(h, false)", "finHeadOpenEdit(h)"):
             line = next(l for l in setup.splitlines() if needle in l)
             assert "canConfigureFinance" in line and "canApproveFinance" not in line, f"{needle} must be gated on canConfigureFinance"
-        for gone in ("Add Kendra templates", "finHeadOpenEdit(h)", "finHeadOpenCreate()", "finEventOpenCreate()", "finHeadSetView("):
+        for gone in ("Add Kendra templates", "finHeadOpenCreate()", "finEventOpenCreate()", "finHeadSetView("):
             assert gone not in setup, f"{gone} is no longer offered on the page"
         assert "canApproveFinance" not in setup, "configuring is its own permission; approving is not needed to set a Sangha up"
 
@@ -527,3 +529,62 @@ class TestMemberDestinationsAndEventsUi:
         p = _panel()
         assert "finEventOpenCreate()" not in p, "events have their own module; the Heads page no longer offers them"
         assert "/events" in SETUP_JS and "finEventOpenCreate" in SETUP_JS      # the API call and its handler are kept
+
+
+class TestHeadsListScopeAndEdit:
+    """Owner 2026-11-20: the heads list shows each head's scope code and name and offers Edit (a Sakha's copy of a Kendra head
+    only changes its account; an all-Sakhas head sends no collection fields)."""
+
+    def test_list_shows_the_scope_and_offers_edit(self):
+        setup = _screen("finSetup")
+        assert "<th>Scope</th>" in setup and 'x-text="h.collection_scope_code"' in setup and 'x-text="h.collection_scope_name"' in setup
+        assert "Each Sakha's own scope" in setup and "finHeadOpenEdit(h)" in setup
+
+    def test_edit_sends_only_what_each_kind_of_head_may_change(self):
+        js = (FE / "assets/js/finance-setup.js").read_text(encoding="utf-8")
+        assert 'f.kind === "copy"' in js and 'collection_account_pk: f.collection_account_pk || null' in js
+        assert 'f.kind === "source"' in js
+
+
+class TestCreateHeadScopeAndFund:
+    """Owner 2026-11-20: the Create head form lets the person see and choose the scope (and a fund); empty = automatic."""
+
+    def test_form_offers_scope_and_fund_and_sends_them(self):
+        setup = _screen("finSetup")
+        js = (FE / "assets/js/finance-setup.js").read_text(encoding="utf-8")
+        assert 'x-model="finContribForm.collection_scope_pk"' in setup and 'x-model="finContribForm.collection_fund_pk"' in setup
+        assert "Automatic — the Sangha's general scope" in setup
+        assert "finContribScopeChanged()" in setup and "async finContribScopeChanged()" in js
+        assert js.count("f.collection_scope_pk || null") >= 2           # contribution and plain expense head
+        assert "allSakhas ? null" in js                                 # a head for all Sakhas never sends a scope
+
+
+class TestFundsTab:
+    """Owner request 2026-11-20: a Funds tab in the Finance group - every fund across all scopes, with filters, create / edit and the
+    lifecycle buttons (the same finance.js code the scope detail uses)."""
+
+    def test_the_mixin_is_loaded_installed_and_never_overwrites_the_host(self):
+        assert '<script src="/assets/js/finance-funds.js"></script>' in ADMIN_HTML
+        assert "NSSFinanceFunds.install(" in ADMIN_JS and "window.NSSFinanceFunds" in FUNDS_JS
+        assert FUNDS_JS.count("hasOwnProperty.call(target, key)") == 1 and "getOwnPropertyDescriptors" in FUNDS_JS
+
+    def test_the_tab_is_in_the_sidebar_the_wrapper_the_labels_and_the_live_feed(self):
+        assert "finEnterTab('finFunds')" in _sidebar()
+        assert "'finFunds'" in ADMIN_HTML.split("includes(activeTab) && canViewFinance")[0].rsplit("[", 1)[1]
+        assert 'finFunds: "Finance Funds"' in ADMIN_JS
+        for table in ("financial_scope", "fund_master"):
+            assert re.search(rf"^\s+{table}: \[[^\]]*\"finFunds\"", ADMIN_JS, re.M), table
+        assert re.search(r"finFunds: \{ reload: \(h\) => h\.finLiveReload\(\), busy: \(h\) => h\.finLiveBusy\(\) \}", ADMIN_JS)
+        assert 'tab === "finFunds"' in FIN_JS and 'this.activeTab === "finFunds"' in FIN_JS
+
+    def test_the_panel_lists_filters_and_reuses_the_shared_fund_actions(self):
+        panel = ADMIN_HTML[ADMIN_HTML.index("activeTab === 'finFunds'\" x-cloak"):]
+        panel = panel[:panel.index("activeTab === 'finTransactions'")]
+        for needle in ("finFundsAll", "finFundsFilter.scope", "finFundsFilter.type", "finFundsFilter.status", "finFundsFilter.restricted",
+                       "finSubmitFund()", "finStartFundEdit(f)", "finActions('fund', f.status)", "finAskTransition('fund'", "finFundsOpenNew()"):
+            assert needle in panel, needle
+        assert "canManageFinance" in panel
+
+    def test_creating_a_fund_names_its_scope_and_refreshes_the_tab_on_screen(self):
+        assert 'financial_scope_pk: scopePk' in FIN_JS and "Choose the financial scope this fund belongs to." in FIN_JS
+        assert 'if (entity === "fund" && this.activeTab === "finFunds")' in FIN_JS
