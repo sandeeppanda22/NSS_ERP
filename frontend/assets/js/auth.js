@@ -150,13 +150,24 @@ const NSSAuth = {
             const refreshed = await this.refreshAccessToken();
             if (refreshed) {
                 headers.Authorization = `Bearer ${this.getAccessToken()}`;
-                return fetch(url, { cache: "no-store", ...opts, headers });
+                const retried = await fetch(url, { cache: "no-store", ...opts, headers });
+                this._noteOwnWrite(url, opts, retried);
+                return retried;
             }
             this.logout();
             throw new Error("Session expired. Please log in again.");
         }
 
+        this._noteOwnWrite(url, opts, res);
         return res;
+    },
+
+    // A write THIS page just made changes data the live-refresh feed will report; tell it, so the page does not offer itself a
+    // "This view has new updates - Refresh" banner for its own save (live-refresh.js: noteOwnWrite).
+    _noteOwnWrite(url, opts, res) {
+        const method = String((opts && opts.method) || "GET").toUpperCase();
+        if (method === "GET" || method === "HEAD" || !res || !res.ok) return;
+        if (typeof NSSLiveRefresh !== "undefined" && NSSLiveRefresh.noteOwnWrite) NSSLiveRefresh.noteOwnWrite();
     },
 
     // ── Auth headers (for manual fetch calls) ───────────────────

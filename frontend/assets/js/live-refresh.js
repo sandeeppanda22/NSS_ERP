@@ -90,6 +90,15 @@
 
     // Nested components (e.g. orgDashboardTab) the host's tab entries reach.
     const targets = {};
+
+    // The hosts that are polling. A write made by THIS page (auth.js calls noteOwnWrite after every successful POST / PATCH / PUT / DELETE)
+    // changes the very tables the feed watches; the page's own save handler already reloads what it changed, so the next poll must
+    // not turn that change into a "new updates - Refresh" banner for the person who made it. Only the ACTIVE tab is spared: other
+    // tabs are still marked stale / reloaded as usual.
+    const hosts = new Set();
+    function noteOwnWrite() {
+        for (const host of hosts) host._liveOwnWrite();
+    }
     function registerTarget(name, obj) { targets[name] = obj; }
     function unregisterTarget(name, obj) { if (targets[name] === obj) delete targets[name]; }
     function target(name) { return targets[name] || null; }
@@ -140,11 +149,12 @@
                 this.liveStop();
                 const run = {
                     id: ++runSeq, gen: 0, timer: null, seen: null,
-                    failures: 0, retryAfterMs: 0, busy: false,
+                    failures: 0, retryAfterMs: 0, busy: false, ownWriteAt: 0, quietNext: false,
                     activityAt: Date.now(), stale: new Set(), bannerTab: null,
                     onVis: null, onActivity: null,
                 };
                 this._liveRun = run;
+                hosts.add(this);
                 run.onVis = () => {
                     // Back on screen: poll now and return to the fast cadence.
                     if (!document.hidden && this._liveRun && this._liveRun.id === run.id) {
@@ -161,6 +171,7 @@
             liveStop() {
                 const run = this._liveRun;
                 if (!run) return;
+                hosts.delete(this);
                 run.gen++;
                 clearTimeout(run.timer);
                 document.removeEventListener("visibilitychange", run.onVis);
@@ -177,6 +188,16 @@
                 run.timer = setTimeout(() => this._livePoll(gen), delayMs);
             },
 
+            // This page just saved something: the next poll that can see it is "quiet" for the active tab, and one is scheduled right away
+            // (a poll already in flight when the write finished may or may not have seen it, so the following one is quiet as well).
+            _liveOwnWrite() {
+                const run = this._liveRun;
+                if (!run) return;
+                run.ownWriteAt = Date.now();
+                run.quietNext = true;
+                if (!run.busy) this._liveSchedule(400);
+            },
+
             async _livePoll(gen) {
                 const run = this._liveRun;
                 if (!run || gen !== run.gen) return;
@@ -184,6 +205,9 @@
                 if (document.hidden) return;
                 if (run.busy) return;
                 run.busy = true;
+                const startedAt = Date.now();
+                const quiet = run.quietNext;
+                run.quietNext = false;
                 try {
                     const res = await NSSAuth.apiFetch(LIVE_FEED.ENDPOINT);
                     if (gen !== run.gen) return;
@@ -200,7 +224,7 @@
                     run.retryAfterMs = 0;
                     if (out.tabs.length) {
                         run.activityAt = Date.now();
-                        await this._liveApply(out.tabs);
+                        await this._liveApply(out.tabs, quiet || run.ownWriteAt > startedAt);
                     }
                 } catch (e) {
                     if (gen === run.gen) run.failures++;
@@ -213,7 +237,7 @@
             },
 
             // Decide, per affected tab, between reload now / banner / stale mark.
-            async _liveApply(tabs) {
+            async _liveApply(tabs, quiet = false) {
                 const run = this._liveRun;
                 const active = config.activeTab(this);
                 const jobs = [];
@@ -221,6 +245,7 @@
                     const def = config.tabs[tab];
                     if (!def) continue;
                     if (tab === active) {
+                        if (quiet) continue;                    // the change is this page's own save: it reloaded itself
                         if (this._liveIsBusy(tab)) {
                             run.bannerTab = tab;
                             this._liveSetBanner(true);
@@ -288,6 +313,7 @@
         registerTarget,
         unregisterTarget,
         target,
+        noteOwnWrite,
         install(target, config) {
             const descriptors = Object.getOwnPropertyDescriptors(liveRefreshMixin(config));
             for (const key of Object.keys(descriptors)) {

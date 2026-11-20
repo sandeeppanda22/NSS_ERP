@@ -297,3 +297,42 @@ class TestTheMembersPranamiTabIsLive:
         assert "pranami: { reload: (h) => h._loadPranami({ silent: true }), busy: () => false }" in js
         loader = js.split("async _loadPranami(opts = {}) {")[1].split("// Financial years that have")[0]
         assert "this._loadPranamiPayHeads();" in loader and "pranamiPay.result" not in loader     # the checkout page the member is on is never reset
+
+
+# ── Your own save never raises the "new updates" banner (owner 2026-11-20) ─────────────────────────────
+
+def _quiet_run(quiet: bool):
+    """Run _liveApply for the ACTIVE, busy tab under node and report whether the banner went up and whether other tabs were still marked stale."""
+    code = f"""
+        global.window = {{}}; require({json.dumps(str(LIVE_JS))}); const L = window.NSSLiveRefresh;
+        const banner = [];
+        const host = {{ _liveSetBanner(on) {{ banner.push(on); }}, _liveRun: {{ stale: new Set(), bannerTab: null }} }};
+        L.install(host, {{
+            tableTabs: {{}}, activeTab: () => "a",
+            tabs: {{ a: {{ reload: async () => {{}}, busy: () => true }}, b: {{ reload: async () => {{}} }} }},
+        }});
+        host._liveApply(["a", "b"], {str(quiet).lower()}).then(() => {{
+            console.log(JSON.stringify({{ banner, bannerTab: host._liveRun.bannerTab, stale: [...host._liveRun.stale] }}));
+        }});
+    """
+    out = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=20)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_a_busy_active_tab_gets_the_banner_for_somebody_elses_change():
+    got = _quiet_run(False)
+    assert got["banner"] == [True] and got["bannerTab"] == "a" and got["stale"] == ["b"]
+
+
+def test_your_own_save_raises_no_banner_but_other_tabs_are_still_marked_stale():
+    got = _quiet_run(True)
+    assert got["banner"] == [] and got["bannerTab"] is None and got["stale"] == ["b"]
+
+
+def test_every_successful_write_through_apifetch_tells_the_feed(live_js):
+    auth = (ROOT / "frontend/assets/js/auth.js").read_text(encoding="utf-8")
+    assert "_noteOwnWrite(url, opts, res)" in auth and "_noteOwnWrite(url, opts, retried)" in auth
+    assert 'method === "GET" || method === "HEAD" || !res || !res.ok' in auth
+    assert "noteOwnWrite," in live_js and "hosts.add(this)" in live_js and "hosts.delete(this)" in live_js
+    assert "run.quietNext = true" in live_js and "quiet || run.ownWriteAt > startedAt" in live_js
