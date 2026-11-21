@@ -266,7 +266,7 @@ def make_head(client, headers, organization_pk, *, direction="INCOME", **over) -
     return r.json()
 
 
-def upi_world(client, admin_h_, org_pk, gw, *, restricted=False, **head_over) -> dict:
+def upi_world(client, admin_h_, org_pk, gw, *, restricted=False, account_over: dict | None = None, **head_over) -> dict:
     """
     A Sangha ready to collect Pranami by UPI: OPEN year, ACTIVE scope + fund, a receiving account on the MOCK gateway and a
     Pranami head that collects into them. Returns {world, account, head}.
@@ -276,7 +276,7 @@ def upi_world(client, admin_h_, org_pk, gw, *, restricted=False, **head_over) ->
     if restricted:
         fund = make_fund(client, admin_h_, w["scope"]["financial_scope_pk"], activate_with=admin_h_, fund_type="SPECIFIC_PURPOSE",
                          is_restricted=True, restriction_purpose="Temple repair")
-    account = make_account(client, admin_h_, org_pk, gw)
+    account = make_account(client, admin_h_, org_pk, gw, **(account_over or {}))
     body = {"head_name": "UPI Pranami", "is_pranami": True, "allow_upi": True,
             "collection_scope_pk": w["scope"]["financial_scope_pk"], "collection_fund_pk": fund["fund_master_pk"],
             "collection_account_pk": account["financial_account_pk"]}

@@ -73,6 +73,7 @@ GATED: list[tuple[str, str, dict | None]] = [
     ("POST", f"{BASE}/heads/{FAKE_UUID}/portal", {"open": True}),
     ("GET", f"{BASE}/heads/{FAKE_UUID}", None),
     ("PATCH", f"{BASE}/heads/{FAKE_UUID}", {"head_name": "x"}),
+    ("DELETE", f"{BASE}/heads/{FAKE_UUID}", None),
     ("POST", f"{BASE}/heads/{FAKE_UUID}/transition", {"status": "INACTIVE"}),
     ("GET", f"{BASE}/payment-requests", None),
     ("POST", f"{BASE}/payment-requests", {"finance_head_pk": FAKE_UUID, "amount": "10"}),
@@ -122,7 +123,7 @@ def test_endpoint_table_covers_every_route():
     # the webhook is listed with the MOCK provider; the real route takes any provider name
     listed = {(m, p.replace("/gateway/webhook/MOCK", f"/gateway/webhook/{FAKE_UUID}")) for m, p in listed}
     assert routes == listed
-    assert len(setup.routes) + len(upi.routes) == 31
+    assert len(setup.routes) + len(upi.routes) == 32
 
 
 def test_every_gated_route_declares_a_permission_dependency():

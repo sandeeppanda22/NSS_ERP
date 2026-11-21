@@ -8,6 +8,8 @@ head templates, PAYMENT_METHOD, the FINANCE_* permissions). Everything rolls bac
 
 import pytest
 
+from api.config import settings
+
 from tests.finance_support import (  # noqa: F401  (fixtures)
     single_approval_levels,
     BASE,
@@ -506,15 +508,23 @@ class TestAccounts:
         assert got[first["financial_account_pk"]] is True and got[second["financial_account_pk"]] is False
 
     def test_gateway_ready_needs_the_provider_enabled_and_the_credentials_present(self, client, admin_h, register_org_pk, mock_gateway, monkeypatch):
-        a = make_account(client, admin_h, register_org_pk, mock_gateway)
+        # A REAL provider always needs its own full credential set; a MOCK account falls back to built-in demo credentials (next test).
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "MOCK,RAZORPAY")
+        a = make_account(client, admin_h, register_org_pk, mock_gateway, gateway_provider="RAZORPAY")
         pk = a["financial_account_pk"]
         assert client.get(f"{BASE}/accounts/{pk}", headers=admin_h).json()["gateway_ready"] is True
         monkeypatch.delenv(f"UPI_{mock_gateway.ref}_WEBHOOK_SECRET")                              # a half-configured set is not ready
         assert client.get(f"{BASE}/accounts/{pk}", headers=admin_h).json()["gateway_ready"] is False
 
-    def test_gateway_is_not_ready_when_the_provider_is_not_enabled(self, client, admin_h, register_org_pk, monkeypatch):
+    def test_a_mock_account_needs_no_credentials_but_the_provider_must_be_enabled(self, client, admin_h, register_org_pk, monkeypatch):
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "MOCK")
         a = make_account(client, admin_h, register_org_pk, gateway_provider="MOCK", gateway_credential_ref="NOT_CONFIGURED_ANYWHERE")
-        assert a["gateway_ready"] is False
+        assert a["gateway_ready"] is True                                                         # the built-in demo credentials
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "")
+        assert client.get(f"{BASE}/accounts/{a['financial_account_pk']}", headers=admin_h).json()["gateway_ready"] is False
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "MOCK")
+        r = make_account(client, admin_h, register_org_pk, gateway_provider="RAZORPAY", gateway_credential_ref="NOT_CONFIGURED_ANYWHERE")
+        assert r["gateway_ready"] is False                                                        # a real provider that is not enabled / has no keys
 
     def test_edit(self, client, admin_h, register_org_pk):
         a = make_account(client, admin_h, register_org_pk)
@@ -579,8 +589,8 @@ class TestFundsListFollowsTheSangha:
     def test_a_sakha_admin_never_sees_another_sakhas_funds_even_when_asking(self, client, sakha_admin_h, other_admin_h, other_org_pk):
         from tests.finance_support import make_fund, make_scope
 
-        scope = make_scope(client, other_admin_h, other_org_pk, activate_with=other_admin_h)
-        fund = make_fund(client, other_admin_h, scope["financial_scope_pk"], activate_with=other_admin_h)
+        scope = make_scope(client, other_admin_h, other_org_pk, activate_with=admin_h)            # a Sakha admin cannot ACTIVATE (FINANCE_APPROVE)
+        fund = make_fund(client, other_admin_h, scope["financial_scope_pk"], activate_with=admin_h)
         r = client.get("/api/v1/finance/funds", headers=sakha_admin_h, params={"organization_pk": str(other_org_pk), "page_size": 100})
         assert r.status_code == 200
         assert fund["fund_master_pk"] not in {f["fund_master_pk"] for f in r.json()["items"]}

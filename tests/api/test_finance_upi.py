@@ -188,7 +188,9 @@ class TestCreateRequest:
         assert create_request(client, admin_h, u["head"]).status_code == 422
 
     def test_an_account_whose_credentials_are_missing_is_a_503_not_a_crash(self, client, admin_h, register_org_pk, mock_gateway, monkeypatch):
-        u = upi_world(client, admin_h, register_org_pk, mock_gateway)
+        # a REAL provider needs its own keys (a MOCK account would fall back to its built-in demo credentials and work)
+        monkeypatch.setattr(settings, "UPI_GATEWAY_ENABLED_PROVIDERS", "MOCK,RAZORPAY")
+        u = upi_world(client, admin_h, register_org_pk, mock_gateway, account_over={"gateway_provider": "RAZORPAY"})
         monkeypatch.delenv(f"UPI_{mock_gateway.ref}_KEY_SECRET")
         r = create_request(client, admin_h, u["head"])
         assert r.status_code == 503 and mock_gateway.secret not in r.text
@@ -563,7 +565,7 @@ class TestMemberSelfService:
         assert r.status_code == 201, r.text
         mine = r.json()
         # the member's view carries no internals
-        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk", "items"}
+        assert set(mine) == {"upi_payment_request_pk", "request_reference", "head_name", "organization_name", "amount", "status", "pay_url", "upi_uri", "expires_at", "paid_at", "receipt_number", "financial_receipt_pk", "demo_payable", "items"}
         assert mine["status"] == "PENDING" and mine["upi_uri"].startswith("upi://pay?") and mine["receipt_number"] is None
         # the treasurer sees who is paying - the token, not a field the member could choose
         full = fetch(client, admin_h, mine["upi_payment_request_pk"])

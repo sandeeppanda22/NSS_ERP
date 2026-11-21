@@ -132,6 +132,7 @@ class TestSimpleContribution:
 
     def test_with_no_account_it_is_saved_but_cannot_collect_yet(self, client, admin_h, register_org_pk, monkeypatch):
         monkeypatch.setattr(FC, "default_account", lambda cur, org: None)
+        monkeypatch.setattr(FC, "ensure_demo_account", lambda cur, user, org: None)         # a local install would otherwise create the demo account
         r = contribution(client, admin_h, register_org_pk, fixed_amount="100", due_period="MONTHLY")
         assert r["needs_account"] is True and r["head"]["allow_upi"] is False and r["head"]["collection_account_pk"] is None
 

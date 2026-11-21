@@ -300,8 +300,13 @@ def admin_view_token(_override_deps, _db_conn):
                   'FOUNDATION_VIEW', 'ORGANIZATION_VIEW',
                   'PERSON_VIEW', 'MEMBERSHIP_VIEW'
               )
+            JOIN nss.role_master rm ON rm.role_master_pk = ur.role_master_pk
             GROUP BY ua.user_account_pk, ss.sangha_sevi_id
             HAVING COUNT(DISTINCT pm.permission_code) = 4
+            -- The functional read tests assume an admin with NO admin-scope limit. "Any account with the four permissions" picked
+            -- a Sakha-scoped admin as soon as the database had one ("You can only view wings for within your admin scope"), so
+            -- prefer the super administrator, then the oldest account: deterministic, and the same account on every run.
+            ORDER BY BOOL_OR(rm.role_code = 'NSS_ERP_ADMIN') DESC, MIN(ua.created_at), ua.user_account_pk
             LIMIT 1
             """
         )

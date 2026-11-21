@@ -364,7 +364,7 @@ def test_ddl_folder_has_no_orphan_file():
     """Every .sql in the folder is a table file or a known patch, and all of them are named in the build scripts."""
     files = {p.name for p in DDL.glob("*.sql")}
     assert files == {f for f, _ in TABLE_FILES} | {"12_finance_heads_patch.sql", "14_finance_head_fixed_amount_patch.sql",
-                                                   "15_finance_head_approval_patch.sql"}
+                                                   "15_finance_head_approval_patch.sql", "20_finance_head_due_date_patch.sql"}
     for rel in BUILD_SCRIPTS:
         text = _script(rel)
         for f in files:
