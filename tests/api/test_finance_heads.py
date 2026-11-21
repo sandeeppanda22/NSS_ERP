@@ -586,7 +586,7 @@ class TestFundsListFollowsTheSangha:
         assert f1["fund_master_pk"] in pks and f2["fund_master_pk"] not in pks
         assert all(f["scope_code"] for f in r.json()["items"])
 
-    def test_a_sakha_admin_never_sees_another_sakhas_funds_even_when_asking(self, client, sakha_admin_h, other_admin_h, other_org_pk):
+    def test_a_sakha_admin_never_sees_another_sakhas_funds_even_when_asking(self, client, admin_h, sakha_admin_h, other_admin_h, other_org_pk):
         from tests.finance_support import make_fund, make_scope
 
         scope = make_scope(client, other_admin_h, other_org_pk, activate_with=admin_h)            # a Sakha admin cannot ACTIVATE (FINANCE_APPROVE)
