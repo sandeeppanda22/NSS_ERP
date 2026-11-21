@@ -496,17 +496,28 @@ _CHILDREN_STATS_SQL = f"""
               AND ss.is_active = TRUE
         GROUP BY sp.root_child_pk
     ),
-    -- Person count per root_child (persons in families under effective Sakha)
+    -- Person count per root_child: the persons in families under the effective Sakha UNION the persons of this Sakha's own active
+    -- members. A member is a person even when no family has been recorded for them (one created through the admin Create Person /
+    -- Sangha Sevi flow), so counting persons through families alone showed more members than persons (3 members, 2 persons).
     person_counts AS (
-        SELECT sp.root_child_pk,
-               COUNT(DISTINCT fr.person_pk) AS person_count
-        FROM   sakha_pks sp
-        JOIN   family_effective fe
-               ON fe.effective_sakha_pk = sp.sakha_pk
-        JOIN   nss.family_relationship fr
-               ON fr.family_group_pk = fe.family_group_pk
-              AND fr.is_current = TRUE
-        GROUP BY sp.root_child_pk
+        SELECT root_child_pk,
+               COUNT(DISTINCT person_pk) AS person_count
+        FROM (
+            SELECT sp.root_child_pk, fr.person_pk
+            FROM   sakha_pks sp
+            JOIN   family_effective fe
+                   ON fe.effective_sakha_pk = sp.sakha_pk
+            JOIN   nss.family_relationship fr
+                   ON fr.family_group_pk = fe.family_group_pk
+                  AND fr.is_current = TRUE
+            UNION
+            SELECT sp.root_child_pk, ss.person_pk
+            FROM   sakha_pks sp
+            JOIN   nss.sangha_sevi ss
+                   ON ss.organization_pk = sp.sakha_pk
+                  AND ss.is_active = TRUE
+        ) persons
+        GROUP BY root_child_pk
     ),
     -- Attendance per root_child (Tier 6, 2026-10-27) — present/absent
     -- across every Weekly Sangha Puja event at any Sakha under this
@@ -560,7 +571,8 @@ def list_children_stats(
 
     For each child org, recursively finds all descendant Sakhas and
     counts families (dynamic majority rule), members (active
-    affiliations), and persons (family members).
+    sangha_sevi whose home is the Sakha), and persons (family members plus
+    the Sakha's own members, so persons >= members).
 
     Used by the org admin sidebar to display inline counts on each
     drill-down card.
