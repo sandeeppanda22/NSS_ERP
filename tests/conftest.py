@@ -294,13 +294,14 @@ def admin_view_token(_override_deps, _db_conn):
               ON rp.role_master_pk = ur.role_master_pk AND rp.is_active = TRUE
             JOIN nss.permission_master pm
               ON pm.permission_master_pk = rp.permission_master_pk
+            JOIN nss.role_master rm
+              ON rm.role_master_pk = ur.role_master_pk
             WHERE ua.is_active = TRUE
               AND ua.account_status = 'ACTIVE'
               AND pm.permission_code IN (
                   'FOUNDATION_VIEW', 'ORGANIZATION_VIEW',
                   'PERSON_VIEW', 'MEMBERSHIP_VIEW'
               )
-            JOIN nss.role_master rm ON rm.role_master_pk = ur.role_master_pk
             GROUP BY ua.user_account_pk, ss.sangha_sevi_id
             HAVING COUNT(DISTINCT pm.permission_code) = 4
             -- The functional read tests assume an admin with NO admin-scope limit. "Any account with the four permissions" picked
