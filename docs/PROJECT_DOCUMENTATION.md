@@ -20,14 +20,14 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 23 routers, 344 endpoints (registered routes in the working tree — 332 `@router.*` decorators plus 12 added by `assets_property.py::_register_entity_routes`; 252/17 on `develop`). |
-| Database (`database/`) | Hand-written PostgreSQL DDL, 95 tables in schema `nss` (Finance, Tier 12: 16, on `feature/tier12-finance`), no migration tool. |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 26 router modules, 371 endpoints (registered routes counted from `app.routes`, 2026-11-20 — a `@router.*` decorator grep undercounts by the 12 added by `assets_property.py::_register_entity_routes`). |
+| Database (`database/`) | Hand-written PostgreSQL DDL, 95 tables in schema `nss` (Finance, Tier 12: 16, merged into `develop`), no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (5189 items collected on 2026-11-10). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (6714 items collected on 2026-11-20: api 3512, db 530, security 1641, ui 1031). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
-Mahila, Publications/UPBS, Finance, Reports/Backup) (Assets & Property backend and admin UI are built; the UI has not been opened in a browser). Render.com + Neon.dev
+Mahila, Publications/UPBS, Reports/Backup) (Finance, Tier 12, is built and merged into `develop` but not yet in a tagged release; Assets & Property backend and admin UI are built; the owner has reviewed the redone UI by hand, Playwright runs of the newest screens have not happened). Render.com + Neon.dev
 deployment is declared (`render.yaml`, `render_build.sh`, env templates in `deploy/`); the DEV build succeeded on Render + Neon on 2026-11-09 (phases 0-14, 79 tables) and PROD is not yet rebuilt.
 
 ### Tier status
@@ -42,7 +42,8 @@ deployment is declared (`render.yaml`, `render_build.sh`, env templates in `depl
 | 5 | Authentication + Administration + Audit | Released v0.11.0 (on `develop` and `main`) |
 | 6 | Governance + Correspondence + Membership change requests + Attendance + Sakha re-parent approvals | Merged into `develop` 2026-11-02 (merge `bc6e42f`; 37 commits from `feature/tier6-governance`, incl. the 2026-10-30/31 work: Advisory Board org type, null-org scopes, re-parent workflow, Sakha Asana parity, member address editor, local Sakha ID / legacy numbering, live attendance), **released as `v0.12.0` on 2026-11-10 (pushed and published)**; fix 1 (per-user `/live` rate limit, `api/rate_limit.py`) and fix 2 (adaptive live polling in `attendance-register.js`, `_attRegisterShown()` hooks in `admin.js`/`dashboard.js`, UI tests) are committed |
 | 6 (rest) | Assets & Property (Module #22) | **Implemented 2026-11-02, committed 2026-11-03, merged into `develop` 2026-11-09 (`a83e896`)** — 7 tables (`ddl/11_assets_property/`, build Phase 11g), `assets_property.py` (26 endpoints), `ASSET_VIEW`/`ASSET_MANAGE`, 757 backend tests collected (never run against a DB); implementation decisions in GDR-010 (`Proposed`). Admin UI added 2026-11-02: `admin.html` group "Assets & Property" with Properties / Assets tabs, logic in `assets-property.js`, 83 UI source-parsing tests; never opened in a browser. Owner decisions 2026-11-03 (GDR-010 §2E/§2F, uncommitted): optional `ACQUISITION_METHOD` master-data column on `property`/`asset`; DISPOSED/RETIRED END the active custodianship in the same transaction while the last custodian stays on the record (effective custodian = active, else the last ENDED one for a terminal record, used by detail/list/filters/scope checks; `custodian_is_last`/`custodian_ended_at`); patches `11_…acquisition_method_patch.sql`, `12_…terminal_custody_patch.sql`; guard `trg_custodianship_terminal_guard`. |
-| 7-13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Finance, Reports + Backup | Design only |
+| 7-11, 13 | Heritage, Programmes & Events, Kumari/Kishor/Sevak (9), Mahila (10), Publications + UPBS, Reports + Backup | Design only |
+| 12 | Finance (Tier 12): years, scopes, funds, heads, transactions, receipts, payments, transfers, UPI / card collection through the MOCK and Razorpay gateways, member Pranami, the Sakha approval chain, PDF receipts, the Bye-Law disbursement controls | Built; merged into `develop` (`a5950a2`, `8a221ab`), later work on `feature/tier12-finance` (not yet in a release). 80 endpoints, 16 tables, role `NSS_ERP_SAKHA_TREASURER`; open items in `CLAUDE.md` |
 
 `main` = `develop` = tag `v0.12.0` (Tier 6, 2026-11-10), on top of tag `v0.11.0` (= `c8f2c9c`; both tags and their GitHub Releases are published);
 `develop` = `main` (merges `bc6e42f` and `a83e896`, plus later commits; both pushed). Release notes: `docs/05_Releases/`. The
@@ -58,7 +59,7 @@ Middleware: SlowAPI rate limit → CORS (only if configured) → security header
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
-  └─ /api/v1/<router>/...                           api/routers/*.py (23 routers)
+  └─ /api/v1/<router>/...                           api/routers/*.py (26 routers)
         │  Depends: get_current_user / require_permission / require_org_in_scope
         │  helpers: api/helpers.py   services: api/services/
         ▼
@@ -276,7 +277,7 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `python3 -m pytest --collect-only -qq`
-reports 5189 items (api 2770, db 401, security 1227, ui 791); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
+reports 6714 items (api 3512, db 530, security 1641, ui 1031; 2026-11-20); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)

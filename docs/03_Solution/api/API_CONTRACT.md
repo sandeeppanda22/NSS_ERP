@@ -315,7 +315,7 @@ own Member Dashboard data.
 
 | # | Method | Path | Filters | Description | Response Model |
 |---|---|---|---|---|---|
-| 36 | GET | `/members` | `type_code`, `status_code`, `org_code`, `org_type_code`, `limit`, `offset` | List members | `MemberListResponse` (`{members, total}`, see §2.1) |
+| 36 | GET | `/members` | `type_code`, `status_code`, `org_code`, `org_type_code`, `q`, `limit`, `offset`, `sort_by`, `sort_dir` | List members | `MemberListResponse` (`{members, total, status_counts}`, see §2.1; `status_counts` = one count per membership status under the same filters EXCEPT `status_code`, for the Member Directory tiles; `q` also matches a first / last-name prefix) |
 | 37 | GET | `/members/{pk}` | — | Member detail | `MemberResponse` |
 | 38 | GET | `/search?q=` | `q` (min 2 chars, required), `limit` (default 50), `offset` | Trigram + prefix search across all 3 identity tiers + name + contact | `MemberListResponse` (`{members, total}`, see §2.1) |
 | 39 | GET | `/members/{pk}/affiliations` | — | Sakha affiliation history | `list[SakhaAffiliationResponse]` |
@@ -836,7 +836,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 
 # 12h. Tier 12 — Finance
 
-**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 12 — accounts, finance heads and event setup, `finance_upi.py` 11 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority; schemas in `api/schemas/finance.py`) — 60 endpoints. Implemented on `feature/tier12-finance` (uncommitted; not run against the project DB). Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
+**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 2 — PDF receipts; schemas in `api/schemas/finance.py`) — 80 endpoints (2026-11-20). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
 
 **Auth (every endpoint):** `Authorization: Bearer` JWT. Reads need any of `FINANCE_VIEW` / `FINANCE_MANAGE` / `FINANCE_APPROVE`; record / edit / submit need `FINANCE_MANAGE`; approve / post / execute / reject / cancel (approved items) / open and close years need `FINANCE_APPROVE`. Plus **admin scope on the Financial Scope's organization**; a scope with no organization and the financial years themselves are global-authority only. Every `/transition` endpoint is gated on MANAGE-or-APPROVE before any lookup, then on the step's own permission.
 
@@ -850,7 +850,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | GET / POST | `/scopes` | List (filters `q`, `scope_type`, `status`, `organization_pk`, `financial_year_pk`) / create (DRAFT) |
 | GET / PATCH | `/scopes/{pk}` | Detail / rename, year, parent (no cycles) |
 | POST | `/scopes/{pk}/transition` | DRAFT -> ACTIVE -> CLOSING -> CLOSED |
-| GET / POST | `/funds` | List / create (restricted funds need a purpose; a Sinking Fund names its Sakha) |
+| GET / POST | `/funds` | List (filters: `q`, `financial_scope_pk`, `organization_pk` — the funds of one Sangha's scopes, `fund_type`, `status`, `is_restricted`; sorted by name) / create (restricted funds need a purpose; a Sinking Fund names its Sakha) |
 | GET / PATCH | `/funds/{pk}` | Detail incl. `balance` / edit |
 | POST | `/funds/{pk}/transition` | DRAFT -> ACTIVE -> INACTIVE |
 | GET / POST | `/transactions` | List (filters `q`, year, scope, fund, type, category, status, person, `date_from`/`date_to`) / record a DRAFT |
@@ -883,7 +883,8 @@ Finance heads are the per-Sangha catalogue of what money is collected or spent f
 | POST | `/events` | Set up an event a Sangha collects for (e.g. Rasa) in ONE call: an ACTIVE `EVENT` financial scope owned by the Sangha + a member-payable UPI head collecting into it (`FINANCE_CONFIGURE` + admin scope; all-or-nothing). Switch the head off (`/heads/{pk}/transition`) to stop collecting. `GET /heads?events_only=true` lists them |
 | POST | `/contributions` | The SIMPLE way to add a head (owner 2026-11-15): name, optional fixed amount + `due_period` (`YEARLY`/`MONTHLY`/`ONE_TIME`), `allow_part_payment`. The server sets code, INCOME, member-visible, UPI, the Sangha's scope and its default receiving account. `applies_to=ALL_SAKHAS` (Kendra only) makes the head a SOURCE that collects nothing; every active Sakha gets its own copy collecting into that Sakha's account. `FINANCE_CONFIGURE` + admin scope; every row written is audited |
 | POST | `/heads/adopt-templates` | Copy selected Kendra templates into a Sangha (idempotent; existing codes skipped) |
-| GET / PATCH | `/heads/{pk}` | Detail / edit the mutable fields |
+| GET / PATCH | `/heads/{pk}` | Detail / edit the mutable fields (name, description, amount and schedule, Pranami, online collection, scope, fund, account, approval options; a Sakha's copy of a Kendra head only its account; an all-Sakhas head no collection targets). Turning Pranami ON switches online collection on (422 "payable online" without a scope + account) |
+| DELETE | `/heads/{pk}` | Delete a head nothing has used — a SOFT delete (`is_active = FALSE`, audited). 409 while a transaction, UPI request or request line names it (switch it off instead); 403 for a Sakha's copy of a Kendra head; an unused all-Sakhas head removes its unused copies too. `FINANCE_CONFIGURE` + scope |
 | POST | `/heads/{pk}/transition` | Activate / deactivate |
 | POST | `/heads/{pk}/sync-copies` | All-Sakhas source: give every Sakha its copy and refresh the existing ones (idempotent, audited; on a source, status changes also move every copy) |
 | POST | `/heads/{pk}/portal` | Open / close an INCOME head's payment portal (`{open: bool}`): open = member-visible (Pranami tab) and payable by UPI into the Sangha's default receiving account (422 when it has none); a head for every Sakha is opened by giving each Sakha its copy and is stopped by switching it off; `POST /contributions` takes `open_portal` (default true; false = created closed). `FINANCE_CONFIGURE` + scope | `PortalToggle` also carries `due_date` (required with a fixed amount; a Sakha's copy follows the Kendra's date); closing only stops new payments and never hides History. `GET /my-pranami/heads` lists only heads whose portal is OPEN and adds `due_date` / `overdue`.
@@ -953,12 +954,13 @@ The Treasurer's signature is not an endpoint: moving a payment to `INITIATED` (a
 | 6 | Governance | 56 |
 | 6 | Membership Change Requests | 5 |
 | 6 | Correspondence Register | 19 |
-| 6 | Attendance | 20 |
+| 6 | Attendance | 21 |
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 60 |
-| **Total** | | **344** |
+| 12 | Finance | 80 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 2) |
+| 12 | Membership Status workflow | 6 |
+| **Total** | | **371** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 
