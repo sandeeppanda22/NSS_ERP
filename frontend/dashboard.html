@@ -4787,6 +4787,8 @@
                                         <div class="pay-buttons">
                                             <button type="button" class="btn-action primary pay-btn" x-show="pranamiPay.result && pranamiPay.result.financial_receipt_pk && pranamiPay.result.items.length === 0"
                                                     @click="pranamiDownloadReceipt(pranamiPay.result.financial_receipt_pk, pranamiPay.result.receipt_number)">Download receipt (PDF)</button>
+                                            <button type="button" class="btn-action primary pay-btn" x-show="pranamiPay.result && pranamiPay.result.items.length > 1"
+                                                    @click="pranamiDownloadSummary(pranamiPay.result.upi_payment_request_pk, pranamiPay.result.request_reference)">Download payment summary (PDF)</button>
                                             <button type="button" class="btn-action" @click="pranamiPayClose()">Done</button>
                                         </div>
                                     </div>

@@ -63,7 +63,7 @@ const ADMIN_TAB_MAP = {
         description: "Manage Advisory Board office-bearers, acting cover and correspondence",
         adminUrl: "/admin#govAssignments",
     },
-    // The seated (or acting) Treasurer of a Sakha: finance only (view + record; configuration is the Sakha admin's, approvals stay with the seats). Held automatically from the seat
+    // The seated (or acting) Treasurer of a Sakha: finance only (view, record and configure; the controls that bind the Treasurer and the approvals stay with the seats). Held automatically from the seat
     // (rbac_service composite rule), scoped to that Sakha. No stat tiles (like the Advisory Board admin: nothing here is a member count).
     NSS_ERP_SAKHA_TREASURER: {
         label: "Sakha Finance",
@@ -1388,6 +1388,18 @@ function dashboardApp() {
             }
         },
 
+        // One page summarising a payment made for SEVERAL contributions in one go (GET /finance/my-pranami/requests/{pk}/summary-pdf);
+        // a printout only: each contribution keeps its own numbered receipt.
+        async pranamiDownloadSummary(requestPk, reference) {
+            if (!requestPk) return;
+            this.pranami.receiptError = "";
+            try {
+                await NSS.downloadFile(`/api/v1/finance/my-pranami/requests/${requestPk}/summary-pdf`, `NSS-Payment-${reference || "summary"}.pdf`);
+            } catch (err) {
+                this.pranami.receiptError = err.message || "Could not download the payment summary.";
+            }
+        },
+
         pranamiLatestDate() {
             const items = this.pranamiFiltered();
             return items.length ? items[0].transaction_date : "";      // the API returns newest first
@@ -1600,6 +1612,14 @@ function dashboardApp() {
                 this._loadMyGovPositions();
                 this._loadMyGovDelegations();
                 this._loadMyPendingActingApprovals();
+            }
+
+            // And for the tabs that _refreshTab() fills but init() does not: before this, a refresh on Membership showed an empty "My Change Requests",
+            // on Applications no office bearers / approvals / history, and on an organisation tab no auditor activity / pending approvals (owner 2026-11-21).
+            if (this.tab === "membership") {
+                this._loadMyChangeRequests();
+            } else if (this.tab === "sendApplication" || (typeof this.tab === "string" && this.tab.startsWith("admin_"))) {
+                this._refreshTab(this.tab);
             }
         },
 

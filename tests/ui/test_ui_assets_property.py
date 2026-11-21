@@ -115,8 +115,8 @@ class TestGating:
         assert 'govHash === "assets" || govHash === "properties"' in limited
         assert "!this.canViewGovernance && this.canViewAssets" in limited
         assert "await this.apEnterTab()" in limited
-        # one early return, before any general reference loader (users, roles, claims ...) runs
-        assert limited.count("return;") == 1
+        # two early returns - the refresh on a tab named in the address (2026-11-21) and the landing - both before any general reference loader runs
+        assert limited.count("return;") == 2
         assert "fetchUsers" not in limited and "fetchAvailableRoles" not in limited
 
     def test_general_unrelated_sections_stay_hidden_for_limited_admins(self):
@@ -124,9 +124,9 @@ class TestGating:
         assert '<template x-if="hasGeneralAdminAccess">' in ADMIN_HTML
 
     def test_deep_links(self):
-        loaders = ADMIN_JS.split("const tabLoaders = {")[1].split("};")[0]
-        assert "properties: () => { if (this.canViewAssets) this.apEnterTab(); }" in loaders
-        assert "assets: () => { if (this.canViewAssets) this.apEnterTab(); }" in loaders
+        loaders = ADMIN_JS.split("_tabLoaders() {")[1].split("_tabArea(tab) {")[0]
+        assert "properties: () => this.canViewAssets && this.apEnterTab()" in loaders
+        assert "assets: () => this.canViewAssets && this.apEnterTab()" in loaders
         # the hash IS the tab key, so #assets / #properties open the matching tab
         assert "_initialTab" in ADMIN_JS and "(_initialHash || \"users\")" in ADMIN_JS
 

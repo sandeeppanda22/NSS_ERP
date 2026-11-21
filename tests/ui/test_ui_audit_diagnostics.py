@@ -79,8 +79,8 @@ def test_permission_is_audit_view(mixin):
 
 
 def test_hash_routes_and_landing_for_audit_only_users(admin_js):
-    assert 'auditEvents: () => { if (this.canViewAudit) this.auditEventsEnter(); }' in admin_js
-    assert 'liveMarkers: () => { if (this.canViewAudit) this.liveMarkersEnter(); }' in admin_js
+    assert 'auditEvents: () => this.canViewAudit && this.auditEventsEnter()' in admin_js
+    assert 'liveMarkers: () => this.canViewAudit && this.liveMarkersEnter()' in admin_js
     assert "!this.canViewAssets && !this.canViewAudit) {" in admin_js
 
 

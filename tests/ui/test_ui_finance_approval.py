@@ -142,7 +142,8 @@ class TestAdminTransactionDetail:
 class TestLimitAndHeadFlags:
     def test_the_limit_card_belongs_to_a_sakha_and_needs_the_configure_permission(self):
         card = _between(ADMIN_HTML, "<!-- The Treasurer's default approval limit", "<!-- Simple contribution form")
-        assert 'x-show="finPolicyApplies && finSetupMore"' in card and 'x-show="canConfigureFinance"' in card and ':disabled="!canConfigureFinance"' in card
+        assert 'x-show="finPolicyApplies && finSetupMore"' in card and 'x-show="canConfigureFinance && !finControlsLocked"' in card
+        assert ':disabled="!canConfigureFinance || finControlsLocked"' in card           # owner 2026-11-20: not for a user who is only the Treasurer
         assert "(NSS.SAKHA_LIKE_ORG_TYPES || []).includes(o.type_code)" in SETUP_JS            # never a hard-coded Sakha type
 
     def test_the_limit_is_saved_through_the_real_route(self):

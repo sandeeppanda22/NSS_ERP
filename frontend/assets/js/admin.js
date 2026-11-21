@@ -1665,6 +1665,65 @@ function adminApp() {
 
         // ── Initialization ─────────────────────────────────────
 
+        // ── Tabs that load their own data: what a REFRESH (or a shared #tab link) must run, because it bypasses the nav item's @click ──
+        // Each entry mirrors what that tab's nav item does on click. Entries of the areas a restricted admin can own (governance, attendance, assets,
+        // finance, audit) return the loader's promise (or false when the permission is missing) so init() can await them.
+        _tabLoaders() {
+            return {
+                    organizations: () => this.loadOrganizations(),
+                    createOrg: () => this.loadCreateOrgData(),
+                    claims: () => { this.loadClaims(); this.loadClaimsPendingCount(); },
+                    personDir: () => this.loadPersonDirectory(),
+                    memberDir: () => this.loadMemberDirectory(),
+                    orgHierarchy: () => this.loadOrgHierarchy(),
+                    assignSakha: () => this.loadAssignSakhaData(),
+                    refData: () => this.loadReferenceData(),
+                    geography: () => this.loadGeography(),
+                    geoApprovals: () => this.loadGeoEntries(),
+                    sysSettings: () => this.loadSystemSettings(),
+                    govCatalog: () => this.isGovNssWideAdmin && this.loadGovCatalog(),
+                    govBodies: () => this.canViewGovernance && this.loadGovBodies(),
+                    govAssignments: () => this.canViewGovernance && this.loadGovAssignments(),
+                    govElections: () => this.canViewGovernance && this.loadGovElections(),
+                    attPujas: () => this.canViewAttendance && this.loadAttPujas(),
+                    attReviews: () => this.canViewAttendance && this.loadAttReviews(),
+                    attWatchList: () => this.canViewAttendance && Promise.all([this.loadAttWatchList(), this.loadAttOrgStats()]),
+                    changeRequests: () => { this.loadChangeRequests(); this.loadChangeRequestsPendingCount(); },     // was missing: a refresh opened this tab EMPTY
+                    credentials: () => this.loadCredentials(),
+                    correspondence: () => this.loadCorrespondence(),
+                    properties: () => this.canViewAssets && this.apEnterTab(),
+                    assets: () => this.canViewAssets && this.apEnterTab(),
+                    finOverview: () => this.canViewFinance && this.finEnterTab("finOverview"),
+                    finStructure: () => this.canViewFinance && this.finEnterTab("finStructure"),
+                    finFunds: () => this.canViewFinance && this.finEnterTab("finFunds"),
+                    finTransactions: () => this.canViewFinance && this.finEnterTab("finTransactions"),
+                    finTransfers: () => this.canViewFinance && this.finEnterTab("finTransfers"),
+                    finSetup: () => this.canViewFinance && this.finEnterTab("finSetup"),
+                    finCollections: () => this.canViewFinance && this.finEnterTab("finCollections"),
+                    auditEvents: () => this.canViewAudit && this.auditEventsEnter(),
+                    liveMarkers: () => this.canViewAudit && this.liveMarkersEnter(),
+            };
+        },
+
+        // Which AREA a tab belongs to (null = a general-admin tab). A restricted admin (finance-only, governance-only, assets-only, audit-only) may
+        // open the tabs of the areas they can view; their refresh then stays on the tab in the address (owner 2026-11-21).
+        _tabArea(tab) {
+            if (/^fin[A-Z]/.test(tab)) return "finance";
+            if (tab === "properties" || tab === "assets") return "assets";
+            if (tab === "auditEvents" || tab === "liveMarkers") return "audit";
+            if (tab === "correspondence") return "correspondence";
+            if (/^att[A-Z]/.test(tab)) return "attendance";
+            if (/^gov[A-Z]/.test(tab)) return "governance";
+            return null;
+        },
+        _restrictedTabLoader(tab) {
+            const may = {
+                finance: this.canViewFinance, assets: this.canViewAssets, audit: this.canViewAudit,
+                correspondence: this.canViewCorrespondence, attendance: this.canViewAttendance, governance: this.canViewGovernance,
+            }[this._tabArea(tab)];
+            return may ? (this._tabLoaders()[tab] || null) : null;
+        },
+
         async init() {
             const ok = await NSSLayout.initAuth(this);
             if (!ok) return;
@@ -1686,6 +1745,12 @@ function adminApp() {
             // the watcher lets it clear its banner / stale marks as tabs change.
             this.liveStart();
             this.$watch("activeTab", (tab) => { this.liveTabOpened(tab); this.auditTabChanged(tab); });
+            // Sync the open tab to the URL hash on EVERY switch. Registered HERE, before the restricted-admin early return below: it used to sit at the
+            // end of init(), so a finance-only / governance-only / assets-only / audit-only admin never got the hash written and every refresh fell back
+            // to their landing tab (Finance Overview). detail/orgDashboard hashes are managed by viewUser() / openOrgDashboard() (they carry the pk).
+            this.$watch("activeTab", (tab) => {
+                if (tab !== "detail" && tab !== "orgDashboard") history.replaceState(null, "", `#${tab}`);
+            });
 
             // Governance-only admin: none of the general reference loaders below
             // (users, organizations, membership types, claims, ...) are permitted
@@ -1693,6 +1758,13 @@ function adminApp() {
             // Assignments tab (or the Bodies tab if the URL names it).
             if (!this.hasGeneralAdminAccess) {
                 const govHash = window.location.hash.replace("#", "");
+                // A refresh stays on the tab in the address when it belongs to an area this admin can view (finance, governance, assets, audit ...).
+                const restrictedLoader = this._restrictedTabLoader(govHash);
+                if (restrictedLoader) {
+                    this.activeTab = govHash;
+                    await restrictedLoader();
+                    return;
+                }
                 // Assets & Property: #assets / #properties, or the landing tab for a
                 // holder of ASSET_VIEW/MANAGE with no governance access (Report
                 // Viewer). Its organization pickers call the scoped endpoint on
@@ -1773,50 +1845,10 @@ function adminApp() {
                     : this.myOrgDashboardPk;
                 if (orgPk) this.openOrgDashboard(orgPk);
             } else if (hash) {
-                const tabLoaders = {
-                    organizations: () => this.loadOrganizations(),
-                    createOrg: () => this.loadCreateOrgData(),
-                    claims: () => { this.loadClaims(); this.loadClaimsPendingCount(); },
-                    personDir: () => this.loadPersonDirectory(),
-                    memberDir: () => this.loadMemberDirectory(),
-                    orgHierarchy: () => this.loadOrgHierarchy(),
-                    assignSakha: () => this.loadAssignSakhaData(),
-                    refData: () => this.loadReferenceData(),
-                    geography: () => this.loadGeography(),
-                    geoApprovals: () => this.loadGeoEntries(),
-                    sysSettings: () => this.loadSystemSettings(),
-                    govCatalog: () => { if (this.isGovNssWideAdmin) this.loadGovCatalog(); },
-                    govBodies: () => { if (this.canViewGovernance) this.loadGovBodies(); },
-                    govAssignments: () => { if (this.canViewGovernance) this.loadGovAssignments(); },
-                    govElections: () => { if (this.canViewGovernance) this.loadGovElections(); },
-                    attPujas: () => { if (this.canViewAttendance) this.loadAttPujas(); },
-                    attReviews: () => { if (this.canViewAttendance) this.loadAttReviews(); },
-                    attWatchList: () => { if (this.canViewAttendance) { this.loadAttWatchList(); this.loadAttOrgStats(); } },
-                    credentials: () => this.loadCredentials(),
-                    correspondence: () => this.loadCorrespondence(),
-                    properties: () => { if (this.canViewAssets) this.apEnterTab(); },
-                    assets: () => { if (this.canViewAssets) this.apEnterTab(); },
-                    finOverview: () => { if (this.canViewFinance) this.finEnterTab("finOverview"); },
-                    finStructure: () => { if (this.canViewFinance) this.finEnterTab("finStructure"); },
-                    finFunds: () => { if (this.canViewFinance) this.finEnterTab("finFunds"); },
-                    finTransactions: () => { if (this.canViewFinance) this.finEnterTab("finTransactions"); },
-                    finTransfers: () => { if (this.canViewFinance) this.finEnterTab("finTransfers"); },
-                    finSetup: () => { if (this.canViewFinance) this.finEnterTab("finSetup"); },
-                    finCollections: () => { if (this.canViewFinance) this.finEnterTab("finCollections"); },
-                    auditEvents: () => { if (this.canViewAudit) this.auditEventsEnter(); },
-                    liveMarkers: () => { if (this.canViewAudit) this.liveMarkersEnter(); },
-                };
-                if (tabLoaders[hash]) tabLoaders[hash]();
+                const loader = this._tabLoaders()[hash];
+                if (loader) loader();
             }
 
-            // Sync tab state to URL hash on every switch
-            this.$watch("activeTab", (tab) => {
-                // detail/orgDashboard hashes are managed by viewUser()/
-                // openOrgDashboard() to include the target PK
-                if (tab !== "detail" && tab !== "orgDashboard") {
-                    history.replaceState(null, "", `#${tab}`);
-                }
-            });
         },
 
         // ── Users list ─────────────────────────────────────────

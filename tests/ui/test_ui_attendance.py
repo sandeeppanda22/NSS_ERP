@@ -147,8 +147,8 @@ def test_each_panel_is_gated_on_view_permission(tab: str, admin_html: str):
 ])
 def test_deep_link_hash_loader_exists(tab: str, loader: str, admin_js: str):
     """Opening admin.html#attReviews directly must load the tab, not show an empty shell."""
-    m = re.search(rf"{tab}:\s*\(\)\s*=>\s*\{{(.*?)\}},", admin_js)
-    assert m and loader in m.group(1), f"admin.js tabLoaders[{tab}] must call {loader}."
+    m = re.search(rf"{tab}:\s*\(\)\s*=>\s*(.*?),\n", admin_js)
+    assert m and loader in m.group(1), f"admin.js _tabLoaders()[{tab}] must call {loader}."
     assert "canViewAttendance" in m.group(1), "The deep-link loader must respect the view permission."
 
 

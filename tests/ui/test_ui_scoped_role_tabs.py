@@ -76,7 +76,7 @@ class TestAdminPage:
 
     def test_governance_only_admin_skips_the_general_loaders(self):
         init = _ADMIN_JS.split("async init() {")[1]
-        governance_branch = init.split("if (!this.hasGeneralAdminAccess) {")[1].split("return;")[0]
+        governance_branch = init.split("if (!this.hasGeneralAdminAccess) {")[1].split("// Load reference data in parallel")[0]
         assert "govAssignments" in governance_branch
         assert "fetchUsers" not in governance_branch
 

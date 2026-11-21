@@ -433,17 +433,17 @@ class TestThePayerPickerOfAPaymentRequest:
 
     def test_matches_appear_while_typing_and_picking_sets_the_member_id(self):
         form = _between(ADMIN_HTML, 'x-show="finReqForm.show" x-cloak>', "Create payment request")
-        assert 'x-model="finReqForm.member.query"' in form and '@input="finReqMemberInput()"' in form
-        assert '@click="finReqMemberPick(m)"' in form and "finReqMemberName(m)" in form
+        assert 'x-model="finReqForm.member.query"' in form and '@input="finMemberInput(finReqForm)"' in form
+        assert '@click="finMemberPick(finReqForm, m)"' in form and "finMemberName(m)" in form
         assert 'x-show="!finReqForm.member.selected"' in form                      # a typed payer name only for a non-member
         assert 'x-model="finReqForm.sangha_sevi_id"' not in form                   # the id is never typed by hand any more
-        pick = _between(SETUP_JS, "finReqMemberPick(x) {", "finReqMemberClear()")
-        assert "f.sangha_sevi_id = x.sangha_sevi_id" in pick and 'f.payer_name = ""' in pick
+        pick = _between(SETUP_JS, "finMemberPick(form, x) {", "finMemberClear(form)")
+        assert "form.sangha_sevi_id = x.sangha_sevi_id" in pick and 'form.payer_name = ""' in pick
 
     def test_the_search_waits_for_two_characters_debounces_and_uses_the_member_directory(self):
-        inp = _between(SETUP_JS, "finReqMemberInput() {", "async finReqMemberSearch()")
+        inp = _between(SETUP_JS, "finMemberInput(form) {", "async finMemberSearch(form)")
         assert "q.length < 2" in inp and "setTimeout" in inp and "300" in inp
-        search = _between(SETUP_JS, "async finReqMemberSearch() {", "finReqMemberName(x)")
+        search = _between(SETUP_JS, "async finMemberSearch(form) {", "finMemberName(x)")
         assert "/api/v1/membership/directory" in search and "m.query.trim() === q" in search     # a late reply never overwrites newer typing
 
     def test_the_request_still_posts_the_member_id_and_payer_name_only(self):

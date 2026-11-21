@@ -69,7 +69,7 @@
     const newTxnForm = () => ({
         show: false, mode: "create", pk: "", saving: false, error: "",
         financial_year_pk: "", financial_scope_pk: "", fund_master_pk: "", transaction_type: "INCOME",
-        finance_head_pk: "", amount: "", transaction_date: "", description: "", sangha_sevi_id: "",
+        finance_head_pk: "", amount: "", transaction_date: "", description: "", sangha_sevi_id: "", member: emptyPicker(),   // member = the picker box (finMemberInput, finance-setup.js)
     });
     const newReceiptForm = () => ({
         show: false, saving: false, error: "", receipt_date: "", amount: "", received_from: "",
@@ -164,7 +164,7 @@
                 const res = await NSSAuth.apiFetch(BASE + path, {
                     method, headers: JSON_HEADERS, body: body === undefined ? undefined : JSON.stringify(body),
                 });
-                if (!res.ok) throw new Error(await NSS.extractError(res));
+                if (!res.ok) { const e = new Error(await NSS.extractError(res)); e.status = res.status; throw e; }      // callers may react to a 409
                 return res.status === 204 ? null : res.json();
             },
             _finNote(text) {
@@ -675,6 +675,9 @@
                         transaction_type: txn.transaction_type, finance_head_pk: txn.finance_head_pk || "",
                         amount: String(txn.amount), transaction_date: txn.transaction_date, description: txn.description || "",
                         sangha_sevi_id: txn.sangha_sevi_id || "",
+                        member: txn.sangha_sevi_id
+                            ? { ...emptyPicker(), query: `${txn.person_name || ""} (${txn.sangha_sevi_id})`.trim(), selected: { sangha_sevi_id: txn.sangha_sevi_id } }
+                            : emptyPicker(),
                     });
                 } else if (open.length === 1) {
                     f.financial_year_pk = open[0].financial_year_pk;
@@ -711,6 +714,7 @@
                 const bad = this._finMoneyOk(f.amount, "Amount");
                 if (bad) { f.error = bad; return; }
                 if (!f.transaction_date) { f.error = "Choose the transaction date."; return; }
+                if (f.member.query.trim() && !f.sangha_sevi_id) { f.error = "Choose the member from the list that appears as you type, or clear the member box."; return; }
                 f.saving = true; f.error = "";
                 try {
                     const body = {

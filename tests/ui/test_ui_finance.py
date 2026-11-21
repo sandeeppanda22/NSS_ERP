@@ -251,7 +251,7 @@ class TestSharedMaps:
         assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
                 in ADMIN_JS)
         for tab in TABS:
-            assert f'{tab}: () => {{ if (this.canViewFinance) this.finEnterTab("{tab}"); }}' in ADMIN_JS
+            assert f'{tab}: () => this.canViewFinance && this.finEnterTab("{tab}")' in ADMIN_JS
 
 DASH_HTML = (FE / "dashboard.html").read_text(encoding="utf-8")
 DASH_JS = (FE / "assets/js/dashboard.js").read_text(encoding="utf-8")
@@ -312,7 +312,7 @@ class TestMemberPranamiTab:
 
     def test_admin_form_can_link_a_member(self):
         assert "sangha_sevi_id: blank(f.sangha_sevi_id)" in FIN_JS
-        assert 'x-model="finTxnForm.sangha_sevi_id"' in ADMIN_HTML
+        assert 'x-model="finTxnForm.member.query"' in ADMIN_HTML                 # picked by name (owner 2026-11-20); the id the match sets is what is sent
         from api.schemas.finance import TransactionCreate, TransactionUpdate
 
         assert "sangha_sevi_id" in TransactionCreate.model_fields and "sangha_sevi_id" in TransactionUpdate.model_fields
@@ -536,7 +536,7 @@ class TestHeadsListScopeAndEdit:
 
     def test_list_shows_the_scope_and_offers_edit(self):
         setup = _screen("finSetup")
-        assert "<th>Scope</th>" in setup and 'x-text="h.collection_scope_code"' in setup and 'x-text="h.collection_scope_name"' in setup
+        assert "<th>Scope</th>" in setup and 'x-text="h.collection_scope_code"' in setup and 'x-text="h.collection_scope_name || h.collection_scope_code"' in setup       # name first, code small
         assert "Each Sakha's own scope" in setup and "finHeadOpenEdit(h)" in setup
         assert "<th>Fund</th>" in setup and 'x-text="h.collection_fund_code"' in setup and 'x-text="h.collection_fund_name"' in setup
 
@@ -628,6 +628,83 @@ class TestFundsTab:
     def test_a_head_can_be_deleted_only_when_unused_and_through_the_server(self):
         setup = _screen("finSetup")
         line = next(l for l in setup.splitlines() if "finHeadDelete(h)" in l)
-        assert "canConfigureFinance" in line and "!h.is_kendra_copy" in line and "!h.transaction_count" in line
+        assert "canConfigureFinance" in line and "!h.transaction_count" not in line       # owner 2026-11-21: Delete is ALWAYS there; it explains when it cannot delete
         assert 'this._finSend("DELETE", `/heads/${h.finance_head_pk}`)' in SETUP_JS
         assert "NSSDialog.confirm(" in SETUP_JS.split("async finHeadDelete(h)", 1)[1].split("finHeadCancel()", 1)[0]
+
+
+class TestTheFinanceEntryPicksItsMemberByName:
+    """Owner 2026-11-20: the entry form no longer asks for a typed Sangha Sevi ID; it shares the payer picker (finMemberInput / Pick / Clear)."""
+
+    def test_the_entry_form_uses_the_shared_member_picker_not_a_typed_id(self):
+        html = ADMIN_HTML
+        assert 'x-model="finTxnForm.sangha_sevi_id"' not in html                                   # never typed by hand any more
+        assert 'x-model="finTxnForm.member.query"' in html and '@input="finMemberInput(finTxnForm)"' in html
+        assert '@click="finMemberPick(finTxnForm, m)"' in html and '@click="finMemberClear(finTxnForm)"' in html
+
+    def test_one_picker_implementation_serves_both_forms(self):
+        assert "finMemberInput(form) {" in SETUP_JS and "async finMemberSearch(form) {" in SETUP_JS
+        assert "finReqMemberInput" not in SETUP_JS and "finReqMemberPick" not in ADMIN_HTML          # the payer form passes ITS form instead of a copy
+        assert "member: emptyPicker()" in FIN_JS and "Choose the member from the list that appears as you type" in FIN_JS
+        # editing an entry shows the member's NAME in the box, from the response's person_name
+        assert "`${txn.person_name || \"\"} (${txn.sangha_sevi_id})`" in FIN_JS
+        assert "sangha_sevi_id: blank(f.sangha_sevi_id)" in FIN_JS                                  # what is sent is still the id the match set
+
+
+class TestTheTreasurersOwnControlsAreGreyedOut:
+    """Owner 2026-11-20: a user who reaches Finance only through the Treasurer seat configures finance but cannot change the limit / 'needs no approval'."""
+
+    def test_the_locked_flag_is_the_treasurer_role_without_an_admin_role(self):
+        assert "get finControlsLocked()" in SETUP_JS
+        body = SETUP_JS.split("get finControlsLocked()", 1)[1].split("},", 1)[0]
+        assert '"NSS_ERP_SAKHA_TREASURER"' in body and '"NSS_ERP_ADMIN"' in body and '"NSS_ERP_KENDRA_ADMIN"' in body and '"NSS_ERP_SAKHA_ADMIN"' in body
+
+    def test_the_limit_and_the_no_approval_fields_follow_it(self):
+        setup = _screen("finSetup")
+        assert 'x-model="finPolicy.input" :disabled="!canConfigureFinance || finControlsLocked"' in setup
+        assert 'x-show="canConfigureFinance && !finControlsLocked"' in setup                                   # the Save limit button is gone
+        assert setup.count('x-model="finHeadForm.skips_approval" :disabled="finControlsLocked"') == 2
+        assert 'x-model="finHeadForm.treasurer_limit" :disabled="finControlsLocked"' in setup
+
+
+class TestDeleteExplainsAndSwitchOffIsOffered:
+    """Owner 2026-11-21: Delete never silently disappears. A used head (or a Sakha's copy of a Kendra head) is not deleted - the person is told why and
+    offered Switch off; an INACTIVE head can be switched back on; the Scope / Fund cells read cleanly."""
+
+    def test_a_used_head_or_a_copy_is_offered_switch_off_instead_of_a_delete(self):
+        body = SETUP_JS.split("async finHeadDelete(h)", 1)[1].split("async finHeadSwitch(h, to)", 1)[0]
+        assert "h.is_kendra_copy || Number(h.transaction_count) > 0" in body and "_finHeadOfferSwitchOff(h)" in body
+        assert "err.status === 409 || err.status === 403" in body                       # the server has the last word
+        assert "money history is never erased" in body and "Switch the head off?" in body
+
+    def test_switch_off_and_on_use_the_lifecycle_endpoint(self):
+        body = SETUP_JS.split("async finHeadSwitch(h, to)", 1)[1].split("finHeadCancel()", 1)[0]
+        assert '"POST", `/heads/${h.finance_head_pk}/transition`, { status: to, remarks: null }' in body
+        setup = _screen("finSetup")
+        assert next(l for l in setup.splitlines() if "finHeadSwitchOff(h)" in l).count("is_kendra_copy") == 1          # only where Delete cannot remove it
+        assert "finHeadSwitch(h, 'ACTIVE')" in setup and "h.status === 'INACTIVE'" in setup
+
+    def test_the_thrown_error_carries_the_http_status(self):
+        assert "e.status = res.status; throw e;" in FIN_JS
+
+    def test_the_scope_and_fund_cells_are_tidied(self):
+        css = (FE / "assets/css/style.css").read_text(encoding="utf-8")
+        setup = _screen("finSetup")
+        assert 'class="fh-cell-scope"' in setup and 'class="fh-cell-fund"' in setup
+        assert ".fh-cell-fund { min-width: 9rem; white-space: nowrap; }" in css
+
+    def test_the_row_buttons_wrap_inside_a_fixed_width_instead_of_running_off_the_edge(self):
+        css = (FE / "assets/css/style.css").read_text(encoding="utf-8")
+        rule = next(l for l in css.splitlines() if l.startswith(".fh-actions {"))
+        assert "flex-wrap: wrap" in rule and "width: 19rem" in rule and "flex-wrap: nowrap" not in rule
+        assert ".fh-actions .btn-action { white-space: nowrap; }" in css                  # a button's own label still never splits
+
+    def test_a_switched_off_head_shows_inactive_only_not_a_portal_state_as_well(self):
+        setup = _screen("finSetup")
+        assert """x-show="finHeadPortalOpen(h) === false && h.status === 'ACTIVE'">Closed</span>""" in setup
+        assert """x-show="finHeadPortalOpen(h) === true && h.status === 'ACTIVE'">Open</span>""" in setup
+        assert """x-show="h.status !== 'ACTIVE'" x-text="finLabel(h.status)\"""" in setup                   # the Inactive badge is unchanged
+
+    def test_the_scope_column_is_wide_enough_for_the_usual_name_on_one_line(self):
+        css = (FE / "assets/css/style.css").read_text(encoding="utf-8")
+        assert ".fh-cell-scope { min-width: 14rem; max-width: 19rem; }" in css and ".fh-cell-scope .fh-name { font-size: 0.85rem; white-space: nowrap;" in css

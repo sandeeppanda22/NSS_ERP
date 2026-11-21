@@ -218,3 +218,19 @@ class TestPranamiHistoryView:
         for line in _pranami_panel().splitlines():
             if "x-show=" in line:
                 assert not re.search(r'style="[^"]*display\s*:\s*(flex|grid)', line), line.strip()[:120]
+
+
+class TestThePaymentSummaryButton:
+    """Owner 2026-11-20: a payment for several contributions can be downloaded as ONE summary page (each contribution keeps its own receipt)."""
+
+    def test_the_button_shows_only_for_a_multi_item_payment_and_calls_the_summary_endpoint(self):
+        html = (FE / "dashboard.html").read_text(encoding="utf-8")
+        js = (FE / "assets/js/dashboard.js").read_text(encoding="utf-8")
+        line = next(l for l in html.splitlines() if "pranamiDownloadSummary(" in l)
+        assert "Download payment summary (PDF)" in html
+        block = html[html.index("Download payment summary (PDF)") - 420: html.index("Download payment summary (PDF)")]
+        assert "pranamiPay.result.items.length > 1" in block
+        assert "NSS.downloadFile(`/api/v1/finance/my-pranami/requests/${requestPk}/summary-pdf`" in js
+        from api.main import app
+
+        assert "/api/v1/finance/my-pranami/requests/{request_pk}/summary-pdf" in {r.path for r in app.routes}

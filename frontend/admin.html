@@ -8694,9 +8694,19 @@
                                             <label class="form-label">Description <span class="optional">(optional)</span></label>
                                             <input type="text" class="form-input" maxlength="2000" x-model="finTxnForm.description" autocomplete="off">
                                         </div>
-                                        <div>
-                                            <label class="form-label">Member (Sangha Sevi ID) <span class="optional">(optional)</span></label>
-                                            <input type="text" class="form-input" maxlength="20" x-model="finTxnForm.sangha_sevi_id" placeholder="e.g. SS12" autocomplete="off">
+                                        <div class="typeahead-wrap">
+                                            <label class="form-label">Member <span class="optional">(optional: start typing a name or Sangha Sevi ID)</span></label>
+                                            <input type="text" class="form-input" x-model="finTxnForm.member.query" @input="finMemberInput(finTxnForm)" placeholder="e.g. Sandeep or SS12" autocomplete="off">
+                                            <div class="typeahead-menu" x-show="finTxnForm.member.results.length > 0">
+                                                <template x-for="m in finTxnForm.member.results" :key="m.sangha_sevi_pk">
+                                                    <div class="typeahead-item" @click="finMemberPick(finTxnForm, m)">
+                                                        <span x-text="finMemberName(m)"></span>
+                                                        <span class="meta" x-text="m.sangha_sevi_id + ' · ' + m.organization_name"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <p class="form-hint" x-show="finTxnForm.member.searching">Searching…</p>
+                                            <p class="form-hint" x-show="finTxnForm.member.selected">Member selected. <button type="button" class="link-action" @click="finMemberClear(finTxnForm)">Change</button></p>
                                             <p class="form-hint">The member this money is from. Pranami linked to a member appears in that member's own "Pranami" tab once it is posted.</p>
                                         </div>
                                     </div>
@@ -9248,9 +9258,10 @@
                                     <div class="form-grid-3" style="align-items:end;">
                                         <div>
                                             <label class="form-label">Default limit (₹) <span class="optional">(empty = none)</span></label>
-                                            <input type="text" inputmode="decimal" class="form-input" x-model="finPolicy.input" :disabled="!canConfigureFinance" placeholder="e.g. 5000" autocomplete="off">
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finPolicy.input" :disabled="!canConfigureFinance || finControlsLocked" placeholder="e.g. 5000" autocomplete="off">
+                                            <p class="form-hint" x-show="finControlsLocked">Set by the Sakha's President or Secretary: the Treasurer cannot change their own approval limit.</p>
                                         </div>
-                                        <div x-show="canConfigureFinance">
+                                        <div x-show="canConfigureFinance && !finControlsLocked">
                                             <button class="btn-action primary" :disabled="finPolicy.saving" @click="finPolicySave()" x-text="finPolicy.saving ? 'Saving…' : 'Save limit'"></button>
                                         </div>
                                     </div>
@@ -9483,7 +9494,7 @@
                                         </div>
                                         <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
-                                                <input type="checkbox" x-model="finHeadForm.skips_approval"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)
+                                                <input type="checkbox" x-model="finHeadForm.skips_approval" :disabled="finControlsLocked"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)<span class="optional" x-show="finControlsLocked"> — set by the President or Secretary</span>
                                             </label>
                                         </div>
                                         </div>
@@ -9493,7 +9504,7 @@
                                         <div class="form-grid-2">
                                         <div x-show="finHeadForm.direction === 'INCOME' && !finHeadForm.template">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;">
-                                                <input type="checkbox" x-model="finHeadForm.skips_approval"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)
+                                                <input type="checkbox" x-model="finHeadForm.skips_approval" :disabled="finControlsLocked"> Needs no approval (a Sakha posts income on this head as soon as it is submitted)<span class="optional" x-show="finControlsLocked"> — set by the President or Secretary</span>
                                             </label>
                                         </div>
                                         </div>
@@ -9504,7 +9515,7 @@
                                         <div class="form-grid-2">
                                         <div x-show="finHeadForm.direction === 'EXPENSE'">
                                             <label class="form-label">Treasurer's limit (₹) <span class="optional">(empty = the Sakha default)</span></label>
-                                            <input type="text" inputmode="decimal" class="form-input" x-model="finHeadForm.treasurer_limit" autocomplete="off">
+                                            <input type="text" inputmode="decimal" class="form-input" x-model="finHeadForm.treasurer_limit" :disabled="finControlsLocked" autocomplete="off">
                                             <label class="form-hint flex" style="align-items:center; gap:0.4rem;"><input type="checkbox" x-model="finHeadForm.requires_member"> Repays a member (the member who paid must be named)</label>
                                         </div>
                                         </div>
@@ -9682,17 +9693,17 @@
                                                                     <div class="fh-sub"><span x-text="h.direction === 'INCOME' ? 'Money in' : 'Money out'"></span> · <span class="mono" x-text="h.head_code"></span></div>
                                                                 </td>
                                                                 <td class="fh-sub" x-show="finHeadsMultiOrg()" x-text="h.organization_name || '—'"></td>
-                                                                <td>
+                                                                <td class="fh-cell-scope">
                                                                     <template x-if="h.collection_scope_code">
                                                                         <div>
-                                                                            <div class="fh-name mono" x-text="h.collection_scope_code"></div>
-                                                                            <div class="fh-sub" x-text="h.collection_scope_name"></div>
+                                                                            <div class="fh-name" x-text="h.collection_scope_name || h.collection_scope_code" :title="h.collection_scope_name"></div>
+                                                                            <div class="fh-sub mono" x-text="h.collection_scope_code"></div>
                                                                         </div>
                                                                     </template>
                                                                     <span class="fh-sub" x-show="!h.collection_scope_code && h.applies_to_all_sakhas">Each Sakha's own scope</span>
                                                                     <span class="fh-sub" x-show="!h.collection_scope_code && !h.applies_to_all_sakhas">None yet</span>
                                                                 </td>
-                                                                <td>
+                                                                <td class="fh-cell-fund">
                                                                     <template x-if="h.collection_fund_code">
                                                                         <div>
                                                                             <div class="fh-name mono" x-text="h.collection_fund_code"></div>
@@ -9709,14 +9720,16 @@
                                                                     <div class="fh-sub" x-show="h.fixed_amount != null && h.allow_part_payment">Part payments allowed</div>
                                                                 </td>
                                                                 <td>
-                                                                    <span class="fh-state fh-state--open" x-show="finHeadPortalOpen(h) === true">Open</span>
-                                                                    <span class="fh-state fh-state--closed" x-show="finHeadPortalOpen(h) === false">Closed</span>
+                                                                    <span class="fh-state fh-state--open" x-show="finHeadPortalOpen(h) === true && h.status === 'ACTIVE'">Open</span>
+                                                                    <span class="fh-state fh-state--closed" x-show="finHeadPortalOpen(h) === false && h.status === 'ACTIVE'">Closed</span>
                                                                     <span class="fh-sub" x-show="finHeadPortalOpen(h) === null">Not applicable</span>
                                                                     <span class="fh-state fh-state--off" x-show="h.status !== 'ACTIVE'" x-text="finLabel(h.status)"></span>
                                                                 </td>
                                                                 <td class="hist-right"><div class="fh-actions">
                                                                     <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE'" @click="finHeadOpenEdit(h)">Edit</button>
-                                                                    <button class="btn-action danger" x-show="canConfigureFinance && !h.is_kendra_copy && !h.transaction_count" @click="finHeadDelete(h)">Delete</button>
+                                                                    <button class="btn-action danger" x-show="canConfigureFinance" @click="finHeadDelete(h)">Delete</button>
+                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && (h.is_kendra_copy || Number(h.transaction_count) > 0)" @click="finHeadSwitchOff(h)">Switch off</button>
+                                                                    <button class="btn-action" x-show="canConfigureFinance && h.status === 'INACTIVE'" @click="finHeadSwitch(h, 'ACTIVE')">Switch on</button>
                                                                     <button class="btn-action primary" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === false" @click="finHeadPortalOpenForm(h)">Open payment portal</button>
                                                                     <button class="btn-action" x-show="canConfigureFinance && h.status === 'ACTIVE' && finHeadPortalOpen(h) === true && !h.applies_to_all_sakhas" @click="finHeadPortal(h, false)">Close portal</button></div>
                                                                 </td>
@@ -9911,17 +9924,17 @@
                                                 <h3 class="ask-section__title">Who is paying?</h3>
                                                 <div class="typeahead-wrap">
                                                     <label class="form-label">Member <span class="optional">(start typing a name or Sangha Sevi ID)</span></label>
-                                                    <input type="text" class="form-input" x-model="finReqForm.member.query" @input="finReqMemberInput()" placeholder="e.g. Sandeep or SS12" autocomplete="off">
+                                                    <input type="text" class="form-input" x-model="finReqForm.member.query" @input="finMemberInput(finReqForm)" placeholder="e.g. Sandeep or SS12" autocomplete="off">
                                                     <div class="typeahead-menu" x-show="finReqForm.member.results.length > 0">
                                                         <template x-for="m in finReqForm.member.results" :key="m.sangha_sevi_pk">
-                                                            <div class="typeahead-item" @click="finReqMemberPick(m)">
-                                                                <span x-text="finReqMemberName(m)"></span>
+                                                            <div class="typeahead-item" @click="finMemberPick(finReqForm, m)">
+                                                                <span x-text="finMemberName(m)"></span>
                                                                 <span class="meta" x-text="m.sangha_sevi_id + ' · ' + m.organization_name"></span>
                                                             </div>
                                                         </template>
                                                     </div>
                                                     <p class="form-hint" x-show="finReqForm.member.searching">Searching…</p>
-                                                    <p class="form-hint" x-show="finReqForm.member.selected">Member selected: the request will appear in their Pranami tab. <button type="button" class="link-action" @click="finReqMemberClear()">Change</button></p>
+                                                    <p class="form-hint" x-show="finReqForm.member.selected">Member selected: the request will appear in their Pranami tab. <button type="button" class="link-action" @click="finMemberClear(finReqForm)">Change</button></p>
                                                 </div>
                                                 <div x-show="!finReqForm.member.selected" style="margin-top: 0.75rem;">
                                                     <label class="form-label">Payer name <span class="optional">(only if the payer is not a member; you share the payment link with them)</span></label>
@@ -9956,7 +9969,7 @@
                                             <div class="pay-label">Request summary</div>
                                             <div class="pay-amount" x-text="finReqForm.amount.trim() ? '₹' + finReqForm.amount.trim() : '₹0.00'"></div>
                                             <dl class="pay-dl">
-                                                <div><dt>Payer</dt><dd x-text="finReqForm.member.selected ? (finReqMemberName(finReqForm.member.selected) + ' (' + finReqForm.member.selected.sangha_sevi_id + ')') : (finReqForm.payer_name.trim() || 'Not chosen yet')"></dd></div>
+                                                <div><dt>Payer</dt><dd x-text="finReqForm.member.selected ? (finMemberName(finReqForm.member.selected) + ' (' + finReqForm.member.selected.sangha_sevi_id + ')') : (finReqForm.payer_name.trim() || 'Not chosen yet')"></dd></div>
                                                 <div><dt>For</dt><dd x-text="finReqHeadSel() ? finReqHeadSel().head_name : 'Not chosen yet'"></dd></div>
                                                 <div x-show="finReqHeadSel()"><dt>Paid to</dt><dd x-text="finReqHeadSel() && finReqHeadSel().organization_name"></dd></div>
                                                 <div x-show="finReqHeadSel() && finReqHeadSel().collection_account_label"><dt>Into account</dt><dd x-text="finReqHeadSel() && finReqHeadSel().collection_account_label"></dd></div>

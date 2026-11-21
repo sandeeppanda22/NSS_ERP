@@ -109,6 +109,13 @@
                          organization_type_code: sc.organization_type_code, type_name: NSS.codeLabel(sc.organization_type_code) };
             },
             get finSetupOrgLocked() { return !!this.finSetupScopeOrg; },
+            // Owner 2026-11-20: whoever reaches Finance ONLY through the Treasurer seat (role NSS_ERP_SAKHA_TREASURER, no admin role) configures heads, contributions,
+            // events and accounts, but cannot change the controls that bind the Treasurer: the approval limit and a head's "needs no approval" flag. The server refuses
+            // it by SEAT (finance_approval.require_not_the_treasurer); this only greys the fields out and says why.
+            get finControlsLocked() {
+                const roles = ((this.currentUser && this.currentUser.scopes) || []).map((s) => s.role_code);
+                return roles.includes("NSS_ERP_SAKHA_TREASURER") && !roles.some((r) => ["NSS_ERP_ADMIN", "NSS_ERP_KENDRA_ADMIN", "NSS_ERP_SAKHA_ADMIN"].includes(r));
+            },
             async finSetupOrgChanged() { await this.finEnsureDefaultHeads(); return Promise.all([this.finSetupReload(), this.finPolicyLoad()]); },
 
             // The standard (Kendra template) heads - Membership subscription, Parichaya Patra, Anumati Patra, Annual / Special Pranami,
@@ -220,8 +227,11 @@
                 // the form is above the list: bring it into view
                 this.$nextTick(() => { const el = document.getElementById("head-form-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); });
             },
-            // Delete a head that was never used (a soft delete on the server: it refuses while money has been recorded or requested on it).
+            // Delete a head. An UNUSED head is removed (a soft delete on the server). A head with money history is never deleted - history is never
+            // erased - so the person is told why and offered the alternative, switching it OFF (members stop seeing it, nothing new can use it, the
+            // history stays). A Sakha's copy of a Kendra head is switched off the same way. The server has the last word: a 409 gets the same offer.
             async finHeadDelete(h) {
+                if (h.is_kendra_copy || Number(h.transaction_count) > 0) return this._finHeadOfferSwitchOff(h);
                 const ok = await NSSDialog.confirm(
                     `Delete "${h.head_name}"? It has no payments or entries, so it is simply removed. ` +
                     (h.applies_to_all_sakhas ? "The copies the Sakhas received are removed with it. " : "") +
@@ -235,8 +245,36 @@
                     this._finNote(`Finance head "${h.head_name}" deleted.`);
                     await this.finHeadsLoad({ silent: true });
                 } catch (err) {
+                    if (err.status === 409 || err.status === 403) return this._finHeadOfferSwitchOff(h, err.message);
                     this.finHeadsError = err.message || "Could not delete the finance head.";
                 }
+            },
+            async _finHeadOfferSwitchOff(h, reason) {
+                const n = Number(h.transaction_count) || 0;
+                const why = reason || (h.is_kendra_copy
+                    ? `"${h.head_name}" comes from the Kendra, so it cannot be deleted here.`
+                    : `"${h.head_name}" has ${n} ${n === 1 ? "entry" : "entries"} recorded on it, so it cannot be deleted: money history is never erased.`);
+                const ok = await NSSDialog.confirm(
+                    `${why} Switch it off instead? Members stop seeing it and nothing new can be recorded on it; everything already recorded stays, and you can switch it on again.`,
+                    { title: "Switch the head off?", confirmText: "Switch off" });
+                if (ok) return this.finHeadSwitch(h, "INACTIVE");
+            },
+            // Switch a head off (INACTIVE) or back on (ACTIVE) through the lifecycle endpoint; the server also moves every Sakha copy of a Kendra head.
+            async finHeadSwitch(h, to) {
+                this.finHeadsError = "";
+                try {
+                    await this._finSend("POST", `/heads/${h.finance_head_pk}/transition`, { status: to, remarks: null });
+                    this._finNote(to === "INACTIVE" ? `"${h.head_name}" switched off.` : `"${h.head_name}" switched on.`);
+                    await this.finHeadsLoad({ silent: true });
+                } catch (err) {
+                    this.finHeadsError = err.message || "Could not change the finance head.";
+                }
+            },
+            async finHeadSwitchOff(h) {
+                const ok = await NSSDialog.confirm(
+                    `Switch "${h.head_name}" off? Members stop seeing it and nothing new can be recorded on it; everything already recorded stays, and you can switch it on again.`,
+                    { title: "Switch the head off?", confirmText: "Switch off" });
+                if (ok) return this.finHeadSwitch(h, "INACTIVE");
             },
             finHeadCancel() { this.finHeadForm = { ...this.finHeadForm, show: false }; },
 
@@ -741,17 +779,19 @@
 
             // Payer picker: matches appear while typing (name, Sangha Sevi ID, mobile ...), from the member directory every signed-in admin may read.
             // Who may actually be asked is still decided by the server (the member must be inside the admin's scope).
-            _finReqMemberTimer: null,
-            finReqMemberInput() {
-                const f = this.finReqForm;
-                clearTimeout(this._finReqMemberTimer);
-                f.sangha_sevi_id = ""; f.member.selected = null;
-                const q = f.member.query.trim();
-                if (q.length < 2) { f.member.results = []; return; }
-                this._finReqMemberTimer = setTimeout(() => this.finReqMemberSearch(), 300);
+            // The MEMBER PICKER, shared by the payer of a payment request (finReqForm) and the member of a finance entry (finTxnForm, finance.js):
+            // `form` is the form object holding `member` (the typed box and its matches) and `sangha_sevi_id` (what is sent once a match is chosen).
+            // Typing clears the choice; at least 2 characters are searched in the NSS-wide member directory, 300 ms after the last key.
+            _finMemberTimer: null,
+            finMemberInput(form) {
+                clearTimeout(this._finMemberTimer);
+                form.sangha_sevi_id = ""; form.member.selected = null;
+                const q = form.member.query.trim();
+                if (q.length < 2) { form.member.results = []; return; }
+                this._finMemberTimer = setTimeout(() => this.finMemberSearch(form), 300);
             },
-            async finReqMemberSearch() {
-                const m = this.finReqForm.member;
+            async finMemberSearch(form) {
+                const m = form.member;
                 const q = m.query.trim();
                 m.searching = true;
                 try {
@@ -760,13 +800,13 @@
                     if (m.query.trim() === q && !m.selected) m.results = data.members || [];
                 } catch { m.results = []; } finally { m.searching = false; }
             },
-            finReqMemberName(x) { return [x.first_name, x.middle_name, x.last_name].filter(Boolean).join(" "); },
-            finReqMemberPick(x) {
-                const f = this.finReqForm;
-                f.sangha_sevi_id = x.sangha_sevi_id; f.payer_name = "";
-                f.member = { query: `${this.finReqMemberName(x)} (${x.sangha_sevi_id})`, results: [], searching: false, selected: x };
+            finMemberName(x) { return [x.first_name, x.middle_name, x.last_name].filter(Boolean).join(" "); },
+            finMemberPick(form, x) {
+                form.sangha_sevi_id = x.sangha_sevi_id;
+                if ("payer_name" in form) form.payer_name = "";                      // a payment request names EITHER a member or a typed payer
+                form.member = { query: `${this.finMemberName(x)} (${x.sangha_sevi_id})`, results: [], searching: false, selected: x };
             },
-            finReqMemberClear() { this.finReqForm.sangha_sevi_id = ""; this.finReqForm.member = { query: "", results: [], searching: false, selected: null }; },
+            finMemberClear(form) { form.sangha_sevi_id = ""; form.member = { query: "", results: [], searching: false, selected: null }; },
             // The head chosen in the form (for the summary), and a fixed amount pre-fills the box once.
             finReqHeadSel() { return this.finReqHeads.find((x) => x.finance_head_pk === this.finReqForm.finance_head_pk) || null; },
             finReqHeadChanged() {
