@@ -836,7 +836,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 
 # 12h. Tier 12 — Finance
 
-**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 2 — PDF receipts; schemas in `api/schemas/finance.py`) — 80 endpoints (2026-11-20). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
+**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 3 — PDF receipts; schemas in `api/schemas/finance.py`) — 81 endpoints (2026-11-20). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
 
 **Auth (every endpoint):** `Authorization: Bearer` JWT. Reads need any of `FINANCE_VIEW` / `FINANCE_MANAGE` / `FINANCE_APPROVE`; record / edit / submit need `FINANCE_MANAGE`; approve / post / execute / reject / cancel (approved items) / open and close years need `FINANCE_APPROVE`. Plus **admin scope on the Financial Scope's organization**; a scope with no organization and the financial years themselves are global-authority only. Every `/transition` endpoint is gated on MANAGE-or-APPROVE before any lookup, then on the step's own permission.
 
@@ -914,6 +914,7 @@ Submitting a Sakha spend (`/transition` DRAFT -> PENDING_APPROVAL) needs the bil
 | POST | `/gateway/webhook/{provider}` | Provider callback: signature check, idempotent on `(provider, event_id)`, auto-books matching payments (system actor); amount mismatch / closed year / inactive scope / paid-after-cancel -> PAID_NEEDS_REVIEW, never auto-booked |
 | GET | `/my-pranami/heads` | Login only: the caller's contribution CARDS — the member-flagged heads (Pranami, Parichaya/Anumati Patra, events) of their OWN Sakha and of the Kendra, own Sakha first, each with the destination Sangha (`organization_name`, `is_kendra`) and `event_name` for an event. No other Sakha is ever offered |
 | POST | `/my-pranami/pay-multiple` | **Login only.** Pay SEVERAL of the caller's own contributions in ONE UPI payment: body `{items: [{finance_head_pk, amount}, ...]}` (1-12). Every item passes the single-payment rules; all items must collect into the same receiving account (own Sakha or the Kendra, not both); one gateway order for the total; one line per item. The signed webhook books each item as its own transaction + ISSUED receipt, all or nothing, only for exactly the amount asked. Response is the member payment view with `items` (head, amount, own receipt) |
+| GET | `/my-pranami/requests/{request_pk}/summary-pdf` | **Login only.** The caller's OWN paid payment as a one-page summary PDF: every contribution it covered with that contribution's own receipt number, and the total. A printout only — no receipt number of its own. Someone else's, an unpaid / unbooked one or an unknown id: a plain 404. |
 | GET | `/my-pranami/receipts/{receipt_pk}/pdf` | **Login only.** The caller's OWN receipt as a PDF (`application/pdf`, `Content-Disposition: attachment; filename="NSS-Receipt-<number>.pdf"`, `no-store`), whenever they want it: NSS logo, Sangha name and registration, receipt number and date, who paid (name, Sangha Sevi ID, member Sakha), what for (finance head, financial year), mode and reference, who received it, the amount in figures and in words (Indian numbering), a PAID stamp. Only an ISSUED receipt of a counted (POSTED/SETTLED) entry linked to the caller; anything else (someone else's, a draft, a cancelled one, an unknown id) is the same plain 404 |
 | GET | `/receipts/{receipt_pk}/pdf` | The same PDF for any receipt inside the caller's admin scope (`FINANCE_VIEW` + scope). An ISSUED or CANCELLED receipt (a cancelled one is stamped CANCELLED with its reason); a DRAFT is 422 |
 | POST | `/my-pranami/pay` | Login only: start a UPI payment (201) |
@@ -958,9 +959,9 @@ The Treasurer's signature is not an endpoint: moving a payment to `INITIATED` (a
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 80 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 2) |
+| 12 | Finance | 81 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3) |
 | 12 | Membership Status workflow | 6 |
-| **Total** | | **371** |
+| **Total** | | **372** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 
