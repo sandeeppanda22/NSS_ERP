@@ -254,3 +254,46 @@ class TestBookingIsAllOrNothing:
         assert pay_request(client, mock_gateway, request, event_id="evt-fixed").status_code == 200
         assert pay_request(client, mock_gateway, request, event_id="evt-fixed").status_code == 200
         assert len(client.get(f"{BASE}/my-pranami", headers=plain_member_h).json()["items"]) == 2
+
+
+class TestThePaymentSummaryPdf:
+    """GET /my-pranami/requests/{pk}/summary-pdf (owner 2026-11-20): one page for a multi-contribution payment, a printout without a receipt number."""
+
+    @staticmethod
+    def _text(data: bytes) -> str:
+        import re
+        import zlib
+
+        content = b"\n".join(zlib.decompress(m.group(1)) for m in re.finditer(rb"/Filter /FlateDecode >>\nstream\n(.*?)\nendstream", data, re.S)).decode("latin-1")
+        return "\n".join(re.sub(r"\\([()\\])", r"\1", t) for t in re.findall(r"\((.*?)(?<!\\)\) Tj", content))
+
+    def _paid(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h):
+        s = shared_heads(client, admin_h, register_org_pk, mock_gateway)
+        a, b, _ = s["heads"]
+        r = pay_multiple(client, plain_member_h, (a, "300.00"), (b, "120.50"))
+        pay_request(client, mock_gateway, full(client, admin_h, r["upi_payment_request_pk"]))
+        done = client.get(f"{BASE}/my-pranami/requests/{r['upi_payment_request_pk']}", headers=plain_member_h).json()
+        return r["upi_payment_request_pk"], done
+
+    def test_the_summary_lists_every_contribution_with_its_own_receipt_and_the_total(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h):
+        pk, done = self._paid(client, admin_h, register_org_pk, mock_gateway, plain_member_h)
+        r = client.get(f"{BASE}/my-pranami/requests/{pk}/summary-pdf", headers=plain_member_h)
+        assert r.status_code == 200 and r.content.startswith(b"%PDF") and r.headers["content-type"] == "application/pdf"
+        text = self._text(r.content)
+        assert "PAYMENT SUMMARY" in text and "Rs. 420.50" in text and "PAYMENT RECEIPT" not in text
+        for item in done["items"]:
+            assert item["receipt_number"] in text and item["head_name"] in text
+
+    def test_an_unpaid_or_somebody_elses_payment_is_a_plain_404(self, client, admin_h, register_org_pk, mock_gateway, plain_member_h, write_conn):
+        from tests.finance_support import new_member, _login_headers
+
+        s = shared_heads(client, admin_h, register_org_pk, mock_gateway)
+        a, b, _ = s["heads"]
+        waiting = pay_multiple(client, plain_member_h, (a, "10.00"), (b, "20.00"))
+        assert client.get(f"{BASE}/my-pranami/requests/{waiting['upi_payment_request_pk']}/summary-pdf", headers=plain_member_h).status_code == 404   # not paid yet
+        pk, _ = self._paid(client, admin_h, register_org_pk, mock_gateway, plain_member_h)
+        other = new_member(write_conn, register_org_pk, "SumOther")
+        other_h = _login_headers(client, other["sangha_sevi_id"], other["password"])
+        assert client.get(f"{BASE}/my-pranami/requests/{pk}/summary-pdf", headers=other_h).status_code == 404
+        assert client.get(f"{BASE}/my-pranami/requests/{pk}/summary-pdf", headers=admin_h).status_code == 404            # an administrator is not the payer either
+        assert client.get(f"{BASE}/my-pranami/requests/{pk}/summary-pdf").status_code == 401

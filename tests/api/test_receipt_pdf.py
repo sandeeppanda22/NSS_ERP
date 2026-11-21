@@ -392,3 +392,43 @@ class TestHeadersAndWiring:
 
         assert "financial_receipt_pk" in MyPayment.model_fields and "financial_receipt_pk" in MyPranamiReceipt.model_fields
         assert "financial_receipt_pk" in ReceiptResponse.model_fields
+
+
+class TestPaymentSummary:
+    """The one-page summary of a payment that covered several contributions (owner 2026-11-20): a printout, never a receipt."""
+
+    DATA = {"request_reference": "UPR123", "paid_at": datetime(2026, 11, 21, 10, 30), "paid_amount": Decimal("1350.00"), "received_from": "Sandeep Panda",
+            "sangha_sevi_id": "SS2", "member_sangha": "Ekamra Saraswata Sangha", "paid_to": "Ekamra Saraswata Sangha",
+            "payment_method_name": "Card (credit / debit)", "provider_payment_id": "pay_Nx7"}
+    ITEMS = [{"head_name": "Annual Pranami", "amount": Decimal("500.00"), "receipt_number": "RCT101"},
+             {"head_name": "Membership subscription", "amount": Decimal("110.00"), "receipt_number": "RCT102"},
+             {"head_name": "Rasa Utsav", "amount": Decimal("740.00"), "receipt_number": "RCT103"}]
+
+    def test_it_is_a_valid_pdf_naming_every_contribution_and_its_own_receipt(self):
+        from api.services.receipt_pdf import build_payment_summary_pdf
+
+        body = build_payment_summary_pdf(self.DATA, self.ITEMS)
+        assert body.startswith(b"%PDF-") and body.rstrip().endswith(b"%%EOF")
+        text = page_text(body)
+        for needle in ("PAYMENT SUMMARY", "UPR123", "RCT101", "RCT102", "RCT103", "Annual Pranami", "Rs. 1,350.00", "not a receipt"):
+            assert needle in text, needle
+        assert "PAYMENT RECEIPT" not in text                          # it must never pass for a receipt
+
+    def test_it_refuses_to_draw_a_summary_without_a_reference_an_amount_or_items(self):
+        from api.services.receipt_pdf import build_payment_summary_pdf
+
+        with pytest.raises(ValueError):
+            build_payment_summary_pdf({**self.DATA, "request_reference": None}, self.ITEMS)
+        with pytest.raises(ValueError):
+            build_payment_summary_pdf({**self.DATA, "paid_amount": None}, self.ITEMS)
+        with pytest.raises(ValueError):
+            build_payment_summary_pdf(self.DATA, [])
+
+    def test_the_receipt_and_the_summary_share_one_header_and_footer(self):
+        import inspect
+
+        from api.services import receipt_pdf
+
+        assert "_page_with_header(doc," in inspect.getsource(receipt_pdf.build_receipt_pdf)
+        assert "_page_with_header(doc," in inspect.getsource(receipt_pdf.build_payment_summary_pdf)
+        assert "_page_footer(" in inspect.getsource(receipt_pdf.build_receipt_pdf) and "_page_footer(" in inspect.getsource(receipt_pdf.build_payment_summary_pdf)

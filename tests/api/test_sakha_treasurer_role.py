@@ -18,11 +18,25 @@ def test_the_composite_rule_gives_the_treasurer_seat_the_finance_role_over_the_s
     assert re.search(r"\('SAKHA_GOVERNING_BODY',\s+NULL,\s+ARRAY\['PRESIDENT','SECRETARY'\],\s+'NSS_ERP_SAKHA_ADMIN',\s+'BODY_ORG'\)", rules)
 
 
-def test_the_role_carries_finance_view_and_manage_and_nothing_else():
+def test_the_role_carries_view_manage_and_configure_but_never_approve():
     granted = set(re.findall(r"\('NSS_ERP_SAKHA_TREASURER', '([A-Z_]+)'\)", PATCH))
-    assert granted == {"FINANCE_VIEW", "FINANCE_MANAGE"}
+    assert granted == {"FINANCE_VIEW", "FINANCE_MANAGE", "FINANCE_CONFIGURE"}      # owner 2026-11-20: the Treasurer also configures the Sakha's finance
     assert "FINANCE_APPROVE" not in granted            # approvals follow the seats (finance_approval.py), recording / configuring / approving stay separate
-    assert "FINANCE_CONFIGURE" not in granted          # the Treasurer must not be able to set the Treasurer's own approval limit
+
+
+def test_the_controls_that_bind_the_treasurer_are_refused_by_seat_in_every_place_they_can_be_changed():
+    """FINANCE_CONFIGURE would let the Treasurer loosen their own check, so the API refuses those changes to the SEATED Treasurer."""
+    import inspect
+
+    from api.routers import finance_approval as router_approval
+    from api.routers import finance_setup as router_setup
+    from api.services import finance_approval as service
+
+    assert "def require_not_the_treasurer(" in inspect.getsource(service)
+    assert "A.require_not_the_treasurer(cur, user, body.organization_pk" in inspect.getsource(router_approval.put_approval_policy)      # the default limit
+    create, update = inspect.getsource(router_setup.create_head), inspect.getsource(router_setup.update_head)
+    assert "FA.require_not_the_treasurer(" in create and "body.skips_approval or body.treasurer_limit is not None" in create
+    assert "FA.require_not_the_treasurer(" in update and "cur_skips" in update and "cur_limit" in update                 # only a CHANGED value counts
 
 
 def test_the_role_is_an_organizational_sakha_scoped_role_and_the_patch_never_deletes():

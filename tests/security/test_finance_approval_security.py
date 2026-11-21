@@ -157,7 +157,7 @@ class TestPermissionsOnTheRest:
         assert client.put(f"{BASE}/approval-policy", json={**body, "organization_pk": str(other_org_pk)}, headers=sakha_admin_h).status_code == 403
 
     def test_the_treasurer_cannot_raise_their_own_limit_by_being_the_treasurer(self, client, cw, register_org_pk):
-        t = login(client, cw["people"]["treasurer"])                           # a seat is not a permission: no FINANCE_CONFIGURE
+        t = login(client, cw["people"]["treasurer"])                           # owner 2026-11-20: the Treasurer configures, but not the controls that bind THEM (by seat)
         assert client.put(f"{BASE}/approval-policy", json={"organization_pk": str(register_org_pk), "default_treasurer_limit": "99999999"}, headers=t).status_code == 403
         h = cw["heads"]["limited"]["finance_head_pk"]
         assert client.patch(f"{BASE}/heads/{h}", json={"treasurer_limit": "99999999"}, headers=t).status_code == 403

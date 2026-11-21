@@ -10,10 +10,11 @@
 -- admin scope is that one Sakha (and what sits under it). It carries FINANCE ONLY:
 --   FINANCE_VIEW       read everything of the Sakha's finance
 --   FINANCE_MANAGE     record receipts, payments, transactions and transfers, ask for UPI payments, link members
+--   FINANCE_CONFIGURE  heads, contributions, events and receiving accounts (owner 2026-11-20). The controls that bind the Treasurer THEMSELVES stay out
+--                      of reach BY SEAT, not by permission: the API refuses the seated Treasurer a change of the Treasurer's approval limit
+--                      (PUT /approval-policy, a head's treasurer_limit) and of a head's "needs no approval" flag
+--                      (api/services/finance_approval.py::require_not_the_treasurer) - the Sakha's President / Secretary admin sets those.
 -- It deliberately does NOT carry:
---   FINANCE_CONFIGURE  heads, contributions, events, receiving accounts and the Treasurer's approval LIMIT. The limit is what the Treasurer
---                      may approve alone, so the Treasurer must not be able to set it (tests/security/test_finance_approval_security.py:
---                      "a seat is not a permission"); the Sakha's President / Secretary admin configures.
 --   FINANCE_APPROVE    approvals of a Sakha's entries stay with the seats (the Treasurer, then the President - the chain in
 --                      api/services/finance_approval.py, never a permission); recording / configuring / approving stay separate (FIN-BR-040).
 -- It reaches no other module: a Treasurer is not thereby an administrator of members, accounts or organizations.
@@ -34,7 +35,8 @@ ON CONFLICT (role_code) DO NOTHING;
 WITH mappings (role_code, permission_code) AS (
     VALUES
     ('NSS_ERP_SAKHA_TREASURER', 'FINANCE_VIEW'),
-    ('NSS_ERP_SAKHA_TREASURER', 'FINANCE_MANAGE')
+    ('NSS_ERP_SAKHA_TREASURER', 'FINANCE_MANAGE'),
+    ('NSS_ERP_SAKHA_TREASURER', 'FINANCE_CONFIGURE')
 )
 INSERT INTO nss.role_permission (role_master_pk, permission_master_pk)
 SELECT r.role_master_pk, p.permission_master_pk

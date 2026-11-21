@@ -46,6 +46,7 @@ from api.database import get_connection
 from api.dependencies.auth import get_write_connection
 from api.routers import finance as F
 from api.schemas import finance as S
+from api.services import finance_approval as FA
 from api.services import finance_contribution as FC
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks
@@ -486,6 +487,8 @@ def create_head(body: S.HeadCreate, user: UserContext = Depends(_CONFIGURE), con
         _head_access(cur, user, {"organization_pk": body.organization_pk}, "create a finance head for this organization", write=True)
         if body.organization_pk is not None:
             F._require_active_organization(cur, body.organization_pk, "Organization")
+            if body.skips_approval or body.treasurer_limit is not None:                       # the Treasurer's own controls (owner 2026-11-20)
+                FA.require_not_the_treasurer(cur, user, body.organization_pk, "the approval rules of a head (its Treasurer limit / 'needs no approval')")
         _validate_collection(cur, org_pk=body.organization_pk, direction=body.direction, is_restricted=body.is_restricted,
                              required_fund_type=body.required_fund_type, allow_upi=body.allow_upi,
                              scope_pk=body.collection_scope_pk, fund_pk=body.collection_fund_pk, account_pk=body.collection_account_pk)
@@ -825,6 +828,13 @@ def update_head(head_pk: UUID, body: S.HeadUpdate, user: UserContext = Depends(_
             if head["is_restricted"] and not purpose:
                 raise F._invalid("A restricted head must keep its restriction_purpose (FIN-BR-020).")
             values["restriction_purpose"] = purpose
+        # The Treasurer's own controls: a CHANGE of the head's "needs no approval" flag or Treasurer limit is refused for the seated Treasurer. The edit form
+        # resends both on every save, so only a changed value counts (owner 2026-11-20).
+        cur.execute("SELECT skips_approval, treasurer_limit FROM nss.finance_head WHERE finance_head_pk = %s", (str(head_pk),))
+        cur_skips, cur_limit = cur.fetchone()
+        if (sent.get("skips_approval") is not None and bool(sent["skips_approval"]) != bool(cur_skips)) or \
+                ("treasurer_limit" in sent and sent["treasurer_limit"] != cur_limit):
+            FA.require_not_the_treasurer(cur, user, head["organization_pk"], "the approval rules of a head (its Treasurer limit / 'needs no approval')")
         if sent.get("skips_approval") is not None:
             if sent["skips_approval"] and head["direction"] != "INCOME":
                 raise F._invalid("Only an INCOME head can skip approval.")

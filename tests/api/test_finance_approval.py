@@ -424,9 +424,9 @@ class TestAnotherLevelIsUntouched:
 
 
 class TestTheSeatedTreasurerRecordsTheSakhasFinance:
-    """Owner 2026-11-20: the Treasurer is the finance administrator of their own Sakha: they view and RECORD its finance without any admin role
-    (the live seat grants NSS_ERP_SAKHA_TREASURER = FINANCE_VIEW + FINANCE_MANAGE, scoped to the Sakha). It confers no configuration and no
-    approval by permission, and it ends with the seat."""
+    """Owner 2026-11-20: the Treasurer is the finance administrator of their own Sakha: they view, RECORD and CONFIGURE its finance without any admin role
+    (the live seat grants NSS_ERP_SAKHA_TREASURER = FINANCE_VIEW + MANAGE + CONFIGURE, scoped to the Sakha). It confers no approval by permission, the
+    controls that bind the Treasurer themselves (their limit, "needs no approval") stay refused by seat, and it all ends with the seat."""
 
     def test_the_treasurer_records_an_entry_and_sees_it_in_the_list(self, client, cw):
         t = login(client, cw["people"]["treasurer"])
@@ -443,11 +443,38 @@ class TestTheSeatedTreasurerRecordsTheSakhasFinance:
         assert items and all(i["organization_pk"] == cw["org_pk"] for i in items)
         assert theirs["financial_scope_pk"] not in {i["financial_scope_pk"] for i in items}
 
-    def test_the_treasurer_still_cannot_configure_or_approve_by_permission(self, client, cw, register_org_pk):
+    def test_the_treasurer_configures_the_sakhas_finance_but_cannot_approve_by_permission(self, client, cw, register_org_pk):
         t = login(client, cw["people"]["treasurer"])
         txn = record(client, t, cw, "income", "50.00")
-        assert client.post(f"{BASE}/contributions", headers=t, json={"organization_pk": str(register_org_pk), "head_name": "Mine"}).status_code == 403
+        made = client.post(f"{BASE}/contributions", headers=t, json={"organization_pk": str(register_org_pk), "head_name": "Treasurer-made Pranami", "open_portal": False})
+        assert made.status_code == 201, made.text                                    # configuring heads is the Treasurer's (owner 2026-11-20)
         assert client.post(f"{BASE}/transactions/{pk(txn)}/transition", headers=t, json={"status": "APPROVED"}).status_code in (403, 422)
+
+    def test_the_treasurer_cannot_loosen_the_controls_that_bind_them(self, client, cw, register_org_pk):
+        t = login(client, cw["people"]["treasurer"])
+        policy = {"organization_pk": str(register_org_pk), "default_treasurer_limit": "99999999"}
+        assert client.put(f"{BASE}/approval-policy", json=policy, headers=t).status_code == 403
+        limited = cw["heads"]["limited"]["finance_head_pk"]
+        assert client.patch(f"{BASE}/heads/{limited}", json={"treasurer_limit": "99999999"}, headers=t).status_code == 403
+        income = cw["heads"]["income"]["finance_head_pk"]
+        assert client.patch(f"{BASE}/heads/{income}", json={"skips_approval": True}, headers=t).status_code == 403
+        new_head = {"organization_pk": str(register_org_pk), "head_code": "TRSR_FREE", "head_name": "No approval", "direction": "INCOME", "skips_approval": True}
+        assert client.post(f"{BASE}/heads", headers=t, json=new_head).status_code == 403
+        assert client.post(f"{BASE}/heads", headers=t, json={**new_head, "direction": "EXPENSE", "skips_approval": False, "treasurer_limit": "1"}).status_code == 403
+
+    def test_saving_other_changes_to_a_head_is_allowed_even_when_the_form_resends_the_same_controls(self, client, cw):
+        t = login(client, cw["people"]["treasurer"])
+        limited = cw["heads"]["limited"]
+        r = client.patch(f"{BASE}/heads/{limited['finance_head_pk']}", headers=t, json={
+            "head_name": "Electricity (renamed)", "treasurer_limit": limited["treasurer_limit"], "requires_member": False})
+        assert r.status_code == 200, r.text                                        # the unchanged limit is not "a change"
+        assert r.json()["head_name"] == "Electricity (renamed)"
+
+    def test_the_president_and_the_sakha_admin_still_set_those_controls(self, client, cw, register_org_pk, sakha_admin_h):
+        policy = {"organization_pk": str(register_org_pk), "default_treasurer_limit": "1500"}
+        assert client.put(f"{BASE}/approval-policy", json=policy, headers=sakha_admin_h).status_code == 200
+        limited = cw["heads"]["limited"]["finance_head_pk"]
+        assert client.patch(f"{BASE}/heads/{limited}", json={"treasurer_limit": "2500"}, headers=sakha_admin_h).status_code == 200
 
     def test_the_president_secretary_and_a_plain_member_are_unchanged(self, client, cw, plain_member_h):
         assert client.get(f"{BASE}/transactions", headers=plain_member_h).status_code == 403          # a member is no finance user

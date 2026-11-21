@@ -62,6 +62,7 @@ def put_approval_policy(body: S.ApprovalPolicyWrite, user: UserContext = Depends
     with conn.cursor() as cur:
         F._require_org_access(cur, user, body.organization_pk, "set the approval limit of this organization")
         F._require_active_organization(cur, body.organization_pk, "Organization")
+        A.require_not_the_treasurer(cur, user, body.organization_pk, "the Treasurer's approval limit")
         if not A.is_chain_org(cur, body.organization_pk):
             raise F._invalid("The Treasurer's limit applies to a Sakha only.")
         before = A.default_limit(cur, body.organization_pk)

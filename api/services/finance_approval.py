@@ -150,6 +150,24 @@ def _body_pk(cur, organization_pk) -> str | None:
     return seat_service.find_body_master_pk(cur, BODY_TYPE, organization_pk)
 
 
+def require_not_the_treasurer(cur, user, organization_pk, what: str) -> None:
+    """
+    Owner 2026-11-20: the seated (or acting) Treasurer of a Sakha may configure its finance (heads, contributions, events, accounts) but never the
+    controls that bind THEMSELVES - their approval limit and a head's "needs no approval" flag - so they cannot loosen their own check. 403 when the
+    caller holds the Treasurer seat of *organization_pk* (a Sakha); a no-op for any other caller or organization. By SEAT, like the approval chain
+    itself: a Sakha admin who is not the Treasurer (the President / Secretary) sets these.
+    """
+    if organization_pk is None or getattr(user, "person_pk", None) is None:
+        return
+    body = _body_pk(cur, organization_pk)
+    if body is None:
+        return
+    holder = seat_service.live_seat_holder(cur, body, TREASURER)
+    if holder and str(holder[0]) == str(user.person_pk):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"The Treasurer cannot change {what}; the Sakha's President or Secretary sets it.")
+
+
 def approver_for_stage(cur, organization_pk, stage: int) -> dict | None:
     """
     Who may take *stage* right now: {person_pk, position_code, cover_reason} or None when nobody sits there.

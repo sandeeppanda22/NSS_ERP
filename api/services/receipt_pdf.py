@@ -97,25 +97,18 @@ def _logo() -> bytes | None:
         return None                                   # a missing logo must never stop a receipt being issued
 
 
-def build_receipt_pdf(data: dict, *, now: datetime | None = None) -> bytes:
-    """The receipt as PDF bytes. *data* has the keys of ``RECEIPT_FIELDS`` (missing / None ones are simply left off)."""
-    missing = [k for k in ("receipt_number", "receipt_date", "amount") if data.get(k) in (None, "")]
-    if missing:
-        raise ValueError(f"receipt data is missing {', '.join(missing)}")
-    now = (now or datetime.now(ZoneInfo("Asia/Kolkata"))).astimezone(ZoneInfo("Asia/Kolkata"))
-    cancelled = data.get("status") == "CANCELLED"
-    number = str(data["receipt_number"])
+def _now_ist(now: datetime | None) -> datetime:
+    return (now or datetime.now(ZoneInfo("Asia/Kolkata"))).astimezone(ZoneInfo("Asia/Kolkata"))
 
-    doc = pdf.Document(title=f"Payment Receipt {number}", author=ORG_NAME.title(), subject="Payment receipt")
+
+def _page_with_header(doc, title: str):
+    """A new A4 page with the double frame, the logo + Sangha heading and the navy title bar. Returns (page, left, right, width).
+    Shared by the receipt and the payment summary so the two always look like one family."""
     page = doc.add_page()
     left, right = 48.0, pdf.A4[0] - 48.0
     width = right - left
-
-    # frame
     page.rect(26, 26, pdf.A4[0] - 52, pdf.A4[1] - 52, stroke=NAVY, line=1.2)
     page.rect(30, 30, pdf.A4[0] - 60, pdf.A4[1] - 60, stroke=GOLD, line=0.5)
-
-    # header: logo + the Sangha
     logo = _logo()
     if logo:
         page.image("Logo", logo, LOGO_SIZE_PX[0], LOGO_SIZE_PX[1], left, 52, 76, 69)
@@ -124,10 +117,30 @@ def build_receipt_pdf(data: dict, *, now: datetime | None = None) -> bytes:
     page.text(text_x, 99, ORG_PLACE, size=10.5, colour=GREY)
     page.text(text_x, 113, ORG_REGISTRATION, size=9, colour=GREY)
     page.line(left, 134, right, 134, GOLD, 1.5)
-
-    # title bar
     page.rect(left, 146, width, 30, fill=NAVY)
-    page.text(left + width / 2, 166, "PAYMENT RECEIPT", font="bold", size=14, colour="#FFFFFF", align="center")
+    page.text(left + width / 2, 166, title, font="bold", size=14, colour="#FFFFFF", align="center")
+    return page, left, right, width
+
+
+def _page_footer(page, left, right, now, *, line1: str, label: str) -> None:
+    foot = pdf.A4[1] - 92
+    page.line(left, foot, right, foot, "#D1D5DB", 0.6)
+    page.text(left, foot + 16, line1, size=8.5, colour=GREY)
+    page.text(left, foot + 29, f"Generated on {_date(now)}, {now.strftime('%H:%M')} IST from the NSS ERP. Keep it for your records.", size=8.5, colour=GREY)
+    page.text(right, foot + 16, label, font="bold", size=8.5, colour=GREY, align="right")
+
+
+def build_receipt_pdf(data: dict, *, now: datetime | None = None) -> bytes:
+    """The receipt as PDF bytes. *data* has the keys of ``RECEIPT_FIELDS`` (missing / None ones are simply left off)."""
+    missing = [k for k in ("receipt_number", "receipt_date", "amount") if data.get(k) in (None, "")]
+    if missing:
+        raise ValueError(f"receipt data is missing {', '.join(missing)}")
+    now = _now_ist(now)
+    cancelled = data.get("status") == "CANCELLED"
+    number = str(data["receipt_number"])
+
+    doc = pdf.Document(title=f"Payment Receipt {number}", author=ORG_NAME.title(), subject="Payment receipt")
+    page, left, right, width = _page_with_header(doc, "PAYMENT RECEIPT")
 
     # receipt number + date
     page.text(left, 204, "Receipt No.", size=9, colour=GREY)
@@ -184,13 +197,85 @@ def build_receipt_pdf(data: dict, *, now: datetime | None = None) -> bytes:
     if not cancelled:
         page.text(left, y, "Thank you for your contribution to the Sangha.", size=10.5, colour=NAVY)
 
-    # footer
-    foot = pdf.A4[1] - 92
-    page.line(left, foot, right, foot, "#D1D5DB", 0.6)
-    page.text(left, foot + 16, "This is a computer-generated receipt and does not require a signature.", size=8.5, colour=GREY)
-    page.text(left, foot + 29, f"Generated on {_date(now)}, {now.strftime('%H:%M')} IST from the NSS ERP. Keep it for your records.", size=8.5, colour=GREY)
-    page.text(right, foot + 16, f"Receipt {number}", font="bold", size=8.5, colour=GREY, align="right")
+    _page_footer(page, left, right, now, line1="This is a computer-generated receipt and does not require a signature.", label=f"Receipt {number}")
 
     if cancelled:
         page.rotated_text(pdf.A4[0] / 2, pdf.A4[1] / 2 - 20, "CANCELLED", size=96, colour=RED, degrees=33, opacity=0.15)
+    return doc.render()
+
+
+SUMMARY_FIELDS = ("request_reference", "paid_at", "paid_amount", "received_from", "sangha_sevi_id", "member_sangha", "paid_to",
+                  "payment_method_name", "provider_payment_id")
+
+
+def build_payment_summary_pdf(data: dict, items: list[dict], *, now: datetime | None = None) -> bytes:
+    """
+    One page that lists a payment made in ONE go for several contributions (owner request 2026-11-20): who paid, to whom, how, the total and,
+    for each contribution, what it was for, its amount and its OWN receipt number. It is a printout only - it carries no receipt number of
+    its own and says so, so the books and the receipt numbering are untouched. *items* are dicts with head_name, amount, receipt_number.
+    """
+    missing = [k for k in ("request_reference", "paid_amount") if data.get(k) in (None, "")]
+    if missing:
+        raise ValueError(f"payment data is missing {', '.join(missing)}")
+    if not items:
+        raise ValueError("a payment summary needs at least one item")
+    now = _now_ist(now)
+    ref = str(data["request_reference"])
+    doc = pdf.Document(title=f"Payment Summary {ref}", author=ORG_NAME.title(), subject="Payment summary")
+    page, left, right, width = _page_with_header(doc, "PAYMENT SUMMARY")
+
+    page.text(left, 204, "Payment reference", size=9, colour=GREY)
+    page.text(left, 220, ref, font="bold", size=14, colour=NAVY)
+    page.text(right, 204, "Paid on", size=9, colour=GREY, align="right")
+    page.text(right, 220, _date(data.get("paid_at")), font="bold", size=13, colour=NAVY, align="right")
+
+    rows = [("Paid by", data.get("received_from")), ("Sangha Sevi ID", data.get("sangha_sevi_id")), ("Member of", data.get("member_sangha")),
+            ("Paid to", data.get("paid_to")), ("Payment mode", data.get("payment_method_name")), ("Gateway reference", data.get("provider_payment_id"))]
+    rows = [(label, str(value)) for label, value in rows if value not in (None, "")]
+    y, label_w = 244.0, 150.0
+    page.line(left, y, right, y, "#D1D5DB", 0.6)
+    for label, value in rows:
+        lines = pdf.wrap(value, "bold", 11, width - label_w - 12)
+        h = max(28.0, 14.0 + 14.0 * len(lines))
+        page.text(left + 6, y + 18, label, size=9.5, colour=GREY)
+        for i, line in enumerate(lines):
+            page.text(left + label_w, y + 18 + 14 * i, line, font="bold", size=11, colour="#111827")
+        y += h
+        page.line(left, y, right, y, "#E5E7EB", 0.5)
+
+    # the contributions: # | towards | receipt no. | amount
+    y += 18
+    col_head, col_rcpt, col_amt = left + 28, left + 270, right - 8
+    page.rect(left, y, width, 22, fill=LIGHT)
+    page.text(left + 8, y + 15, "#", font="bold", size=9, colour=GREY)
+    page.text(col_head, y + 15, "TOWARDS", font="bold", size=9, colour=GREY)
+    page.text(col_rcpt, y + 15, "RECEIPT NO.", font="bold", size=9, colour=GREY)
+    page.text(col_amt, y + 15, "AMOUNT", font="bold", size=9, colour=GREY, align="right")
+    y += 22
+    for n, it in enumerate(items, 1):
+        lines = pdf.wrap(str(it.get("head_name") or ""), "regular", 10.5, col_rcpt - col_head - 10)
+        h = max(24.0, 10.0 + 14.0 * len(lines))
+        page.text(left + 8, y + 16, str(n), size=10.5, colour=GREY)
+        for i, line in enumerate(lines):
+            page.text(col_head, y + 16 + 14 * i, line, size=10.5, colour="#111827")
+        page.text(col_rcpt, y + 16, str(it.get("receipt_number") or "-"), font="bold", size=10.5, colour=NAVY)
+        page.text(col_amt, y + 16, money(it["amount"]), size=10.5, colour="#111827", align="right")
+        y += h
+        page.line(left, y, right, y, "#E5E7EB", 0.5)
+
+    y += 16
+    total_h = 60
+    page.rect(left, y, width, total_h, fill=LIGHT, stroke=GOLD, line=1)
+    page.text(left + 14, y + 20, "TOTAL PAID", font="bold", size=9, colour=GREY)
+    page.text(left + 14, y + 46, money(data["paid_amount"]), font="bold", size=22, colour=NAVY)
+    sw = pdf.text_width("PAID", "bold", 13) + 28
+    page.rect(right - sw - 14, y + 16, sw, 28, stroke="#047857", line=1.6)
+    page.text(right - 14 - sw / 2, y + 35, "PAID", font="bold", size=13, colour="#047857", align="center")
+    y += total_h + 18
+    for line in pdf.wrap("This is a summary of one payment, not a receipt and it carries no receipt number of its own: each contribution above has its own "
+                         "numbered receipt, which you can download separately.", "regular", 9.5, width):
+        page.text(left, y, line, size=9.5, colour="#374151")
+        y += 13
+
+    _page_footer(page, left, right, now, line1="This is a computer-generated summary and does not require a signature.", label=f"Payment {ref}")
     return doc.render()
