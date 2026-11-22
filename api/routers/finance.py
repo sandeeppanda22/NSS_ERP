@@ -57,6 +57,7 @@ until the sign / reversal mechanism is decided (lifecycle §40, PENDING).
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+import dataclasses
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -69,6 +70,7 @@ from api.helpers import SAKHA_LIKE_ORG_TYPES, get_master_data_pk, log_audit, nex
 from api.schemas import finance as S
 from api.services import finance_approval as approval_service
 from api.services import finance_authority as authority_service
+from api.services import finance_contribution as contribution_service
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope, require_person_in_scope
 
@@ -215,6 +217,44 @@ def _not_found(label: str) -> HTTPException:
 
 def _invalid(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
+
+
+# Finance ADMINISTRATOR access (owner 2026-11-22: "all admins are not by default granted financial admin"): whoever sets up a Sangha's books -
+# its financial scopes and funds. Two ways, and only these:
+#   1. the Sakha's seated TREASURER, PRESIDENT or SECRETARY, for THEIR Sakha (by seat: they head its finance, api/services/finance_approval.py::office_sakhas);
+#   2. an admin who has been GIVEN a Finance role (assigned, seed/00_bootstrap/11_finance_admin_roles_patch.sql), within that role's own scope.
+# The NSS ERP Administrator (the one super administrator, by role) is a finance administrator everywhere. Any other admin role - Kendra, Sakha,
+# Anchalika, Zilla, Patha Chakra - is NOT one merely by being an admin, even though it carries finance permissions.
+FINANCE_ADMIN_ROLES = ("NSS_ERP_SAKHA_FINANCE_ADMIN", "NSS_ERP_KENDRA_FINANCE_ADMIN")
+_ANYWHERE = object()
+
+
+def _is_finance_admin(cur, user: UserContext, organization_pk=_ANYWHERE) -> bool:
+    """
+    True when *user* is a finance administrator of *organization_pk* (a Sangha, or None for a scope that belongs to no Sangha, which only the global
+    authority may set up). With no organization given: a finance administrator of ANYTHING - what the page asks to decide whether to show its buttons;
+    the server asks again, per Sangha, when it acts.
+    """
+    if user.is_super_admin():
+        return True
+    anywhere = organization_pk is _ANYWHERE
+    offices = approval_service.office_sakhas(cur, user.person_pk)
+    if offices and (anywhere or (organization_pk is not None and str(organization_pk) in offices)):
+        return True
+    given = [s for s in user.scopes if s.role_code in FINANCE_ADMIN_ROLES]
+    if not given:
+        return False
+    if anywhere:
+        return True
+    reach = actor_scope_org_pks(cur, dataclasses.replace(user, scopes=given))      # only what the Finance roles reach, not the user's other roles
+    return reach is None or (organization_pk is not None and str(organization_pk) in reach)
+
+
+def _require_finance_admin(cur, user: UserContext, what: str, organization_pk=_ANYWHERE) -> None:
+    if not _is_finance_admin(cur, user, organization_pk):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only a finance administrator can {what}: the Treasurer, President or Secretary of the Sakha, or an admin who has been given a Finance role.")
 
 
 def _require_global(cur, user: UserContext, action: str) -> None:
@@ -374,7 +414,9 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
         )
         methods = [{"code": r[0], "name": r[1]} for r in cur.fetchall()]
         disbursement_purposes = authority_service.purposes(cur)
+        finance_admin = _is_finance_admin(cur, user)
     return {
+        "finance_admin": finance_admin,
         "payment_methods": methods,
         "fund_types": list(S.FUND_TYPES),
         "scope_types": list(S.SCOPE_TYPES),
@@ -732,15 +774,19 @@ def list_scopes(
 
 @router.post("/scopes", response_model=S.ScopeResponse, status_code=status.HTTP_201_CREATED)
 def create_scope(body: S.ScopeCreate, user: UserContext = Depends(_MANAGE), conn=Depends(get_write_connection)):
-    """Create a Financial Scope (status DRAFT). Admin scope on its organization; none -> global authority only."""
+    """
+    Create a Financial Scope - DRAFT, or ACTIVE with ``activate`` (owner 2026-11-22: the same permission does both, so a draft is an extra
+    step). The code is made from the Sangha's code and the name when none is given. Admin scope on its organization; none -> global only.
+    """
     if body.scope_type not in S.SCOPE_TYPES:
         raise _invalid(f"scope_type must be one of: {', '.join(S.SCOPE_TYPES)}.")
     code, name = _clean(body.scope_code), _clean(body.scope_name)
-    if not code or not name:
+    if not name or (body.scope_code is not None and not code):
         raise _invalid("scope_code and scope_name cannot be blank.")
     if body.scope_type == "ORGANIZATION" and body.organization_pk is None:
         raise _invalid("An ORGANIZATION scope must name its organization.")
     with conn.cursor() as cur:
+        _require_finance_admin(cur, user, "create a financial scope", body.organization_pk)
         _require_org_access(cur, user, body.organization_pk, "create a financial scope")
         if body.organization_pk is not None:
             _require_active_organization(cur, body.organization_pk, "Organization")
@@ -748,21 +794,26 @@ def create_scope(body: S.ScopeCreate, user: UserContext = Depends(_MANAGE), conn
             _year_row(cur, body.financial_year_pk)
         if body.parent_scope_pk is not None:
             _check_parent_scope(cur, user, body.parent_scope_pk)
-        cur.execute("SELECT 1 FROM nss.financial_scope WHERE scope_code = %s", (code,))
-        if cur.fetchone():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Scope code {code} already exists.")
+        generated = not code
+        if generated:
+            code = contribution_service.scope_code_for(cur, body.organization_pk, name)
+        else:
+            cur.execute("SELECT 1 FROM nss.financial_scope WHERE scope_code = %s", (code,))
+            if cur.fetchone():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Scope code {code} already exists.")
         cur.execute(
             """
             INSERT INTO nss.financial_scope
-                (scope_code, scope_name, scope_type, organization_pk, financial_year_pk, parent_scope_pk, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING financial_scope_pk
+                (scope_code, scope_name, scope_type, organization_pk, financial_year_pk, parent_scope_pk, status, created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING financial_scope_pk
             """,
             (code, name, body.scope_type, str(body.organization_pk) if body.organization_pk else None,
              str(body.financial_year_pk) if body.financial_year_pk else None,
-             str(body.parent_scope_pk) if body.parent_scope_pk else None, user.actor_pk),
+             str(body.parent_scope_pk) if body.parent_scope_pk else None, "ACTIVE" if body.activate else "DRAFT", user.actor_pk),
         )
         pk = cur.fetchone()[0]
-        _audit(cur, user, "CREATE", "financial_scope", pk, f"Created financial scope {code}")
+        _audit(cur, user, "CREATE", "financial_scope", pk, f"Created financial scope {code}" + (" (active)" if body.activate else ""),
+               {"code_generated": generated, "status": "ACTIVE" if body.activate else "DRAFT"})
         return _scope_response(cur, pk)
 
 
@@ -900,6 +951,7 @@ def create_fund(body: S.FundCreate, user: UserContext = Depends(_MANAGE), conn=D
         raise _invalid("A restricted fund must state its restriction_purpose (FIN-BR-020).")
     with conn.cursor() as cur:
         scope = _scope_row(cur, body.financial_scope_pk)
+        _require_finance_admin(cur, user, "create a fund", scope["organization_pk"])
         _require_org_access(cur, user, scope["organization_pk"], "create a fund in this financial scope")
         if scope["status"] not in ("DRAFT", "ACTIVE"):
             raise _invalid(f"A {scope['status']} financial scope cannot take new funds.")
@@ -913,18 +965,20 @@ def create_fund(body: S.FundCreate, user: UserContext = Depends(_MANAGE), conn=D
         cur.execute("SELECT 1 FROM nss.fund_master WHERE financial_scope_pk = %s AND fund_code = %s", (str(body.financial_scope_pk), code))
         if cur.fetchone():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Fund code {code} already exists in this scope.")
+        fund_status = "ACTIVE" if body.activate and scope["status"] == "ACTIVE" else "DRAFT"     # a fund is only active inside an ACTIVE scope
         cur.execute(
             """
             INSERT INTO nss.fund_master
                 (fund_code, fund_name, fund_type, financial_scope_pk, is_restricted, restriction_purpose,
-                 organization_pk, created_by_sangha_sevi_pk)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING fund_master_pk
+                 organization_pk, status, created_by_sangha_sevi_pk)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING fund_master_pk
             """,
             (code, name, body.fund_type, str(body.financial_scope_pk), body.is_restricted, purpose,
-             str(body.organization_pk) if body.organization_pk else None, user.actor_pk),
+             str(body.organization_pk) if body.organization_pk else None, fund_status, user.actor_pk),
         )
         pk = cur.fetchone()[0]
-        _audit(cur, user, "CREATE", "fund_master", pk, f"Created fund {code} in scope {scope['scope_code']}")
+        _audit(cur, user, "CREATE", "fund_master", pk, f"Created fund {code} in scope {scope['scope_code']}" + (" (active)" if fund_status == "ACTIVE" else ""),
+               {"status": fund_status})
         return _fund_response(cur, pk)
 
 

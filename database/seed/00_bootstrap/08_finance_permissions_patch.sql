@@ -17,11 +17,11 @@
 --   (MANAGE) and approving/posting/executing (APPROVE) are separate grants;
 --   the API additionally refuses to let the maker approve their own record.
 --
--- PROPOSED grants (owner to confirm - authorization matrix is PENDING):
---   NSS_ERP_ADMIN / NSS_ERP_KENDRA_ADMIN   VIEW + MANAGE + APPROVE
---   NSS_ERP_SAKHA_ADMIN / PATHA_CHAKRA     VIEW + MANAGE
---   NSS_ERP_ANCHALIKA / ZILLA admin        VIEW
---   NSS_ERP_AUDITOR / REPORT_VIEWER        VIEW
+-- Grants (owner decision 2026-11-22: "all finance related should come from finance roles"): only the NSS ERP Administrator (VIEW + MANAGE +
+-- APPROVE) and the two system read-only roles (AUDITOR / REPORT_VIEWER: VIEW). The Kendra, Sakha, Patha Chakra, Anchalika and Zilla ADMIN roles
+-- carry NO finance permission - finance comes from the finance roles (11_finance_admin_roles_patch.sql, 10_sakha_treasurer_role_patch.sql), held by
+-- assignment or by the Treasurer / President / Secretary seat. Databases built before this decision had those grants; 12_finance_permissions_revoke_
+-- patch.sql withdraws them.
 -- Deliberately NOT granted: Mahila admin, Advisory Board admin, attendance
 -- marker (least privilege; Mahila funds have their own bye-law clause 7 -
 -- owner decision needed). Reads/writes are bounded server-side by admin scope
@@ -57,15 +57,6 @@ WITH mappings (role_code, permission_code) AS (
     ('NSS_ERP_ADMIN', 'FINANCE_VIEW'),
     ('NSS_ERP_ADMIN', 'FINANCE_MANAGE'),
     ('NSS_ERP_ADMIN', 'FINANCE_APPROVE'),
-    ('NSS_ERP_KENDRA_ADMIN', 'FINANCE_VIEW'),
-    ('NSS_ERP_KENDRA_ADMIN', 'FINANCE_MANAGE'),
-    ('NSS_ERP_KENDRA_ADMIN', 'FINANCE_APPROVE'),
-    ('NSS_ERP_SAKHA_ADMIN', 'FINANCE_VIEW'),
-    ('NSS_ERP_SAKHA_ADMIN', 'FINANCE_MANAGE'),
-    ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'FINANCE_VIEW'),
-    ('NSS_ERP_PATHA_CHAKRA_ADMIN', 'FINANCE_MANAGE'),
-    ('NSS_ERP_ANCHALIKA_ADMIN', 'FINANCE_VIEW'),
-    ('NSS_ERP_ZILLA_ADMIN', 'FINANCE_VIEW'),
     ('NSS_ERP_AUDITOR', 'FINANCE_VIEW'),
     ('NSS_ERP_REPORT_VIEWER', 'FINANCE_VIEW')
 )

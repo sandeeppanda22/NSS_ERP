@@ -20,6 +20,7 @@ Nothing here commits, and nothing is ever deleted (soft status only).
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -101,21 +102,49 @@ def _audit(cur, user, action: str, table: str, pk, summary: str, detail: dict | 
 
 # ───────────────────────── scope / account for a Sangha ─────────────────────────
 
-def readable_scope_code(cur, short_code) -> str | None:
-    """
-    A readable code for a Sangha's general scope: its organization short code + "-GENERAL" (``EKM-GENERAL``; owner 2026-11-21 - the random
-    ``ORG6B1BD5B8`` told nobody which Sangha it was). ``-2`` .. ``-9`` when taken; None when the Sangha has no short code or every one is taken,
-    and the caller falls back to the random form. scope_code is unique across the whole system.
-    """
-    base = "".join(ch for ch in (short_code or "").upper() if ch.isalnum())
-    if not base:
-        return None
-    for n in range(1, 10):
-        candidate = f"{base}-GENERAL" + ("" if n == 1 else f"-{n}")
+SCOPE_CODE_MAX = 50      # nss.financial_scope.scope_code
+
+
+def code_part(text) -> str:
+    """UPPER-CASE letters and digits only, words joined by one hyphen: "Annual festival (Rasa)" -> "ANNUAL-FESTIVAL-RASA"."""
+    return "-".join(re.findall(r"[A-Z0-9]+", (text or "").upper()))
+
+
+def first_free_scope_code(cur, base: str, tries: int) -> str | None:
+    """*base*, else *base*-2 .. *base*-<tries>; None when every one is taken. scope_code is unique across the whole system."""
+    for n in range(1, tries + 1):
+        suffix = "" if n == 1 else f"-{n}"
+        candidate = base[: SCOPE_CODE_MAX - len(suffix)].rstrip("-") + suffix
         cur.execute("SELECT 1 FROM nss.financial_scope WHERE scope_code = %s", (candidate,))
         if cur.fetchone() is None:
             return candidate
     return None
+
+
+def readable_scope_code(cur, short_code) -> str | None:
+    """
+    A readable code for a Sangha's general scope: its organization short code + "-GENERAL" (``EKM-GENERAL``; owner 2026-11-21 - the random
+    ``ORG6B1BD5B8`` told nobody which Sangha it was). ``-2`` .. ``-9`` when taken; None when the Sangha has no short code or every one is taken,
+    and the caller falls back to the random form.
+    """
+    base = code_part(short_code)
+    return first_free_scope_code(cur, f"{base}-GENERAL", 9) if base else None
+
+
+def scope_code_for(cur, organization_pk, scope_name: str) -> str:
+    """
+    The code of a new scope, made for the user (owner 2026-11-22: "scope code should come automatic (Sakha code + name)"): the owning
+    Sangha's short code - its organization code when it has none - then the scope's name, e.g. ``EKM-ANNUAL-FESTIVAL``; ``-2``.. when
+    taken. A scope with no organization takes the name alone; the random form is the last resort.
+    """
+    prefix = ""
+    if organization_pk is not None:
+        cur.execute("SELECT short_code, organization_code FROM nss.organization WHERE organization_pk = %s", (str(organization_pk),))
+        row = cur.fetchone()
+        prefix = code_part((row[0] or row[1]) if row else "")
+    parts = [p for p in (prefix, code_part(scope_name)) if p]
+    base = "-".join(parts)
+    return (first_free_scope_code(cur, base, 99) if base else None) or f"SCOPE{uuid4().hex[:8].upper()}"
 
 
 def ensure_org_scope(cur, user, org_pk) -> str:

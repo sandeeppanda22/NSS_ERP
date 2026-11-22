@@ -354,8 +354,14 @@ def load_user_context(conn, user_account_pk: UUID) -> UserContext | None:
 
 
 # ── §63 composite auto-grant (Tier 6 governance) ─────────────────────────
-# Owner 2026-11-20: the TREASURER of a Sakha's Governing Body also holds the finance-only NSS_ERP_SAKHA_TREASURER role (view + record the
-# Sakha's finance; configuration is the Sakha admin's, approvals stay with the seats), on top of the grants below.
+# Owner 2026-11-20: the TREASURER of a Sakha's Governing Body also holds the finance-only NSS_ERP_SAKHA_TREASURER role, on top of the grants below.
+# Owner 2026-11-22 ("all finance related should come from finance roles"): the admin roles no longer carry finance permissions, so the finance
+# OFFICES hold finance roles by seat - a Sakha's President and Secretary NSS_ERP_SAKHA_FINANCE_ADMIN (owner rule for a Sakha), and, for the KENDRA, the
+# Treasurer and the Secretary NSS_ERP_KENDRA_FINANCE_ADMIN, because that is what the Bye-Law says: the Treasurer is in charge of the Kendra's funds
+# and keeps their accounts (C(i)(7)(a)); the Secretary keeps all the records, accounts and documents and prepares the draft annual budget
+# (C(i)(5)(b),(e)); the funds are operated jointly by the Secretary and the Treasurer (F[b]). The PRESIDENT does not keep or operate the funds: he
+# gives the written order for a disbursement of a scheme the Governing Body approved (C(i)(7)(b)) - recorded as a fact on the disbursement, not
+# a finance role. The rest of the Kendra GB keep NSS_ERP_KENDRA_ADMIN without finance.
 # Certain governance body positions carry automatic RBAC authority — this is
 # the deferred §63 composite rule: "every admin role will get auto assigned
 # to its concerned body's President, Secretary — except Kendra GB, where all
@@ -393,6 +399,10 @@ _COMPOSITE_GRANT_RULES_SQL = """
                 'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
             ('SAKHA_GOVERNING_BODY',        NULL,  ARRAY['TREASURER'],
                 'NSS_ERP_SAKHA_TREASURER',            'BODY_ORG'),
+            ('SAKHA_GOVERNING_BODY',        NULL,  ARRAY['PRESIDENT','SECRETARY'],
+                'NSS_ERP_SAKHA_FINANCE_ADMIN',        'BODY_ORG'),
+            ('KENDRA_GOVERNING_BODY',       NULL,  ARRAY['TREASURER','SECRETARY'],
+                'NSS_ERP_KENDRA_FINANCE_ADMIN',       'NULL'),
             ('SEVAK_SANGHA_EXECUTIVE',      NULL,  ARRAY['PRESIDENT','SECRETARY'],
                 'NSS_ERP_SAKHA_ADMIN',                'BODY_ORG'),
             ('ANCHALIKA_GOVERNING_BODY',    NULL,  ARRAY['PRESIDENT','SECRETARY'],

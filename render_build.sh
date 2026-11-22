@@ -357,6 +357,8 @@ run_sql "person_view_sensitive auditor revoke patch" "${SEED_BASE}/00_bootstrap/
 run_sql "finance permissions patch" "${SEED_BASE}/00_bootstrap/08_finance_permissions_patch.sql"
 run_sql "finance configure permission patch" "${SEED_BASE}/00_bootstrap/09_finance_configure_permission_patch.sql"
 run_sql "sakha treasurer role patch" "${SEED_BASE}/00_bootstrap/10_sakha_treasurer_role_patch.sql"
+run_sql "finance admin roles patch" "${SEED_BASE}/00_bootstrap/11_finance_admin_roles_patch.sql"
+run_sql "finance permissions revoke patch" "${SEED_BASE}/00_bootstrap/12_finance_permissions_revoke_patch.sql"
 
 echo ""
 echo "--- Phase 1: Foundation — DDL (14 tables) ---"
@@ -618,6 +620,8 @@ run_ddl "finance_transaction_bill" "finance_transaction_bill" "${DDL_BASE}/14_fi
 run_ddl "finance_approval_step" "finance_approval_step" "${DDL_BASE}/14_finance/17_finance_approval_step.sql"
 run_ddl "finance_approval_policy" "finance_approval_policy" "${DDL_BASE}/14_finance/18_finance_approval_policy.sql"
 run_ddl "upi_payment_request_line" "upi_payment_request_line" "${DDL_BASE}/14_finance/19_upi_payment_request_line.sql"
+run_ddl "finance_budget" "finance_budget" "${DDL_BASE}/14_finance/21_finance_budget.sql"
+run_ddl "finance_budget_line" "finance_budget_line" "${DDL_BASE}/14_finance/22_finance_budget_line.sql"
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 run_sql "finance head templates patch" "${SEED_BASE}/12_finance/02_finance_head_templates_patch.sql"
@@ -626,6 +630,7 @@ run_sql "finance heads structure patch" "${DDL_BASE}/14_finance/12_finance_heads
 run_sql "finance head fixed amount patch" "${DDL_BASE}/14_finance/14_finance_head_fixed_amount_patch.sql"
 run_sql "finance head approval patch" "${DDL_BASE}/14_finance/15_finance_head_approval_patch.sql"
 run_sql "finance head due date patch" "${DDL_BASE}/14_finance/20_finance_head_due_date_patch.sql"
+run_sql "finance budget letters patch" "${DDL_BASE}/14_finance/23_finance_budget_letters_patch.sql"
 # Head flags AFTER the columns: pre-defined income heads skip approval; the member-reimbursement template.
 run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_head_approval_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.

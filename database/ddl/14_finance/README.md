@@ -67,3 +67,16 @@ Patra, the Pranami heads, subscription) `skips_approval` and adds the `MEMBER_RE
 `seed/00_bootstrap/09_finance_configure_permission_patch.sql` adds `FINANCE_CONFIGURE` (admin, Kendra admin, Sakha admin). The three
 tables are on the live-refresh list; `03_validate` checks them and expects four `FINANCE_*` permissions. Verified only in a throwaway
 single-user PostgreSQL 18 (fresh vs patched old-shape table, constraints, idempotent patches); never run against the project database.
+
+**Kendra annual budget (2026-11-22, FIN-BR-041).** Two new existence-gated tables, `21_finance_budget.sql` and `22_finance_budget_line.sql`
+(`finance_budget` -> `finance_budget_line`, so 21 runs first; both are on the live-refresh list, `03_validate` checks them, rebuild needed).
+`finance_budget`: one ACTIVE row per Kendra organization per financial year (partial unique index), `status` DRAFT -> REFERRED ->
+VIEWS_RECEIVED -> PASSED, and the facts of each step - `referred_on`; `advisory_reference` / `advisory_views_date` /
+`advisory_views_summary`; `resolution_reference` / `resolution_date`. CHECKs make each step's facts present from that step on and absent
+before it, and keep the dates in that order (referral <= the Advisory Board's views <= the resolution), so the database says what the API
+says. `finance_budget_line`: one ACTIVE planned amount (> 0) per finance head per budget. "Actual" is never stored: it is read from the
+POSTED / SETTLED transactions. The rules live in `api/services/finance_budget.py`. Verified only in a throwaway single-user PostgreSQL 18
+(the DDL, every CHECK and unique index, and the service's own queries against sample data).
+`23_finance_budget_letters_patch.sql` (idempotent `run_sql` on every build, after the Correspondence DDL) adds `referral_correspondence_pk` and
+`views_correspondence_pk` (FKs to `nss.correspondence`) for the letters the budget files automatically; a fresh build has them in `21_` already, and
+the patch gives them to a database whose `finance_budget` was built before (checked on an old-shaped table, run twice).

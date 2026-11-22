@@ -9,8 +9,9 @@ Cast (the "register" Sakha = S1, the "other" Sakha = S2):
   admin_user    NSS_ERP_ADMIN, NSS-WIDE            VIEW + MANAGE + APPROVE, global; the super administrator
                                                    (exempt from the maker-checker rule)
   kendra_admin  NSS_ERP_KENDRA_ADMIN, NSS-WIDE     VIEW + MANAGE + APPROVE, global, NOT a super administrator
-  sakha_admin   NSS_ERP_SAKHA_ADMIN, scoped S1     VIEW + MANAGE for S1's financial scopes (no APPROVE)
-  other_admin   NSS_ERP_SAKHA_ADMIN, scoped S2     a foreign Sakha
+  sakha_admin   NSS_ERP_SAKHA_ADMIN + NSS_ERP_SAKHA_FINANCE_ADMIN, scoped S1   VIEW + MANAGE for S1's financial scopes (no APPROVE); a FINANCE administrator
+  plain_sakha_admin  NSS_ERP_SAKHA_ADMIN only, scoped S1    the same permissions, but NOT a finance administrator (no Finance role, no seat)
+  other_admin   NSS_ERP_SAKHA_ADMIN + NSS_ERP_SAKHA_FINANCE_ADMIN, scoped S2   a foreign Sakha
   viewer_user   NSS_ERP_AUDITOR, scoped S1         FINANCE_VIEW only
   plain_member  person + login, no role at all     no FINANCE_* permission
 
@@ -32,17 +33,16 @@ from tests.attendance_support import (  # noqa: F401  (re-exported to test modul
     FAKE_UUID,
     _create_admin_with_scope,
     _login_headers,
+    _scoped_user,
     _with_sevi_pk,
     admin_h,
     admin_user,
     new_member,
-    other_admin,
     other_admin_h,
     other_org_pk,
     plain_member,
     plain_member_h,
     register_org_pk,
-    sakha_admin,
     sakha_admin_h,
     sakha_pks,
 )
@@ -55,10 +55,52 @@ _YEAR_RANGE = range(2040, 2101)
 _year_counter = itertools.cycle(_YEAR_RANGE)
 
 
+def give_finance_role(write_conn, user: dict, role_code: str, scope_level: str, organization_pk=None) -> dict:
+    """
+    Give *user* a Finance role (owner 2026-11-22: being an admin does NOT make anyone a finance administrator; an assigned Finance role - or a seat -
+    does). Inserts the user_role + admin_scope rows the Assign-role endpoint would; everything rolls back with the module SAVEPOINT.
+    """
+    cur = write_conn.cursor()
+    cur.execute("SELECT role_master_pk FROM nss.role_master WHERE role_code = %s AND is_active = TRUE", (role_code,))
+    row = cur.fetchone()
+    assert row, f"{role_code} is not in the database: run 02_build.sh so seed/00_bootstrap/11_finance_admin_roles_patch.sql applies."
+    cur.execute("INSERT INTO nss.user_role (user_account_pk, role_master_pk) VALUES (%s, %s) RETURNING user_role_pk", (str(user["user_account_pk"]), str(row[0])))
+    cur.execute("INSERT INTO nss.admin_scope (user_role_pk, scope_level, organization_pk) VALUES (%s, %s, %s)",
+                (str(cur.fetchone()[0]), scope_level, str(organization_pk) if organization_pk and scope_level != "NSS-WIDE" else None))
+    return user
+
+
 @pytest.fixture(scope="module")
 def kendra_admin(write_conn):
-    return _with_sevi_pk(write_conn, _create_admin_with_scope(
+    """The Kendra administrator who has also been GIVEN the Kendra Finance role (an admin alone is not a finance administrator)."""
+    user = _with_sevi_pk(write_conn, _create_admin_with_scope(
         write_conn, role_code="NSS_ERP_KENDRA_ADMIN", scope_level="NSS-WIDE", organization_pk=None))
+    return give_finance_role(write_conn, user, "NSS_ERP_KENDRA_FINANCE_ADMIN", "NSS-WIDE")
+
+
+@pytest.fixture(scope="module")
+def sakha_admin(write_conn, register_org_pk):
+    """The register Sakha's administrator who has also been GIVEN the Sakha Finance role."""
+    user = _scoped_user(write_conn, role_code="NSS_ERP_SAKHA_ADMIN", organization_pk=register_org_pk)
+    return give_finance_role(write_conn, user, "NSS_ERP_SAKHA_FINANCE_ADMIN", "SAKHA", register_org_pk)
+
+
+@pytest.fixture(scope="module")
+def other_admin(write_conn, other_org_pk):
+    """The other Sakha's administrator who has also been GIVEN the Sakha Finance role."""
+    user = _scoped_user(write_conn, role_code="NSS_ERP_SAKHA_ADMIN", organization_pk=other_org_pk)
+    return give_finance_role(write_conn, user, "NSS_ERP_SAKHA_FINANCE_ADMIN", "SAKHA", other_org_pk)
+
+
+@pytest.fixture(scope="module")
+def plain_sakha_admin(write_conn, register_org_pk):
+    """A Sakha administrator with NO Finance role and no seat: carries the finance permissions but is not a finance administrator."""
+    return _scoped_user(write_conn, role_code="NSS_ERP_SAKHA_ADMIN", organization_pk=register_org_pk)
+
+
+@pytest.fixture(scope="module")
+def plain_sakha_admin_h(client, plain_sakha_admin):
+    return _login_headers(client, plain_sakha_admin["sangha_sevi_id"], plain_sakha_admin["password"])
 
 
 @pytest.fixture(scope="module")

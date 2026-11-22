@@ -330,6 +330,8 @@ Invoke-Sql "person_view_sensitive auditor revoke patch" "$SeedBase\00_bootstrap\
 Invoke-Sql "finance permissions patch" "$SeedBase\00_bootstrap\08_finance_permissions_patch.sql"
 Invoke-Sql "finance configure permission patch" "$SeedBase\00_bootstrap\09_finance_configure_permission_patch.sql"
 Invoke-Sql "sakha treasurer role patch" "$SeedBase\00_bootstrap\10_sakha_treasurer_role_patch.sql"
+Invoke-Sql "finance admin roles patch" "$SeedBase\00_bootstrap\11_finance_admin_roles_patch.sql"
+Invoke-Sql "finance permissions revoke patch" "$SeedBase\00_bootstrap\12_finance_permissions_revoke_patch.sql"
 Write-Host ""
 
 # Phase 1: Foundation DDL
@@ -702,6 +704,8 @@ Invoke-Ddl "finance_transaction_bill" "finance_transaction_bill" "$DdlBase\14_fi
 Invoke-Ddl "finance_approval_step" "finance_approval_step" "$DdlBase\14_finance\17_finance_approval_step.sql"
 Invoke-Ddl "finance_approval_policy" "finance_approval_policy" "$DdlBase\14_finance\18_finance_approval_policy.sql"
 Invoke-Ddl "upi_payment_request_line" "upi_payment_request_line" "$DdlBase\14_finance\19_upi_payment_request_line.sql"
+Invoke-Ddl "finance_budget" "finance_budget" "$DdlBase\14_finance\21_finance_budget.sql"
+Invoke-Ddl "finance_budget_line" "finance_budget_line" "$DdlBase\14_finance\22_finance_budget_line.sql"
 Invoke-Sql "finance reference data patch" "$SeedBase\12_finance\01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 Invoke-Sql "finance head templates patch" "$SeedBase\12_finance\02_finance_head_templates_patch.sql"
@@ -710,6 +714,7 @@ Invoke-Sql "finance heads structure patch" "$DdlBase\14_finance\12_finance_heads
 Invoke-Sql "finance head fixed amount patch" "$DdlBase\14_finance\14_finance_head_fixed_amount_patch.sql"
 Invoke-Sql "finance head approval patch" "$DdlBase\14_finance\15_finance_head_approval_patch.sql"
 Invoke-Sql "finance head due date patch" "$DdlBase\14_finance\20_finance_head_due_date_patch.sql"
+Invoke-Sql "finance budget letters patch" "$DdlBase\14_finance\23_finance_budget_letters_patch.sql"
 # Head flags AFTER the columns: pre-defined income heads skip approval; the member-reimbursement template.
 Invoke-Sql "finance head approval flags patch" "$SeedBase\12_finance\04_finance_head_approval_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.

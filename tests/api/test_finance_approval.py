@@ -443,6 +443,28 @@ class TestTheSeatedTreasurerRecordsTheSakhasFinance:
         assert items and all(i["organization_pk"] == cw["org_pk"] for i in items)
         assert theirs["financial_scope_pk"] not in {i["financial_scope_pk"] for i in items}
 
+    @pytest.mark.parametrize("office", ["treasurer", "president", "secretary"])
+    def test_a_seated_treasurer_president_or_secretary_sets_up_their_own_sakhas_books_and_no_other_sakhas(self, client, cw, office, other_org_pk):
+        """Owner 2026-11-22: they head the Sakha's finance, so by SEAT they are its finance administrators - for THEIR Sakha only."""
+        h = login(client, cw["people"][office])
+        mine = {"scope_name": f"{office} scope", "scope_type": "ORGANIZATION", "organization_pk": cw["org_pk"], "activate": True}
+        r = client.post(f"{BASE}/scopes", headers=h, json=mine)
+        assert r.status_code == 201 and r.json()["status"] == "ACTIVE", r.text
+        fund = {"fund_code": f"{office[:3].upper()}FUND", "fund_name": f"{office} fund", "fund_type": "GENERAL",
+                "financial_scope_pk": r.json()["financial_scope_pk"], "activate": True}
+        assert client.post(f"{BASE}/funds", headers=h, json=fund).status_code == 201
+        foreign = client.post(f"{BASE}/scopes", headers=h, json={**mine, "organization_pk": str(other_org_pk)})
+        assert foreign.status_code == 403 and "finance administrator" in foreign.text
+
+    def test_the_reference_tells_the_page_who_is_a_finance_administrator(self, client, cw, admin_h, plain_member_h):
+        t = login(client, cw["people"]["treasurer"])
+        assert client.get(f"{BASE}/reference", headers=t).json()["finance_admin"] is True            # by seat
+        assert client.get(f"{BASE}/reference", headers=admin_h).json()["finance_admin"] is True
+
+    def test_the_treasurer_still_records_and_edits_what_an_administrator_set_up(self, client, cw):
+        t = login(client, cw["people"]["treasurer"])
+        assert record(client, t, cw, "income", "75.00")["status"] == "DRAFT"                   # recording is unaffected
+
     def test_the_treasurer_configures_the_sakhas_finance_but_cannot_approve_by_permission(self, client, cw, register_org_pk):
         t = login(client, cw["people"]["treasurer"])
         txn = record(client, t, cw, "income", "50.00")

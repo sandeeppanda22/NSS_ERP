@@ -168,6 +168,33 @@ def require_not_the_treasurer(cur, user, organization_pk, what: str) -> None:
                             detail=f"The Treasurer cannot change {what}; the Sakha's President or Secretary sets it.")
 
 
+FINANCE_OFFICES = (TREASURER, PRESIDENT, SECRETARY)
+
+
+def office_sakhas(cur, person_pk) -> set[str]:
+    """
+    The Sakhas (organization_pks) whose Governing Body seats this person holds as TREASURER, PRESIDENT or SECRETARY right now - substantively
+    or as acting cover (owner 2026-11-22: they are the finance administrators of their own Sakha, "they head the finance department", by seat).
+    """
+    if person_pk is None:
+        return set()
+    held: set[str] = set()
+    for position in FINANCE_OFFICES:
+        held |= seat_service.seat_body_pks_held(cur, person_pk, position)
+    if not held:
+        return set()
+    cur.execute(
+        """
+        SELECT bm.organization_pk
+          FROM nss.body_master bm
+          JOIN nss.body_type_master bt ON bt.body_type_master_pk = bm.body_type_master_pk
+         WHERE bm.body_master_pk = ANY(%s::uuid[]) AND bt.body_type_code = %s AND bm.organization_pk IS NOT NULL AND bm.is_active = TRUE
+        """,
+        (sorted(held), BODY_TYPE),
+    )
+    return {str(r[0]) for r in cur.fetchall()}
+
+
 def approver_for_stage(cur, organization_pk, stage: int) -> dict | None:
     """
     Who may take *stage* right now: {person_pk, position_code, cover_reason} or None when nobody sits there.

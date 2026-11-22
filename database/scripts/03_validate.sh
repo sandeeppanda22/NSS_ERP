@@ -779,6 +779,8 @@ check_table_exists "finance_transaction_bill"
 check_table_exists "finance_approval_step"
 check_table_exists "finance_approval_policy"
 check_table_exists "upi_payment_request_line"
+check_table_exists "finance_budget"
+check_table_exists "finance_budget_line"
 
 check_column_exists "financial_scope" "scope_code"
 check_column_exists "financial_scope" "organization_pk"
@@ -812,6 +814,8 @@ check_column_exists "finance_transaction_bill" "financial_transaction_pk"
 check_column_exists "finance_approval_step" "decided_by_person_pk"
 check_column_exists "finance_approval_policy" "default_treasurer_limit"
 check_column_exists "upi_payment_request_line" "upi_payment_request_pk"
+check_column_exists "finance_budget" "financial_year_pk"
+check_column_exists "finance_budget_line" "finance_budget_pk"
 
 check_fk_integrity "financial_scope -> financial_year" \
     "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE c.financial_year_pk IS NOT NULL AND p.financial_year_pk IS NULL;"   # nullable: a scope may span years

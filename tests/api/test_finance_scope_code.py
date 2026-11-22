@@ -42,3 +42,85 @@ def test_the_code_fits_the_column_and_the_creation_uses_the_helper():
     assert len("EKM1A-GENERAL-9") <= 50
     src = inspect.getsource(FC.ensure_org_scope)
     assert "readable_scope_code(cur, short_code)" in src and 'f"ORG{uuid4().hex[:8].upper()}"' in src       # the random form stays as the fallback
+
+
+# ── the code of a NEW scope is made for the user (owner 2026-11-22): Sakha code + name ───────────────────────────────────────────────────────────
+import re
+
+import pytest
+
+from api.services.finance_contribution import SCOPE_CODE_MAX, code_part, first_free_scope_code, scope_code_for
+
+
+class _OrgCur(_Cur):
+    """Also answers the organization lookup: (short_code, organization_code)."""
+
+    def __init__(self, org=("EKM", "SKH7"), taken=()):
+        super().__init__(taken)
+        self.org, self._sql = org, ""
+
+    def execute(self, sql, params=()):
+        self._sql = sql
+        super().execute(sql, params)
+
+    def fetchone(self):
+        return self.org if "FROM nss.organization" in self._sql else super().fetchone()
+
+
+@pytest.mark.parametrize("text,expected", [("Annual festival", "ANNUAL-FESTIVAL"), ("  Rasa (2026) -- puja!  ", "RASA-2026-PUJA"), ("ekm", "EKM"), ("", ""), (None, ""), ("--", "")])
+def test_a_name_becomes_a_code_part(text, expected):
+    assert code_part(text) == expected
+
+
+def test_the_code_is_the_sakha_code_then_the_name():
+    assert scope_code_for(_OrgCur(), "org-1", "Annual Festival") == "EKM-ANNUAL-FESTIVAL"
+
+
+def test_a_sakha_with_no_short_code_uses_its_organization_code():
+    assert scope_code_for(_OrgCur(org=(None, "SKH7")), "org-1", "Annual Festival") == "SKH7-ANNUAL-FESTIVAL"
+    assert scope_code_for(_OrgCur(org=("", "SKH7")), "org-1", "Rasa") == "SKH7-RASA"
+
+
+def test_a_taken_code_is_numbered():
+    assert scope_code_for(_OrgCur(taken={"EKM-RASA"}), "org-1", "Rasa") == "EKM-RASA-2"
+    assert scope_code_for(_OrgCur(taken={"EKM-RASA", "EKM-RASA-2"}), "org-1", "Rasa") == "EKM-RASA-3"
+
+
+def test_a_scope_with_no_organization_takes_the_name_alone():
+    assert scope_code_for(_Cur(), None, "Special purpose drive") == "SPECIAL-PURPOSE-DRIVE"
+
+
+def test_a_long_name_is_cut_to_fit_and_the_number_still_fits():
+    code = scope_code_for(_OrgCur(), "org-1", "A very long festival name " * 6)
+    assert len(code) <= SCOPE_CODE_MAX and re.fullmatch(r"EKM-[A-Z0-9-]+", code) and not code.endswith("-")
+    base = code
+    numbered = scope_code_for(_OrgCur(taken={base}), "org-1", "A very long festival name " * 6)
+    assert len(numbered) <= SCOPE_CODE_MAX and numbered.endswith("-2") and numbered != base
+
+
+def test_a_name_with_no_letters_or_digits_falls_back_to_the_random_form_only_without_a_prefix():
+    assert scope_code_for(_OrgCur(), "org-1", "!!!") == "EKM"                       # the Sakha code alone is still a readable code
+    assert re.fullmatch(r"SCOPE[0-9A-F]{8}", scope_code_for(_Cur(), None, "!!!"))
+
+
+def test_nothing_free_in_the_numbered_range_returns_none_for_the_caller():
+    assert first_free_scope_code(_Cur({"X"} | {f"X-{n}" for n in range(2, 5)}), "X", 4) is None
+
+
+def test_scope_creation_and_the_general_scope_share_the_one_helper():
+    import inspect
+
+    from api.routers import finance as F
+    from api.services import finance_contribution as FC
+
+    assert "first_free_scope_code(cur, f\"{base}-GENERAL\", 9)" in inspect.getsource(FC.readable_scope_code)
+    assert "contribution_service.scope_code_for(cur, body.organization_pk, name)" in inspect.getsource(F.create_scope)
+
+
+def test_scope_and_fund_creation_can_be_active_at_once_and_the_code_is_optional():
+    from api.schemas.finance import FundCreate, ScopeCreate
+
+    scope = ScopeCreate(scope_name="Rasa", scope_type="EVENT")
+    assert scope.scope_code is None and scope.activate is False                      # the API default is unchanged: DRAFT
+    assert ScopeCreate(scope_name="Rasa", scope_type="EVENT", activate=True).activate is True
+    assert FundCreate(fund_code="F", fund_name="n", fund_type="GENERAL", financial_scope_pk="00000000-0000-0000-0000-000000000001").activate is False

@@ -57,6 +57,8 @@ TABLE_FILES = [
     ("17_finance_approval_step.sql", "finance_approval_step"),
     ("18_finance_approval_policy.sql", "finance_approval_policy"),
     ("19_upi_payment_request_line.sql", "upi_payment_request_line"),
+    ("21_finance_budget.sql", "finance_budget"),
+    ("22_finance_budget_line.sql", "finance_budget_line"),
 ]
 TABLES = [t for _, t in TABLE_FILES]
 APPEND_ONLY = {"finance_gateway_event"}                  # an event log: no soft delete, no audit-actor columns
@@ -289,8 +291,9 @@ def test_permission_patch_content():
     assert ("NSS_ERP_ADMIN", "FINANCE_APPROVE") in grants
     # Least privilege: only the global administrators approve; the Auditor and Anchalika/Zilla only view.
     approvers = {r for r, p in grants if p == "FINANCE_APPROVE"}
-    assert approvers == {"NSS_ERP_ADMIN", "NSS_ERP_KENDRA_ADMIN"}
-    assert {r for r, p in grants if p == "FINANCE_VIEW"} >= {"NSS_ERP_AUDITOR", "NSS_ERP_ANCHALIKA_ADMIN", "NSS_ERP_ZILLA_ADMIN"}
+    assert approvers == {"NSS_ERP_ADMIN"}                       # owner 2026-11-22: the other approvers are the Kendra FINANCE role (11_...) - no admin role carries finance
+    assert {r for r, p in grants if p == "FINANCE_VIEW"} == {"NSS_ERP_ADMIN", "NSS_ERP_AUDITOR", "NSS_ERP_REPORT_VIEWER"}
+    assert not {r for r, _ in grants} & {"NSS_ERP_KENDRA_ADMIN", "NSS_ERP_SAKHA_ADMIN", "NSS_ERP_PATHA_CHAKRA_ADMIN", "NSS_ERP_ANCHALIKA_ADMIN", "NSS_ERP_ZILLA_ADMIN"}
     assert not {r for r, _ in grants} & {"NSS_ERP_KENDRA_MAHILA_SANGHA_ADMIN", "NSS_ERP_ATTENDANCE_MARKER",
                                          "NSS_ERP_ADVISORY_BOARD_ADMIN"}
 
@@ -364,7 +367,8 @@ def test_ddl_folder_has_no_orphan_file():
     """Every .sql in the folder is a table file or a known patch, and all of them are named in the build scripts."""
     files = {p.name for p in DDL.glob("*.sql")}
     assert files == {f for f, _ in TABLE_FILES} | {"12_finance_heads_patch.sql", "14_finance_head_fixed_amount_patch.sql",
-                                                   "15_finance_head_approval_patch.sql", "20_finance_head_due_date_patch.sql"}
+                                                   "15_finance_head_approval_patch.sql", "20_finance_head_due_date_patch.sql",
+                                                   "23_finance_budget_letters_patch.sql"}
     for rel in BUILD_SCRIPTS:
         text = _script(rel)
         for f in files:
@@ -477,7 +481,13 @@ def test_permissions_are_seeded(write_conn):
                        JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk
                        JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk
                        WHERE pm.permission_code = 'FINANCE_APPROVE' AND rp.is_active""")
-        assert {r[0] for r in cur.fetchall()} == {"NSS_ERP_ADMIN", "NSS_ERP_KENDRA_ADMIN"}
+        assert {r[0] for r in cur.fetchall()} == {"NSS_ERP_ADMIN", "NSS_ERP_KENDRA_FINANCE_ADMIN"}      # finance comes from the finance roles (owner 2026-11-22)
+        cur.execute("""SELECT DISTINCT rm.role_code FROM nss.role_permission rp
+                       JOIN nss.permission_master pm ON pm.permission_master_pk = rp.permission_master_pk
+                       JOIN nss.role_master rm ON rm.role_master_pk = rp.role_master_pk
+                       WHERE pm.permission_code LIKE 'FINANCE\\_%' AND rp.is_active""")
+        assert {r[0] for r in cur.fetchall()} == {"NSS_ERP_ADMIN", "NSS_ERP_AUDITOR", "NSS_ERP_REPORT_VIEWER", "NSS_ERP_SAKHA_TREASURER",
+                                                   "NSS_ERP_SAKHA_FINANCE_ADMIN", "NSS_ERP_KENDRA_FINANCE_ADMIN"}      # no Kendra / Sakha / Anchalika / Zilla / Patha Chakra admin role
 
 
 @db

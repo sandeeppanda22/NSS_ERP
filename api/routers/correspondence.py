@@ -310,6 +310,15 @@ def create_correspondence(
     user: UserContext = Depends(require_permission("CORRESPONDENCE_MANAGE")),
     conn=Depends(get_write_connection),
 ) -> CorrespondenceResponse:
+    """Register a new correspondence entry; the rules are in register_correspondence() below (one implementation)."""
+    with conn.cursor() as cur:
+        made = register_correspondence(cur, user, body)
+        cur.execute(_DETAIL_SELECT + " WHERE c.correspondence_pk = %s", (str(made["correspondence_pk"]),))
+        row = cur.fetchone()
+    return _row_to_response(row)
+
+
+def register_correspondence(cur, user, body: CorrespondenceCreate, *, check_scope: bool = True) -> dict:
     """
     Register a new correspondence entry under register_organization_pk's
     register. New records always start at status REGISTERED (§6.1) — the
@@ -341,163 +350,171 @@ def create_correspondence(
     ACTIONED right here — sending a reply IS the action it was pending.
     Unlike auto-dispatch above, this is NOT best-effort/swallowed: there is
     no realistic failure mode for a plain status UPDATE, so no try/except.
+
+    Shared by POST /correspondence and by other modules that file a letter as a SYSTEM action (Finance: the Kendra budget's referral
+    to the Advisory Board and the Advisory Board's reply): pass ``check_scope=False`` ONLY when the caller has already authorised the
+    act in its own right, because the correspondence-register scope is then not the caller's to hold. Returns ``correspondence_pk``,
+    ``reference_number`` and, when the letter went to another NSS organization, ``counterpart_pk`` / ``inward_reference_number``
+    (None when the auto-dispatch was skipped). Nothing here commits.
     """
-    with conn.cursor() as cur:
+    if check_scope:
         require_org_in_scope(cur, user, str(body.register_organization_pk), "register correspondence for this organization")
 
-        # Resolved here (not just existence-checked) because the
-        # event-driven lifecycle amendment below needs both the original's
-        # current status and its own register — see that block for why.
-        original_status = None
-        original_register_pk = None
-        if body.in_reply_to_correspondence_pk:
-            cur.execute(
-                """
-                SELECT status_md.value_code, c.register_organization_pk
-                FROM nss.correspondence c
-                JOIN nss.master_data status_md ON status_md.master_data_pk = c.status_master_data_pk
-                WHERE c.correspondence_pk = %s AND c.is_active = TRUE
-                """,
-                (str(body.in_reply_to_correspondence_pk),),
+    # Resolved here (not just existence-checked) because the
+    # event-driven lifecycle amendment below needs both the original's
+    # current status and its own register — see that block for why.
+    original_status = None
+    original_register_pk = None
+    if body.in_reply_to_correspondence_pk:
+        cur.execute(
+            """
+            SELECT status_md.value_code, c.register_organization_pk
+            FROM nss.correspondence c
+            JOIN nss.master_data status_md ON status_md.master_data_pk = c.status_master_data_pk
+            WHERE c.correspondence_pk = %s AND c.is_active = TRUE
+            """,
+            (str(body.in_reply_to_correspondence_pk),),
+        )
+        original_row = cur.fetchone()
+        if original_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="The correspondence being replied to was not found.",
             )
-            original_row = cur.fetchone()
-            if original_row is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="The correspondence being replied to was not found.",
-                )
-            original_status, original_register_pk = original_row
-            # Naming a record is a read of it (the response echoes its
-            # reference number): the caller must have scope over the
-            # ORIGINAL's register too, not just over the reply's own.
+        original_status, original_register_pk = original_row
+        # Naming a record is a read of it (the response echoes its
+        # reference number): the caller must have scope over the
+        # ORIGINAL's register too, not just over the reply's own.
+        if check_scope:
             require_org_in_scope(
                 cur, user, str(original_register_pk), "reply to correspondence in this organization's register",
             )
 
-        reference_number = next_correspondence_reference_number(
-            cur, str(body.register_organization_pk), body.direction, as_of=body.correspondence_date,
-        )
-        medium_pk = get_master_data_pk(cur, "CORRESPONDENCE_MEDIUM", body.medium, client_supplied=True)
-        status_pk = get_master_data_pk(cur, "CORRESPONDENCE_STATUS", "REGISTERED")
-        sender_snapshot = _fetch_sender_sakha_snapshot(cur, body.sender_type, body.sender_person_pk)
+    reference_number = next_correspondence_reference_number(
+        cur, str(body.register_organization_pk), body.direction, as_of=body.correspondence_date,
+    )
+    medium_pk = get_master_data_pk(cur, "CORRESPONDENCE_MEDIUM", body.medium, client_supplied=True)
+    status_pk = get_master_data_pk(cur, "CORRESPONDENCE_STATUS", "REGISTERED")
+    sender_snapshot = _fetch_sender_sakha_snapshot(cur, body.sender_type, body.sender_person_pk)
 
-        corr_pk = _insert_correspondence_row(
-            cur,
-            register_organization_pk=str(body.register_organization_pk),
-            reference_number=reference_number,
-            direction=body.direction,
-            correspondence_date=body.correspondence_date,
-            received_or_sent_date=body.received_or_sent_date,
-            follow_up_date=body.follow_up_date,
-            subject=body.subject,
-            remarks=body.remarks,
-            sender_type=body.sender_type,
-            sender_person_pk=str(body.sender_person_pk) if body.sender_person_pk else None,
-            sender_organization_pk=str(body.sender_organization_pk) if body.sender_organization_pk else None,
-            sender_external_name=body.sender_external_name,
-            sender_external_organization=body.sender_external_organization,
-            sender_person_capacity=body.sender_person_capacity,
-            sender_person_organization_pk=str(body.sender_person_organization_pk) if body.sender_person_organization_pk else None,
-            sender_sakha_erp_id_snapshot=sender_snapshot,
-            recipient_type=body.recipient_type,
-            recipient_person_pk=str(body.recipient_person_pk) if body.recipient_person_pk else None,
-            recipient_organization_pk=str(body.recipient_organization_pk) if body.recipient_organization_pk else None,
-            recipient_external_name=body.recipient_external_name,
-            recipient_external_organization=body.recipient_external_organization,
-            responsible_person_pk=str(body.responsible_person_pk) if body.responsible_person_pk else None,
-            responsible_organization_pk=str(body.responsible_organization_pk) if body.responsible_organization_pk else None,
-            medium_pk=medium_pk,
-            status_pk=status_pk,
-            actor_pk=user.actor_pk,
-            in_reply_to_correspondence_pk=(
-                str(body.in_reply_to_correspondence_pk) if body.in_reply_to_correspondence_pk else None
-            ),
-        )
+    corr_pk = _insert_correspondence_row(
+        cur,
+        register_organization_pk=str(body.register_organization_pk),
+        reference_number=reference_number,
+        direction=body.direction,
+        correspondence_date=body.correspondence_date,
+        received_or_sent_date=body.received_or_sent_date,
+        follow_up_date=body.follow_up_date,
+        subject=body.subject,
+        remarks=body.remarks,
+        sender_type=body.sender_type,
+        sender_person_pk=str(body.sender_person_pk) if body.sender_person_pk else None,
+        sender_organization_pk=str(body.sender_organization_pk) if body.sender_organization_pk else None,
+        sender_external_name=body.sender_external_name,
+        sender_external_organization=body.sender_external_organization,
+        sender_person_capacity=body.sender_person_capacity,
+        sender_person_organization_pk=str(body.sender_person_organization_pk) if body.sender_person_organization_pk else None,
+        sender_sakha_erp_id_snapshot=sender_snapshot,
+        recipient_type=body.recipient_type,
+        recipient_person_pk=str(body.recipient_person_pk) if body.recipient_person_pk else None,
+        recipient_organization_pk=str(body.recipient_organization_pk) if body.recipient_organization_pk else None,
+        recipient_external_name=body.recipient_external_name,
+        recipient_external_organization=body.recipient_external_organization,
+        responsible_person_pk=str(body.responsible_person_pk) if body.responsible_person_pk else None,
+        responsible_organization_pk=str(body.responsible_organization_pk) if body.responsible_organization_pk else None,
+        medium_pk=medium_pk,
+        status_pk=status_pk,
+        actor_pk=user.actor_pk,
+        in_reply_to_correspondence_pk=(
+            str(body.in_reply_to_correspondence_pk) if body.in_reply_to_correspondence_pk else None
+        ),
+    )
 
+    log_audit(
+        cur, action="CREATE", table_name="correspondence", record_pk=str(corr_pk),
+        actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
+        module="correspondence",
+        summary=f"Registered {body.direction.lower()} correspondence {reference_number}",
+    )
+
+    # Event-driven lifecycle (§5.4/§6.2 amendment, owner-confirmed
+    # 2026-10-26, option 3): sending a reply IS the action the original
+    # was pending, so it auto-advances the ORIGINAL to ACTIONED — once,
+    # right here, rather than needing a separate manual /transition
+    # call. Guarded narrowly (see the §6.2 doc amendment for the full
+    # rationale): only from REGISTERED/PENDING_ACTION (already-ACTIONED
+    # is a silent no-op; CLOSED is never auto-reopened — that transition
+    # was never valid even manually); and only when the reply's own
+    # register matches the original's — require_org_in_scope above only
+    # ever checked THIS reply's register_organization_pk, so without
+    # this match a reply could otherwise be used to mutate an
+    # out-of-scope record's status just by naming its pk.
+    if (
+        body.in_reply_to_correspondence_pk
+        and original_status in ("REGISTERED", "PENDING_ACTION")
+        and str(original_register_pk) == str(body.register_organization_pk)
+    ):
+        _set_correspondence_status(
+            cur, str(body.in_reply_to_correspondence_pk), "ACTIONED",
+            remarks=None, actor_pk=user.actor_pk,
+        )
         log_audit(
-            cur, action="CREATE", table_name="correspondence", record_pk=str(corr_pk),
+            cur, action="UPDATE", table_name="correspondence",
+            record_pk=str(body.in_reply_to_correspondence_pk),
             actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
             module="correspondence",
-            summary=f"Registered {body.direction.lower()} correspondence {reference_number}",
+            summary=f"Auto-transitioned {original_status} -> ACTIONED (replied via {reference_number})",
         )
 
-        # Event-driven lifecycle (§5.4/§6.2 amendment, owner-confirmed
-        # 2026-10-26, option 3): sending a reply IS the action the original
-        # was pending, so it auto-advances the ORIGINAL to ACTIONED — once,
-        # right here, rather than needing a separate manual /transition
-        # call. Guarded narrowly (see the §6.2 doc amendment for the full
-        # rationale): only from REGISTERED/PENDING_ACTION (already-ACTIONED
-        # is a silent no-op; CLOSED is never auto-reopened — that transition
-        # was never valid even manually); and only when the reply's own
-        # register matches the original's — require_org_in_scope above only
-        # ever checked THIS reply's register_organization_pk, so without
-        # this match a reply could otherwise be used to mutate an
-        # out-of-scope record's status just by naming its pk.
-        if (
-            body.in_reply_to_correspondence_pk
-            and original_status in ("REGISTERED", "PENDING_ACTION")
-            and str(original_register_pk) == str(body.register_organization_pk)
-        ):
-            _set_correspondence_status(
-                cur, str(body.in_reply_to_correspondence_pk), "ACTIONED",
-                remarks=None, actor_pk=user.actor_pk,
+    counterpart_pk = inward_reference_number = None
+    # Auto-dispatch (owner 2026-10-26) — see docstring. Same eligibility
+    # guard dispatch_correspondence() itself checks (minus the "already
+    # dispatched" check, which can't apply to a row just created).
+    if (
+        body.direction == "OUTWARD"
+        and body.recipient_type == "ORGANIZATION"
+        and str(body.recipient_organization_pk) != str(body.register_organization_pk)
+    ):
+        try:
+            counterpart_pk, inward_reference_number = _mint_inward_counterpart(
+                cur, user,
+                outward_correspondence_pk=corr_pk,
+                recipient_organization_pk=body.recipient_organization_pk,
+                correspondence_date=body.correspondence_date,
+                received_or_sent_date=body.received_or_sent_date,
+                subject=body.subject,
+                remarks=body.remarks,
+                sender_type=body.sender_type,
+                sender_person_pk=body.sender_person_pk,
+                sender_organization_pk=body.sender_organization_pk,
+                sender_external_name=body.sender_external_name,
+                sender_external_organization=body.sender_external_organization,
+                sender_person_capacity=body.sender_person_capacity,
+                sender_person_organization_pk=body.sender_person_organization_pk,
+                sender_sakha_erp_id_snapshot=sender_snapshot,
+                medium_pk=medium_pk,
             )
-            log_audit(
-                cur, action="UPDATE", table_name="correspondence",
-                record_pk=str(body.in_reply_to_correspondence_pk),
-                actor_pk=user.actor_pk, actor_user_account_pk=str(user.user_account_pk),
-                module="correspondence",
-                summary=f"Auto-transitioned {original_status} -> ACTIONED (replied via {reference_number})",
+            cur.execute(
+                "UPDATE nss.correspondence SET counterpart_correspondence_pk = %s, updated_at = NOW() "
+                "WHERE correspondence_pk = %s",
+                (str(counterpart_pk), str(corr_pk)),
+            )
+            _log_dispatch(
+                cur, user, outward_pk=corr_pk, counterpart_pk=counterpart_pk,
+                reference_number=reference_number, inward_reference_number=inward_reference_number,
+                verb="Auto-dispatched",
+            )
+        except HTTPException as exc:
+            logger.warning(
+                "create_correspondence: auto-dispatch of %s skipped (%s) — "
+                "left un-dispatched, recoverable via POST /dispatch.",
+                reference_number, exc.detail,
             )
 
-        # Auto-dispatch (owner 2026-10-26) — see docstring. Same eligibility
-        # guard dispatch_correspondence() itself checks (minus the "already
-        # dispatched" check, which can't apply to a row just created).
-        if (
-            body.direction == "OUTWARD"
-            and body.recipient_type == "ORGANIZATION"
-            and str(body.recipient_organization_pk) != str(body.register_organization_pk)
-        ):
-            try:
-                counterpart_pk, inward_reference_number = _mint_inward_counterpart(
-                    cur, user,
-                    outward_correspondence_pk=corr_pk,
-                    recipient_organization_pk=body.recipient_organization_pk,
-                    correspondence_date=body.correspondence_date,
-                    received_or_sent_date=body.received_or_sent_date,
-                    subject=body.subject,
-                    remarks=body.remarks,
-                    sender_type=body.sender_type,
-                    sender_person_pk=body.sender_person_pk,
-                    sender_organization_pk=body.sender_organization_pk,
-                    sender_external_name=body.sender_external_name,
-                    sender_external_organization=body.sender_external_organization,
-                    sender_person_capacity=body.sender_person_capacity,
-                    sender_person_organization_pk=body.sender_person_organization_pk,
-                    sender_sakha_erp_id_snapshot=sender_snapshot,
-                    medium_pk=medium_pk,
-                )
-                cur.execute(
-                    "UPDATE nss.correspondence SET counterpart_correspondence_pk = %s, updated_at = NOW() "
-                    "WHERE correspondence_pk = %s",
-                    (str(counterpart_pk), str(corr_pk)),
-                )
-                _log_dispatch(
-                    cur, user, outward_pk=corr_pk, counterpart_pk=counterpart_pk,
-                    reference_number=reference_number, inward_reference_number=inward_reference_number,
-                    verb="Auto-dispatched",
-                )
-            except HTTPException as exc:
-                logger.warning(
-                    "create_correspondence: auto-dispatch of %s skipped (%s) — "
-                    "left un-dispatched, recoverable via POST /dispatch.",
-                    reference_number, exc.detail,
-                )
-
-        cur.execute(_DETAIL_SELECT + " WHERE c.correspondence_pk = %s", (str(corr_pk),))
-        row = cur.fetchone()
-
-    return _row_to_response(row)
+    return {
+        "correspondence_pk": corr_pk, "reference_number": reference_number,
+        "counterpart_pk": counterpart_pk, "inward_reference_number": inward_reference_number,
+    }
 
 
 # ── Shared by create_correspondence (auto-dispatch), /dispatch and /broadcast ──

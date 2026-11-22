@@ -65,7 +65,7 @@ LIVE_FEED_TABLES = frozenset({
     "financial_year", "financial_scope", "fund_master", "financial_transaction",
     "financial_receipt", "financial_payment", "financial_transfer",
     "financial_account", "finance_head", "upi_payment_request", "finance_disbursement_authority",
-    "finance_transaction_bill", "finance_approval_step", "finance_approval_policy", "upi_payment_request_line",
+    "finance_transaction_bill", "finance_approval_step", "finance_approval_policy", "upi_payment_request_line", "finance_budget", "finance_budget_line",
     # Member dashboard "Pending Items"
     "organization_reparent_request", "organization_reparent_step",
     # Batch 2 - Users tab + user detail. user_account's routine login churn

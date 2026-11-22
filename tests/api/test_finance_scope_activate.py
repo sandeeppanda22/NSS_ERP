@@ -1,0 +1,166 @@
+"""
+Finance — a scope and a fund can be created ACTIVE at once, and a scope's code is made for the user (owner 2026-11-22: "why scope is draft
+always and funds too, and scope code should come automatic (Sakha code + name)").
+
+  * ``activate`` creates the scope ACTIVE; without it the API still creates a DRAFT (nothing else changes);
+  * a fund created with ``activate`` is ACTIVE only when its scope is ACTIVE (a fund is never active in a draft scope);
+  * no ``scope_code``: it is the Sakha's short code (organization code when it has none) + the scope name, numbered when taken;
+  * a code that IS given is still used, and a duplicate is still 409.
+
+Real integration tests (nothing mocked); NEVER RUN against a database when this file was written.
+"""
+
+from uuid import uuid4
+
+import pytest
+
+from tests.finance_support import (  # noqa: F401  (fixtures)
+    BASE,
+    admin_h,
+    admin_user,
+    kendra_admin,
+    kendra_h,
+    other_admin,
+    other_admin_h,
+    other_org_pk,
+    plain_member_h,
+    plain_sakha_admin,
+    plain_sakha_admin_h,
+    register_org_pk,
+    sakha_admin,
+    sakha_admin_h,
+    sakha_pks,
+    viewer_h,
+    viewer_user,
+)
+
+
+def _prefix(write_conn, org_pk) -> str:
+    cur = write_conn.cursor()
+    cur.execute("SELECT COALESCE(NULLIF(short_code, ''), organization_code) FROM nss.organization WHERE organization_pk = %s", (org_pk,))
+    return "".join(ch if ch.isalnum() else "-" for ch in cur.fetchone()[0].upper())
+
+
+def _scope(client, h, org_pk, name, **over):
+    body = {"scope_name": name, "scope_type": "ORGANIZATION", "organization_pk": str(org_pk)}
+    body.update(over)
+    r = client.post(f"{BASE}/scopes", json=body, headers=h)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _unique(word="Drive") -> str:
+    return f"{word} {uuid4().hex[:6]}"
+
+
+class TestScopeCode:
+    def test_the_code_is_the_sakha_code_then_the_name(self, client, admin_h, register_org_pk, write_conn):
+        name = _unique("Annual Festival")
+        scope = _scope(client, admin_h, register_org_pk, name)
+        expected_tail = "-".join(name.upper().split())
+        assert scope["scope_code"] == f"{_prefix(write_conn, register_org_pk)}-{expected_tail}"[:50].rstrip("-")
+
+    def test_a_second_scope_of_the_same_name_is_numbered(self, client, admin_h, register_org_pk):
+        name = _unique("Rasa")
+        first = _scope(client, admin_h, register_org_pk, name)
+        second = _scope(client, admin_h, register_org_pk, name)
+        assert second["scope_code"] == first["scope_code"] + "-2"
+
+    def test_a_code_that_is_given_is_still_used_and_a_duplicate_is_refused(self, client, admin_h, register_org_pk):
+        code = f"MINE{uuid4().hex[:6].upper()}"
+        assert _scope(client, admin_h, register_org_pk, _unique(), scope_code=code)["scope_code"] == code
+        r = client.post(f"{BASE}/scopes", json={"scope_code": code, "scope_name": "x", "scope_type": "SPECIAL_PURPOSE"}, headers=admin_h)
+        assert r.status_code == 409
+
+    def test_a_scope_with_no_organization_is_coded_from_its_name(self, client, admin_h):
+        name = _unique("Special Drive")
+        r = client.post(f"{BASE}/scopes", json={"scope_name": name, "scope_type": "SPECIAL_PURPOSE"}, headers=admin_h)
+        assert r.status_code == 201 and r.json()["scope_code"] == "-".join(name.upper().split())
+
+    def test_a_blank_name_is_refused(self, client, admin_h, register_org_pk):
+        r = client.post(f"{BASE}/scopes", json={"scope_name": "   ", "scope_type": "ORGANIZATION", "organization_pk": str(register_org_pk)}, headers=admin_h)
+        assert r.status_code == 422
+
+
+class TestActiveAtOnce:
+    def test_the_default_is_still_a_draft(self, client, admin_h, register_org_pk):
+        assert _scope(client, admin_h, register_org_pk, _unique())["status"] == "DRAFT"
+
+    def test_activate_creates_it_active_and_it_is_audited(self, client, admin_h, register_org_pk, write_conn):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        assert scope["status"] == "ACTIVE"
+        cur = write_conn.cursor()
+        cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'financial_scope' AND record_pk::text = %s AND action = 'CREATE'",
+                    (scope["financial_scope_pk"],))
+        assert any(row[0] and row[0].get("status") == "ACTIVE" and row[0].get("code_generated") is True for row in cur.fetchall())
+
+    def test_a_fund_in_an_active_scope_is_created_active(self, client, admin_h, register_org_pk):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        r = client.post(f"{BASE}/funds", json={"fund_code": f"F{uuid4().hex[:6].upper()}", "fund_name": "General", "fund_type": "GENERAL",
+                                               "financial_scope_pk": scope["financial_scope_pk"], "activate": True}, headers=admin_h)
+        assert r.status_code == 201 and r.json()["status"] == "ACTIVE"
+
+    def test_a_fund_in_a_draft_scope_stays_a_draft_even_when_asked_to_activate(self, client, admin_h, register_org_pk):
+        scope = _scope(client, admin_h, register_org_pk, _unique())                     # DRAFT
+        r = client.post(f"{BASE}/funds", json={"fund_code": f"F{uuid4().hex[:6].upper()}", "fund_name": "General", "fund_type": "GENERAL",
+                                               "financial_scope_pk": scope["financial_scope_pk"], "activate": True}, headers=admin_h)
+        assert r.status_code == 201 and r.json()["status"] == "DRAFT"
+
+    def test_a_fund_without_activate_is_a_draft(self, client, admin_h, register_org_pk):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        r = client.post(f"{BASE}/funds", json={"fund_code": f"F{uuid4().hex[:6].upper()}", "fund_name": "General", "fund_type": "GENERAL",
+                                               "financial_scope_pk": scope["financial_scope_pk"]}, headers=admin_h)
+        assert r.status_code == 201 and r.json()["status"] == "DRAFT"
+
+    def test_an_active_scope_takes_transactions_straight_away(self, client, admin_h, register_org_pk):
+        from tests.finance_support import adopt_templates, make_txn, make_year
+
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        adopt_templates(client, admin_h, register_org_pk)                                # the Sakha's heads (a new scope does this in make_scope)
+        year = make_year(client, admin_h)
+        make_txn(client, admin_h, year, scope, kind="INCOME")                            # would be refused for a DRAFT scope
+
+
+class TestWhoMayCreateScopesAndFunds:
+    """Owner 2026-11-22: only a FINANCE ADMINISTRATOR - the Sakha's seated Treasurer / President / Secretary (tests/api/test_finance_approval.py) or an admin
+    GIVEN a Finance role. Being an admin does not make anyone one by default."""
+
+    def _body(self, org_pk):
+        return {"scope_name": _unique("Books"), "scope_type": "ORGANIZATION", "organization_pk": str(org_pk)}
+
+    def test_a_sakha_admin_with_no_finance_role_cannot_create_a_scope_or_a_fund(self, client, admin_h, plain_sakha_admin_h, register_org_pk):
+        r = client.post(f"{BASE}/scopes", headers=plain_sakha_admin_h, json=self._body(register_org_pk))
+        assert r.status_code == 403 and "finance administrator" in r.text and "Finance role" in r.text
+        scope = _scope(client, admin_h, register_org_pk, _unique())
+        fund = {"fund_code": f"F{uuid4().hex[:6].upper()}", "fund_name": "x", "fund_type": "GENERAL", "financial_scope_pk": scope["financial_scope_pk"]}
+        r = client.post(f"{BASE}/funds", headers=plain_sakha_admin_h, json=fund)
+        assert r.status_code == 403 and "finance administrator" in r.text
+
+    def test_that_same_admin_still_holds_the_finance_permissions_and_can_read(self, client, plain_sakha_admin_h):
+        assert client.get(f"{BASE}/scopes", headers=plain_sakha_admin_h).status_code == 200
+        assert client.get(f"{BASE}/reference", headers=plain_sakha_admin_h).json()["finance_admin"] is False
+
+    def test_a_sakha_admin_given_the_finance_role_can_for_their_own_sakha_only(self, client, sakha_admin_h, register_org_pk, other_org_pk):
+        r = client.post(f"{BASE}/scopes", headers=sakha_admin_h, json={**self._body(register_org_pk), "activate": True})
+        assert r.status_code == 201 and r.json()["status"] == "ACTIVE"
+        fund = {"fund_code": f"F{uuid4().hex[:6].upper()}", "fund_name": "x", "fund_type": "GENERAL", "financial_scope_pk": r.json()["financial_scope_pk"]}
+        assert client.post(f"{BASE}/funds", headers=sakha_admin_h, json=fund).status_code == 201
+        assert client.post(f"{BASE}/scopes", headers=sakha_admin_h, json=self._body(other_org_pk)).status_code == 403
+        assert client.get(f"{BASE}/reference", headers=sakha_admin_h).json()["finance_admin"] is True
+
+    def test_the_kendra_admin_given_the_kendra_finance_role_can(self, client, kendra_h):
+        r = client.post(f"{BASE}/scopes", headers=kendra_h, json={"scope_name": _unique("Kendra books"), "scope_type": "SPECIAL_PURPOSE"})
+        assert r.status_code == 201, r.text
+
+    def test_the_super_administrator_always_can(self, client, admin_h, register_org_pk, other_org_pk):
+        assert client.post(f"{BASE}/scopes", headers=admin_h, json=self._body(register_org_pk)).status_code == 201
+        assert client.post(f"{BASE}/scopes", headers=admin_h, json=self._body(other_org_pk)).status_code == 201
+
+    def test_a_view_only_role_and_a_member_cannot(self, client, viewer_h, plain_member_h, register_org_pk):
+        for h in (viewer_h, plain_member_h):
+            assert client.post(f"{BASE}/scopes", headers=h, json=self._body(register_org_pk)).status_code == 403
+
+    def test_a_given_finance_role_also_lets_the_admin_set_up_funds_and_it_is_reported_to_the_page(self, client, other_admin_h, other_org_pk):
+        r = client.post(f"{BASE}/scopes", headers=other_admin_h, json={**self._body(other_org_pk), "activate": True})
+        assert r.status_code == 201
+        assert client.get(f"{BASE}/reference", headers=other_admin_h).json()["finance_admin"] is True

@@ -83,6 +83,7 @@ class NamedCode(BaseModel):
 class FinanceReference(BaseModel):
     """Everything the UI needs to build its pick-lists, from one definition."""
 
+    finance_admin: bool                     # the caller is a finance ADMINISTRATOR (may create scopes and funds), not only a Treasurer
     payment_methods: list[NamedCode]
     fund_types: list[str]
     scope_types: list[str]
@@ -124,12 +125,13 @@ class YearListResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ScopeCreate(BaseModel):
-    scope_code: str = Field(..., min_length=1, max_length=50)
+    scope_code: str | None = Field(None, min_length=1, max_length=50, description="Left out, it is made from the Sangha's code and the scope name (EKM-ANNUAL-FESTIVAL)")
     scope_name: str = Field(..., min_length=1, max_length=200)
     scope_type: str = Field(..., description="ORGANIZATION / EVENT / SPECIAL_PURPOSE / RESTRICTED_FUND")
     organization_pk: UUID | None = Field(None, description="Owning organization; omit for a scope with none (global authority only)")
     financial_year_pk: UUID | None = None
     parent_scope_pk: UUID | None = None
+    activate: bool = Field(False, description="Create it ACTIVE instead of DRAFT (the same finance permission does both, so a draft is only an extra step)")
 
 
 class ScopeUpdate(BaseModel):
@@ -175,6 +177,7 @@ class FundCreate(BaseModel):
     is_restricted: bool = False
     restriction_purpose: str | None = Field(None, max_length=2000)
     organization_pk: UUID | None = Field(None, description="The Sakha, for a SINKING_FUND (FIN-BR-023/024)")
+    activate: bool = Field(False, description="Create it ACTIVE instead of DRAFT; only when its scope is ACTIVE (otherwise it stays DRAFT)")
 
 
 class FundUpdate(BaseModel):
@@ -1037,3 +1040,118 @@ class AuthorityState(BaseModel):
     next_step: str | None
     status: str | None = None
     note: str | None = None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Kendra annual budget (FIN-BR-041)
+# ═══════════════════════════════════════════════════════════════════════
+
+BUDGET_STATUSES = ("DRAFT", "REFERRED", "VIEWS_RECEIVED", "PASSED")
+
+
+class BudgetCreate(BaseModel):
+    financial_year_pk: UUID
+    organization_pk: UUID | None = Field(None, description="The Kendra; left out, the one active Kendra is used")
+    notes: str | None = Field(None, max_length=2000)
+
+
+class BudgetLineWrite(BaseModel):
+    """The planned amount for one head; writing a head that already has a line changes its amount."""
+
+    finance_head_pk: UUID
+    amount: Amount
+    notes: str | None = Field(None, max_length=500)
+    reason: str | None = Field(None, max_length=500, description="Why the line changes; required once the budget has left DRAFT (it is kept in the audit trail)")
+
+
+class BudgetReferWrite(BaseModel):
+    """Referring files a numbered letter from the Kendra to the Advisory Board in the Correspondence register, automatically."""
+
+    referred_on: date | None = Field(None, description="The day the draft was sent; today when left out")
+
+
+class BudgetViewsWrite(BaseModel):
+    """
+    The Advisory Board's considered views. Required before the budget can pass; they are views, not a veto. Recording them files the
+    Advisory Board's reply in the Correspondence register (a reply to its copy of the referral), and the new letter's number becomes
+    the budget's advisory reference - nobody types one.
+    """
+
+    advisory_views_date: date | None = Field(None, description="The day of the reply; today when left out")
+    advisory_views_summary: str = Field(..., min_length=1, max_length=2000, description="What the Advisory Board said (it becomes the letter's remarks)")
+
+
+class BudgetPassWrite(BaseModel):
+    resolution_reference: str = Field(..., min_length=1, max_length=100, description="The Governing Body resolution passing the budget")
+    resolution_date: date
+
+
+class BudgetReopenWrite(BaseModel):
+    remarks: str = Field(..., min_length=1, max_length=1000, description="Why the draft goes back (required)")
+
+
+class BudgetLineResponse(BaseModel):
+    finance_budget_line_pk: UUID
+    finance_head_pk: UUID
+    head_code: str
+    head_name: str
+    direction: str                      # INCOME | EXPENSE
+    amount: Decimal                     # planned
+    actual: Decimal                     # POSTED / SETTLED so far this year
+    remaining: Decimal                  # planned - actual (negative = over)
+    over_budget: bool                   # an EXPENSE above its line (flag only; spending is never blocked)
+    notes: str | None
+
+
+class BudgetUnbudgetedResponse(BaseModel):
+    """Money booked on a head that has no line in the budget (flag only)."""
+
+    finance_head_pk: UUID
+    head_code: str
+    head_name: str
+    direction: str
+    actual: Decimal
+
+
+class BudgetTotals(BaseModel):
+    planned_income: Decimal
+    planned_expense: Decimal
+    actual_income: Decimal
+    actual_expense: Decimal
+    planned_surplus: Decimal            # planned income - planned expense
+
+
+class BudgetResponse(BaseModel):
+    finance_budget_pk: UUID
+    financial_year_pk: UUID
+    year_code: str
+    organization_pk: UUID
+    organization_name: str
+    status: str
+    notes: str | None
+    referred_on: date | None
+    referral_correspondence_pk: UUID | None      # the letter filed in the Kendra's register
+    referral_reference: str | None               # its number (the Kendra's OUTWARD)
+    referral_inward_reference: str | None        # the Advisory Board's own INWARD number for the same letter
+    advisory_reference: str | None               # the number of the Advisory Board's reply (its OUTWARD)
+    views_correspondence_pk: UUID | None
+    views_inward_reference: str | None           # the Kendra's INWARD number for that reply
+    advisory_views_date: date | None
+    advisory_views_summary: str | None
+    resolution_reference: str | None
+    resolution_date: date | None
+    next_step: str | None               # what has to happen next, in words
+    changes_need_reason: bool           # true once the budget has left DRAFT: a change to a line is still allowed, but is recorded with a reason
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class BudgetDetailResponse(BudgetResponse):
+    lines: list[BudgetLineResponse]
+    unbudgeted: list[BudgetUnbudgetedResponse]
+    totals: BudgetTotals
+
+
+class BudgetListResponse(BaseModel):
+    items: list[BudgetResponse]
+    total: int

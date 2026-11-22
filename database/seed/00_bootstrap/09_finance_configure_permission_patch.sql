@@ -9,8 +9,8 @@
 -- Permission FINANCE_CONFIGURE: create and edit finance heads, contributions, events, receiving accounts and the Treasurer's
 -- approval limits within the actor's admin scope. It approves NOTHING: moving a transaction, payment or transfer forward still
 -- needs FINANCE_APPROVE (or, for a Sakha, the Treasurer / President seat).
--- Grants: NSS_ERP_ADMIN, NSS_ERP_KENDRA_ADMIN, NSS_ERP_SAKHA_ADMIN (the first two already approve; the Sakha admin gains
--- configuration only). INSERT ... ON CONFLICT DO NOTHING; never removes or re-activates anything.
+-- Grants: NSS_ERP_ADMIN only (owner decision 2026-11-22: finance comes from the finance roles, not from the Kendra / Sakha admin roles - see
+-- 11_finance_admin_roles_patch.sql and 12_finance_permissions_revoke_patch.sql). INSERT ... ON CONFLICT DO NOTHING; never removes or re-activates anything.
 -- =====================================================
 
 INSERT INTO nss.permission_master
@@ -26,9 +26,7 @@ ON CONFLICT (permission_code) DO NOTHING;
 
 WITH mappings (role_code, permission_code) AS (
     VALUES
-    ('NSS_ERP_ADMIN', 'FINANCE_CONFIGURE'),
-    ('NSS_ERP_KENDRA_ADMIN', 'FINANCE_CONFIGURE'),
-    ('NSS_ERP_SAKHA_ADMIN', 'FINANCE_CONFIGURE')
+    ('NSS_ERP_ADMIN', 'FINANCE_CONFIGURE')
 )
 INSERT INTO nss.role_permission (role_master_pk, permission_master_pk)
 SELECT r.role_master_pk, p.permission_master_pk
