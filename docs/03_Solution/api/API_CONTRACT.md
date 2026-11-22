@@ -836,7 +836,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 
 # 12h. Tier 12 — Finance
 
-**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 3 — PDF receipts; schemas in `api/schemas/finance.py`) — 81 endpoints (2026-11-20). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
+**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 3 — PDF receipts, `finance_budget.py` 9 — the Kendra annual budget; schemas in `api/schemas/finance.py`) — 90 endpoints (2026-11-22). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
 
 **Auth (every endpoint):** `Authorization: Bearer` JWT. Reads need any of `FINANCE_VIEW` / `FINANCE_MANAGE` / `FINANCE_APPROVE`; record / edit / submit need `FINANCE_MANAGE`; approve / post / execute / reject / cancel (approved items) / open and close years need `FINANCE_APPROVE`. Plus **admin scope on the Financial Scope's organization**; a scope with no organization and the financial years themselves are global-authority only. Every `/transition` endpoint is gated on MANAGE-or-APPROVE before any lookup, then on the step's own permission.
 
@@ -847,10 +847,10 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 | GET | `/my-pranami` | **Login only** (any member): the caller's OWN posted/settled income under Pranami heads (`finance_head.is_pranami`) linked to them, newest first, each with its ISSUED receipts. No id parameter (identity from the token); returns no descriptions, funds or other members. Backs the member dashboard's "Pranami" tab |
 | GET / POST | `/years` | List / create (`start_year` -> 01 Apr..31 Mar) |
 | POST | `/years/{pk}/transition` | PLANNED -> OPEN -> CLOSING -> CLOSED (close blocked by unfinished work) |
-| GET / POST | `/scopes` | List (filters `q`, `scope_type`, `status`, `organization_pk`, `financial_year_pk`) / create (DRAFT) |
+| GET / POST | `/scopes` | List (filters `q`, `scope_type`, `status`, `organization_pk`, `financial_year_pk`) / create (DRAFT) `scope_code` is optional on create: left out, it is made from the Sangha's short code (organization code when it has none) + the name (`EKM-ANNUAL-FESTIVAL`, numbered when taken); `activate: true` creates it `ACTIVE` instead of `DRAFT`. **Creating needs a finance administrator**: the Sakha's seated Treasurer / President / Secretary (their own Sakha), an admin given a Finance role (within its scope), or the NSS ERP Administrator; any other admin gets 403. |
 | GET / PATCH | `/scopes/{pk}` | Detail / rename, year, parent (no cycles) |
 | POST | `/scopes/{pk}/transition` | DRAFT -> ACTIVE -> CLOSING -> CLOSED |
-| GET / POST | `/funds` | List (filters: `q`, `financial_scope_pk`, `organization_pk` — the funds of one Sangha's scopes, `fund_type`, `status`, `is_restricted`; sorted by name) / create (restricted funds need a purpose; a Sinking Fund names its Sakha) |
+| GET / POST | `/funds` | List (filters: `q`, `financial_scope_pk`, `organization_pk` — the funds of one Sangha's scopes, `fund_type`, `status`, `is_restricted`; sorted by name) / create (restricted funds need a purpose; a Sinking Fund names its Sakha) `activate: true` on create makes it `ACTIVE`, only when its scope is `ACTIVE` (otherwise it stays `DRAFT`). **Creating needs a finance administrator**: the Sakha's seated Treasurer / President / Secretary (their own Sakha), an admin given a Finance role (within its scope), or the NSS ERP Administrator; any other admin gets 403. |
 | GET / PATCH | `/funds/{pk}` | Detail incl. `balance` / edit |
 | POST | `/funds/{pk}/transition` | DRAFT -> ACTIVE -> INACTIVE |
 | GET / POST | `/transactions` | List (filters `q`, year, scope, fund, type, category, status, person, `date_from`/`date_to`) / record a DRAFT |
@@ -872,7 +872,7 @@ Creating or editing a transaction accepts `sangha_sevi_id` (e.g. `SS12`), which 
 
 Finance heads are the per-Sangha catalogue of what money is collected or spent for (`finance_head`; `organization` NULL = Kendra template, a Sangha adopts copies). A head's code, direction, restriction and organization are immutable once created; `financial_transaction.transaction_category` is a snapshot of the head code. Receiving accounts hold only the last 4 digits; `gateway_credential_ref` is the NAME of a server-side credential set (`UPI_<REF>_KEY_ID/_KEY_SECRET/_WEBHOOK_SECRET` in the environment) — no secret is stored or returned.
 
-**Auth:** config (accounts, heads, contributions, events, the Treasurer's limit) = `FINANCE_CONFIGURE` (owner 2026-11-17: it approves nothing; granted to the admin, Kendra admin and Sakha admin); posting a held payment = `FINANCE_APPROVE`; creating / refreshing / mock-paying payment requests = `FINANCE_MANAGE`; reads = any FINANCE permission; all with admin scope on the owning organization. `/gateway/webhook/{provider}` is unauthenticated but verifies an HMAC-SHA256 signature (constant time) and is rate-limited (`UPI_WEBHOOK_RATE_LIMIT`). `/my-pranami/*` are login-only and act only on the caller.
+**Auth:** config (accounts, heads, contributions, events, the Treasurer's limit) = `FINANCE_CONFIGURE` (owner 2026-11-17: it approves nothing; held through the finance roles - the NSS ERP Administrator, `NSS_ERP_SAKHA_TREASURER`, `NSS_ERP_SAKHA_FINANCE_ADMIN`, `NSS_ERP_KENDRA_FINANCE_ADMIN`; no Kendra / Sakha / Anchalika / Zilla / Patha Chakra ADMIN role carries any `FINANCE_*` permission since 2026-11-22); posting a held payment = `FINANCE_APPROVE`; creating / refreshing / mock-paying payment requests = `FINANCE_MANAGE`; reads = any FINANCE permission; all with admin scope on the owning organization. `/gateway/webhook/{provider}` is unauthenticated but verifies an HMAC-SHA256 signature (constant time) and is rate-limited (`UPI_WEBHOOK_RATE_LIMIT`). `/my-pranami/*` are login-only and act only on the caller.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -934,6 +934,24 @@ Money of the **Kendra Sangha** and the **central Mahila Sangha** may leave only 
 
 The Treasurer's signature is not an endpoint: moving a payment to `INITIATED` (a transfer to `EXECUTED`) through `/transition` needs the authority recorded (422 otherwise) and the caller to be the seated Treasurer (403 otherwise), and stamps the signature. `COMPLETED` needs both signatures (422).
 
+### Kendra annual budget (`finance_budget.py`)
+
+The Kendra Governing Body passes an annual budget; the draft is referred to the Advisory Board for its considered views before the Governing Body's final decision (Bye-Law; FIN-BR-041). The rules are in `api/services/finance_budget.py`. One budget per Kendra per financial year; only the Kendra has one (422 for any other organization). Status flow `DRAFT -> REFERRED -> VIEWS_RECEIVED -> PASSED`; each step records a reference and a date, the dates keep that order and are never in the future. The Advisory Board's views must be on file before the budget can pass (they are views, not a veto); a budget goes back to `DRAFT` with a reason until it has passed (the referral facts are cleared, the audit event keeps them); a `PASSED` budget is final. The budget guides, it never blocks: spending above a line (`over_budget`) or on a head with no line (`unbudgeted`) is only flagged; `actual` is read from POSTED / SETTLED transactions of that head in that year. Auth: reads `FINANCE_VIEW`+, writes `FINANCE_MANAGE` (or `FINANCE_APPROVE`), admin scope on the Kendra; every write is audited.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/budgets` | List (filters `financial_year_pk`, `organization_pk`, `status`), newest year first, limited to the caller's scope |
+| POST | `/budgets` | Start the Kendra's budget for a year (`organization_pk` optional: the one active Kendra); 409 when the year already has one, 422 for a CLOSED year |
+| GET | `/budgets/{pk}` | The budget, its lines with `actual` / `remaining` / `over_budget`, the `unbudgeted` heads, `totals`, `next_step`, `changes_need_reason` |
+| PUT | `/budgets/{pk}/lines` | Set the planned amount of an ACTIVE Kendra head (adds the line, or changes the amount) in **any** status; once the budget has left `DRAFT` a `reason` is required (422 otherwise) and is kept in the audit event with the old amount |
+| DELETE | `/budgets/{pk}/lines/{line_pk}` | Remove a line (soft delete) in **any** status; `?reason=` required once past `DRAFT`; returns the budget |
+| POST | `/budgets/{pk}/refer` | Refer the draft to the Advisory Board (`referred_on`, today when omitted); needs at least one line. **Files a numbered OUTWARD letter** in the Kendra's Correspondence register to the Advisory Board (its own INWARD copy is minted too); the response gives `referral_reference` and `referral_inward_reference` |
+| POST | `/budgets/{pk}/advisory-views` | Record the Advisory Board's views (`advisory_views_date`, today when omitted; `advisory_views_summary`, max 2000); only after the referral. **Files the Advisory Board's numbered reply** in its own register, threaded to its copy of the referral (which becomes ACTIONED), with the Kendra's INWARD copy; the reply's number is returned as `advisory_reference` (nobody types it) and the Kendra's number as `views_inward_reference` |
+| POST | `/budgets/{pk}/pass` | Record the Governing Body's resolution (`resolution_reference`, `resolution_date`); only once the views are on file |
+| POST | `/budgets/{pk}/reopen` | Send it back to `DRAFT` (`remarks` required); not once passed. The links to the letters are cleared; the letters stay in Correspondence |
+
+Tables `finance_budget` and `finance_budget_line` (`ddl/14_finance/21`-`22`).
+
 ---
 
 # 15. Endpoint Count Summary
@@ -959,9 +977,9 @@ The Treasurer's signature is not an endpoint: moving a payment to `INITIATED` (a
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 81 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3) |
+| 12 | Finance | 90 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 9) |
 | 12 | Membership Status workflow | 6 |
-| **Total** | | **372** |
+| **Total** | | **381** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 

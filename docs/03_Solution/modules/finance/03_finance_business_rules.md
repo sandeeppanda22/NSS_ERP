@@ -664,6 +664,18 @@ The draft budget or financially consequential resolution shall be
 referred to the Advisory Board for its considered views before final
 Governing Body consideration.
 
+**Implementation (2026-11-22, owner request).** `api/services/finance_budget.py`, `api/routers/finance_budget.py`, tables
+`finance_budget` + `finance_budget_line`. One budget per Kendra per financial year, moving through four recorded facts that cannot be
+skipped or reordered - DRAFT, REFERRED (date sent to the Advisory Board), VIEWS_RECEIVED (the Advisory Board's reference, date and
+what it said) and PASSED (the Governing Body's resolution reference and date). Choices made where the Bye-Law is silent, each open
+to the owner: the Advisory Board's views must be on file before the budget can pass but are *views, not a veto* ("considered views");
+a budget can go back to draft until it has passed; a passed budget is final (a later change would be a new resolution, not modelled);
+the budget guides and never blocks - spending above a line, or on a head with no line, is only flagged; the facts are recorded by
+a Kendra finance user, with the references as the evidence, not by seat. Referring and the Advisory Board's reply each FILE A LETTER in the Correspondence
+register automatically (owner request 2026-11-22: Kendra -> Advisory Board, then Advisory Board -> Kendra threaded as a reply), so the numbers are the register's own
+and nobody types one. Not modelled: a "financially consequential resolution" other
+than the annual budget, and a lookup of the resolution in the Governance module (the reference is free text).
+
 ---
 
 ## FIN-BR-042 — Mahila Financial Authority
