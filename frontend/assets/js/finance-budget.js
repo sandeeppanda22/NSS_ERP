@@ -1,0 +1,261 @@
+/**
+ * Finance "Budget" tab (Tier 12, owner request 2026-11-22; Bye-Law FIN-BR-041) - the Kendra's annual budget.
+ *
+ * The Kendra Governing Body passes an annual budget; the draft is first referred to the Advisory Board for its considered views.
+ * The screen walks the four steps the server enforces (api/services/finance_budget.py is the ONE home of the rules):
+ *   Draft (lines) -> Referred to the Advisory Board -> Views received -> Passed by the Governing Body.
+ * Each step records a reference and a date; the Advisory Board's views must be on file before the budget can pass, but they are views,
+ * not a veto; a budget can go back to draft until it has passed. The budget only FLAGS spending (over a line, or on a head with no
+ * line) - it never blocks it.
+ *
+ * A fourth Finance mixin, mixed into `adminPanel()` (admin.js) beside finance.js, finance-setup.js and finance-funds.js, using their
+ * helpers (_finGet / _finSend / finMoney / finBadge / finLoadYears / canManageFinance). The page decides nothing about who may act: the
+ * server checks FINANCE_VIEW / FINANCE_MANAGE and admin scope on the Kendra (a Sakha admin simply sees no budget).
+ */
+(function () {
+    "use strict";
+
+    const STEPS = [
+        { key: "DRAFT", label: "Draft" },
+        { key: "REFERRED", label: "Referred to the Advisory Board" },
+        { key: "VIEWS_RECEIVED", label: "Advisory Board's views on file" },
+        { key: "PASSED", label: "Passed by the Governing Body" },
+    ];
+    const newStart = () => ({ show: false, year: "", saving: false, error: "" });
+    // The line form and the reason box appear only in EDIT MODE (finBudgetEditing, opened by "Edit budget", closed by Cancel); the Edit button
+    // itself is offered in every status. Change on a row fills the form.
+    const newLine = () => ({ show: true, head: "", amount: "", notes: "", editing: false, saving: false, error: "" });
+    const newRefer = () => ({ date: "", saving: false, error: "" });
+    const newViews = () => ({ date: "", summary: "", saving: false, error: "" });
+    const newPass = () => ({ reference: "", date: "", saving: false, error: "" });
+    const newBack = () => ({ show: false, remarks: "", saving: false, error: "" });
+    const today = () => new Date().toISOString().slice(0, 10);
+
+    function financeBudgetMixin() {
+        return {
+            finBudgets: [], finBudgetsLoading: false, finBudgetsError: "",
+            finBudget: null,                           // the open budget with its lines (GET /budgets/{pk})
+            finBudgetHeads: [],                        // the Kendra's ACTIVE heads, for the line form
+            finBudgetHeadsNote: "",                    // why there are none, when there are none
+            finBudgetError: "", finBudgetReason: "", finBudgetEditing: false,
+            finBudgetStart: newStart(), finBudgetLine: newLine(), finBudgetRefer: newRefer(),
+            finBudgetViews: newViews(), finBudgetPass: newPass(), finBudgetBack: newBack(),
+
+            get finBudgetToday() { return today(); },
+            get finBudgetSteps() {
+                const at = this.finBudget ? STEPS.findIndex((s) => s.key === this.finBudget.status) : -1;
+                return STEPS.map((s, i) => ({ ...s, done: i < at || (i === at && s.key === "PASSED"), current: i === at && s.key !== "PASSED" }));
+            },
+            // Years a budget could still be started for: not closed, and none yet.
+            get finBudgetFreeYears() {
+                const taken = new Set(this.finBudgets.map((b) => b.financial_year_pk));
+                return this.finYears.filter((y) => y.status !== "CLOSED" && y.status !== "CLOSING" && !taken.has(y.financial_year_pk));
+            },
+            get finBudgetIncomeLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "INCOME") : []; },
+            get finBudgetExpenseLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "EXPENSE") : []; },
+            // Heads with no line yet (a head that already has one is changed from its row, not picked again).
+            get finBudgetFreeHeads() {
+                const used = new Set((this.finBudget ? this.finBudget.lines : []).map((l) => l.finance_head_pk));
+                return this.finBudgetHeads.filter((h) => !used.has(h.finance_head_pk));
+            },
+            // A line can be changed in ANY status (owner 2026-11-22, "edit always"); past DRAFT the server wants a reason, kept in the record.
+            get finBudgetCanEditLines() { return !!this.finBudget && this.canManageFinance; },
+            get finBudgetNeedsReason() { return !!this.finBudget && !!this.finBudget.changes_need_reason; },
+            get finBudgetCanAct() { return !!this.finBudget && this.canManageFinance; },
+            // "Edit budget" is offered in every status. It opens edit mode on the lines (the reason box, the line form, Change / Remove on each
+            // row); Cancel closes it and drops whatever was typed. Sending a referred budget back to draft is a separate, deliberate step.
+            get finBudgetCanEdit() { return !!this.finBudget && this.canManageFinance; },
+            finBudgetEdit() {
+                this.finBudgetEditing = true; this.finBudgetLine = newLine(); this.finBudgetReason = "";
+                if (this.$nextTick) this.$nextTick(() => { const box = document.getElementById("bud-lines-card"); if (box) box.scrollIntoView({ behavior: "smooth", block: "start" }); });
+            },
+            finBudgetEditCancel() { this.finBudgetEditing = false; this.finBudgetLine = newLine(); this.finBudgetReason = ""; this.finBudgetError = ""; },
+            finBudgetSendBack() {
+                this.finBudgetBack = { ...newBack(), show: true };
+                if (this.$nextTick) this.$nextTick(() => { const box = document.getElementById("bud-back-box"); if (box) box.scrollIntoView({ behavior: "smooth", block: "center" }); });
+            },
+            finBudgetShown(date) { return date ? NSS.formatDate(date) : "-"; },
+            finBudgetUsedPercent(line) {
+                const planned = Number(line.amount) || 0;
+                return planned > 0 ? Math.min(100, Math.round((Number(line.actual) / planned) * 100)) : 0;
+            },
+
+            async finBudgetEnter() {
+                this.finBudget = null; this.finBudgetError = ""; this.finBudgetEditing = false;
+                this.finBudgetStart = newStart(); this.finBudgetLine = newLine(); this.finBudgetBack = newBack();
+                await Promise.all([this.finLoadYears(), this.finBudgetsLoad()]);
+            },
+            async finBudgetsLoad(opts = {}) {
+                if (!opts.silent) { this.finBudgetsLoading = true; this.finBudgetsError = ""; }
+                try {
+                    this.finBudgets = (await this._finGet("/budgets")).items;
+                } catch (err) {
+                    if (!opts.silent) this.finBudgetsError = err.message || "Failed to load the budgets.";
+                } finally {
+                    this.finBudgetsLoading = false;
+                }
+            },
+            async finBudgetOpen(pk) {
+                this.finBudgetError = "";
+                try {
+                    this._finBudgetSet(await this._finGet(`/budgets/${pk}`));
+                    await this._finBudgetLoadHeads();
+                } catch (err) {
+                    this.finBudgetError = err.message || "Failed to load the budget.";
+                }
+            },
+            finBudgetClose() {
+                this.finBudget = null; this.finBudgetError = ""; this.finBudgetEditing = false;
+                return this.finBudgetsLoad({ silent: true });
+            },
+            // The open budget changed (a step, a line): show the server's new picture and reset every form that belonged to the old one.
+            _finBudgetSet(detail) {
+                this.finBudget = detail;
+                this.finBudgetLine = newLine(); this.finBudgetRefer = newRefer(); this.finBudgetViews = newViews();
+                this.finBudgetPass = newPass(); this.finBudgetBack = newBack(); this.finBudgetReason = "";
+            },
+            async _finBudgetLoadHeads() {
+                if (!this.finBudget || this.finBudgetHeads.length) return;
+                const params = { organization_pk: this.finBudget.organization_pk, with_templates: false, status: "ACTIVE", page_size: 200 };
+                this.finBudgetHeadsNote = "";
+                try {
+                    let res = await this._finGet("/heads", params);
+                    // The Kendra has no heads of its own until the standard ones are copied in (the same step a new scope takes). Do it here so a
+                    // budget works out of the box, for someone who may configure finance; anyone else is told whom to ask.
+                    if (res.items.length === 0 && this.canConfigureFinance) {
+                        await this._finSend("POST", "/heads/adopt-templates", { organization_pk: this.finBudget.organization_pk });
+                        res = await this._finGet("/heads", params);
+                    }
+                    this.finBudgetHeads = res.items;
+                    if (res.items.length === 0) {
+                        this.finBudgetHeadsNote = this.canConfigureFinance
+                            ? "The Kendra has no finance heads yet. Add them under Finance > Heads, then come back."
+                            : "The Kendra has no finance heads yet. Someone who can configure finance must add them first (Finance > Heads).";
+                    }
+                } catch (err) { this.finBudgetHeadsNote = err.message || "Could not load the finance heads."; }
+            },
+
+            // ── Start a budget ─────────────────────────────────────
+            finBudgetStartOpen() { this.finBudgetStart = { ...newStart(), show: true, year: this.finBudgetFreeYears.length === 1 ? this.finBudgetFreeYears[0].financial_year_pk : "" }; },
+            async finBudgetStartSubmit() {
+                const f = this.finBudgetStart;
+                if (!f.year) { f.error = "Choose the financial year."; return; }
+                f.saving = true; f.error = "";
+                try {
+                    const detail = await this._finSend("POST", "/budgets", { financial_year_pk: f.year });
+                    this.finBudgetStart = newStart();
+                    this._finBudgetSet(detail); this.finBudgetHeads = [];
+                    await this._finBudgetLoadHeads();
+                    this._finNote("Budget started. Add the budget lines, then refer the draft to the Advisory Board.");
+                } catch (err) {
+                    f.error = err.message || "Could not start the budget.";
+                } finally {
+                    f.saving = false;
+                }
+            },
+
+            // ── Lines ──────────────────────────────────────────────
+            finBudgetLineOpen(line) {
+                this.finBudgetLine = line
+                    ? { ...newLine(), editing: true, head: line.finance_head_pk, amount: String(line.amount), notes: line.notes || "" }
+                    : newLine();
+                if (line && this.$nextTick) this.$nextTick(() => { const box = document.getElementById("bud-line-form"); if (box) box.scrollIntoView({ behavior: "smooth", block: "center" }); });
+            },
+
+            async finBudgetLineSave() {
+                const f = this.finBudgetLine;
+                if (!f.head) { f.error = "Choose the head."; return; }
+                const bad = this._finMoneyOk(f.amount, "Amount");
+                if (bad) { f.error = bad; return; }
+                if (this.finBudgetNeedsReason && !this.finBudgetReason.trim()) { f.error = "Say why the line is changing (the reason box above the lines)."; return; }
+                f.saving = true; f.error = "";
+                try {
+                    this._finBudgetSet(await this._finSend("PUT", `/budgets/${this.finBudget.finance_budget_pk}/lines`,
+                        { finance_head_pk: f.head, amount: String(f.amount).trim(), notes: f.notes.trim() || null, reason: this.finBudgetReason.trim() || null }));
+                    this._finNote("Budget line saved.");
+                } catch (err) {
+                    f.error = err.message || "Could not save the line.";
+                } finally {
+                    f.saving = false;
+                }
+            },
+            async finBudgetLineRemove(line) {
+                if (this.finBudgetNeedsReason && !this.finBudgetReason.trim()) { this.finBudgetError = "Say why the line is being removed (the reason box above the lines)."; return; }
+                const ok = await NSSDialog.confirm(`Remove the budget line for ${line.head_name}?`, { title: "Remove budget line", confirmText: "Remove", confirmClass: "danger" });
+                if (!ok) return;
+                this.finBudgetError = "";
+                try {
+                    const path = `/budgets/${this.finBudget.finance_budget_pk}/lines/${line.finance_budget_line_pk}`
+                        + (this.finBudgetReason.trim() ? "?reason=" + encodeURIComponent(this.finBudgetReason.trim()) : "");
+                    this._finBudgetSet(await this._finSend("DELETE", path));
+                    this._finNote("Budget line removed.");
+                } catch (err) {
+                    this.finBudgetError = err.message || "Could not remove the line.";
+                }
+            },
+
+            // ── The steps ──────────────────────────────────────────
+            // Each caller names its own route (literal, so it can be checked against the router); this runs the request and shows the result.
+            async _finBudgetStep(form, send, done) {
+                form.saving = true; form.error = "";
+                try {
+                    this._finBudgetSet(await send());
+                    this._finNote(done);
+                } catch (err) {
+                    form.error = err.message || "That step could not be recorded.";
+                } finally {
+                    form.saving = false;
+                }
+            },
+            // Referring files a numbered letter in Correspondence (the server does it); the date is today unless one is chosen.
+            finBudgetDoRefer() {
+                const f = this.finBudgetRefer, pk = this.finBudget.finance_budget_pk;
+                return this._finBudgetStep(f, () => this._finSend("POST", `/budgets/${pk}/refer`, { referred_on: f.date || null }),
+                    "Referred to the Advisory Board. The letter is filed in Correspondence.");
+            },
+            // The Advisory Board's reply is filed the same way and its number becomes the reference: only what it said is typed.
+            finBudgetDoViews() {
+                const f = this.finBudgetViews, pk = this.finBudget.finance_budget_pk;
+                if (!f.summary.trim()) { f.error = "Enter what the Advisory Board said."; return; }
+                return this._finBudgetStep(f, () => this._finSend("POST", `/budgets/${pk}/advisory-views`,
+                    { advisory_views_date: f.date || null, advisory_views_summary: f.summary.trim() }),
+                    "The Advisory Board's views are on file. Its reply is filed in Correspondence.");
+            },
+            finBudgetDoPass() {
+                const f = this.finBudgetPass, pk = this.finBudget.finance_budget_pk;
+                if (!f.reference.trim() || !f.date) { f.error = "Enter the Governing Body's resolution reference and its date."; return; }
+                return this._finBudgetStep(f, () => this._finSend("POST", `/budgets/${pk}/pass`,
+                    { resolution_reference: f.reference.trim(), resolution_date: f.date }), "The budget is passed.");
+            },
+            finBudgetDoBack() {
+                const f = this.finBudgetBack, pk = this.finBudget.finance_budget_pk;
+                if (!f.remarks.trim()) { f.error = "Say why the draft goes back."; return; }
+                return this._finBudgetStep(f, () => this._finSend("POST", `/budgets/${pk}/reopen`, { remarks: f.remarks.trim() }),
+                    "Sent back to draft. Refer it again once it is changed.");
+            },
+
+            // ── Live refresh (finance.js finLiveReload / finLiveBusy call these) ──
+            finBudgetBusy() {
+                return this.finBudgetEditing || [this.finBudgetStart, this.finBudgetBack].some((f) => f.show || f.saving)
+                    || [this.finBudgetRefer, this.finBudgetViews, this.finBudgetPass].some((f) => f.saving
+                        || Object.entries(f).some(([k, v]) => ["date", "reference", "summary"].includes(k) && String(v).trim() !== ""));
+            },
+            async finBudgetReload() {
+                if (!this.finBudget) return this.finBudgetsLoad({ silent: true });
+                try { this.finBudget = await this._finGet(`/budgets/${this.finBudget.finance_budget_pk}`); }
+                catch { /* the open budget stays as it was; a manual reopen explains */ }
+            },
+        };
+    }
+
+    window.NSSFinanceBudget = {
+        install(target) {
+            const descriptors = Object.getOwnPropertyDescriptors(financeBudgetMixin());
+            for (const key of Object.keys(descriptors)) {
+                if (Object.prototype.hasOwnProperty.call(target, key)) continue;
+                Object.defineProperty(target, key, descriptors[key]);
+            }
+            return target;
+        },
+    };
+})();

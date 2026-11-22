@@ -22,13 +22,14 @@ FE = ROOT / "frontend"
 FIN_JS = (FE / "assets/js/finance.js").read_text(encoding="utf-8")
 SETUP_JS = (FE / "assets/js/finance-setup.js").read_text(encoding="utf-8")
 FUNDS_JS = (FE / "assets/js/finance-funds.js").read_text(encoding="utf-8")
-ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS
+BUDGET_JS = (FE / "assets/js/finance-budget.js").read_text(encoding="utf-8")
+ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS + "\n" + BUDGET_JS
 ADMIN_JS = (FE / "assets/js/admin.js").read_text(encoding="utf-8")
 ADMIN_HTML = (FE / "admin.html").read_text(encoding="utf-8")
 CONFIG_JS = (FE / "assets/js/nss-config.js").read_text(encoding="utf-8")
 BADGES = (FE / "assets/css/badges.css").read_text(encoding="utf-8")
 
-TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"]
+TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finTransactions", "finTransfers", "finSetup", "finCollections"]
 
 
 def _panel() -> str:
@@ -128,7 +129,7 @@ class TestMarkupAgreesWithMixin:
         # every "+ New" button sits behind a permission check
         for label in ("+ New year", "+ New scope", "+ New fund", "+ New transaction", "+ New transfer"):
             line = next(l for l in p.splitlines() if label in l)
-            assert "x-show" in line and ("canManageFinance" in line or "canApproveFinance" in line), label
+            assert "x-show" in line and ("canManageFinance" in line or "canApproveFinance" in line or "canAdministerFinance" in line), label   # scopes and funds: the stricter finance-administrator check
 
     def test_lifecycle_buttons_come_from_the_servers_table(self):
         p = _panel()
@@ -248,7 +249,7 @@ class TestSharedMaps:
 
     def test_entry_guard_and_hash_routes(self):
         assert "!this.canViewFinance && !this.hasGeneralAdminAccess" in ADMIN_JS
-        assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
+        assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
                 in ADMIN_JS)
         for tab in TABS:
             assert f'{tab}: () => this.canViewFinance && this.finEnterTab("{tab}")' in ADMIN_JS
@@ -657,7 +658,8 @@ class TestTheTreasurersOwnControlsAreGreyedOut:
     def test_the_locked_flag_is_the_treasurer_role_without_an_admin_role(self):
         assert "get finControlsLocked()" in SETUP_JS
         body = SETUP_JS.split("get finControlsLocked()", 1)[1].split("},", 1)[0]
-        assert '"NSS_ERP_SAKHA_TREASURER"' in body and '"NSS_ERP_ADMIN"' in body and '"NSS_ERP_KENDRA_ADMIN"' in body and '"NSS_ERP_SAKHA_ADMIN"' in body
+        assert '"NSS_ERP_SAKHA_TREASURER"' in body and '"NSS_ERP_ADMIN"' in body and '"NSS_ERP_SAKHA_FINANCE_ADMIN"' in body and '"NSS_ERP_KENDRA_FINANCE_ADMIN"' in body
+        assert '"NSS_ERP_KENDRA_ADMIN"' not in body and '"NSS_ERP_SAKHA_ADMIN"' not in body              # an admin role alone no longer unlocks them (it carries no finance)
 
     def test_the_limit_and_the_no_approval_fields_follow_it(self):
         setup = _screen("finSetup")
@@ -708,3 +710,42 @@ class TestDeleteExplainsAndSwitchOffIsOffered:
     def test_the_scope_column_is_wide_enough_for_the_usual_name_on_one_line(self):
         css = (FE / "assets/css/style.css").read_text(encoding="utf-8")
         assert ".fh-cell-scope { min-width: 14rem; max-width: 19rem; }" in css and ".fh-cell-scope .fh-name { font-size: 0.85rem; white-space: nowrap;" in css
+
+
+class TestScopesAndFundsAreActiveAtOnce:
+    """Owner 2026-11-22: a scope's code is made for the user and neither a scope nor a fund starts as an extra-step draft."""
+
+    def test_the_scope_form_asks_no_code_and_sends_none(self):
+        form = _between_text(FIN_JS, "async finSubmitScope()", "async finOpenScope")
+        assert "scope_code:" not in form and "f.scope_code" not in form and "activate: true" in form and "The scope name is required." in form
+        assert "finScopeForm.scope_code" not in ADMIN_HTML and "Made automatically" in ADMIN_HTML
+        assert 'scope_code: "", scope_name' not in FIN_JS
+
+    def test_the_fund_form_asks_to_be_active_and_says_what_happened(self):
+        form = _between_text(FIN_JS, "async finSubmitFund()", "finStartFundEdit(fund)")
+        assert "activate: true" in form and 'created.status === "ACTIVE"' in form and "created and active" in form
+
+    def test_what_the_pages_send_is_what_the_api_accepts(self):
+        from api.schemas.finance import FundCreate, ScopeCreate
+
+        assert {"activate", "scope_name", "scope_type"} <= set(ScopeCreate.model_fields) and "activate" in FundCreate.model_fields
+        assert ScopeCreate.model_fields["scope_code"].is_required() is False
+
+
+def _between_text(text: str, start: str, end: str) -> str:
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+class TestOnlyAFinanceAdministratorCreatesScopesAndFunds:
+    def test_the_create_buttons_follow_the_servers_answer(self):
+        assert "get canAdministerFinance() {" in FIN_JS and "this.finRef.finance_admin" in FIN_JS
+        for button in ('x-show="canAdministerFinance" @click="finOpenScopeForm()">+ New scope</button>',
+                       'x-show="canAdministerFinance && !finFundForm.show" @click="finFundsOpenNew()">+ New fund</button>'):
+            assert button in ADMIN_HTML
+        assert 'x-show="canAdministerFinance && !finFundForm.show && [\'DRAFT\',\'ACTIVE\'].includes(finScope.status)"' in ADMIN_HTML
+        assert 'x-show="canManageFinance" @click="finOpenScopeForm()"' not in ADMIN_HTML
+
+    def test_the_reference_field_exists_in_the_api(self):
+        from api.schemas.finance import FinanceReference
+
+        assert "finance_admin" in FinanceReference.model_fields

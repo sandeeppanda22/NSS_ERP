@@ -81,7 +81,7 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
 // Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
-const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers", "finSetup", "finCollections"];
+const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finTransactions", "finTransfers", "finSetup", "finCollections"];
 
 // The title in the top banner for every admin-console tab (one list: it used to be written out twice in admin.html, and eighteen tabs were in neither).
 // orgDashboard is named after the organization on screen (currentTabLabel below); a tab missing here falls back to "Administration".
@@ -94,7 +94,7 @@ const ADMIN_TAB_LABELS = {
     govBodies: "Governance Bodies", govAssignments: "Governance Assignments", govElections: "Elections", govCatalog: "Body Types & Positions",
     attPujas: "Weekly Sangha Puja", attReviews: "Attendance Reviews", attWatchList: "Watch List & Stats",
     properties: "Properties", assets: "Assets",
-    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finFunds: "Finance Funds", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
+    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finFunds: "Finance Funds", finBudget: "Kendra Annual Budget", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
     finCollections: "UPI Collections", finSetup: "Finance Heads",
     auditEvents: "System Event Log", liveMarkers: "Live Change Markers",
 };
@@ -137,7 +137,9 @@ const LIVE_TABLE_TABS = {
     financial_payment: ["finTransactions"],
     financial_transfer: ["finOverview", "finTransfers"],
     // Customization + UPI collection: heads and accounts shape the transaction forms; requests move the overview figures.
-    finance_head: ["finSetup", "finTransactions", "finCollections"],
+    finance_head: ["finSetup", "finTransactions", "finCollections", "finBudget"],
+    finance_budget: ["finBudget"],
+    finance_budget_line: ["finBudget"],
     financial_account: ["finSetup"],
     upi_payment_request: ["finCollections", "finOverview"],
     finance_disbursement_authority: ["finTransactions", "finTransfers"],
@@ -232,6 +234,7 @@ const LIVE_REFRESH_CONFIG = {
         finOverview: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finFunds: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finBudget: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finSetup: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
@@ -313,6 +316,7 @@ function adminApp() {
     // maintenance/statutory/documents for both the Properties and Assets tabs.
     // NSSFinanceSetup.install() adds the Finance customization + UPI collection screens (finance-setup.js): Heads &
     // Accounts and UPI Collections.
+    // NSSFinanceBudget.install() adds the Kendra annual budget tab (finance-budget.js, FIN-BR-041).
     // NSSFinance.install() adds the Finance screens (finance.js): permission getters and the
     // Overview / Years & Scopes / Transactions / Transfers tabs (FINANCE_VIEW / MANAGE / APPROVE).
     // NSSAuditDiagnostics.install() adds the AUDIT_VIEW-gated System Event Log explorer and
@@ -320,7 +324,7 @@ function adminApp() {
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceBudget.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -1696,6 +1700,7 @@ function adminApp() {
                     finOverview: () => this.canViewFinance && this.finEnterTab("finOverview"),
                     finStructure: () => this.canViewFinance && this.finEnterTab("finStructure"),
                     finFunds: () => this.canViewFinance && this.finEnterTab("finFunds"),
+                    finBudget: () => this.canViewFinance && this.finEnterTab("finBudget"),
                     finTransactions: () => this.canViewFinance && this.finEnterTab("finTransactions"),
                     finTransfers: () => this.canViewFinance && this.finEnterTab("finTransfers"),
                     finSetup: () => this.canViewFinance && this.finEnterTab("finSetup"),
@@ -9547,5 +9552,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    })))))), LIVE_REFRESH_CONFIG);
+    }))))))), LIVE_REFRESH_CONFIG);
 }

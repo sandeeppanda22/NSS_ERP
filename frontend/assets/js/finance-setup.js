@@ -114,7 +114,8 @@
             // it by SEAT (finance_approval.require_not_the_treasurer); this only greys the fields out and says why.
             get finControlsLocked() {
                 const roles = ((this.currentUser && this.currentUser.scopes) || []).map((s) => s.role_code);
-                return roles.includes("NSS_ERP_SAKHA_TREASURER") && !roles.some((r) => ["NSS_ERP_ADMIN", "NSS_ERP_KENDRA_ADMIN", "NSS_ERP_SAKHA_ADMIN"].includes(r));
+                // Whoever also holds a Finance role (the President / Secretary by seat, or an admin given one) or is the NSS ERP Administrator may change them.
+                return roles.includes("NSS_ERP_SAKHA_TREASURER") && !roles.some((r) => ["NSS_ERP_ADMIN", "NSS_ERP_SAKHA_FINANCE_ADMIN", "NSS_ERP_KENDRA_FINANCE_ADMIN"].includes(r));
             },
             async finSetupOrgChanged() { await this.finEnsureDefaultHeads(); return Promise.all([this.finSetupReload(), this.finPolicyLoad()]); },
 

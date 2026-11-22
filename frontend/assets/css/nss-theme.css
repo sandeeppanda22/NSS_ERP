@@ -345,3 +345,22 @@
 .nss-theme .count-tile--lapsed { border-left-color: #64748b; }
 .nss-theme .count-tile--expelled { border-left-color: #dc2626; }
 .nss-theme .count-tile--deceased { border-left-color: #475569; }
+
+/* Kendra annual budget (admin.html, Finance > Annual Budget): the four steps a budget moves through. */
+.nss-theme .bud-steps { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; list-style: none; margin: 0 0 0.9rem; padding: 0; }
+.nss-theme .bud-step { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: #64748b; }
+.nss-theme .bud-step__dot { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 9999px; border: 1.5px solid #cbd5e1; background: #ffffff; font-size: 0.72rem; font-weight: 700; }
+.nss-theme .bud-step--current { color: #0f172a; font-weight: 600; }
+.nss-theme .bud-step--current .bud-step__dot { border-color: #0D7377; background: #f0fdfa; color: #0D7377; }
+.nss-theme .bud-step--done { color: #0f172a; }
+.nss-theme .bud-step--done .bud-step__dot { border-color: #0D7377; background: #0D7377; color: #ffffff; }
+
+/* Budget facts: the value sits left-aligned under its label, however long (letter numbers, a summary). */
+.nss-theme .bud-facts .data-value { display: block; text-align: left; width: 100%; overflow-wrap: anywhere; }
+.nss-theme .bud-facts .data-value .fh-sub { display: block; margin-top: 0.15rem; font-weight: 400; text-align: left; }
+/* Budget money tiles: a figure like 1,00,00,110.00 must fit its tile - smaller type and it may wrap rather than be cut off. */
+.nss-theme .bud-tiles { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.nss-theme .bud-tiles .count-tile__value { font-size: 1.2rem; overflow-wrap: anywhere; }
+.nss-theme .bud-facts .data-row { justify-content: flex-start; }
+.nss-theme .bud-facts .data-label { flex: 0 0 auto; }
+.nss-theme .bud-facts .data-value { padding-left: 0; flex-shrink: 1; }

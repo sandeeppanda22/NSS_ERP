@@ -29,6 +29,7 @@
     <script src="/assets/js/finance.js"></script>
     <script src="/assets/js/finance-setup.js"></script>
     <script src="/assets/js/finance-funds.js"></script>
+    <script src="/assets/js/finance-budget.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
     <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
@@ -910,6 +911,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
                                 </svg>
                                 Funds
+                            </a>
+                            <a class="nav-item" :class="{ active: activeTab === 'finBudget' }" @click="finEnterTab('finBudget')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+                                </svg>
+                                Annual Budget
                             </a>
                             <a class="nav-item" :class="{ active: activeTab === 'finTransactions' }" @click="finEnterTab('finTransactions')">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -7916,7 +7923,7 @@
                          come from the server's own table (GET /finance/reference).
                          Four tabs: finOverview, finStructure, finTransactions, finTransfers.
                          ═══════════════════════════════════════════ -->
-                    <div x-show="['finOverview','finStructure','finFunds','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
+                    <div x-show="['finOverview','finStructure','finFunds','finBudget','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
 
                         <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
 
@@ -8102,7 +8109,7 @@
                                     <div class="form-grid-2">
                                         <div>
                                             <label class="form-label">Scope code</label>
-                                            <input type="text" class="form-input" maxlength="50" x-model="finScopeForm.scope_code" placeholder="e.g. KENDRA-REGULAR" autocomplete="off">
+                                            <input type="text" class="form-input" value="Made automatically: the Sakha's code + the name" disabled>
                                         </div>
                                         <div>
                                             <label class="form-label">Scope name</label>
@@ -8161,7 +8168,7 @@
                                     <h2 class="data-card-title">Financial scopes</h2>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
                                         <span class="count-chip" x-text="finScopesTotal + ' total'"></span>
-                                        <button class="btn-action primary" x-show="canManageFinance" @click="finOpenScopeForm()">+ New scope</button>
+                                        <button class="btn-action primary" x-show="canAdministerFinance" @click="finOpenScopeForm()">+ New scope</button>
                                     </div>
                                 </div>
                                 <div class="data-card-body">
@@ -8265,7 +8272,7 @@
                                     <div class="data-card">
                                         <div class="data-card-header">
                                             <h2 class="data-card-title">Funds in this scope</h2>
-                                            <button class="btn-action primary" x-show="canManageFinance && !finFundForm.show && ['DRAFT','ACTIVE'].includes(finScope.status)" @click="finOpenFundForm()">+ New fund</button>
+                                            <button class="btn-action primary" x-show="canAdministerFinance && !finFundForm.show && ['DRAFT','ACTIVE'].includes(finScope.status)" @click="finOpenFundForm()">+ New fund</button>
                                         </div>
                                         <div class="data-card-body">
                                             <div class="form-section" x-show="finFundForm.show">
@@ -8449,7 +8456,7 @@
                                     <h2 class="data-card-title">Funds</h2>
                                     <div class="data-card-subtitle">A fund is a labelled part of a scope's money, for example a Sinking Fund or a restricted donation. Every entry can name the fund it belongs to.</div>
                                 </div>
-                                <button class="btn-action primary" x-show="canManageFinance && !finFundForm.show" @click="finFundsOpenNew()">+ New fund</button>
+                                <button class="btn-action primary" x-show="canAdministerFinance && !finFundForm.show" @click="finFundsOpenNew()">+ New fund</button>
                             </div>
                             <div class="data-card-body">
                                 <!-- The Sangha: a Sakha admin's admin scope names one, so it is shown, not asked; wider admins may search one Sangha or see all in their scope -->
@@ -8636,6 +8643,236 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- ═══════════════════════════════════════════
+                         VIEW: Finance - Kendra annual budget (Bye-Law, FIN-BR-041; finance-budget.js, rules in api/services/finance_budget.py)
+                         Draft -> referred to the Advisory Board -> its views on file -> passed by the Governing Body. Flags spending, never blocks it.
+                         ═══════════════════════════════════════════ -->
+                    <div x-show="activeTab === 'finBudget'" x-cloak>
+                        <div class="alert-msg alert-error" x-show="finBudgetError" x-text="finBudgetError"></div>
+
+                        <!-- The list -->
+                        <div class="data-card" x-show="!finBudget">
+                            <div class="data-card-header">
+                                <div>
+                                    <h2 class="data-card-title">Kendra annual budget</h2>
+                                    <div class="data-card-subtitle">The Governing Body passes an annual budget. The draft goes to the Advisory Board for its considered views first; the budget then shows how the year is going against it.</div>
+                                </div>
+                                <button class="btn-action primary" x-show="canManageFinance && !finBudgetStart.show && finBudgetFreeYears.length > 0" @click="finBudgetStartOpen()">+ Start a budget</button>
+                            </div>
+                            <div class="data-card-body">
+                                <div class="pend-box" x-show="finBudgetStart.show" x-cloak>
+                                    <label class="form-label">Financial year</label>
+                                    <select class="nss-select" style="max-width:22rem;" x-model="finBudgetStart.year">
+                                        <option value="">Select…</option>
+                                        <template x-for="y in finBudgetFreeYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code + ' (' + finLabel(y.status) + ')'"></option></template>
+                                    </select>
+                                    <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetStart.error" x-text="finBudgetStart.error"></div>
+                                    <div class="fh-actions" style="margin-top:0.6rem;">
+                                        <button class="btn-action primary" :disabled="finBudgetStart.saving" @click="finBudgetStartSubmit()">Start the budget</button>
+                                        <button class="btn-action" :disabled="finBudgetStart.saving" @click="finBudgetStart = { show: false, year: '', saving: false, error: '' }">Cancel</button>
+                                    </div>
+                                </div>
+                                <div class="alert-msg alert-error" x-show="finBudgetsError" x-text="finBudgetsError"></div>
+                                <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finBudgetsLoading"><div class="spinner"></div></div>
+                                <div class="empty-note" x-show="!finBudgetsLoading && !finBudgetsError && finBudgets.length === 0">
+                                    No Kendra budget to show. Only an administrator whose scope includes the Kendra sees it; use "+ Start a budget" to begin one for a financial year.
+                                </div>
+                                <div style="overflow-x:auto;" x-show="!finBudgetsLoading && finBudgets.length > 0">
+                                    <table class="admin-table">
+                                        <thead><tr><th>Year</th><th>Status</th><th>Referred</th><th>Advisory Board</th><th>Resolution</th><th></th></tr></thead>
+                                        <tbody>
+                                            <template x-for="b in finBudgets" :key="b.finance_budget_pk">
+                                                <tr>
+                                                    <td><div class="fh-name" x-text="b.year_code"></div><div class="fh-sub" x-text="b.organization_name"></div></td>
+                                                    <td><span class="badge badge-xs" :class="finBadge(b.status)" x-text="finLabel(b.status)"></span></td>
+                                                    <td style="font-size:0.82rem;" x-text="finBudgetShown(b.referred_on)"></td>
+                                                    <td style="font-size:0.82rem;"><span x-text="b.advisory_reference || '-'"></span><div class="fh-sub" x-show="b.advisory_views_date" x-text="finBudgetShown(b.advisory_views_date)"></div></td>
+                                                    <td style="font-size:0.82rem;"><span x-text="b.resolution_reference || '-'"></span><div class="fh-sub" x-show="b.resolution_date" x-text="finBudgetShown(b.resolution_date)"></div></td>
+                                                    <td><button class="link-action" @click="finBudgetOpen(b.finance_budget_pk)">Open</button></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- One budget -->
+                        <template x-if="finBudget">
+                            <div>
+                                <div class="data-card">
+                                    <div class="data-card-header">
+                                        <div>
+                                            <h2 class="data-card-title">Budget <span x-text="finBudget.year_code"></span> <span class="badge badge-xs" :class="finBadge(finBudget.status)" x-text="finLabel(finBudget.status)"></span></h2>
+                                            <div class="data-card-subtitle" x-text="finBudget.organization_name"></div>
+                                        </div>
+                                        <div class="fh-actions" style="width:auto;">
+                                            <button class="btn-action primary" x-show="finBudgetCanEdit && !finBudgetEditing" @click="finBudgetEdit()">Edit budget</button>
+                                            <button class="btn-action" @click="finBudgetClose()">Back to the list</button>
+                                        </div>
+                                    </div>
+                                    <div class="data-card-body">
+                                        <ol class="bud-steps">
+                                            <template x-for="(s, i) in finBudgetSteps" :key="s.key">
+                                                <li class="bud-step" :class="{ 'bud-step--done': s.done, 'bud-step--current': s.current }">
+                                                    <span class="bud-step__dot" x-text="s.done ? '✓' : i + 1"></span><span class="bud-step__label" x-text="s.label"></span>
+                                                </li>
+                                            </template>
+                                        </ol>
+                                        <p class="form-hint" x-show="finBudget.next_step"><strong>Next:</strong> <span x-text="finBudget.next_step"></span></p>
+                                        <div class="data-rows md-facts bud-facts" x-show="finBudget.referred_on">
+                                            <div class="data-row"><span class="data-label">Referred to the Advisory Board</span><span class="data-value"><span x-text="finBudgetShown(finBudget.referred_on)"></span>
+                                                <span x-show="finBudget.referral_reference"> · letter <span class="mono" x-text="finBudget.referral_reference"></span></span>
+                                                <span class="fh-sub" x-show="finBudget.referral_inward_reference">Advisory Board's copy: <span class="mono" x-text="finBudget.referral_inward_reference"></span></span></span></div>
+                                            <div class="data-row" x-show="finBudget.advisory_reference"><span class="data-label">Advisory Board's reply</span><span class="data-value"><span class="mono" x-text="finBudget.advisory_reference"></span> · <span x-text="finBudgetShown(finBudget.advisory_views_date)"></span>
+                                                <span class="fh-sub" x-show="finBudget.views_inward_reference">Kendra's copy: <span class="mono" x-text="finBudget.views_inward_reference"></span></span></span></div>
+                                            <div class="data-row" x-show="finBudget.advisory_views_summary"><span class="data-label">What it said</span><span class="data-value" x-text="finBudget.advisory_views_summary"></span></div>
+                                            <div class="data-row" x-show="finBudget.resolution_reference"><span class="data-label">Governing Body resolution</span><span class="data-value"><span x-text="finBudget.resolution_reference"></span> · <span x-text="finBudgetShown(finBudget.resolution_date)"></span></span></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="count-tiles bud-tiles">
+                                    <div class="count-tile"><span class="count-tile__value" x-text="finMoney(finBudget.totals.planned_income)"></span><span class="count-tile__label">Planned income</span></div>
+                                    <div class="count-tile"><span class="count-tile__value" x-text="finMoney(finBudget.totals.planned_expense)"></span><span class="count-tile__label">Planned spending</span></div>
+                                    <div class="count-tile count-tile--active"><span class="count-tile__value" x-text="finMoney(finBudget.totals.planned_surplus)"></span><span class="count-tile__label">Planned surplus</span></div>
+                                    <div class="count-tile"><span class="count-tile__value" x-text="finMoney(finBudget.totals.actual_income)"></span><span class="count-tile__label">Income so far</span></div>
+                                    <div class="count-tile"><span class="count-tile__value" x-text="finMoney(finBudget.totals.actual_expense)"></span><span class="count-tile__label">Spent so far</span></div>
+                                </div>
+
+                                <div class="data-card" id="bud-lines-card">
+                                    <div class="data-card-header">
+                                        <div>
+                                            <h2 class="data-card-title">Budget lines</h2>
+                                            <div class="data-card-subtitle">One planned amount for each head. "So far" counts only posted and settled entries of this year. A line is a guide: spending above it is flagged, never blocked.</div>
+                                        </div>
+                                    </div>
+                                    <div class="data-card-body">
+                                        <div class="pend-box" x-show="finBudgetCanEditLines && finBudgetEditing && finBudgetNeedsReason" x-cloak>
+                                            <label class="form-label">Reason for changing the budget</label>
+                                            <input type="text" class="form-input" maxlength="500" x-model="finBudgetReason" placeholder="Required: why a line is being changed or removed">
+                                            <p class="form-hint" style="margin-bottom:0;">This budget has already <span x-text="finBudget.status === 'PASSED' ? 'been passed by the Governing Body' : 'gone to the Advisory Board'"></span>. You may still change it; each change is recorded with this reason and the old and new amounts. To have the Advisory Board consider a changed draft again, use "Send back to draft" below.</p>
+                                        </div>
+                                        <div class="pend-box" id="bud-line-form" x-show="finBudgetCanEditLines && finBudgetEditing" x-cloak>
+                                            <h3 class="form-label" x-text="finBudgetLine.editing ? 'Change this line' : 'Add a line'"></h3>
+                                            <div class="form-grid-2">
+                                                <div>
+                                                    <label class="form-label">Head</label>
+                                                    <select class="nss-select" x-model="finBudgetLine.head" :disabled="finBudgetLine.editing">
+                                                        <option value="">Select…</option>
+                                                        <template x-for="h in (finBudgetLine.editing ? finBudgetHeads : finBudgetFreeHeads)" :key="h.finance_head_pk"><option :value="h.finance_head_pk" x-text="h.head_name + ' (' + finCode(h.direction) + ')'"></option></template>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="form-label">Planned amount</label>
+                                                    <input type="text" inputmode="decimal" class="form-input" x-model="finBudgetLine.amount" placeholder="0.00" maxlength="16">
+                                                </div>
+                                            </div>
+                                            <div style="margin-top:0.6rem;">
+                                                <label class="form-label">Note (optional)</label>
+                                                <input type="text" class="form-input" x-model="finBudgetLine.notes" maxlength="500">
+                                            </div>
+                                            <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetLine.error" x-text="finBudgetLine.error"></div>
+                                            <div class="fh-actions" style="margin-top:0.6rem;">
+                                                <button class="btn-action primary" :disabled="finBudgetLine.saving" @click="finBudgetLineSave()" x-text="finBudgetLine.editing ? 'Save the change' : 'Add the line'"></button>
+                                                <button class="btn-action" :disabled="finBudgetLine.saving" @click="finBudgetEditCancel()">Cancel</button>
+                                            </div>
+                                        </div>
+                                        <p class="form-hint" x-show="finBudgetCanEditLines && finBudgetHeadsNote" x-text="finBudgetHeadsNote"></p>
+                                        <p class="form-hint" x-show="finBudgetCanEditLines && !finBudgetHeadsNote && finBudgetHeads.length > 0 && finBudgetFreeHeads.length === 0">Every head already has a line; use Change on a line to alter its amount.</p>
+                                        <div class="empty-note" x-show="finBudget.lines.length === 0">No lines yet.</div>
+                                        <div style="overflow-x:auto;" x-show="finBudget.lines.length > 0">
+                                            <table class="admin-table">
+                                                <thead><tr><th>Head</th><th>Planned</th><th>So far</th><th>Left</th><th></th></tr></thead>
+                                                <tbody>
+                                                    <template x-for="l in finBudget.lines" :key="l.finance_budget_line_pk">
+                                                        <tr>
+                                                            <td>
+                                                                <div class="fh-name" x-text="l.head_name"></div>
+                                                                <div class="fh-sub"><span x-text="finCode(l.direction)"></span> · <span class="mono" x-text="l.head_code"></span>
+                                                                    <span class="badge badge-xs badge-fin-bad" x-show="l.over_budget">Over budget</span></div>
+                                                                <div class="fh-sub" x-show="l.notes" x-text="l.notes"></div>
+                                                            </td>
+                                                            <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(l.amount)"></td>
+                                                            <td style="font-size:0.82rem;"><span x-text="finMoney(l.actual)"></span><div class="fh-sub" x-text="finBudgetUsedPercent(l) + '% of the line'"></div></td>
+                                                            <td style="font-size:0.82rem;" :style="Number(l.remaining) < 0 ? 'color:#b91c1c; font-weight:600;' : ''" x-text="finMoney(l.remaining)"></td>
+                                                            <td>
+                                                                <button class="link-action" x-show="finBudgetCanEditLines && finBudgetEditing" @click="finBudgetLineOpen(l)">Change</button>
+                                                                <button class="link-action" x-show="finBudgetCanEditLines && finBudgetEditing" @click="finBudgetLineRemove(l)">Remove</button>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div x-show="finBudget.unbudgeted.length > 0" style="margin-top:1rem;">
+                                            <h3 class="form-label">Booked on heads with no budget line</h3>
+                                            <p class="form-hint">For information: this money is real and counts in the totals above, but the budget has no line for it.</p>
+                                            <table class="admin-table">
+                                                <tbody>
+                                                    <template x-for="u in finBudget.unbudgeted" :key="u.finance_head_pk">
+                                                        <tr><td><div class="fh-name" x-text="u.head_name"></div><div class="fh-sub" x-text="finCode(u.direction)"></div></td>
+                                                            <td style="font-size:0.82rem; font-weight:600;" x-text="finMoney(u.actual)"></td></tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- What happens next (only for someone who may record it) -->
+                                <div class="data-card" x-show="finBudgetCanAct && finBudget.status !== 'PASSED'">
+                                    <div class="data-card-header"><div>
+                                        <h2 class="data-card-title">Record the next step</h2>
+                                        <div class="data-card-subtitle">Each step is a fact with its reference and date, in order. The Advisory Board's views must be on file before the budget can pass; they are its considered views, not a veto.</div>
+                                    </div></div>
+                                    <div class="data-card-body">
+                                        <div x-show="finBudget.status === 'DRAFT'">
+                                            <p class="form-hint" style="margin-top:0;">Referring files a numbered letter from the Kendra to the Advisory Board in Correspondence, and the Advisory Board receives its own copy, automatically.</p>
+                                            <label class="form-label">Date sent (today if left empty)</label>
+                                            <input type="date" class="form-input" style="max-width:14rem;" x-model="finBudgetRefer.date" :max="finBudgetToday">
+                                            <p class="form-hint" x-show="finBudget.lines.length === 0">Add at least one budget line first.</p>
+                                            <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetRefer.error" x-text="finBudgetRefer.error"></div>
+                                            <button class="btn-action primary" style="margin-top:0.6rem;" :disabled="finBudgetRefer.saving || finBudget.lines.length === 0" @click="finBudgetDoRefer()">Refer to the Advisory Board and file the letter</button>
+                                        </div>
+                                        <div x-show="finBudget.status === 'REFERRED'">
+                                            <p class="form-hint" style="margin-top:0;">Recording the reply files the Advisory Board's numbered letter to the Kendra in Correspondence (a reply to its copy of the referral). That number becomes the reference; nothing to type.</p>
+                                            <label class="form-label">Date of its reply (today if left empty)</label>
+                                            <input type="date" class="form-input" style="max-width:14rem;" x-model="finBudgetViews.date" :min="finBudget.referred_on" :max="finBudgetToday">
+                                            <div style="margin-top:0.6rem;"><label class="form-label">What the Advisory Board said</label>
+                                                <textarea class="form-input" rows="3" maxlength="2000" x-model="finBudgetViews.summary"></textarea></div>
+                                            <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetViews.error" x-text="finBudgetViews.error"></div>
+                                            <button class="btn-action primary" style="margin-top:0.6rem;" :disabled="finBudgetViews.saving" @click="finBudgetDoViews()">Record the reply and file it</button>
+                                        </div>
+                                        <div x-show="finBudget.status === 'VIEWS_RECEIVED'">
+                                            <div class="form-grid-2">
+                                                <div><label class="form-label">Governing Body resolution</label>
+                                                    <input type="text" class="form-input" x-model="finBudgetPass.reference" maxlength="100" placeholder="Resolution reference"></div>
+                                                <div><label class="form-label">Date of the resolution</label>
+                                                    <input type="date" class="form-input" x-model="finBudgetPass.date" :min="finBudget.advisory_views_date" :max="finBudgetToday"></div>
+                                            </div>
+                                            <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetPass.error" x-text="finBudgetPass.error"></div>
+                                            <button class="btn-action primary" style="margin-top:0.6rem;" :disabled="finBudgetPass.saving" @click="finBudgetDoPass()">Record that the budget is passed</button>
+                                        </div>
+                                        <!-- Until it has passed, a draft can go back (the referral facts are cleared; the audit trail keeps them) -->
+                                        <div x-show="finBudget.status !== 'DRAFT'" style="margin-top:1rem;">
+                                            <button class="link-action" x-show="!finBudgetBack.show" @click="finBudgetSendBack()">Send back to draft…</button>
+                                            <div class="pend-box" id="bud-back-box" x-show="finBudgetBack.show" x-cloak>
+                                                <label class="form-label">Why does the draft go back?</label>
+                                                <textarea class="form-input" rows="2" maxlength="1000" x-model="finBudgetBack.remarks"></textarea>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetBack.error" x-text="finBudgetBack.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;">
+                                                    <button class="btn-action" :disabled="finBudgetBack.saving" @click="finBudgetDoBack()">Send back to draft</button>
+                                                    <button class="btn-action" :disabled="finBudgetBack.saving" @click="finBudgetBack = { show: false, remarks: '', saving: false, error: '' }">Cancel</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
 
                         <!-- ═════════ Transactions ═════════ -->

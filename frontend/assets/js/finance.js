@@ -54,7 +54,7 @@
     const newTx = () => ({ show: false, saving: false, error: "", entity: "", pk: "", label: "", target: "", remarks: "", remarksRequired: false });
     const newYearForm = () => ({ show: false, saving: false, error: "", start_year: "" });
     const newScopeForm = () => ({
-        show: false, saving: false, error: "", scope_code: "", scope_name: "", scope_type: "ORGANIZATION",
+        show: false, saving: false, error: "", scope_name: "", scope_type: "ORGANIZATION",
         organization: emptyPicker(), financial_year_pk: "", parent_scope_pk: "",
     });
     const newScopeEdit = () => ({ show: false, saving: false, error: "", name: "" });
@@ -107,6 +107,10 @@
             get canManageFinance() {
                 const p = this._finPerms();
                 return p.includes("FINANCE_MANAGE") || p.includes("FINANCE_APPROVE");
+            },
+            // Scopes and funds are set up by a finance ADMINISTRATOR only (owner 2026-11-22); the server decides (finRef.finance_admin) and enforces it.
+            get canAdministerFinance() {
+                return this.canManageFinance && !!(this.finRef && this.finRef.finance_admin);
             },
             get canApproveFinance() {
                 return this._finPerms().includes("FINANCE_APPROVE");
@@ -312,6 +316,8 @@
                     await Promise.all([this.finLoadYears(), this.finLoadScopes()]);
                 } else if (this.activeTab === "finFunds") {
                     await this.finFundsEnter();                      // finance-funds.js
+                } else if (this.activeTab === "finBudget") {
+                    await this.finBudgetEnter();                     // finance-budget.js
                 } else if (this.activeTab === "finTransactions") {
                     this.finTxn = null; this.finTxnForm = newTxnForm();
                     await Promise.all([this.finLoadYears(), this.finLoadScopeOptions(), this.finLoadTxns()]);
@@ -330,7 +336,7 @@
                 return [this.finYearForm, this.finScopeForm, this.finScopeEdit, this.finFundForm, this.finTxnForm,
                     this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx, this.finAuth, this.finBillForm]
                     .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk
-                    || this.finSetupBusy() || this.finReqBusy();
+                    || this.finSetupBusy() || this.finReqBusy() || this.finBudgetBusy();
             },
             async finLiveReload() {
                 const tab = this.activeTab;
@@ -340,6 +346,8 @@
                     if (this.finScope) await this.finReloadScope(); else await this.finLoadScopes({ silent: true });
                 } else if (tab === "finFunds") {
                     await this.finFundsReload();
+                } else if (tab === "finBudget") {
+                    await this.finBudgetReload();
                 } else if (tab === "finTransactions") {
                     if (this.finTxn) await this.finReloadTxn(); else await this.finLoadTxns({ silent: true });
                 } else if (tab === "finTransfers") {
@@ -477,18 +485,19 @@
             },
             async finSubmitScope() {
                 const f = this.finScopeForm;
-                if (!blank(f.scope_code) || !blank(f.scope_name)) { f.error = "Scope code and name are required."; return; }
+                if (!blank(f.scope_name)) { f.error = "The scope name is required."; return; }
                 if (f.scope_type === "ORGANIZATION" && !f.organization.selected) { f.error = "An organization scope must name its organization."; return; }
                 f.saving = true; f.error = "";
                 try {
                     const body = {
-                        scope_code: f.scope_code.trim(), scope_name: f.scope_name.trim(), scope_type: f.scope_type,
+                        // No code is sent: the server makes it from the Sangha's code and the name. Created ACTIVE (the same permission does both).
+                        scope_name: f.scope_name.trim(), scope_type: f.scope_type, activate: true,
                         organization_pk: this.finSetupScopeOrg ? this.finSetupScopeOrg.organization_pk : (f.organization.selected ? f.organization.selected.organization_pk : null),
                         financial_year_pk: f.financial_year_pk || null, parent_scope_pk: f.parent_scope_pk || null,
                     };
                     const created = await this._finSend("POST", "/scopes", body);
                     this.finScopeForm = newScopeForm();
-                    this._finNote(`Scope ${created.scope_code} created (Draft). Activate it to take transactions.`);
+                    this._finNote(`Scope ${created.scope_code} created and active.`);
                     this.finFundOptions = {};
                     await Promise.all([this.finLoadScopes({ silent: true }), this.finLoadScopeOptions()]);
                     await this.finOpenScope(created.financial_scope_pk);
@@ -564,9 +573,11 @@
                         financial_scope_pk: scopePk, is_restricted: f.is_restricted,
                         restriction_purpose: f.is_restricted ? f.restriction_purpose.trim() : null,
                         organization_pk: f.organization.selected ? f.organization.selected.organization_pk : null,
+                        activate: true,                      // active at once when its scope is active (the server decides)
                     });
                     this.finFundForm = newFundForm();
-                    this._finNote(`Fund ${created.fund_code} created (Draft). Activate it to use it.`);
+                    this._finNote(created.status === "ACTIVE" ? `Fund ${created.fund_code} created and active.`
+                        : `Fund ${created.fund_code} created as a draft: its scope is not active yet.`);
                     this.finFundOptions = {};
                     await this._finReloadAfter("fund");
                 } catch (err) {

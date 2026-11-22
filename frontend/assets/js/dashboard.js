@@ -70,6 +70,17 @@ const ADMIN_TAB_MAP = {
         description: "Record your Sakha's receipts, payments and transfers and follow its finance",
         adminUrl: "/admin#finOverview",
     },
+    // A Finance role (owner 2026-11-22): held by assignment, or by seat - a Sakha's President / Secretary, the Kendra Governing Body's Treasurer / Secretary (the Bye-Law: they keep and jointly operate the funds).
+    NSS_ERP_SAKHA_FINANCE_ADMIN: {
+        label: "Sakha Finance",
+        description: "Set up your Sakha's scopes and funds, record and configure its finance",
+        adminUrl: "/admin#finOverview",
+    },
+    NSS_ERP_KENDRA_FINANCE_ADMIN: {
+        label: "Kendra Finance",
+        description: "Set up, record, configure and approve the Kendra's finance",
+        adminUrl: "/admin#finOverview",
+    },
     NSS_ERP_AUDITOR: {
         label: "Audit & Compliance",
         description: "View audit trails, compliance reports",
