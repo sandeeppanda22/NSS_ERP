@@ -27,6 +27,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     head_pk,
     make_scope,
     make_txn,
+    new_year,
     move,
     post_txn,
     register_org_pk,
@@ -51,13 +52,7 @@ def kendra_org_pk(write_conn):
 def _year(client, h, *, open_: bool = False) -> dict:
     for _ in range(60):
         start = next(_years)
-        r = client.post(f"{BASE}/years", json={"start_year": start}, headers=h)
-        if r.status_code == 201:
-            year = r.json()
-        elif r.status_code == 409:
-            year = next((y for y in client.get(f"{BASE}/years", headers=h).json()["items"] if int(y["year_code"][:4]) == start), None)
-        else:
-            raise AssertionError(r.text)
+        year = new_year(client, h, start) or next((y for y in client.get(f"{BASE}/years", headers=h).json()["items"] if int(y["year_code"][:4]) == start), None)
         if year is None or year["status"] in ("CLOSING", "CLOSED"):
             continue
         if open_ and year["status"] == "PLANNED":

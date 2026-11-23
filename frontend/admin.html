@@ -8058,22 +8058,23 @@
                             <div class="data-card" x-show="!finScope && !finScopeForm.show">
                                 <div class="data-card-header">
                                     <h2 class="data-card-title">Financial years</h2>
-                                    <button class="btn-action primary" x-show="canApproveFinance && !finYearForm.show" @click="finOpenYearForm()">+ New year</button>
+                                    <button class="btn-action primary" x-show="canApproveFinance && !finYearForm.show && finYearChoices.length > 0" @click="finOpenYearForm()">+ New year</button>
                                 </div>
                                 <div class="data-card-body">
-                                    <div class="form-section" x-show="finYearForm.show">
-                                        <div class="form-grid-2" style="align-items:end;">
-                                            <div>
-                                                <label class="form-label">Starting year</label>
-                                                <input type="number" min="2000" max="2100" class="form-input" x-model="finYearForm.start_year" placeholder="2026">
-                                                <p class="form-hint">A financial year always runs 1 April – 31 March, e.g. 2026 → 2026-27.</p>
-                                            </div>
-                                            <div style="display:flex; gap:0.5rem;">
-                                                <button class="btn-action primary" :disabled="finYearForm.saving" @click="finSubmitYear()" x-text="finYearForm.saving ? 'Saving…' : 'Create year'"></button>
-                                                <button class="btn-action" :disabled="finYearForm.saving" @click="finYearForm.show = false">Cancel</button>
-                                            </div>
+                                    <p class="form-hint" style="margin-bottom:0.8rem;" x-show="canApproveFinance && finYearBlockedBy" x-cloak>
+                                        The next financial year can be created once <strong x-text="finYearBlockedBy && finYearBlockedBy.year_code"></strong> (<span x-text="finYearBlockedBy && finLabel(finYearBlockedBy.status)"></span>) is closed.
+                                    </p>
+                                    <div class="pend-box" style="margin-bottom:1rem;" x-show="finYearForm.show" x-cloak>
+                                        <label class="form-label">Starting year</label>
+                                        <select class="nss-select" style="max-width:14rem;" x-model="finYearForm.start_year">
+                                            <template x-for="(c, i) in finYearChoices" :key="c.value"><option :value="c.value" x-text="c.label + (i === 0 ? ' (next)' : '')"></option></template>
+                                        </select>
+                                        <p class="form-hint">A financial year always runs 1 April – 31 March, e.g. 2026-27. Only the next one can be created, and only once the last is closed.</p>
+                                        <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finYearForm.error" x-text="finYearForm.error"></div>
+                                        <div class="fh-actions" style="margin-top:0.6rem; width:auto;">
+                                            <button class="btn-action primary" :disabled="finYearForm.saving" @click="finSubmitYear()" x-text="finYearForm.saving ? 'Saving…' : 'Create year'"></button>
+                                            <button class="btn-action" :disabled="finYearForm.saving" @click="finYearForm.show = false">Cancel</button>
                                         </div>
-                                        <div class="alert-msg alert-error" style="margin-top:0.6rem;" x-show="finYearForm.error" x-text="finYearForm.error"></div>
                                     </div>
                                     <div class="alert-msg alert-error" x-show="finYearsError" x-text="finYearsError"></div>
                                     <div class="empty-note" x-show="finYears.length === 0 && !finYearsError">No financial year yet.</div>

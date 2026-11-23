@@ -147,13 +147,33 @@ def make_year(client, headers, *, open_: bool = True) -> dict:
         if y["status"] == wanted and int(y["year_code"][:4]) in _YEAR_RANGE:
             return y
     for _ in _YEAR_RANGE:
-        r = client.post(f"{BASE}/years", json={"start_year": next(_year_counter)}, headers=headers)
-        if r.status_code == 409:
+        year = new_year(client, headers, next(_year_counter))
+        if year is None:
             continue                                   # that year exists in some other state: try the next one
-        assert r.status_code == 201, r.text
-        year = r.json()
         return move(client, headers, "years", year["financial_year_pk"], "OPEN") if open_ else year
     raise AssertionError(f"no {wanted} financial year could be created or reused")
+
+
+def new_year(client, headers, start_year: int) -> dict | None:
+    """
+    Set up a PLANNED financial year as TEST DATA, directly in the database: the API creates a year only when the last one is CLOSED and only the next one
+    (owner 2026-11-23), which tests that build years of their own cannot be bound by. None when that year already exists. The API's own rule is tested
+    in tests/api/test_finance_year_rule.py through POST /years.
+    """
+    from datetime import date as _date
+
+    from api.dependencies.auth import get_write_connection
+    from api.main import app
+
+    conn = next(app.dependency_overrides[get_write_connection]())          # the one connection the API and the tests share
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO nss.financial_year (year_code, start_date, end_date) VALUES (%s, %s, %s) ON CONFLICT (year_code) DO NOTHING RETURNING financial_year_pk",
+            (f"{start_year}-{(start_year + 1) % 100:02d}", _date(start_year, 4, 1), _date(start_year + 1, 3, 31)),
+        )
+        if cur.fetchone() is None:
+            return None
+    return next(y for y in client.get(f"{BASE}/years", headers=headers).json()["items"] if int(y["year_code"][:4]) == start_year)
 
 
 def adopt_templates(client, headers, organization_pk) -> dict | None:

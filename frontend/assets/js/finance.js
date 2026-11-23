@@ -373,9 +373,25 @@
                     this.finYearsError = err.message || "Failed to load financial years.";
                 }
             },
+            // The latest financial year (by start). A new year is created only when it is CLOSED (owner 2026-11-23), and only the very next one; the server
+            // enforces both (finance.py::check_next_year), the page just offers what it will accept.
+            get finLatestYear() {
+                return this.finYears.reduce((best, y) => (!best || Number(String(y.year_code).slice(0, 4)) > Number(String(best.year_code).slice(0, 4)) ? y : best), null);
+            },
+            // The dropdown: the NEXT financial year, alone - the one after the latest, or the current one when none exists yet (a year runs 1 April - 31 March);
+            // nothing at all while the latest year is not CLOSED (finYearBlockedBy says which).
+            get finYearChoices() {
+                const latest = this.finLatestYear;
+                if (latest && latest.status !== "CLOSED") return [];
+                const now = new Date();
+                const currentStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+                const next = latest ? Number(String(latest.year_code).slice(0, 4)) + 1 : currentStart;
+                return next <= 2100 ? [{ value: String(next), label: `${next}-${String(next + 1).slice(2)}` }] : [];
+            },
+            get finYearBlockedBy() { const latest = this.finLatestYear; return latest && latest.status !== "CLOSED" ? latest : null; },
             finOpenYearForm() {
-                const latest = this.finYears.length ? Math.max(...this.finYears.map((y) => Number(y.year_code.slice(0, 4)))) : new Date().getFullYear() - 1;
-                this.finYearForm = { ...newYearForm(), show: true, start_year: String(latest + 1) };
+                const first = this.finYearChoices[0];
+                this.finYearForm = { ...newYearForm(), show: true, start_year: first ? first.value : "" };
             },
             async finSubmitYear() {
                 const f = this.finYearForm;

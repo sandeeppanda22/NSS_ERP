@@ -636,15 +636,38 @@ def list_years(user: UserContext = Depends(_VIEW), conn=Depends(get_connection))
     return {"items": items, "total": len(items)}
 
 
+def year_code_of(start_year: int) -> str:
+    return f"{start_year}-{(start_year + 1) % 100:02d}"
+
+
+def check_next_year(latest: tuple | None, start_year: int) -> None:
+    """
+    A new financial year is created only when the LAST one is CLOSED, and it is the very next one (owner 2026-11-23). *latest* is (year_code, status, start
+    year) of the year with the latest start, or None when there is no year yet - then any year may be the first. Pure: no database.
+    """
+    if latest is None:
+        return
+    code, state, start = latest
+    if state != "CLOSED":
+        raise _invalid(f"The latest financial year {code} is {state}; a new financial year can be created only when the last one is CLOSED.")
+    if start_year != start + 1:
+        raise _invalid(f"The next financial year after {code} is {year_code_of(start + 1)}; years are created one after another.")
+
+
 @router.post("/years", response_model=S.YearResponse, status_code=status.HTTP_201_CREATED)
 def create_year(body: S.YearCreate, user: UserContext = Depends(_APPROVE), conn=Depends(get_write_connection)):
-    """Create the Financial Year starting 01 April of ``start_year`` (status PLANNED). Global authority only."""
+    """
+    Create the Financial Year starting 01 April of ``start_year`` (status PLANNED). Global authority only. Only when the latest financial year is CLOSED, and
+    only the very next one (owner 2026-11-23: "only a new financial year will be created when the last FY is closed").
+    """
     with conn.cursor() as cur:
         _require_global(cur, user, "create a financial year")
-        code = f"{body.start_year}-{(body.start_year + 1) % 100:02d}"
+        code = year_code_of(body.start_year)
         cur.execute("SELECT 1 FROM nss.financial_year WHERE year_code = %s", (code,))
         if cur.fetchone():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Financial year {code} already exists.")
+        cur.execute("SELECT year_code, status, EXTRACT(YEAR FROM start_date)::int FROM nss.financial_year WHERE is_active = TRUE ORDER BY start_date DESC LIMIT 1")
+        check_next_year(cur.fetchone(), body.start_year)
         cur.execute(
             """
             INSERT INTO nss.financial_year (year_code, start_date, end_date, created_by_sangha_sevi_pk)
