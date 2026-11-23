@@ -8109,7 +8109,8 @@
                                     <div class="form-grid-2">
                                         <div>
                                             <label class="form-label">Scope code</label>
-                                            <input type="text" class="form-input" value="Made automatically: the Sakha's code + the name" disabled>
+                                            <input type="text" class="form-input" disabled
+                                                   :value="'Made automatically: the Sakha\'s code + ' + ((finRef && finRef.scope_type_codes && finRef.scope_type_codes[finScopeForm.scope_type]) || 'the type code')">
                                         </div>
                                         <div>
                                             <label class="form-label">Scope name</label>

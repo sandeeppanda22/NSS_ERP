@@ -53,18 +53,32 @@ def _unique(word="Drive") -> str:
     return f"{word} {uuid4().hex[:6]}"
 
 
-class TestScopeCode:
-    def test_the_code_is_the_sakha_code_then_the_name(self, client, admin_h, register_org_pk, write_conn):
-        name = _unique("Annual Festival")
-        scope = _scope(client, admin_h, register_org_pk, name)
-        expected_tail = "-".join(name.upper().split())
-        assert scope["scope_code"] == f"{_prefix(write_conn, register_org_pk)}-{expected_tail}"[:50].rstrip("-")
+def _number(code: str, base: str) -> int:
+    """1 for ``base``, N for ``base-N``: the position in the numbering of one Sangha's codes of one type."""
+    assert code == base or code.startswith(base + "-"), (code, base)
+    return int(code[len(base) + 1:]) if code != base else 1
 
-    def test_a_second_scope_of_the_same_name_is_numbered(self, client, admin_h, register_org_pk):
-        name = _unique("Rasa")
-        first = _scope(client, admin_h, register_org_pk, name)
-        second = _scope(client, admin_h, register_org_pk, name)
-        assert second["scope_code"] == first["scope_code"] + "-2"
+
+class TestScopeCode:
+    """Owner 2026-11-23: the scope code is the Sangha's code + the scope TYPE's code (master data: ORG, EVT, SPL, RSTR), numbered when taken; the name plays no part."""
+
+    def test_the_code_is_the_sakha_code_then_the_scope_type_code(self, client, admin_h, register_org_pk, write_conn):
+        base = _prefix(write_conn, register_org_pk)
+        for scope_type, code in (("ORGANIZATION", "ORG"), ("EVENT", "EVT"), ("SPECIAL_PURPOSE", "SPL"), ("RESTRICTED_FUND", "RSTR")):
+            scope = _scope(client, admin_h, register_org_pk, _unique(), scope_type=scope_type)
+            assert _number(scope["scope_code"], f"{base}-{code}") >= 1, scope["scope_code"]
+
+    def test_the_name_plays_no_part(self, client, admin_h, register_org_pk, write_conn):
+        a = _scope(client, admin_h, register_org_pk, "Annual Festival", scope_type="EVENT")["scope_code"]
+        b = _scope(client, admin_h, register_org_pk, "Something else entirely", scope_type="EVENT")["scope_code"]
+        base = f"{_prefix(write_conn, register_org_pk)}-EVT"
+        assert "FESTIVAL" not in a and _number(b, base) == _number(a, base) + 1                 # numbered by type, whatever the names
+
+    def test_a_second_scope_of_the_same_type_is_numbered(self, client, admin_h, register_org_pk, write_conn):
+        base = f"{_prefix(write_conn, register_org_pk)}-SPL"
+        first = _scope(client, admin_h, register_org_pk, _unique(), scope_type="SPECIAL_PURPOSE")["scope_code"]
+        second = _scope(client, admin_h, register_org_pk, _unique(), scope_type="SPECIAL_PURPOSE")["scope_code"]
+        assert _number(second, base) == _number(first, base) + 1
 
     def test_a_code_that_is_given_is_still_used_and_a_duplicate_is_refused(self, client, admin_h, register_org_pk):
         code = f"MINE{uuid4().hex[:6].upper()}"
@@ -72,14 +86,28 @@ class TestScopeCode:
         r = client.post(f"{BASE}/scopes", json={"scope_code": code, "scope_name": "x", "scope_type": "SPECIAL_PURPOSE"}, headers=admin_h)
         assert r.status_code == 409
 
-    def test_a_scope_with_no_organization_is_coded_from_its_name(self, client, admin_h):
-        name = _unique("Special Drive")
-        r = client.post(f"{BASE}/scopes", json={"scope_name": name, "scope_type": "SPECIAL_PURPOSE"}, headers=admin_h)
-        assert r.status_code == 201 and r.json()["scope_code"] == "-".join(name.upper().split())
+    def test_a_scope_with_no_organization_takes_the_type_code_alone(self, client, admin_h):
+        r = client.post(f"{BASE}/scopes", json={"scope_name": _unique(), "scope_type": "SPECIAL_PURPOSE"}, headers=admin_h)
+        assert r.status_code == 201 and (r.json()["scope_code"] == "SPL" or r.json()["scope_code"].startswith("SPL-"))
 
     def test_a_blank_name_is_refused(self, client, admin_h, register_org_pk):
         r = client.post(f"{BASE}/scopes", json={"scope_name": "   ", "scope_type": "ORGANIZATION", "organization_pk": str(register_org_pk)}, headers=admin_h)
         assert r.status_code == 422
+
+    def test_the_reference_lists_the_scope_type_codes_and_they_are_master_data(self, client, admin_h):
+        codes = client.get(f"{BASE}/reference", headers=admin_h).json()["scope_type_codes"]
+        assert codes == {"ORGANIZATION": "ORG", "EVENT": "EVT", "SPECIAL_PURPOSE": "SPL", "RESTRICTED_FUND": "RSTR"}
+        listed = client.get("/api/v1/foundation/master-data", params={"category_code": "SCOPE_TYPE_CODE"}, headers=admin_h)
+        assert listed.status_code == 200 and len(listed.json()) == 4
+
+    def test_an_edited_scope_type_code_is_what_the_next_scope_gets_and_a_missing_one_is_a_clear_422(self, client, admin_h, register_org_pk, write_conn):
+        cur = write_conn.cursor()
+        sub = "(SELECT master_category_pk FROM nss.master_category WHERE category_code = 'SCOPE_TYPE_CODE')"
+        cur.execute(f"UPDATE nss.master_data SET value_code = 'RSTD' WHERE description = 'RESTRICTED_FUND' AND master_category_pk = {sub}")
+        assert _scope(client, admin_h, register_org_pk, _unique(), scope_type="RESTRICTED_FUND")["scope_code"].startswith(f"{_prefix(write_conn, register_org_pk)}-RSTD")
+        cur.execute(f"UPDATE nss.master_data SET is_active = FALSE, deleted_at = NOW() WHERE description = 'SPECIAL_PURPOSE' AND master_category_pk = {sub}")
+        r = client.post(f"{BASE}/scopes", json={"scope_name": "x", "scope_type": "SPECIAL_PURPOSE", "organization_pk": str(register_org_pk)}, headers=admin_h)
+        assert r.status_code == 422 and "Scope Type Code" in r.text
 
 
 class TestActiveAtOnce:

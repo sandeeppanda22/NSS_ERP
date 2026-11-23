@@ -23,7 +23,7 @@ What exists today:
 | API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 27 router modules, 381 endpoints (registered routes counted from `app.routes`, 2026-11-20 — a `@router.*` decorator grep undercounts by the 12 added by `assets_property.py::_register_entity_routes`). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 97 tables in schema `nss` (Finance, Tier 12: 18, merged into `develop`), no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
-| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (7072 items collected on 2026-11-23: api 3732, db 534, security 1691, ui 1115). |
+| Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (7071 items collected on 2026-11-23: api 3729, db 534, security 1691, ui 1117). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
 
 Not built: Flutter mobile client, Tiers 7-13 (Heritage, Programmes & Events, Kumari/Kishor/Sevak,
@@ -277,7 +277,7 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `python3 -m pytest --collect-only -qq`
-reports 7072 items (api 3732, db 534, security 1691, ui 1115; 2026-11-23); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
+reports 7071 items (api 3729, db 534, security 1691, ui 1117; 2026-11-23); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)

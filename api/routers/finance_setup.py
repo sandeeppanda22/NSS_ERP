@@ -692,7 +692,7 @@ def create_event(body: S.EventCreate, user: UserContext = Depends(_CONFIGURE), c
         F._require_org_access(cur, user, body.organization_pk, "set up an event for this organization")
         F._require_active_organization(cur, body.organization_pk, "Organization")
         suffix = uuid4().hex[:8].upper()
-        scope_code, head_code = f"EVT{suffix}", f"EVENT_{suffix}"
+        scope_code, head_code = FC.scope_code_for(cur, body.organization_pk, "EVENT"), f"EVENT_{suffix}"
         # All or nothing: a refused setup (wrong account, no gateway...) must not leave a half-built event scope behind.
         cur.execute("SAVEPOINT event_setup")
         try:

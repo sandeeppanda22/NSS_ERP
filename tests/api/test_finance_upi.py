@@ -8,6 +8,7 @@ transaction + issued receipt -> the member's own Pranami. No money moves. The ga
 (mock_gateway fixture), which is itself asserted.
 """
 
+import re
 import json
 from contextlib import contextmanager
 from datetime import date
@@ -697,7 +698,7 @@ class TestEvents:
         scope = client.get(f"{BASE}/scopes/{head['collection_scope_pk']}", headers=admin_h).json()
         assert scope["scope_type"] == "EVENT" and scope["status"] == "ACTIVE" and scope["organization_pk"] == str(register_org_pk)
         listed = client.get(f"{BASE}/heads", params={"events_only": True, "organization_pk": str(register_org_pk), "page_size": 100}, headers=admin_h).json()["items"]
-        assert head["finance_head_pk"] in {h["finance_head_pk"] for h in listed} and all(h["collection_scope_code"].startswith("EVT") for h in listed)
+        assert head["finance_head_pk"] in {h["finance_head_pk"] for h in listed} and all(re.search(r"(^|-)EVT(-\d+)?$", h["collection_scope_code"]) for h in listed)
 
     def test_a_member_sees_and_pays_the_event_and_is_told_its_name(self, client, admin_h, write_conn, register_org_pk, mock_gateway, plain_member_h):
         ensure_open_year_covering_today(write_conn)

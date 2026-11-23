@@ -416,11 +416,13 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
         disbursement_purposes = authority_service.purposes(cur)
         finance_admin = _is_finance_admin(cur, user)
         fund_type_codes = contribution_service.fund_type_codes(cur)
+        scope_type_codes = contribution_service.scope_type_codes(cur)
     return {
         "finance_admin": finance_admin,
         "payment_methods": methods,
         "fund_types": list(S.FUND_TYPES),
         "fund_type_codes": fund_type_codes,
+        "scope_type_codes": scope_type_codes,
         "scope_types": list(S.SCOPE_TYPES),
         "transaction_types": list(S.TRANSACTION_TYPES),
         "head_directions": list(S.HEAD_DIRECTIONS),
@@ -778,7 +780,7 @@ def list_scopes(
 def create_scope(body: S.ScopeCreate, user: UserContext = Depends(_MANAGE), conn=Depends(get_write_connection)):
     """
     Create a Financial Scope - DRAFT, or ACTIVE with ``activate`` (owner 2026-11-22: the same permission does both, so a draft is an extra
-    step). The code is made from the Sangha's code and the name when none is given. Admin scope on its organization; none -> global only.
+    step). The code is made from the Sangha's code and the scope type's code (EKM-ORG) when none is given. Admin scope on its organization; none -> global only.
     """
     if body.scope_type not in S.SCOPE_TYPES:
         raise _invalid(f"scope_type must be one of: {', '.join(S.SCOPE_TYPES)}.")
@@ -798,7 +800,7 @@ def create_scope(body: S.ScopeCreate, user: UserContext = Depends(_MANAGE), conn
             _check_parent_scope(cur, user, body.parent_scope_pk)
         generated = not code
         if generated:
-            code = contribution_service.scope_code_for(cur, body.organization_pk, name)
+            code = contribution_service.scope_code_for(cur, body.organization_pk, body.scope_type)
         else:
             cur.execute("SELECT 1 FROM nss.financial_scope WHERE scope_code = %s", (code,))
             if cur.fetchone():

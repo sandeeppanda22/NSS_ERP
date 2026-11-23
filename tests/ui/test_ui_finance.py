@@ -758,10 +758,21 @@ class TestFundCodeIsAutomatic:
         assert "finFundForm.fund_code" not in ADMIN_HTML and 'fund_code: "", fund_name' not in FIN_JS
 
     def test_both_fund_forms_say_the_code_is_made_automatically_with_the_types_code(self):
-        assert ADMIN_HTML.count("Made automatically: the Sakha\\'s code + ") == 2
-        assert "finRef.fund_type_codes[finFundForm.fund_type]" in ADMIN_HTML
+        assert ADMIN_HTML.count("finRef.fund_type_codes[finFundForm.fund_type]") == 2                    # the two fund forms
 
     def test_the_type_codes_reach_the_page_from_the_reference(self):
         from api.schemas.finance import FinanceReference
 
         assert "fund_type_codes" in FinanceReference.model_fields           # read from master data (category FUND_TYPE_CODE) by the reference endpoint
+
+
+class TestScopeCodeShowsItsTypeCode:
+    def test_the_scope_form_shows_how_the_code_is_made_with_the_types_own_code(self):
+        assert "finRef.scope_type_codes[finScopeForm.scope_type]" in ADMIN_HTML
+        assert ADMIN_HTML.count("Made automatically: the Sakha\\'s code + ") == 3                         # one scope form, two fund forms
+        assert "Made automatically: the Sakha's code + the name" not in ADMIN_HTML
+
+    def test_the_type_codes_reach_the_page_from_the_reference(self):
+        from api.schemas.finance import FinanceReference
+
+        assert "scope_type_codes" in FinanceReference.model_fields

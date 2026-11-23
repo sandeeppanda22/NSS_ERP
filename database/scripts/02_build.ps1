@@ -720,6 +720,7 @@ Invoke-Sql "finance head approval flags patch" "$SeedBase\12_finance\04_finance_
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
 Invoke-Sql "finance disbursement purpose patch" "$SeedBase\12_finance\03_finance_disbursement_purpose_patch.sql"
 Invoke-Sql "finance fund type code patch" "$SeedBase\12_finance\05_fund_type_code_patch.sql"
+Invoke-Sql "finance scope type code patch" "$SeedBase\12_finance\06_scope_type_code_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 Invoke-Sql "live_change_triggers" "$DdlBase\12_live_refresh\02_live_change_triggers.sql"

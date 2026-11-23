@@ -89,6 +89,7 @@ class FinanceReference(BaseModel):
     payment_methods: list[NamedCode]
     fund_types: list[str]
     fund_type_codes: dict[str, str]        # each fund type's short code (the part of an automatic fund code that names the type)
+    scope_type_codes: dict[str, str]       # each scope type's short code (the part of an automatic scope code that names the type)
     scope_types: list[str]
     transaction_types: list[str]
     head_directions: list[str]
@@ -128,7 +129,7 @@ class YearListResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ScopeCreate(BaseModel):
-    scope_code: str | None = Field(None, min_length=1, max_length=50, description="Left out, it is made from the Sangha's code and the scope name (EKM-ANNUAL-FESTIVAL)")
+    scope_code: str | None = Field(None, min_length=1, max_length=50, description="Left out, it is made from the Sangha's code and the scope type's code (EKM-ORG, EKM-EVT)")
     scope_name: str = Field(..., min_length=1, max_length=200)
     scope_type: str = Field(..., description="ORGANIZATION / EVENT / SPECIAL_PURPOSE / RESTRICTED_FUND")
     organization_pk: UUID | None = Field(None, description="Owning organization; omit for a scope with none (global authority only)")

@@ -636,6 +636,7 @@ run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
 run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
 run_sql "finance fund type code patch" "${SEED_BASE}/12_finance/05_fund_type_code_patch.sql"
+run_sql "finance scope type code patch" "${SEED_BASE}/12_finance/06_scope_type_code_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 # Idempotent, runs EVERY deploy: the watched-table list may grow; must run after every table it names exists.
