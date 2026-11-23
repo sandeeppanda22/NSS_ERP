@@ -59,7 +59,7 @@
     });
     const newScopeEdit = () => ({ show: false, saving: false, error: "", name: "" });
     const newFundForm = () => ({
-        show: false, saving: false, error: "", fund_code: "", fund_name: "", fund_type: "GENERAL",
+        show: false, saving: false, error: "", fund_name: "", fund_type: "GENERAL",
         financial_scope_pk: "",      // the Funds tab picks the scope here; inside a scope's detail it is that scope
         is_restricted: false, restriction_purpose: "", organization: emptyPicker({ typeCodes: NSS.SAKHA_LIKE_ORG_TYPES }),
     });
@@ -561,7 +561,7 @@
             finOpenFundForm() { this.finFundForm = { ...newFundForm(), show: true, organization: this._finOwnOrgPicker({ typeCodes: NSS.SAKHA_LIKE_ORG_TYPES }) }; },
             async finSubmitFund() {
                 const f = this.finFundForm;
-                if (!blank(f.fund_code) || !blank(f.fund_name)) { f.error = "Fund code and name are required."; return; }
+                if (!blank(f.fund_name)) { f.error = "The fund name is required."; return; }
                 if (f.is_restricted && !blank(f.restriction_purpose)) { f.error = "A restricted fund must state its purpose."; return; }
                 if (this.finFundNeedsSakha && !f.organization.selected) { f.error = "A Sinking Fund must name its Sakha."; return; }
                 const scopePk = f.financial_scope_pk || (this.finScope && this.finScope.financial_scope_pk);
@@ -569,7 +569,8 @@
                 f.saving = true; f.error = "";
                 try {
                     const created = await this._finSend("POST", "/funds", {
-                        fund_code: f.fund_code.trim(), fund_name: f.fund_name.trim(), fund_type: f.fund_type,
+                        // No code is sent: the server makes it from the Sangha's code and the fund type's code (EKM-GEN).
+                        fund_name: f.fund_name.trim(), fund_type: f.fund_type,
                         financial_scope_pk: scopePk, is_restricted: f.is_restricted,
                         restriction_purpose: f.is_restricted ? f.restriction_purpose.trim() : null,
                         organization_pk: f.organization.selected ? f.organization.selected.organization_pk : null,

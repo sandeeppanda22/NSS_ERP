@@ -26,6 +26,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import psycopg2
+from fastapi import HTTPException
 
 from api.helpers import SAKHA_LIKE_ORG_TYPES_SQL, log_audit
 from api.schemas.finance import DUE_PERIODS  # noqa: F401  (re-exported: the one list of due periods lives in the schemas)
@@ -103,6 +104,7 @@ def _audit(cur, user, action: str, table: str, pk, summary: str, detail: dict | 
 # ───────────────────────── scope / account for a Sangha ─────────────────────────
 
 SCOPE_CODE_MAX = 50      # nss.financial_scope.scope_code
+FUND_CODE_MAX = 50       # nss.fund_master.fund_code
 
 
 def code_part(text) -> str:
@@ -131,20 +133,70 @@ def readable_scope_code(cur, short_code) -> str | None:
     return first_free_scope_code(cur, f"{base}-GENERAL", 9) if base else None
 
 
+def org_code_prefix(cur, organization_pk) -> str:
+    """A Sangha's code as the front of a generated code: its short code, its organization code when it has none, "" for no Sangha."""
+    if organization_pk is None:
+        return ""
+    cur.execute("SELECT short_code, organization_code FROM nss.organization WHERE organization_pk = %s", (str(organization_pk),))
+    row = cur.fetchone()
+    return code_part((row[0] or row[1]) if row else "")
+
+
 def scope_code_for(cur, organization_pk, scope_name: str) -> str:
     """
     The code of a new scope, made for the user (owner 2026-11-22: "scope code should come automatic (Sakha code + name)"): the owning
     Sangha's short code - its organization code when it has none - then the scope's name, e.g. ``EKM-ANNUAL-FESTIVAL``; ``-2``.. when
     taken. A scope with no organization takes the name alone; the random form is the last resort.
     """
-    prefix = ""
-    if organization_pk is not None:
-        cur.execute("SELECT short_code, organization_code FROM nss.organization WHERE organization_pk = %s", (str(organization_pk),))
-        row = cur.fetchone()
-        prefix = code_part((row[0] or row[1]) if row else "")
-    parts = [p for p in (prefix, code_part(scope_name)) if p]
+    parts = [p for p in (org_code_prefix(cur, organization_pk), code_part(scope_name)) if p]
     base = "-".join(parts)
     return (first_free_scope_code(cur, base, 99) if base else None) or f"SCOPE{uuid4().hex[:8].upper()}"
+
+
+FUND_TYPE_CODE_CATEGORY = "FUND_TYPE_CODE"
+
+
+def fund_type_codes(cur) -> dict[str, str]:
+    """
+    The short code of each fund type, from MASTER DATA (category FUND_TYPE_CODE; owner 2026-11-23: "add these codes with other master data"):
+    {fund type -> code}. value_code is the code, description the fund type it stands for. Only active rows.
+    """
+    cur.execute(
+        """
+        SELECT md.description, md.value_code
+          FROM nss.master_data md
+          JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+         WHERE mc.category_code = %s AND md.is_active = TRUE AND md.description IS NOT NULL
+         ORDER BY md.display_order, md.value_code
+        """,
+        (FUND_TYPE_CODE_CATEGORY,),
+    )
+    return {fund_type: code for fund_type, code in cur.fetchall()}
+
+
+def fund_type_code(cur, fund_type: str) -> str:
+    code = fund_type_codes(cur).get(fund_type)
+    if not code:
+        raise HTTPException(status_code=422, detail=f"The fund type {fund_type} has no short code: add one under Reference data, category Fund Type Code "
+                                                    "(or give the fund its own code).")
+    return code
+
+
+def fund_code_for(cur, scope_pk, organization_pk, fund_type: str) -> str:
+    """
+    The code of a new fund, made for the user (owner 2026-11-22: "fund code automatic: Org code + Fund Type Code"): the Sangha's code + the fund
+    type's short code (api/schemas/finance.py::FUND_TYPE_CODES), e.g. ``EKM-GEN``, ``EKM-SINK``. A fund code is unique within its scope, so a second
+    fund of the same type there is ``EKM-GEN-2`` and so on. *organization_pk* is the Sangha the fund belongs to - the Sakha of a Sinking Fund, else
+    the scope's own. With no Sangha the type code stands alone.
+    """
+    base = "-".join(p for p in (org_code_prefix(cur, organization_pk), fund_type_code(cur, fund_type)) if p)
+    for n in range(1, 100):
+        suffix = "" if n == 1 else f"-{n}"
+        candidate = base[: FUND_CODE_MAX - len(suffix)].rstrip("-") + suffix
+        cur.execute("SELECT 1 FROM nss.fund_master WHERE financial_scope_pk = %s AND fund_code = %s", (str(scope_pk), candidate))
+        if cur.fetchone() is None:
+            return candidate
+    return f"FUND{uuid4().hex[:8].upper()}"
 
 
 def ensure_org_scope(cur, user, org_pk) -> str:

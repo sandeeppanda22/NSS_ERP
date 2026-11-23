@@ -135,6 +135,7 @@
 #             ddl/14_finance/14_finance_head_fixed_amount_patch.sql (fixed amount / due period / part payment / all-Sakhas columns)
 #             ddl/14_finance/15_finance_head_approval_patch.sql (skips_approval / treasurer_limit / requires_member), then
 #             seed/12_finance/04_finance_head_approval_patch.sql (pre-defined income heads skip approval; MEMBER_REIMBURSEMENT)
+#             seed/12_finance/05_fund_type_code_patch.sql (master category FUND_TYPE_CODE: the short code of each fund type, e.g. GEN, SINK)
 #   Phase 13c ddl/13_audit_actor_fk/01_audit_actor_fk_patch.sql (FK on every *_by_sangha_sevi_pk, NOT VALID then VALIDATE)
 # Table count: 95 (3+14+1+2+6+16+5+2+10+5+4+2+7+1+15+1 = Phases 0,1,3,5,6,7,10,11,11b,11d,11e,11f,11g,11h,11i,14).
 #
@@ -804,6 +805,7 @@ run_sql "finance budget letters patch" "${DDL_BASE}/14_finance/23_finance_budget
 run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_head_approval_patch.sql"
 # Bye-Law-permitted disbursement purposes (DISBURSEMENT_PURPOSE master_data) for the Kendra / Mahila disbursement authority.
 run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
+run_sql "finance fund type code patch" "${SEED_BASE}/12_finance/05_fund_type_code_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 run_sql "live_change_triggers" "${DDL_BASE}/12_live_refresh/02_live_change_triggers.sql"

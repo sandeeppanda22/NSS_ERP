@@ -415,10 +415,12 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
         methods = [{"code": r[0], "name": r[1]} for r in cur.fetchall()]
         disbursement_purposes = authority_service.purposes(cur)
         finance_admin = _is_finance_admin(cur, user)
+        fund_type_codes = contribution_service.fund_type_codes(cur)
     return {
         "finance_admin": finance_admin,
         "payment_methods": methods,
         "fund_types": list(S.FUND_TYPES),
+        "fund_type_codes": fund_type_codes,
         "scope_types": list(S.SCOPE_TYPES),
         "transaction_types": list(S.TRANSACTION_TYPES),
         "head_directions": list(S.HEAD_DIRECTIONS),
@@ -945,7 +947,7 @@ def create_fund(body: S.FundCreate, user: UserContext = Depends(_MANAGE), conn=D
     if body.fund_type not in S.FUND_TYPES:
         raise _invalid(f"fund_type must be one of: {', '.join(S.FUND_TYPES)}.")
     code, name, purpose = _clean(body.fund_code), _clean(body.fund_name), _clean(body.restriction_purpose)
-    if not code or not name:
+    if not name or (body.fund_code is not None and not code):
         raise _invalid("fund_code and fund_name cannot be blank.")
     if body.is_restricted and not purpose:
         raise _invalid("A restricted fund must state its restriction_purpose (FIN-BR-020).")
@@ -962,9 +964,13 @@ def create_fund(body: S.FundCreate, user: UserContext = Depends(_MANAGE), conn=D
         if body.organization_pk is not None:
             _require_active_organization(cur, body.organization_pk, "Organization")
             require_org_in_scope(cur, user, body.organization_pk, "create a fund for this organization")
-        cur.execute("SELECT 1 FROM nss.fund_master WHERE financial_scope_pk = %s AND fund_code = %s", (str(body.financial_scope_pk), code))
-        if cur.fetchone():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Fund code {code} already exists in this scope.")
+        generated = not code
+        if generated:
+            code = contribution_service.fund_code_for(cur, body.financial_scope_pk, body.organization_pk or scope["organization_pk"], body.fund_type)
+        else:
+            cur.execute("SELECT 1 FROM nss.fund_master WHERE financial_scope_pk = %s AND fund_code = %s", (str(body.financial_scope_pk), code))
+            if cur.fetchone():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Fund code {code} already exists in this scope.")
         fund_status = "ACTIVE" if body.activate and scope["status"] == "ACTIVE" else "DRAFT"     # a fund is only active inside an ACTIVE scope
         cur.execute(
             """
@@ -978,7 +984,7 @@ def create_fund(body: S.FundCreate, user: UserContext = Depends(_MANAGE), conn=D
         )
         pk = cur.fetchone()[0]
         _audit(cur, user, "CREATE", "fund_master", pk, f"Created fund {code} in scope {scope['scope_code']}" + (" (active)" if fund_status == "ACTIVE" else ""),
-               {"status": fund_status})
+               {"status": fund_status, "code_generated": generated})
         return _fund_response(cur, pk)
 
 

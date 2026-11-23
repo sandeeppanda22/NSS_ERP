@@ -36,6 +36,8 @@ FUND_TYPES = (
     "MEMBERSHIP_SUBSCRIPTION", "PRANAMI", "DONATION", "GRANT",
     "PROPERTY_INCOME", "MISCELLANEOUS",
 )
+# The short code of each fund type (3-5 letters, the second half of an automatic fund code, EKM-GEN) is MASTER DATA - category FUND_TYPE_CODE, seeded by
+# database/seed/12_finance/05_fund_type_code_patch.sql and read by finance_contribution.fund_type_codes(); a new fund type needs a row there.
 TRANSACTION_TYPES = ("INCOME", "EXPENSE", "ADJUSTMENT")
 TRANSACTION_STATUSES = ("DRAFT", "PENDING_APPROVAL", "APPROVED", "POSTED", "SETTLED", "REJECTED", "CANCELLED")
 # The purpose a transaction is booked under is a FINANCE HEAD (finance_head), customizable per Sangha: there is
@@ -86,6 +88,7 @@ class FinanceReference(BaseModel):
     finance_admin: bool                     # the caller is a finance ADMINISTRATOR (may create scopes and funds), not only a Treasurer
     payment_methods: list[NamedCode]
     fund_types: list[str]
+    fund_type_codes: dict[str, str]        # each fund type's short code (the part of an automatic fund code that names the type)
     scope_types: list[str]
     transaction_types: list[str]
     head_directions: list[str]
@@ -170,7 +173,7 @@ class ScopeListResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════
 
 class FundCreate(BaseModel):
-    fund_code: str = Field(..., min_length=1, max_length=50)
+    fund_code: str | None = Field(None, min_length=1, max_length=50, description="Left out, it is made from the Sangha's code and the fund type's code (EKM-GEN)")
     fund_name: str = Field(..., min_length=1, max_length=200)
     fund_type: str
     financial_scope_pk: UUID

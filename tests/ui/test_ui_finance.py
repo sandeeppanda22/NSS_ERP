@@ -749,3 +749,19 @@ class TestOnlyAFinanceAdministratorCreatesScopesAndFunds:
         from api.schemas.finance import FinanceReference
 
         assert "finance_admin" in FinanceReference.model_fields
+
+
+class TestFundCodeIsAutomatic:
+    def test_the_fund_form_asks_no_code_and_sends_none(self):
+        form = _between_text(FIN_JS, "async finSubmitFund()", "finStartFundEdit(fund)")
+        assert "fund_code:" not in form and "f.fund_code" not in form and "The fund name is required." in form
+        assert "finFundForm.fund_code" not in ADMIN_HTML and 'fund_code: "", fund_name' not in FIN_JS
+
+    def test_both_fund_forms_say_the_code_is_made_automatically_with_the_types_code(self):
+        assert ADMIN_HTML.count("Made automatically: the Sakha\\'s code + ") == 2
+        assert "finRef.fund_type_codes[finFundForm.fund_type]" in ADMIN_HTML
+
+    def test_the_type_codes_reach_the_page_from_the_reference(self):
+        from api.schemas.finance import FinanceReference
+
+        assert "fund_type_codes" in FinanceReference.model_fields           # read from master data (category FUND_TYPE_CODE) by the reference endpoint

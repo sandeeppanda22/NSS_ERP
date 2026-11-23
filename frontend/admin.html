@@ -8279,7 +8279,8 @@
                                                 <div class="form-grid-2">
                                                     <div>
                                                         <label class="form-label">Fund code</label>
-                                                        <input type="text" class="form-input" maxlength="50" x-model="finFundForm.fund_code" autocomplete="off">
+                                                        <input type="text" class="form-input" disabled
+                                                               :value="'Made automatically: the Sakha\'s code + ' + ((finRef && finRef.fund_type_codes && finRef.fund_type_codes[finFundForm.fund_type]) || 'the type code')">
                                                     </div>
                                                     <div>
                                                         <label class="form-label">Fund name</label>
@@ -8501,7 +8502,8 @@
                                         </div>
                                         <div>
                                             <label class="form-label">Fund code</label>
-                                            <input type="text" class="form-input" maxlength="50" x-model="finFundForm.fund_code" autocomplete="off">
+                                            <input type="text" class="form-input" disabled
+                                                               :value="'Made automatically: the Sakha\'s code + ' + ((finRef && finRef.fund_type_codes && finRef.fund_type_codes[finFundForm.fund_type]) || 'the type code')">
                                         </div>
                                         <div>
                                             <label class="form-label">Fund name</label>

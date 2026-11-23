@@ -164,3 +164,74 @@ class TestWhoMayCreateScopesAndFunds:
         r = client.post(f"{BASE}/scopes", headers=other_admin_h, json={**self._body(other_org_pk), "activate": True})
         assert r.status_code == 201
         assert client.get(f"{BASE}/reference", headers=other_admin_h).json()["finance_admin"] is True
+
+
+class TestFundCode:
+    """Owner 2026-11-22: the fund code is the Sangha's code + the fund type's code (EKM-GEN); numbered when the scope already has one of that type."""
+
+    def _fund(self, client, h, scope, fund_type="GENERAL", **over):
+        body = {"fund_name": _unique("Fund"), "fund_type": fund_type, "financial_scope_pk": scope["financial_scope_pk"]}
+        body.update(over)
+        return client.post(f"{BASE}/funds", json=body, headers=h)
+
+    def test_the_code_is_the_sakha_code_plus_the_type_code(self, client, admin_h, register_org_pk, write_conn):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        r = self._fund(client, admin_h, scope)
+        assert r.status_code == 201 and r.json()["fund_code"] == f"{_prefix(write_conn, register_org_pk)}-GEN", r.text
+        r2 = self._fund(client, admin_h, scope, fund_type="PUBLICATION")
+        assert r2.json()["fund_code"] == f"{_prefix(write_conn, register_org_pk)}-PUB"
+
+    def test_a_second_fund_of_the_same_type_in_the_scope_is_numbered(self, client, admin_h, register_org_pk, write_conn):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        first, second, third = (self._fund(client, admin_h, scope).json()["fund_code"] for _ in range(3))
+        assert second == first + "-2" and third == first + "-3"
+
+    def test_the_same_type_in_another_scope_takes_the_plain_code_again(self, client, admin_h, register_org_pk):
+        a = self._fund(client, admin_h, _scope(client, admin_h, register_org_pk, _unique(), activate=True)).json()["fund_code"]
+        b = self._fund(client, admin_h, _scope(client, admin_h, register_org_pk, _unique(), activate=True)).json()["fund_code"]
+        assert a == b                                                               # unique per scope, not system-wide
+
+    def test_a_sinking_fund_is_coded_from_the_sakha_it_belongs_to(self, client, admin_h, register_org_pk, other_org_pk, write_conn):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        r = self._fund(client, admin_h, scope, fund_type="SINKING_FUND", organization_pk=str(other_org_pk))
+        assert r.status_code == 201 and r.json()["fund_code"] == f"{_prefix(write_conn, other_org_pk)}-SINK", r.text
+
+    def test_a_code_that_is_given_is_still_used_and_a_duplicate_is_refused(self, client, admin_h, register_org_pk):
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        code = f"MY{uuid4().hex[:6].upper()}"
+        assert self._fund(client, admin_h, scope, fund_code=code).json()["fund_code"] == code
+        assert self._fund(client, admin_h, scope, fund_code=code).status_code == 409
+        assert self._fund(client, admin_h, scope, fund_code="   ").status_code == 422
+
+    def test_the_reference_lists_the_type_codes(self, client, admin_h):
+        codes = client.get(f"{BASE}/reference", headers=admin_h).json()["fund_type_codes"]
+        assert codes["GENERAL"] == "GEN" and len(set(codes.values())) == len(codes) == 10
+
+
+class TestFundTypeCodesAreMasterData:
+    def test_the_codes_are_in_the_reference_data_with_the_other_master_data(self, client, admin_h, write_conn):
+        cur = write_conn.cursor()
+        cur.execute("""SELECT md.value_code, md.description FROM nss.master_data md JOIN nss.master_category mc ON mc.master_category_pk = md.master_category_pk
+                        WHERE mc.category_code = 'FUND_TYPE_CODE' AND md.is_active""")
+        assert dict((d, c) for c, d in cur.fetchall())["GENERAL"] == "GEN"
+        listed = client.get("/api/v1/foundation/master-data", params={"category_code": "FUND_TYPE_CODE"}, headers=admin_h)     # the Reference Data screen's own list
+        assert listed.status_code == 200 and {m["value_code"]: m["description"] for m in listed.json()}["GEN"] == "GENERAL" and len(listed.json()) == 10
+
+    def test_an_edited_code_is_what_the_next_fund_gets(self, client, admin_h, register_org_pk, write_conn):
+        cur = write_conn.cursor()
+        cur.execute("""UPDATE nss.master_data SET value_code = 'GENL' WHERE description = 'GENERAL' AND master_category_pk =
+                        (SELECT master_category_pk FROM nss.master_category WHERE category_code = 'FUND_TYPE_CODE')""")
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        r = client.post(f"{BASE}/funds", json={"fund_name": "x", "fund_type": "GENERAL", "financial_scope_pk": scope["financial_scope_pk"]}, headers=admin_h)
+        assert r.status_code == 201 and r.json()["fund_code"].endswith("-GENL"), r.text
+        assert client.get(f"{BASE}/reference", headers=admin_h).json()["fund_type_codes"]["GENERAL"] == "GENL"
+
+    def test_a_fund_type_whose_code_was_switched_off_gets_a_clear_422(self, client, admin_h, register_org_pk, write_conn):
+        cur = write_conn.cursor()
+        cur.execute("""UPDATE nss.master_data SET is_active = FALSE, deleted_at = NOW() WHERE description = 'GRANT' AND master_category_pk =
+                        (SELECT master_category_pk FROM nss.master_category WHERE category_code = 'FUND_TYPE_CODE')""")
+        scope = _scope(client, admin_h, register_org_pk, _unique(), activate=True)
+        r = client.post(f"{BASE}/funds", json={"fund_name": "x", "fund_type": "GRANT", "financial_scope_pk": scope["financial_scope_pk"]}, headers=admin_h)
+        assert r.status_code == 422 and "Fund Type Code" in r.text
+        ok = client.post(f"{BASE}/funds", json={"fund_name": "x", "fund_code": "OWNCODE", "fund_type": "GRANT", "financial_scope_pk": scope["financial_scope_pk"]}, headers=admin_h)
+        assert ok.status_code == 201 and ok.json()["fund_code"] == "OWNCODE"                    # giving a code still works
