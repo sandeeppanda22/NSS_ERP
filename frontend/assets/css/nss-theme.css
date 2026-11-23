@@ -364,3 +364,12 @@
 .nss-theme .bud-facts .data-row { justify-content: flex-start; }
 .nss-theme .bud-facts .data-label { flex: 0 0 auto; }
 .nss-theme .bud-facts .data-value { padding-left: 0; flex-shrink: 1; }
+
+/* The financial year and its status, shown on top of every Finance section (admin.html, the Finance wrapper). */
+.nss-theme .fin-year-strip { margin: 0 0 1rem; padding: 0.65rem 1rem; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #0D7377; border-radius: 0.6rem; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
+.nss-theme .fin-year-strip__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.8rem; }
+.nss-theme .fin-year-strip__label { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #64748b; }
+.nss-theme .fin-year-strip__year { font-size: 1.05rem; color: #0f172a; }
+.nss-theme .fin-year-strip__dates { font-size: 0.8rem; color: #475569; }
+.nss-theme .fin-year-strip__meaning { font-size: 0.8rem; color: #475569; flex: 1 1 18rem; }
+.nss-theme .fin-year-strip__other { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: #475569; padding-left: 0.8rem; border-left: 1px solid #e2e8f0; }

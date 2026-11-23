@@ -607,7 +607,7 @@ class TestFundsTab:
             assert f'x-model="{form}.organization.query" :disabled="finSetupOrgLocked"' in ADMIN_HTML, form
         assert "finHeadForm.mode === 'edit' || finSetupOrgLocked" in ADMIN_HTML and "finAcctForm.mode === 'edit' || finSetupOrgLocked" in ADMIN_HTML
         assert ADMIN_HTML.count('x-show="!finSetupOrgLocked" @click="corrClearPicker(') == 3
-        assert "_finOwnOrgPicker(extra)" in FIN_JS and "organization: this._finOwnOrgPicker() }" in FIN_JS       # the scope form is prefilled
+        assert "_finOwnOrgPicker(extra)" in FIN_JS and "organization: this._finOwnOrgPicker()," in FIN_JS       # the scope form is prefilled
         assert "this.finSetupScopeOrg ? this.finSetupScopeOrg.organization_pk" in FIN_JS                          # and the submit never trusts the picker
 
     def test_an_edit_form_shows_the_sangha_name_in_its_text_box(self):
@@ -776,3 +776,132 @@ class TestScopeCodeShowsItsTypeCode:
         from api.schemas.finance import FinanceReference
 
         assert "scope_type_codes" in FinanceReference.model_fields
+
+
+class TestTheYearStripIsOnEverySection:
+    """Owner 2026-11-23: the financial year and its status are shown at the top of every Finance section."""
+
+    def _wrapper(self) -> str:
+        start = ADMIN_HTML.index("<!-- The financial year and its status, on every Finance section -->")
+        return ADMIN_HTML[start:start + 3500]
+
+    def test_the_strip_sits_in_the_one_wrapper_every_finance_section_shares(self):
+        strip = ADMIN_HTML.index("fin-year-strip")
+        wrapper = ADMIN_HTML.rindex("['finOverview','finStructure','finFunds','finBudget','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab)", 0, strip)
+        first_section = ADMIN_HTML.index("<!-- ═════════ Overview", strip) if "<!-- ═════════ Overview" in ADMIN_HTML[strip:] else len(ADMIN_HTML)
+        assert wrapper < strip < first_section                                           # inside the wrapper, before any section: so on every one of them
+
+    def test_it_shows_the_year_its_status_its_dates_and_what_the_status_means(self):
+        strip = self._wrapper()
+        for needle in ("finCurrentYear.year_code", 'finBadge(finCurrentYear.status)', "finLabel(finCurrentYear.status)", "finDate(finCurrentYear.start_date)",
+                       "finDate(finCurrentYear.end_date)", "finYearMeaning(finCurrentYear.status)", "finOtherLiveYears", "No financial year exists yet"):
+            assert needle in strip, needle
+
+    def test_every_status_has_its_meaning_in_the_shared_config(self):
+        from api.schemas.finance import YEAR_STATUSES
+
+        block = re.search(r"FINANCE_YEAR_STATUS_MEANING: \{(.*?)\n    \},", CONFIG_JS, re.S).group(1)
+        for status in YEAR_STATUSES:
+            assert re.search(rf"\b{status}: \"", block), status
+
+    def test_every_section_loads_the_years_and_the_live_feed_keeps_them_fresh(self):
+        enter = FIN_JS.split("async finEnterTab(tab) {", 1)[1].split("if (this.activeTab === \"finOverview\")", 1)[0]
+        assert "this.finLoadYears()" in enter                                           # before any section's own branch
+        reload_ = FIN_JS.split("async finLiveReload() {", 1)[1][:400]
+        assert 'await this.finLoadYears()' in reload_
+        admin = (FE / "assets/js/admin.js").read_text(encoding="utf-8")
+        block = re.search(r"financial_year: \[(.*?)\]", admin, re.S).group(1)
+        for tab in TABS:
+            assert f'"{tab}"' in block, tab                                             # every Finance section follows a year's status
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+    def test_the_current_year_and_the_others_run_as_intended(self):
+        import json
+        import subprocess
+
+        start = FIN_JS.index("            get finCurrentYear() {")
+        end = FIN_JS.index("            // The latest financial year (by start).")
+        config = CONFIG_JS[CONFIG_JS.index("    FINANCE_YEAR_STATUS_MEANING: {"):CONFIG_JS.index("    FINANCE_STATUS_LABELS: {")]
+        script = f"""
+        const NSS = {{ {config} formatDate: (d) => "D(" + d + ")" }};
+        const host = {{ finYears: [], {FIN_JS[start:end].rstrip().rstrip(",")} }};
+        const set = (rows) => {{ host.finYears = rows.map(([code, status]) => ({{ year_code: code, status, financial_year_pk: code }})); }};
+        const r = {{}};
+        set([["2026-27", "OPEN"], ["2027-28", "PLANNED"], ["2025-26", "CLOSED"]]);
+        r.current = host.finCurrentYear.year_code; r.others = host.finOtherLiveYears.map((y) => y.year_code + ":" + y.status);
+        set([["2025-26", "CLOSED"], ["2026-27", "CLOSED"]]); r.noneOpen = host.finCurrentYear.year_code; r.noneOpenOthers = host.finOtherLiveYears.length;   // the latest, closed
+        set([["2026-27", "CLOSING"], ["2027-28", "PLANNED"]]); r.closing = [host.finCurrentYear.year_code, host.finOtherLiveYears.map((y) => y.year_code)];
+        set([["2027-28", "PLANNED"], ["2028-29", "PLANNED"]]); r.planned = [host.finCurrentYear.year_code, host.finOtherLiveYears.map((y) => y.year_code)];
+        set([]); r.empty = host.finCurrentYear;
+        set([["2026-27", "OPEN"]]); r.meaning = host.finYearMeaning("OPEN"); r.unknown = host.finYearMeaning("NOPE"); r.date = [host.finDate("2026-04-01"), host.finDate(null)];
+        console.log(JSON.stringify(r));
+        """
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        assert out.returncode == 0, out.stderr
+        got = json.loads(out.stdout)
+        assert got["current"] == "2026-27" and got["others"] == ["2027-28:PLANNED"]            # the open year, then what comes next (closed years are history)
+        assert got["noneOpen"] == "2026-27" and got["noneOpenOthers"] == 0
+        assert got["closing"] == ["2026-27", ["2027-28"]]                                      # the year being wound up leads; the next one follows
+        assert got["planned"] == ["2027-28", ["2028-29"]]                                      # nothing open yet: the earliest planned leads
+        assert got["empty"] is None and "working year" in got["meaning"] and got["unknown"] == ""
+
+
+class TestTheYearIsTheCurrentOneWhereverARecordIsCreated:
+    """Owner 2026-11-23: every create form has the financial year pre-selected to the CURRENT one, with no option to change. The lists and the summary keep
+    their year filters (looking back, closed years included, is how audit works)."""
+
+    def _form(self, marker: str, length: int = 2600) -> str:
+        i = ADMIN_HTML.index(marker)
+        return ADMIN_HTML[i:i + length]
+
+    def test_the_create_forms_show_the_year_as_text_not_a_dropdown(self):
+        txn = self._form("'New transaction' : 'Edit transaction'")
+        transfer = self._form('Moves money between two different financial scopes')
+        scope = self._form("<!-- New scope form -->", 6000)
+        for form in (txn, transfer, scope):
+            assert 'x-model="finTxnForm.financial_year_pk"' not in form and 'x-model="finTransferForm.financial_year_pk"' not in form
+            assert 'x-model="finScopeForm.financial_year_pk"' not in form
+        assert 'x-model="finTxnForm.financial_year_pk"' not in ADMIN_HTML and 'x-model="finTransferForm.financial_year_pk"' not in ADMIN_HTML
+        assert 'x-model="finScopeForm.financial_year_pk"' not in ADMIN_HTML and 'x-model="finBudgetStart.year"' not in ADMIN_HTML
+        assert ADMIN_HTML.count("The current financial year, set for you.") >= 4                                  # scope, transaction, transfer, budget
+        assert 'x-show="finBudgetYear">The current financial year, set for you.' in ADMIN_HTML and "finBudgetYearTaken" in ADMIN_HTML
+
+    def test_the_filters_and_the_summary_still_let_you_look_back(self):
+        for model in ("finSumYear", "finTxnYear", "finTransferYear"):
+            assert f'x-model="{model}"' in ADMIN_HTML, model
+
+    def test_the_forms_open_with_the_current_year_chosen(self):
+        assert "f.financial_year_pk = this.finEntryYear.financial_year_pk;" in FIN_JS and "f.transfer_date = this._finClampDate(this.finEntryYear)" in FIN_JS
+        assert "financial_year_pk: this.finScopeYear ? this.finScopeYear.financial_year_pk : \"\"" in FIN_JS
+        assert "year: this.finBudgetYear ? this.finBudgetYear.financial_year_pk : \"\"" in (FE / "assets/js/finance-budget.js").read_text(encoding="utf-8")
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+    def test_which_year_each_form_uses_runs_as_intended(self):
+        import json
+        import subprocess
+
+        start = FIN_JS.index("            get finEntryYear() {")
+        end = FIN_JS.index("            get finYearChoices()") if False else FIN_JS.index("            finYearLabelFor(pk)")
+        end = FIN_JS.index("\n", end) + 1
+        label_src = FIN_JS[start:end]
+        cur_start = FIN_JS.index("            get finCurrentYear() {")
+        cur_end = FIN_JS.index("            get finOtherLiveYears() {")
+        config = CONFIG_JS[CONFIG_JS.index("    FINANCE_STATUS_LABELS: {"):CONFIG_JS.index("    FINANCE_STATUS_BADGE_MAP: {")]
+        script = f"""
+        const NSS = {{ {config} financeStatusLabel(s) {{ return this.FINANCE_STATUS_LABELS[s] || s; }} }};
+        const host = {{ finYears: [], {FIN_JS[cur_start:cur_end].rstrip().rstrip(",")}, {label_src.rstrip().rstrip(",")} }};
+        const set = (rows) => {{ host.finYears = rows.map(([code, status]) => ({{ year_code: code, status, financial_year_pk: code }})); }};
+        const r = {{}};
+        set([["2026-27", "OPEN"], ["2027-28", "PLANNED"]]);
+        r.entry = host.finEntryYear.year_code; r.scope = host.finScopeYear.year_code; r.label = host.finYearLabel(host.finEntryYear); r.byPk = host.finYearLabelFor("2027-28");
+        set([["2026-27", "CLOSING"], ["2027-28", "PLANNED"]]); r.closing = [host.finEntryYear, host.finScopeYear.year_code];     // nothing may be RECORDED in it, a scope may still belong to it
+        set([["2026-27", "CLOSED"]]); r.closed = [host.finEntryYear, host.finScopeYear];
+        set([]); r.none = [host.finEntryYear, host.finScopeYear, host.finYearLabel(null), host.finYearLabel(null, "No open year"), host.finYearLabelFor("zzz")];
+        console.log(JSON.stringify(r));
+        """
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        assert out.returncode == 0, out.stderr
+        got = json.loads(out.stdout)
+        assert got["entry"] == "2026-27" and got["scope"] == "2026-27" and got["label"] == "2026-27 (Open)" and got["byPk"] == "2027-28 (Planned)"
+        assert got["closing"] == [None, "2026-27"] and got["closed"] == [None, None]
+        assert got["none"] == [None, None, "No financial year", "No open year", "-"]

@@ -129,7 +129,8 @@ const LIVE_TABLE_TABS = {
     property_document: ["properties"],
     asset_document: ["assets"],
     // Finance (Tier 12)
-    financial_year: ["finOverview", "finStructure", "finTransactions", "finTransfers"],
+    // (the financial year strip is on every Finance section, so every section follows a year's status)
+    financial_year: ["finOverview", "finStructure", "finFunds", "finBudget", "finTransactions", "finTransfers", "finSetup", "finCollections"],
     financial_scope: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     fund_master: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     financial_transaction: ["finOverview", "finTransactions"],

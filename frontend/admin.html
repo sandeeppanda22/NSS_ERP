@@ -7927,6 +7927,27 @@
 
                         <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
 
+                        <!-- The financial year and its status, on every Finance section -->
+                        <div class="fin-year-strip" x-show="finYearsLoaded || finYearsError" x-cloak>
+                            <template x-if="finCurrentYear">
+                                <div class="fin-year-strip__row">
+                                    <span class="fin-year-strip__label">Financial year</span>
+                                    <strong class="fin-year-strip__year" x-text="finCurrentYear.year_code"></strong>
+                                    <span class="badge badge-xs" :class="finBadge(finCurrentYear.status)" x-text="finLabel(finCurrentYear.status)"></span>
+                                    <span class="fin-year-strip__dates" x-text="finDate(finCurrentYear.start_date) + ' – ' + finDate(finCurrentYear.end_date)"></span>
+                                    <span class="fin-year-strip__meaning" x-text="finYearMeaning(finCurrentYear.status)"></span>
+                                    <template x-for="y in finOtherLiveYears" :key="y.financial_year_pk">
+                                        <span class="fin-year-strip__other"><span x-text="y.year_code"></span> <span class="badge badge-xs" :class="finBadge(y.status)" x-text="finLabel(y.status)"></span></span>
+                                    </template>
+                                </div>
+                            </template>
+                            <div class="fin-year-strip__row" x-show="!finCurrentYear && finYearsLoaded">
+                                <span class="fin-year-strip__label">Financial year</span>
+                                <span class="fin-year-strip__meaning">No financial year exists yet. Create the first one under Years &amp; Scopes.</span>
+                            </div>
+                            <div class="alert-msg alert-error" style="margin:0;" x-show="finYearsError" x-text="finYearsError"></div>
+                        </div>
+
                         <!-- ── Modal: lifecycle step (remarks when the step needs a reason) ── -->
                         <template x-if="finTx.show">
                             <div class="modal-overlay" @click.self="finCancelTransition()">
@@ -8124,11 +8145,9 @@
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="form-label">Limited to financial year <span class="optional">(optional)</span></label>
-                                            <select class="nss-select" x-model="finScopeForm.financial_year_pk">
-                                                <option value="">Spans years</option>
-                                                <template x-for="y in finYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
-                                            </select>
+                                            <label class="form-label">Financial year</label>
+                                            <input type="text" class="form-input" disabled :value="finYearLabelFor(finScopeForm.financial_year_pk) === '-' ? 'None: there is no current financial year' : finYearLabelFor(finScopeForm.financial_year_pk)">
+                                            <p class="form-hint">The current financial year, set for you.</p>
                                         </div>
                                         <div class="typeahead-wrap">
                                             <label class="form-label">Organization <span class="optional" x-show="finScopeForm.scope_type !== 'ORGANIZATION'">(optional)</span></label>
@@ -8663,18 +8682,17 @@
                                     <h2 class="data-card-title">Kendra annual budget</h2>
                                     <div class="data-card-subtitle">The Governing Body passes an annual budget. The draft goes to the Advisory Board for its considered views first; the budget then shows how the year is going against it.</div>
                                 </div>
-                                <button class="btn-action primary" x-show="canManageFinance && !finBudgetStart.show && finBudgetFreeYears.length > 0" @click="finBudgetStartOpen()">+ Start a budget</button>
+                                <button class="btn-action primary" x-show="canManageFinance && !finBudgetStart.show && finBudgetYear" @click="finBudgetStartOpen()">+ Start a budget</button>
                             </div>
                             <div class="data-card-body">
                                 <div class="pend-box" x-show="finBudgetStart.show" x-cloak>
                                     <label class="form-label">Financial year</label>
-                                    <select class="nss-select" style="max-width:22rem;" x-model="finBudgetStart.year">
-                                        <option value="">Select…</option>
-                                        <template x-for="y in finBudgetFreeYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code + ' (' + finLabel(y.status) + ')'"></option></template>
-                                    </select>
+                                    <input type="text" class="form-input" style="max-width:22rem;" disabled :value="finBudgetYear ? finYearLabel(finBudgetYear) : (finBudgetYearTaken ? finYearLabel(finScopeYear) : 'No current financial year')">
+                                    <p class="form-hint" x-show="finBudgetYear">The current financial year, set for you.</p>
+                                    <p class="form-hint" x-show="finBudgetYearTaken">The current financial year already has its budget; open it from the list.</p>
                                     <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetStart.error" x-text="finBudgetStart.error"></div>
                                     <div class="fh-actions" style="margin-top:0.6rem;">
-                                        <button class="btn-action primary" :disabled="finBudgetStart.saving" @click="finBudgetStartSubmit()">Start the budget</button>
+                                        <button class="btn-action primary" :disabled="finBudgetStart.saving || !finBudgetYear" @click="finBudgetStartSubmit()">Start the budget</button>
                                         <button class="btn-action" :disabled="finBudgetStart.saving" @click="finBudgetStart = { show: false, year: '', saving: false, error: '' }">Cancel</button>
                                     </div>
                                 </div>
@@ -8691,9 +8709,9 @@
                                                 <tr>
                                                     <td><div class="fh-name" x-text="b.year_code"></div><div class="fh-sub" x-text="b.organization_name"></div></td>
                                                     <td><span class="badge badge-xs" :class="finBadge(b.status)" x-text="finLabel(b.status)"></span></td>
-                                                    <td style="font-size:0.82rem;" x-text="finBudgetShown(b.referred_on)"></td>
-                                                    <td style="font-size:0.82rem;"><span x-text="b.advisory_reference || '-'"></span><div class="fh-sub" x-show="b.advisory_views_date" x-text="finBudgetShown(b.advisory_views_date)"></div></td>
-                                                    <td style="font-size:0.82rem;"><span x-text="b.resolution_reference || '-'"></span><div class="fh-sub" x-show="b.resolution_date" x-text="finBudgetShown(b.resolution_date)"></div></td>
+                                                    <td style="font-size:0.82rem;" x-text="finDate(b.referred_on)"></td>
+                                                    <td style="font-size:0.82rem;"><span x-text="b.advisory_reference || '-'"></span><div class="fh-sub" x-show="b.advisory_views_date" x-text="finDate(b.advisory_views_date)"></div></td>
+                                                    <td style="font-size:0.82rem;"><span x-text="b.resolution_reference || '-'"></span><div class="fh-sub" x-show="b.resolution_date" x-text="finDate(b.resolution_date)"></div></td>
                                                     <td><button class="link-action" @click="finBudgetOpen(b.finance_budget_pk)">Open</button></td>
                                                 </tr>
                                             </template>
@@ -8727,13 +8745,13 @@
                                         </ol>
                                         <p class="form-hint" x-show="finBudget.next_step"><strong>Next:</strong> <span x-text="finBudget.next_step"></span></p>
                                         <div class="data-rows md-facts bud-facts" x-show="finBudget.referred_on">
-                                            <div class="data-row"><span class="data-label">Referred to the Advisory Board</span><span class="data-value"><span x-text="finBudgetShown(finBudget.referred_on)"></span>
+                                            <div class="data-row"><span class="data-label">Referred to the Advisory Board</span><span class="data-value"><span x-text="finDate(finBudget.referred_on)"></span>
                                                 <span x-show="finBudget.referral_reference"> · letter <span class="mono" x-text="finBudget.referral_reference"></span></span>
                                                 <span class="fh-sub" x-show="finBudget.referral_inward_reference">Advisory Board's copy: <span class="mono" x-text="finBudget.referral_inward_reference"></span></span></span></div>
-                                            <div class="data-row" x-show="finBudget.advisory_reference"><span class="data-label">Advisory Board's reply</span><span class="data-value"><span class="mono" x-text="finBudget.advisory_reference"></span> · <span x-text="finBudgetShown(finBudget.advisory_views_date)"></span>
+                                            <div class="data-row" x-show="finBudget.advisory_reference"><span class="data-label">Advisory Board's reply</span><span class="data-value"><span class="mono" x-text="finBudget.advisory_reference"></span> · <span x-text="finDate(finBudget.advisory_views_date)"></span>
                                                 <span class="fh-sub" x-show="finBudget.views_inward_reference">Kendra's copy: <span class="mono" x-text="finBudget.views_inward_reference"></span></span></span></div>
                                             <div class="data-row" x-show="finBudget.advisory_views_summary"><span class="data-label">What it said</span><span class="data-value" x-text="finBudget.advisory_views_summary"></span></div>
-                                            <div class="data-row" x-show="finBudget.resolution_reference"><span class="data-label">Governing Body resolution</span><span class="data-value"><span x-text="finBudget.resolution_reference"></span> · <span x-text="finBudgetShown(finBudget.resolution_date)"></span></span></div>
+                                            <div class="data-row" x-show="finBudget.resolution_reference"><span class="data-label">Governing Body resolution</span><span class="data-value"><span x-text="finBudget.resolution_reference"></span> · <span x-text="finDate(finBudget.resolution_date)"></span></span></div>
                                         </div>
                                     </div>
                                 </div>
@@ -8889,11 +8907,9 @@
                                     <div class="form-grid-2">
                                         <div>
                                             <label class="form-label">Financial year</label>
-                                            <select class="nss-select" x-model="finTxnForm.financial_year_pk" @change="finTxnFormYearChanged()">
-                                                <option value="">Select…</option>
-                                                <template x-for="y in finOpenYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
-                                            </select>
-                                            <p class="form-hint" x-show="finOpenYears.length === 0">No financial year is open. An administrator must open one first.</p>
+                                            <input type="text" class="form-input" disabled :value="finTxnForm.financial_year_pk ? finYearLabelFor(finTxnForm.financial_year_pk) : 'No financial year is open'">
+                                            <p class="form-hint" x-show="!finTxnForm.financial_year_pk">No financial year is open. An administrator must open one first.</p>
+                                            <p class="form-hint" x-show="finTxnForm.financial_year_pk">The current financial year, set for you.</p>
                                         </div>
                                         <div>
                                             <label class="form-label">Financial scope</label>
@@ -9294,10 +9310,9 @@
                                     <div class="form-grid-2">
                                         <div>
                                             <label class="form-label">Financial year</label>
-                                            <select class="nss-select" x-model="finTransferForm.financial_year_pk" @change="finTransferFormYearChanged()">
-                                                <option value="">Select…</option>
-                                                <template x-for="y in finOpenYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
-                                            </select>
+                                            <input type="text" class="form-input" disabled :value="finTransferForm.financial_year_pk ? finYearLabelFor(finTransferForm.financial_year_pk) : 'No financial year is open'">
+                                            <p class="form-hint" x-show="!finTransferForm.financial_year_pk">No financial year is open. An administrator must open one first.</p>
+                                            <p class="form-hint" x-show="finTransferForm.financial_year_pk">The current financial year, set for you.</p>
                                         </div>
                                         <div>
                                             <label class="form-label">Date</label>

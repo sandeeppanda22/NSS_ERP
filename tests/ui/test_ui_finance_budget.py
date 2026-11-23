@@ -177,12 +177,22 @@ class TestMixinUnderNode:
         assert out == {"draft": ["now", "todo", "todo", "todo"], "referred": ["done", "now", "todo", "todo"],
                        "views": ["done", "done", "now", "todo"], "passed": ["done", "done", "done", "done"]}
 
-    def test_only_years_that_are_open_for_a_budget_are_offered(self):
+    def test_a_budget_is_started_for_the_current_year_only_and_only_once(self):
+        """Owner 2026-11-23: wherever a record is created the financial year is the current one, set for the user. finScopeYear (finance.js) is the current year."""
         out = self._run("""
-            host.finBudgets = [{ financial_year_pk: "y1" }];
-            return host.finBudgetFreeYears.map((y) => y.year_code);
+            const r = {};
+            host.finScopeYear = { financial_year_pk: "y1", year_code: "2026-27", status: "OPEN" };
+            host.finBudgets = []; r.free = [host.finBudgetYear && host.finBudgetYear.year_code, host.finBudgetYearTaken];
+            host.finBudgets = [{ financial_year_pk: "y1" }]; r.taken = [host.finBudgetYear, host.finBudgetYearTaken];
+            host.finBudgets = [{ financial_year_pk: "other" }]; r.otherYear = host.finBudgetYear.year_code;
+            host.finScopeYear = null; host.finBudgets = []; r.none = [host.finBudgetYear, host.finBudgetYearTaken];
+            host.finScopeYear = { financial_year_pk: "y1", year_code: "2026-27", status: "OPEN" }; host.finBudgets = [];
+            host.finBudgetStartOpen(); r.preselected = [host.finBudgetStart.show, host.finBudgetStart.year];
+            host.finBudgets = [{ financial_year_pk: "y1" }]; host.finBudgetStartOpen(); r.nothingToSelect = host.finBudgetStart.year;
+            return r;
         """)
-        assert out == ["2027-28"]                                                 # 2026-27 has a budget, 2025-26 is closed
+        assert out == {"free": ["2026-27", False], "taken": [None, True], "otherYear": "2026-27", "none": [None, False],
+                       "preselected": [True, "y1"], "nothingToSelect": ""}
 
     def test_a_head_with_a_line_is_not_offered_again(self):
         out = self._run("""
@@ -278,15 +288,17 @@ class TestMixinUnderNode:
         """)
         assert out == [["DELETE", "/budgets/b1/lines/l1", None]]
 
-    def test_starting_a_budget_needs_a_year_and_then_opens_the_draft(self):
+    def test_starting_a_budget_uses_the_current_year_and_then_opens_the_draft(self):
         out = self._run("""
             host.reply = () => detail({ organization_pk: "k1" }); host.server = () => ({ items: [] });
+            host.finScopeYear = null; host.finBudgets = [];
             host.finBudgetStartOpen(); await host.finBudgetStartSubmit(); const none = calls.length; const err = host.finBudgetStart.error;
-            host.finBudgetStart.year = "y2"; await host.finBudgetStartSubmit();
+            host.finScopeYear = { financial_year_pk: "y2", year_code: "2026-27", status: "OPEN" };
+            host.finBudgetStartOpen(); await host.finBudgetStartSubmit();
             return { none, err, post: calls[0], opened: host.finBudget && host.finBudget.finance_budget_pk, heads: calls.find((c) => c[1] === "/heads") };
         """)
-        assert out["none"] == 0 and out["err"] == "Choose the financial year."
-        assert out["post"] == ["POST", "/budgets", {"financial_year_pk": "y2"}] and out["opened"] == "b1"
+        assert out["none"] == 0 and out["err"] == "There is no current financial year to start a budget for."
+        assert out["post"] == ["POST", "/budgets", {"financial_year_pk": "y2"}] and out["opened"] == "b1"        # the current year, not chosen from a list
         assert out["heads"][2] == {"organization_pk": "k1", "with_templates": False, "status": "ACTIVE", "page_size": 200}
 
     def test_an_open_form_makes_the_tab_busy_for_live_refresh(self):

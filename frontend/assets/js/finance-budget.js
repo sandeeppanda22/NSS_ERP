@@ -46,11 +46,13 @@
                 const at = this.finBudget ? STEPS.findIndex((s) => s.key === this.finBudget.status) : -1;
                 return STEPS.map((s, i) => ({ ...s, done: i < at || (i === at && s.key === "PASSED"), current: i === at && s.key !== "PASSED" }));
             },
-            // Years a budget could still be started for: not closed, and none yet.
-            get finBudgetFreeYears() {
-                const taken = new Set(this.finBudgets.map((b) => b.financial_year_pk));
-                return this.finYears.filter((y) => y.status !== "CLOSED" && y.status !== "CLOSING" && !taken.has(y.financial_year_pk));
+            // The year a budget is started for: the CURRENT one, chosen for the user and not changeable (owner 2026-11-23), and only while it is not CLOSED
+            // and has no budget yet (one budget per year); finBudgetYearTaken says when it already has one.
+            get finBudgetYearTaken() {
+                const y = this.finScopeYear;
+                return !!y && this.finBudgets.some((b) => b.financial_year_pk === y.financial_year_pk);
             },
+            get finBudgetYear() { return this.finBudgetYearTaken ? null : this.finScopeYear; },
             get finBudgetIncomeLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "INCOME") : []; },
             get finBudgetExpenseLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "EXPENSE") : []; },
             // Heads with no line yet (a head that already has one is changed from its row, not picked again).
@@ -74,7 +76,6 @@
                 this.finBudgetBack = { ...newBack(), show: true };
                 if (this.$nextTick) this.$nextTick(() => { const box = document.getElementById("bud-back-box"); if (box) box.scrollIntoView({ behavior: "smooth", block: "center" }); });
             },
-            finBudgetShown(date) { return date ? NSS.formatDate(date) : "-"; },
             finBudgetUsedPercent(line) {
                 const planned = Number(line.amount) || 0;
                 return planned > 0 ? Math.min(100, Math.round((Number(line.actual) / planned) * 100)) : 0;
@@ -136,10 +137,10 @@
             },
 
             // ── Start a budget ─────────────────────────────────────
-            finBudgetStartOpen() { this.finBudgetStart = { ...newStart(), show: true, year: this.finBudgetFreeYears.length === 1 ? this.finBudgetFreeYears[0].financial_year_pk : "" }; },
+            finBudgetStartOpen() { this.finBudgetStart = { ...newStart(), show: true, year: this.finBudgetYear ? this.finBudgetYear.financial_year_pk : "" }; },
             async finBudgetStartSubmit() {
                 const f = this.finBudgetStart;
-                if (!f.year) { f.error = "Choose the financial year."; return; }
+                if (!f.year) { f.error = "There is no current financial year to start a budget for."; return; }
                 f.saving = true; f.error = "";
                 try {
                     const detail = await this._finSend("POST", "/budgets", { financial_year_pk: f.year });

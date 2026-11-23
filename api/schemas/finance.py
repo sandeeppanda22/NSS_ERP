@@ -110,6 +110,15 @@ class YearCreate(BaseModel):
     start_year: int = Field(..., ge=2000, le=2100, description="2026 -> year 2026-27 (2026-04-01 .. 2027-03-31)")
 
 
+class CarriedOver(BaseModel):
+    """What moved on to the open year when a year opened or closed (owner 2026-11-23: scopes and funds move to the next financial year automatically)."""
+
+    to_year_code: str
+    scopes: int
+    funds: int                      # the funds of those scopes: a fund has no year of its own, it follows its scope, and its balance is cumulative
+    scope_codes: list[str]
+
+
 class YearResponse(BaseModel):
     financial_year_pk: UUID
     year_code: str
@@ -117,6 +126,7 @@ class YearResponse(BaseModel):
     end_date: date
     status: str
     transaction_count: int = 0
+    carried_over: CarriedOver | None = None      # only on the response of the transition that moved something
 
 
 class YearListResponse(BaseModel):

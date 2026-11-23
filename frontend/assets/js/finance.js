@@ -212,9 +212,12 @@
                 }
                 t.saving = true; t.error = "";
                 try {
-                    await this._finSend("POST", `/${PLURAL[t.entity] || t.entity + "s"}/${t.pk}/transition`,
+                    const done = await this._finSend("POST", `/${PLURAL[t.entity] || t.entity + "s"}/${t.pk}/transition`,
                         { status: t.target, remarks: blank(t.remarks) });
-                    const note = `${t.label}: ${NSS.financeStatusLabel(t.target)}.`;
+                    // A year that opens or closes moves the scopes still in use (and so their funds) on to the open year, by itself.
+                    const moved = done && done.carried_over
+                        ? ` ${done.carried_over.scopes} scope(s) and their ${done.carried_over.funds} fund(s) moved on to ${done.carried_over.to_year_code}.` : "";
+                    const note = `${t.label}: ${NSS.financeStatusLabel(t.target)}.${moved}`;
                     this.finTx = newTx();
                     this._finNote(note);
                     await this._finReloadAfter(t.entity);
@@ -307,7 +310,7 @@
                 this.finNotice = "";
                 this.finTx = newTx();
                 this.finAuth = newAuth();
-                await this.finLoadRef();
+                await Promise.all([this.finLoadRef(), this.finLoadYears()]);          // the year strip is on every Finance section
                 if (this.activeTab === "finOverview") {
                     await this.finLoadYears();
                     await this.finLoadSummary();
@@ -340,6 +343,7 @@
             },
             async finLiveReload() {
                 const tab = this.activeTab;
+                if (!["finOverview", "finStructure", "finTransactions", "finTransfers"].includes(tab)) await this.finLoadYears();      // the strip (the others reload them below)
                 if (tab === "finOverview") { await this.finLoadYears(); await this.finLoadSummary({ silent: true }); }
                 else if (tab === "finStructure") {
                     await this.finLoadYears();
@@ -365,14 +369,39 @@
             finYears: [], finYearsError: "", finYearForm: newYearForm(),
             get finOpenYears() { return this.finYears.filter((y) => y.status === "OPEN"); },
 
+            finYearsLoaded: false,
             async finLoadYears() {
                 try {
                     this.finYears = (await this._finGet("/years")).items;
                     this.finYearsError = "";
+                    this.finYearsLoaded = true;
                 } catch (err) {
                     this.finYearsError = err.message || "Failed to load financial years.";
                 }
             },
+            // The financial year strip shown at the top of EVERY Finance section (owner 2026-11-23: "display this status at every finance section"): the
+            // current year with its status and what that means, then the other years that are not CLOSED yet (the next one Planned, or one Closing). Closed
+            // years are history and stay out of the strip. The current year is the one being worked: the OPEN one, else the one CLOSING, else the earliest
+            // PLANNED, else (everything closed) the latest.
+            get finCurrentYear() {
+                const start = (y) => Number(String(y.year_code).slice(0, 4));
+                const pick = (status, latest) => this.finYears.filter((y) => y.status === status).sort((a, b) => (latest ? start(b) - start(a) : start(a) - start(b)))[0];
+                return pick("OPEN", true) || pick("CLOSING", true) || pick("PLANNED", false) || [...this.finYears].sort((a, b) => start(b) - start(a))[0] || null;
+            },
+            get finOtherLiveYears() {
+                const current = this.finCurrentYear;
+                return this.finYears.filter((y) => y.status !== "CLOSED" && (!current || y.financial_year_pk !== current.financial_year_pk))
+                    .sort((a, b) => Number(String(a.year_code).slice(0, 4)) - Number(String(b.year_code).slice(0, 4)));
+            },
+            finDate(date) { return date ? NSS.formatDate(date) : "-"; },
+            // Wherever a record is CREATED the financial year is the CURRENT one, chosen for the user and not changeable (owner 2026-11-23: "pre-select the
+            // current with no option to change"): a transaction or a transfer needs an OPEN year, so it is the open one; a scope and a budget take the current
+            // year while it is not CLOSED. The lists and the summary keep their year filters: looking back at closed years is how audit works.
+            get finEntryYear() { const y = this.finCurrentYear; return y && y.status === "OPEN" ? y : null; },
+            get finScopeYear() { const y = this.finCurrentYear; return y && y.status !== "CLOSED" ? y : null; },
+            finYearLabel(year, none) { return year ? `${year.year_code} (${NSS.financeStatusLabel(year.status)})` : (none || "No financial year"); },
+            finYearLabelFor(pk) { return this.finYearLabel(this.finYears.find((y) => y.financial_year_pk === pk), "-"); },
+            finYearMeaning(status) { return NSS.FINANCE_YEAR_STATUS_MEANING[status] || ""; },
             // The latest financial year (by start). A new year is created only when it is CLOSED (owner 2026-11-23), and only the very next one; the server
             // enforces both (finance.py::check_next_year), the page just offers what it will accept.
             get finLatestYear() {
@@ -497,7 +526,8 @@
             },
             finOpenScopeForm() {
                 this.finScope = null;
-                this.finScopeForm = { ...newScopeForm(), show: true, organization: this._finOwnOrgPicker() };
+                this.finScopeForm = { ...newScopeForm(), show: true, organization: this._finOwnOrgPicker(),
+                                      financial_year_pk: this.finScopeYear ? this.finScopeYear.financial_year_pk : "" };       // the current year, locked
             },
             async finSubmitScope() {
                 const f = this.finScopeForm;
@@ -707,9 +737,9 @@
                             ? { ...emptyPicker(), query: `${txn.person_name || ""} (${txn.sangha_sevi_id})`.trim(), selected: { sangha_sevi_id: txn.sangha_sevi_id } }
                             : emptyPicker(),
                     });
-                } else if (open.length === 1) {
-                    f.financial_year_pk = open[0].financial_year_pk;
-                    f.transaction_date = this._finClampDate(open[0]);
+                } else if (this.finEntryYear) {
+                    f.financial_year_pk = this.finEntryYear.financial_year_pk;          // the current year, locked
+                    f.transaction_date = this._finClampDate(this.finEntryYear);
                 }
                 this.finTxnForm = f;
                 return this.finTxnFormScopeChanged(true);
@@ -972,9 +1002,8 @@
 
             finOpenTransferForm() {
                 this.finTransfer = null;
-                const open = this.finOpenYears;
                 const f = { ...newTransferForm(), show: true };
-                if (open.length === 1) { f.financial_year_pk = open[0].financial_year_pk; f.transfer_date = this._finClampDate(open[0]); }
+                if (this.finEntryYear) { f.financial_year_pk = this.finEntryYear.financial_year_pk; f.transfer_date = this._finClampDate(this.finEntryYear); }    // the current year, locked
                 this.finTransferForm = f; this.finTransferSourceFunds = []; this.finTransferDestFunds = [];
             },
             finTransferFormYearChanged() {

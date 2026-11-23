@@ -484,6 +484,14 @@ const NSS = {
     // receipt / payment / transfer (SOL-FIN-005). Fixed values (not master
     // data), so labels and badge classes live here; one map serves all seven
     // entities because the same word means the same thing on each of them.
+    // What each financial year status means, in a line (shown with the year on every Finance section; the rules are finance.py's lifecycle).
+    FINANCE_YEAR_STATUS_MEANING: {
+        PLANNED: "Created but not started: nothing can be recorded yet. It is opened when the year begins.",
+        OPEN: "The working year: transactions and transfers can be recorded, approved and posted.",
+        CLOSING: "Year-end: no new entries. Finish what is unfinished (drafts, pending approvals, transfers), then close it.",
+        CLOSED: "Finished and final: available for reports and audit, nothing can be added.",
+    },
+
     FINANCE_STATUS_LABELS: {
         PLANNED: "Planned", OPEN: "Open", CLOSING: "Closing", CLOSED: "Closed",
         DRAFT: "Draft", ACTIVE: "Active", INACTIVE: "Inactive",

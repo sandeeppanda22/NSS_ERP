@@ -707,6 +707,38 @@ def _open_work_blockers(cur, *, year_pk=None, scope_pk=None) -> list[str]:
 
 
 @router.post("/years/{year_pk}/transition", response_model=S.YearResponse)
+def carry_scopes_forward(cur, user: UserContext) -> dict | None:
+    """
+    Scopes and funds move to the next financial year on their own (owner 2026-11-23). A scope limited to a year (``financial_year_pk``) can take entries
+    only in that year, so when the year ends the scopes that are still in use move to the year now OPEN - the latest OPEN one: every DRAFT or ACTIVE scope
+    whose year is CLOSED and earlier. A scope that spans years (no year), a CLOSING / CLOSED scope, and a scope of a year that is not closed stay where they
+    are. Funds have no year: a fund follows its scope, and its balance is cumulative (every POSTED / SETTLED entry, whatever the year), so it carries over
+    by itself. Run when a year OPENS (the new year takes over) and when a year is CLOSED (a year that was still open when the next opened hands over). One
+    UPDATE per scope - the audit trigger records each - and the caller audits the move as a whole. Returns None when nothing moved.
+    """
+    cur.execute("SELECT financial_year_pk, year_code, start_date FROM nss.financial_year WHERE status = 'OPEN' AND is_active = TRUE ORDER BY start_date DESC LIMIT 1")
+    target = cur.fetchone()
+    if target is None:
+        return None
+    cur.execute(
+        """
+        UPDATE nss.financial_scope fs
+           SET financial_year_pk = %s, updated_at = NOW(), updated_by_sangha_sevi_pk = %s
+          FROM nss.financial_year old
+         WHERE old.financial_year_pk = fs.financial_year_pk AND old.status = 'CLOSED' AND old.start_date < %s
+           AND fs.is_active = TRUE AND fs.status IN ('DRAFT', 'ACTIVE')
+        RETURNING fs.financial_scope_pk, fs.scope_code
+        """,
+        (str(target[0]), user.actor_pk, target[2]),
+    )
+    moved = sorted(cur.fetchall(), key=lambda r: r[1])
+    if not moved:
+        return None
+    cur.execute("SELECT COUNT(*) FROM nss.fund_master WHERE financial_scope_pk = ANY(%s::uuid[]) AND is_active = TRUE", ([str(r[0]) for r in moved],))
+    return {"to_year_pk": target[0], "to_year_code": target[1], "scopes": len(moved), "funds": cur.fetchone()[0], "scope_codes": [r[1] for r in moved]}
+
+
+@router.post("/years/{year_pk}/transition", response_model=S.YearResponse)
 def transition_year(year_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_APPROVE),
                     conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
@@ -720,8 +752,16 @@ def transition_year(year_pk: UUID, body: S.TransitionRequest, user: UserContext 
         _update_row(cur, user, "financial_year", "financial_year_pk", year_pk, {"status": body.status})
         _audit(cur, user, "STATUS_CHANGE", "financial_year", year_pk, f"Financial year {year['year_code']} {year['status']} -> {body.status}",
                {"from": year["status"], "to": body.status, "remarks": _clean(body.remarks)})
+        carried = carry_scopes_forward(cur, user) if body.status in ("OPEN", "CLOSED") else None
+        if carried:
+            _audit(cur, user, "UPDATE", "financial_year", carried["to_year_pk"],
+                   f"{carried['scopes']} financial scope(s) and their {carried['funds']} fund(s) moved on to {carried['to_year_code']}",
+                   {"to_year": carried["to_year_code"], "scopes": carried["scope_codes"], "funds": carried["funds"], "after": f"{year['year_code']} -> {body.status}"})
         cur.execute(_YEAR_SELECT + " WHERE fy.financial_year_pk = %s", (str(year_pk),))
-        return _fetch_one(cur)
+        out = _fetch_one(cur)
+        if carried:
+            out["carried_over"] = {k: carried[k] for k in ("to_year_code", "scopes", "funds", "scope_codes")}
+        return out
 
 
 # ═══════════════════════════════════════════════════════════════════════
