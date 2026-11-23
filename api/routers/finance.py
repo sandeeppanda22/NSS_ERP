@@ -706,7 +706,6 @@ def _open_work_blockers(cur, *, year_pk=None, scope_pk=None) -> list[str]:
     return blockers
 
 
-@router.post("/years/{year_pk}/transition", response_model=S.YearResponse)
 def carry_scopes_forward(cur, user: UserContext) -> dict | None:
     """
     Scopes and funds move to the next financial year on their own (owner 2026-11-23). A scope limited to a year (``financial_year_pk``) can take entries
