@@ -86,6 +86,7 @@ class FinanceReference(BaseModel):
     """Everything the UI needs to build its pick-lists, from one definition."""
 
     finance_admin: bool                     # the caller is a finance ADMINISTRATOR (may create scopes and funds), not only a Treasurer
+    kendra_side: bool = False               # the caller's admin scope reaches the Kendra: only they see the Kendra's procedures (annual budget, Sinking Fund dues)
     payment_methods: list[NamedCode]
     fund_types: list[str]
     fund_type_codes: dict[str, str]        # each fund type's short code (the part of an automatic fund code that names the type)
@@ -1168,6 +1169,7 @@ class BudgetResponse(BaseModel):
     resolution_date: date | None
     next_step: str | None               # what has to happen next, in words
     changes_need_reason: bool           # true once the budget has left DRAFT: a change to a line is still allowed, but is recorded with a reason
+    has_steps: bool = True              # the Kendra's budget has the four steps; a Sakha's is a plain plan (no referral, no resolution)
     created_at: datetime
     updated_at: datetime | None
 
@@ -1180,4 +1182,101 @@ class BudgetDetailResponse(BudgetResponse):
 
 class BudgetListResponse(BaseModel):
     items: list[BudgetResponse]
+    total: int
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Sinking Fund reimbursement (Bye-Law C(i)(2)(xviii), FIN-BR-026)
+# ═══════════════════════════════════════════════════════════════════════
+
+SINKING_REIMBURSEMENT_STATUSES = ("OPEN", "PARTLY_REIMBURSED", "REIMBURSED")
+
+
+class SinkingReimbursementCreate(BaseModel):
+    expenditure_transaction_pk: UUID = Field(..., description="A POSTED / SETTLED EXPENSE from a Sakha's Sinking Fund")
+    takeover_reason: str = Field(..., min_length=1, max_length=1000, description="Why the Kendra took over the Sakha's seva / pujas")
+    resolution_reference: str | None = Field(None, max_length=100, description="The Governing Body resolution, when there is one")
+
+
+class SinkingReimbursementPay(BaseModel):
+    amount: Amount
+    transaction_date: date | None = Field(None, description="Date the Sakha paid; today when left out")
+    description: str | None = Field(None, max_length=500)
+
+
+class SinkingReimbursementEntry(BaseModel):
+    financial_transaction_pk: UUID
+    transaction_reference: str
+    transaction_date: date
+    amount: Decimal
+    status: str
+    description: str | None = None
+
+
+class SinkingReimbursementResponse(BaseModel):
+    finance_sinking_reimbursement_pk: UUID
+    reimbursement_reference: str
+    expenditure_transaction_pk: UUID
+    expenditure_reference: str
+    expenditure_date: date
+    expenditure_description: str | None = None
+    fund_master_pk: UUID
+    fund_code: str
+    fund_name: str
+    sakha_organization_pk: UUID
+    sakha_name: str
+    takeover_reason: str
+    resolution_reference: str | None = None
+    amount_due: Decimal
+    reimbursed_amount: Decimal                 # POSTED / SETTLED reimbursements, read from the books
+    pending_amount: Decimal                    # reimbursements recorded but not yet posted
+    outstanding_amount: Decimal                # due - reimbursed
+    status: str                                # OPEN / PARTLY_REIMBURSED / REIMBURSED
+    created_at: datetime | None = None
+
+
+class SinkingReimbursementDetail(SinkingReimbursementResponse):
+    reimbursements: list[SinkingReimbursementEntry]
+    next_step: str | None = None
+
+
+class SinkingReimbursementListResponse(BaseModel):
+    items: list[SinkingReimbursementResponse]
+    total: int
+
+
+class SinkingExpenditureOption(BaseModel):
+    """A Sinking Fund expenditure that has not been registered as owed yet."""
+
+    financial_transaction_pk: UUID
+    transaction_reference: str
+    transaction_date: date
+    amount: Decimal
+    description: str | None = None
+    fund_code: str
+    fund_name: str
+    sakha_organization_pk: UUID
+    sakha_name: str
+
+
+class SinkingSakhaSummary(BaseModel):
+    """One Sakha's Sinking Fund dues, for the Kendra's page."""
+
+    sakha_organization_pk: UUID
+    sakha_name: str
+    registered_count: int
+    owed_amount: Decimal
+    reimbursed_amount: Decimal
+    outstanding_amount: Decimal
+    unregistered_count: int                     # spent from its Sinking Fund, not registered as owed yet
+    unregistered_amount: Decimal
+
+
+class SinkingSummaryResponse(BaseModel):
+    items: list[SinkingSakhaSummary]
+    total: int
+
+
+class SinkingExpenditureListResponse(BaseModel):
+    items: list[SinkingExpenditureOption]
     total: int

@@ -68,7 +68,7 @@
     const newBillForm = () => ({ show: false, saving: false, error: "", vendor_name: "", bill_number: "", bill_date: "", amount: "", document_url: "", description: "" });
     const newTxnForm = () => ({
         show: false, mode: "create", pk: "", saving: false, error: "",
-        financial_year_pk: "", financial_scope_pk: "", fund_master_pk: "", transaction_type: "INCOME",
+        financial_year_pk: "", financial_scope_pk: "", fund_master_pk: "", sakha_pk: "", transaction_type: "INCOME",
         finance_head_pk: "", amount: "", transaction_date: "", description: "", sangha_sevi_id: "", member: emptyPicker(),   // member = the picker box (finMemberInput, finance-setup.js)
     });
     const newReceiptForm = () => ({
@@ -128,6 +128,8 @@
                     this.finRef = await this._finGet("/reference");
                 } catch { /* non-fatal: the pick-lists stay empty and the next open retries */ }
             },
+            // The Kendra's own procedures (annual budget, Sinking Fund dues) are shown only to someone whose admin scope reaches the Kendra (finRef.kendra_side).
+            get finKendraSide() { return !!(this.finRef && this.finRef.kendra_side); },
             get finPaymentMethods() { return (this.finRef && this.finRef.payment_methods) || []; },
             get finFundTypes() { return (this.finRef && this.finRef.fund_types) || []; },
             get finScopeTypes() { return (this.finRef && this.finRef.scope_types) || []; },
@@ -321,6 +323,8 @@
                     await this.finFundsEnter();                      // finance-funds.js
                 } else if (this.activeTab === "finBudget") {
                     await this.finBudgetEnter();                     // finance-budget.js
+                } else if (this.activeTab === "finSinking") {
+                    await this.finSinkingEnter();                    // finance-sinking.js
                 } else if (this.activeTab === "finTransactions") {
                     this.finTxn = null; this.finTxnForm = newTxnForm();
                     await Promise.all([this.finLoadYears(), this.finLoadScopeOptions(), this.finLoadTxns()]);
@@ -339,7 +343,7 @@
                 return [this.finYearForm, this.finScopeForm, this.finScopeEdit, this.finFundForm, this.finTxnForm,
                     this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx, this.finAuth, this.finBillForm]
                     .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk
-                    || this.finSetupBusy() || this.finReqBusy() || this.finBudgetBusy();
+                    || this.finSetupBusy() || this.finReqBusy() || this.finBudgetBusy() || this.finSinkingBusy();
             },
             async finLiveReload() {
                 const tab = this.activeTab;
@@ -352,6 +356,8 @@
                     await this.finFundsReload();
                 } else if (tab === "finBudget") {
                     await this.finBudgetReload();
+                } else if (tab === "finSinking") {
+                    await this.finSinkingReload();
                 } else if (tab === "finTransactions") {
                     if (this.finTxn) await this.finReloadTxn(); else await this.finLoadTxns({ silent: true });
                 } else if (tab === "finTransfers") {
@@ -722,7 +728,7 @@
             finTxnsPageBy(d) { this.finTxnsPage = Math.min(Math.max(1, this.finTxnsPage + d), this.finTxnsTotalPages); return this.finLoadTxns(); },
 
             // Create / edit
-            finOpenTxnForm(txn) {
+            async finOpenTxnForm(txn) {
                 this.finTxn = txn ? this.finTxn : null;
                 const open = this.finOpenYears;
                 const f = { ...newTxnForm(), show: true };
@@ -742,7 +748,8 @@
                     f.transaction_date = this._finClampDate(this.finEntryYear);
                 }
                 this.finTxnForm = f;
-                return this.finTxnFormScopeChanged(true);
+                await this.finTxnFormScopeChanged(true);
+                this.finTxnFundChanged();                                             // an edited entry on a Sinking Fund shows its Sakha
             },
             _finClampDate(year) {
                 const t = isoToday();
@@ -762,13 +769,44 @@
                     this.finTxnFormHeads = (await this._finGet("/heads", { for_scope_pk: scope, page_size: 200 })).items;
                 } catch { /* the head list stays empty; the server explains on save */ }
             },
+            // An expense from a SINKING FUND is always on behalf of one Sakha (owner 2026-11-24: "adding expense should have the Sakha name, mandatory"): the
+            // Sakha field is offered for an expense in a scope that holds Sinking Funds, choosing a Sakha narrows the funds to that Sakha's Sinking Fund, and
+            // choosing a Sinking Fund fills the Sakha in. The server holds the same line (a Sinking Fund always names its Sakha, finance.py::_check_head).
+            get finTxnSakhaChoices() {
+                const seen = new Map();
+                for (const f of this.finTxnFormFunds) if (f.fund_type === "SINKING_FUND" && f.organization_pk) seen.set(f.organization_pk, f.organization_name || f.organization_pk);
+                return [...seen].map(([pk, name]) => ({ organization_pk: pk, organization_name: name })).sort((a, b) => a.organization_name.localeCompare(b.organization_name));
+            },
+            get finTxnNeedsSakha() { return this.finTxnForm.transaction_type === "EXPENSE" && this.finTxnSakhaChoices.length > 0; },
+            get finTxnFundChoices() {
+                const sakha = this.finTxnForm.sakha_pk;
+                return sakha ? this.finTxnFormFunds.filter((f) => f.fund_type === "SINKING_FUND" && f.organization_pk === sakha) : this.finTxnFormFunds;
+            },
+            get finTxnFundIsSinking() {
+                const fund = this.finTxnFormFunds.find((f) => f.fund_master_pk === this.finTxnForm.fund_master_pk);
+                return !!fund && fund.fund_type === "SINKING_FUND";
+            },
+            finTxnSakhaChanged() {
+                const f = this.finTxnForm;
+                f.fund_master_pk = "";
+                const funds = this.finTxnFundChoices;
+                if (f.sakha_pk && funds.length === 1) f.fund_master_pk = funds[0].fund_master_pk;       // the Sakha has one Sinking Fund here: that is the fund
+            },
+            finTxnFundChanged() {
+                const f = this.finTxnForm;
+                const fund = this.finTxnFormFunds.find((x) => x.fund_master_pk === f.fund_master_pk);
+                if (fund) f.sakha_pk = fund.fund_type === "SINKING_FUND" ? fund.organization_pk : "";       // no fund chosen yet: the Sakha stays as chosen
+            },
             finTxnFormTypeChanged() {
+                if (this.finTxnForm.transaction_type !== "EXPENSE" && !this.finTxnFundIsSinking) this.finTxnForm.sakha_pk = "";
                 if (!this.finHeadChoices.some((h) => h.finance_head_pk === this.finTxnForm.finance_head_pk)) this.finTxnForm.finance_head_pk = "";
             },
             async finSubmitTxn() {
                 const f = this.finTxnForm;
                 if (!f.financial_year_pk || !f.financial_scope_pk) { f.error = "Choose the financial year and scope."; return; }
                 if (!f.finance_head_pk) { f.error = "Choose the finance head (what this money is for)."; return; }
+                if (this.finTxnFundIsSinking && !f.sakha_pk) { f.error = "Choose the Sakha this expense is for (required for a Sinking Fund)."; return; }
+                if (f.sakha_pk && !this.finTxnFundIsSinking) { f.error = "Choose the Sinking Fund of that Sakha, or clear the Sakha."; return; }
                 const bad = this._finMoneyOk(f.amount, "Amount");
                 if (bad) { f.error = bad; return; }
                 if (!f.transaction_date) { f.error = "Choose the transaction date."; return; }

@@ -706,6 +706,8 @@ Invoke-Ddl "finance_approval_policy" "finance_approval_policy" "$DdlBase\14_fina
 Invoke-Ddl "upi_payment_request_line" "upi_payment_request_line" "$DdlBase\14_finance\19_upi_payment_request_line.sql"
 Invoke-Ddl "finance_budget" "finance_budget" "$DdlBase\14_finance\21_finance_budget.sql"
 Invoke-Ddl "finance_budget_line" "finance_budget_line" "$DdlBase\14_finance\22_finance_budget_line.sql"
+Invoke-Ddl "finance_sinking_reimbursement" "finance_sinking_reimbursement" "$DdlBase\14_finance\24_finance_sinking_reimbursement.sql"
+Invoke-Ddl "finance_sinking_reimbursement_entry" "finance_sinking_reimbursement_entry" "$DdlBase\14_finance\25_finance_sinking_reimbursement_entry.sql"
 Invoke-Sql "finance reference data patch" "$SeedBase\12_finance\01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 Invoke-Sql "finance head templates patch" "$SeedBase\12_finance\02_finance_head_templates_patch.sql"
@@ -721,6 +723,7 @@ Invoke-Sql "finance head approval flags patch" "$SeedBase\12_finance\04_finance_
 Invoke-Sql "finance disbursement purpose patch" "$SeedBase\12_finance\03_finance_disbursement_purpose_patch.sql"
 Invoke-Sql "finance fund type code patch" "$SeedBase\12_finance\05_fund_type_code_patch.sql"
 Invoke-Sql "finance scope type code patch" "$SeedBase\12_finance\06_scope_type_code_patch.sql"
+Invoke-Sql "finance sinking reimbursement patch" "$SeedBase\12_finance\07_sinking_reimbursement_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 Invoke-Sql "live_change_triggers" "$DdlBase\12_live_refresh\02_live_change_triggers.sql"

@@ -21,7 +21,9 @@
         { key: "VIEWS_RECEIVED", label: "Advisory Board's views on file" },
         { key: "PASSED", label: "Passed by the Governing Body" },
     ];
-    const newStart = () => ({ show: false, year: "", saving: false, error: "" });
+    // organization = the picker for the Sangha the budget is for: empty means the Kendra (a Sakha's admin has it chosen and locked for them, finSetupScopeOrg).
+    const newStart = () => ({ show: false, year: "", saving: false, error: "",
+        organization: { query: "", results: [], searching: false, selected: null, typeCodes: typeof NSS !== "undefined" ? NSS.SAKHA_LIKE_ORG_TYPES : [] } });
     // The line form and the reason box appear only in EDIT MODE (finBudgetEditing, opened by "Edit budget", closed by Cancel); the Edit button
     // itself is offered in every status. Change on a row fills the form.
     const newLine = () => ({ show: true, head: "", amount: "", notes: "", editing: false, saving: false, error: "" });
@@ -50,9 +52,21 @@
             },
             // The year a budget is started for: the CURRENT one, chosen for the user and not changeable (owner 2026-11-23), and only while it is not CLOSED
             // and has no budget yet (one budget per year); finBudgetYearTaken says when it already has one.
+            // Sakhas have budgets of their own (owner 2026-11-24): "has its budget" is asked of the Sangha the budget is for - the Sakha chosen (or the
+            // Sakha admin's own), else the Kendra (a budget with steps; one with no has_steps flag is read as the Kendra's).
+            get finBudgetOrgPk() {
+                const own = this.finSetupScopeOrg;
+                if (own) return own.organization_pk;
+                const picked = this.finBudgetStart && this.finBudgetStart.organization && this.finBudgetStart.organization.selected;
+                return picked ? picked.organization_pk : "";
+            },
+            _finBudgetHasYear(yearPk) {
+                const org = this.finBudgetOrgPk;
+                return this.finBudgets.some((b) => b.financial_year_pk === yearPk && (org ? b.organization_pk === org : b.has_steps !== false));
+            },
             get finBudgetYearTaken() {
                 const y = this.finScopeYear;
-                return !!y && this.finBudgets.some((b) => b.financial_year_pk === y.financial_year_pk);
+                return !!y && this._finBudgetHasYear(y.financial_year_pk);
             },
             get finBudgetYear() { return this.finBudgetYearTaken ? null : this.finScopeYear; },
             // The Kendra may also prepare NEXT year's budget in advance (owner 2026-11-24): the next year after the current one, while it is not CLOSED
@@ -62,7 +76,7 @@
                 if (!current) return null;
                 const start = (y) => Number(String(y.year_code).slice(0, 4));
                 const next = this.finYears.filter((y) => y.status !== "CLOSED" && start(y) > start(current)).sort((a, b) => start(a) - start(b))[0];
-                return next && !this.finBudgets.some((b) => b.financial_year_pk === next.financial_year_pk) ? next : null;
+                return next && !this._finBudgetHasYear(next.financial_year_pk) ? next : null;
             },
             get finBudgetCanStart() { return !!(this.finBudgetYear || this.finBudgetNextYear); },
             get finBudgetIncomeLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "INCOME") : []; },
@@ -109,7 +123,7 @@
                 }
             },
             async finBudgetOpen(pk) {
-                this.finBudgetError = "";
+                this.finBudgetError = ""; this.finBudgetHeads = [];                      // the heads are those of THIS budget's Sangha
                 try {
                     this._finBudgetSet(await this._finGet(`/budgets/${pk}`));
                     await this._finBudgetLoadHeads();
@@ -152,13 +166,17 @@
             finBudgetStartOpen() {
                 const first = this.finBudgetYear || this.finBudgetNextYear;
                 this.finBudgetStart = { ...newStart(), show: true, year: first ? first.financial_year_pk : "" };
+                const own = this.finSetupScopeOrg;
+                if (own) { this.finBudgetStart.organization.selected = own; this.finBudgetStart.organization.query = own.organization_name; }
             },
             async finBudgetStartSubmit() {
                 const f = this.finBudgetStart;
                 if (!f.year) { f.error = "There is no current financial year to start a budget for."; return; }
                 f.saving = true; f.error = "";
                 try {
-                    const detail = await this._finSend("POST", "/budgets", { financial_year_pk: f.year });
+                    const own = this.finSetupScopeOrg;
+                    const orgPk = own ? own.organization_pk : (f.organization.selected ? f.organization.selected.organization_pk : null);
+                    const detail = await this._finSend("POST", "/budgets", { financial_year_pk: f.year, organization_pk: orgPk });
                     this.finBudgetStart = newStart();
                     this._finBudgetSet(detail); this.finBudgetHeads = [];
                     await this._finBudgetLoadHeads();
@@ -251,7 +269,9 @@
             },
 
             // A correction is offered once the Advisory Board's views are on file (its summary) and, once passed, for the resolution reference too.
-            get finBudgetCanCorrect() { return !!this.finBudget && this.canManageFinance && ["VIEWS_RECEIVED", "PASSED"].includes(this.finBudget.status); },
+            get finBudgetCanCorrect() { return !!this.finBudget && this.finBudget.has_steps !== false && this.canManageFinance && ["VIEWS_RECEIVED", "PASSED"].includes(this.finBudget.status); },
+            // The Kendra's budget has the four steps; a Sakha's is a plain plan (no referral, no resolution, no reason for a change).
+            get finBudgetHasSteps() { return !!this.finBudget && this.finBudget.has_steps !== false; },
             finBudgetFixOpen() {
                 const b = this.finBudget;
                 this.finBudgetFix = { ...newFix(), show: true, summary: b.advisory_views_summary || "", reference: b.resolution_reference || "" };

@@ -439,6 +439,15 @@ Reimbursement obligation
 Subsequent reimbursement
 ```
 
+**Implementation note (owner request 2026-11-24).** Built as `api/services/finance_sinking.py` + `api/routers/finance_sinking.py` (`/finance/sinking-reimbursements`), tables `finance_sinking_reimbursement` and `finance_sinking_reimbursement_entry`:
+
+- *Kendra expenditure* is an ordinary EXPENSE entry from the Sakha's Sinking Fund (the Bye-Law disbursement controls for Kendra money already apply to it).
+- *Reason / beneficiary Sakha*: registering a POSTED / SETTLED Sinking Fund expense as a take-over expenditure records the reason (required) and the Governing Body resolution (optional); the beneficiary Sakha is the one the fund names (FIN-BR-023/024), so it is not stored twice. A Sakha spending from its own fund owes nothing.
+- *Reimbursement obligation*: the Sakha owes the expenditure's amount, fixed at registration; reference `SRB<n>`.
+- *Subsequent reimbursement*: the Sakha's payments are ordinary income entries in the same fund (head `SINKING_REIMBURSEMENT`), linked to the obligation; part payments are allowed; they count once POSTED / SETTLED and what is still in progress is reserved so no more than is owed can be recorded. What has been reimbursed and the status (OPEN / PARTLY_REIMBURSED / REIMBURSED) are worked out from the books, never stored.
+- *Sakha by Sakha*: the Kendra's page adds the dues up per Sakha (registered, reimbursed, still owed, spent but not registered yet), and every entry on a Sinking Fund names its Sakha - the expense form asks for it.
+- Nothing beyond the Bye-Law is invented: no interest, no waiver, no due date ("subsequently").
+
 ---
 
 # 8. Statutory Financial Flows

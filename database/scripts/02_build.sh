@@ -9,6 +9,7 @@
 #
 # Authority: SOL-ARCH-010 (DDL Creation Order),
 #            SOL-ARCH-011 (Bootstrap Architecture)
+# Version: 2.14 — Phase 11i Finance (+ finance_sinking_reimbursement, finance_sinking_reimbursement_entry: the Sinking Fund reimbursement, FIN-BR-026) (2026-11-24).
 # Version: 2.13 — Phase 11i Finance (18 tables, 97 total; + finance_budget, finance_budget_line: the Kendra annual budget, FIN-BR-041) (2026-11-22).
 # Version: 2.12 — Phase 11i Finance (16 tables, 95 total; + upi_payment_request_line for paying several contributions at once) (2026-11-17).
 # Version: 2.11 — Phase 11i Finance (15 tables, 94 total; + bills, approval step, approval policy; FINANCE_CONFIGURE) (2026-11-17).
@@ -792,6 +793,8 @@ run_ddl "finance_approval_policy" "finance_approval_policy" "${DDL_BASE}/14_fina
 run_ddl "upi_payment_request_line" "upi_payment_request_line" "${DDL_BASE}/14_finance/19_upi_payment_request_line.sql"
 run_ddl "finance_budget" "finance_budget" "${DDL_BASE}/14_finance/21_finance_budget.sql"
 run_ddl "finance_budget_line" "finance_budget_line" "${DDL_BASE}/14_finance/22_finance_budget_line.sql"
+run_ddl "finance_sinking_reimbursement" "finance_sinking_reimbursement" "${DDL_BASE}/14_finance/24_finance_sinking_reimbursement.sql"
+run_ddl "finance_sinking_reimbursement_entry" "finance_sinking_reimbursement_entry" "${DDL_BASE}/14_finance/25_finance_sinking_reimbursement_entry.sql"
 # Idempotent reference data (PAYMENT_METHOD master_data, id sequences FTX/RCT/PAY/FTR, initial Financial Year 2026-27); must run after the tables above.
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
@@ -808,6 +811,8 @@ run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_
 run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
 run_sql "finance fund type code patch" "${SEED_BASE}/12_finance/05_fund_type_code_patch.sql"
 run_sql "finance scope type code patch" "${SEED_BASE}/12_finance/06_scope_type_code_patch.sql"
+# Sinking Fund reimbursement (FIN-BR-026): the SRB sequence, the SINKING_REIMBURSEMENT head template, the take-over disbursement purpose (after the tables above).
+run_sql "finance sinking reimbursement patch" "${SEED_BASE}/12_finance/07_sinking_reimbursement_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 run_sql "live_change_triggers" "${DDL_BASE}/12_live_refresh/02_live_change_triggers.sql"

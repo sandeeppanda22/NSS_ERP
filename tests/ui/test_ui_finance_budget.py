@@ -26,7 +26,7 @@ NODE = shutil.which("node")
 
 
 def _panel() -> str:
-    start = ADMIN_HTML.index("VIEW: Finance - Kendra annual budget")
+    start = ADMIN_HTML.index("VIEW: Finance - annual budget: the Kendra")
     return ADMIN_HTML[start:ADMIN_HTML.index("<!-- ═════════ Transactions ═════════ -->", start)]
 
 
@@ -97,7 +97,7 @@ class TestPanel:
             assert field in BudgetTotals.model_fields, field
 
     def test_the_actions_are_shown_only_to_someone_who_may_record_and_the_page_decides_nothing_else(self):
-        assert 'x-show="finBudgetCanAct && finBudget.status !== \'PASSED\'"' in _panel()
+        assert 'x-show="finBudgetCanAct && finBudgetHasSteps && finBudget.status !== \'PASSED\'"' in _panel()          # a Sakha's plan has no steps
         assert "get finBudgetCanAct() { return !!this.finBudget && this.canManageFinance; }" in BUDGET_JS
         assert not re.search(r"(TREASURER|SECRETARY|PRESIDENT)", BUDGET_JS)                          # no seat logic on the page
 
@@ -112,7 +112,7 @@ class TestWhatThePageSends:
         from api.schemas.finance import BudgetCreate, BudgetLineWrite, BudgetPassWrite, BudgetReferWrite, BudgetReopenWrite, BudgetViewsWrite
 
         bodies = {
-            "/budgets\"": (BudgetCreate, {"financial_year_pk"}),
+            "/budgets\"": (BudgetCreate, {"financial_year_pk", "organization_pk"}),
             "/lines`": (BudgetLineWrite, {"finance_head_pk", "amount", "notes"}),
             "/refer`": (BudgetReferWrite, {"referred_on"}),
             "/advisory-views`": (BudgetViewsWrite, {"advisory_views_date", "advisory_views_summary"}),
@@ -305,7 +305,7 @@ class TestMixinUnderNode:
             return { none, err, post: calls[0], opened: host.finBudget && host.finBudget.finance_budget_pk, heads: calls.find((c) => c[1] === "/heads") };
         """)
         assert out["none"] == 0 and out["err"] == "There is no current financial year to start a budget for."
-        assert out["post"] == ["POST", "/budgets", {"financial_year_pk": "y2"}] and out["opened"] == "b1"        # the current year, not chosen from a list
+        assert out["post"] == ["POST", "/budgets", {"financial_year_pk": "y2", "organization_pk": None}] and out["opened"] == "b1"        # the current year, not chosen from a list
         assert out["heads"][2] == {"organization_pk": "k1", "with_templates": False, "status": "ACTIVE", "page_size": 200}
 
     def test_an_open_form_makes_the_tab_busy_for_live_refresh(self):
@@ -436,3 +436,45 @@ class TestEditMode:
         out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
         assert out.returncode == 0, out.stderr
         assert json.loads(out.stdout) == {"close": False, "enter": False}
+
+
+class TestASakhasBudgetIsAPlainPlan:
+    """Owner 2026-11-24: "Sakhas also have their own budget" - the same screen, no steps (the Advisory Board and the resolution are the Kendra's)."""
+
+    def test_the_steps_the_next_step_the_correction_and_the_badge_are_the_kendras_only(self):
+        panel = _panel()
+        assert 'class="bud-steps" x-show="finBudgetHasSteps"' in panel
+        assert "finBudgetHasSteps && finBudget.status !== 'PASSED'" in panel
+        assert "x-show=\"b.has_steps !== false\"" in panel and "x-show=\"b.has_steps === false\">Plan" in panel                    # the list says Plan
+        assert "this.finBudget.has_steps !== false && this.canManageFinance" in BUDGET_JS                                           # the correction card
+
+    def test_the_start_form_names_the_sangha_and_a_sakha_admins_own_is_locked(self):
+        panel = _panel()
+        assert 'x-model="finBudgetStart.organization.query" :disabled="finSetupOrgLocked"' in panel and "Left empty, the budget is the Kendra's." in panel
+        assert "organization_pk: orgPk" in BUDGET_JS and "const own = this.finSetupScopeOrg;" in BUDGET_JS
+
+    def test_the_year_is_taken_only_by_a_budget_of_the_same_sangha(self):
+        import json
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("node not available")
+        start = BUDGET_JS.index("            get finBudgetOrgPk() {")
+        end = BUDGET_JS.index("            get finBudgetYear() {")
+        script = f"""
+        const host = {{ finBudgets: [], finScopeYear: {{ financial_year_pk: "y1" }}, finSetupScopeOrg: null,
+                       finBudgetStart: {{ organization: {{ selected: null }} }}, {BUDGET_JS[start:end].rstrip().rstrip(",")} }};
+        const r = {{}};
+        // a Sakha's budget does not use up the Kendra's year ...
+        host.finBudgets = [{{ financial_year_pk: "y1", organization_pk: "sakha-1", has_steps: false }}]; r.kendraFree = host.finBudgetYearTaken;
+        // ... and the Kendra's does not use up a Sakha's
+        host.finBudgets = [{{ financial_year_pk: "y1", organization_pk: "kendra", has_steps: true }}]; r.kendraTaken = host.finBudgetYearTaken;
+        host.finSetupScopeOrg = {{ organization_pk: "sakha-1" }}; r.sakhaFree = host.finBudgetYearTaken;
+        host.finBudgets = [{{ financial_year_pk: "y1", organization_pk: "sakha-1", has_steps: false }}]; r.sakhaTaken = host.finBudgetYearTaken;
+        host.finSetupScopeOrg = null; host.finBudgetStart.organization.selected = {{ organization_pk: "sakha-1" }}; r.pickedTaken = host.finBudgetYearTaken;
+        console.log(JSON.stringify(r));
+        """
+        done = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        assert done.returncode == 0, done.stderr
+        assert json.loads(done.stdout.strip().splitlines()[-1]) == {"kendraFree": False, "kendraTaken": True, "sakhaFree": False, "sakhaTaken": True, "pickedTaken": True}

@@ -30,6 +30,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     new_year,
     move,
     post_txn,
+    other_admin_h,
     register_org_pk,
     sakha_admin,
     sakha_admin_h,
@@ -521,3 +522,36 @@ class TestLettersInCorrespondence:
         cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'finance_budget' AND record_pk::text = %s AND detail ? 'letter'", (b["finance_budget_pk"],))
         detail = cur.fetchone()[0]
         assert detail["letter"] == d["referral_reference"] and detail["advisory_board_copy"] == d["referral_inward_reference"]
+
+
+class TestASakhasOwnBudget:
+    """Owner 2026-11-24: "Sakhas also have their own budget" - a plain plan: no steps, no reason for a change, only its own Sakha's admins."""
+
+    def test_a_sakha_starts_a_plan_and_keeps_it_without_steps(self, client, admin_h, register_org_pk):
+        year = _year(client, admin_h)
+        r = client.post(f"{BASE}/budgets", json={"financial_year_pk": year["financial_year_pk"], "organization_pk": str(register_org_pk)}, headers=admin_h)
+        assert r.status_code == 201, r.text
+        b = r.json()
+        assert b["has_steps"] is False and b["organization_pk"] == str(register_org_pk) and b["next_step"] is None and b["changes_need_reason"] is False
+        for step, body in (("refer", {}), ("advisory-views", {"advisory_views_summary": "x"}), ("pass", {"resolution_reference": "R", "resolution_date": "2020-01-01"}),
+                           ("reopen", {"remarks": "x"}), ("correct", {"advisory_views_summary": "x", "reason": "r"})):
+            _step(client, admin_h, b, step, body, expect=422)
+
+    def test_it_is_one_per_sakha_per_year_and_does_not_use_up_the_kendras_year(self, client, admin_h, register_org_pk, kendra_org_pk):
+        year = _year(client, admin_h)
+        body = {"financial_year_pk": year["financial_year_pk"], "organization_pk": str(register_org_pk)}
+        assert client.post(f"{BASE}/budgets", json=body, headers=admin_h).status_code == 201
+        assert client.post(f"{BASE}/budgets", json=body, headers=admin_h).status_code == 409
+        assert client.post(f"{BASE}/budgets", json={"financial_year_pk": year["financial_year_pk"]}, headers=admin_h).status_code == 201     # the Kendra's
+
+    def test_a_sakha_admin_keeps_only_its_own_and_cannot_touch_the_kendras(self, client, admin_h, sakha_admin_h, other_admin_h, register_org_pk):
+        year = _year(client, admin_h)
+        body = {"financial_year_pk": year["financial_year_pk"], "organization_pk": str(register_org_pk)}
+        made = client.post(f"{BASE}/budgets", json=body, headers=sakha_admin_h)                               # the Sakha's own finance admin
+        assert made.status_code == 201, made.text
+        pk = made.json()["finance_budget_pk"]
+        mine = client.get(f"{BASE}/budgets", headers=sakha_admin_h).json()["items"]
+        assert pk in [i["finance_budget_pk"] for i in mine] and all(i["has_steps"] is False for i in mine)   # no Kendra budget among them
+        assert client.post(f"{BASE}/budgets", json={"financial_year_pk": year["financial_year_pk"]}, headers=sakha_admin_h).status_code == 403   # the Kendra's is not theirs
+        theirs = client.get(f"{BASE}/budgets/{pk}", headers=other_admin_h)
+        assert theirs.status_code in (403, 404)                                                                 # another Sakha's admin sees nothing

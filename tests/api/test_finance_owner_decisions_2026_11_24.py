@@ -197,10 +197,10 @@ def test_a_correction_keeps_the_status_and_the_old_text():
 @pytest.mark.skipif(NODE is None, reason="node not available")
 def test_the_page_offers_next_year_in_advance():
     src = (ROOT / "frontend/assets/js/finance-budget.js").read_text(encoding="utf-8")
-    start = src.index("            get finBudgetNextYear() {")
+    start = src.index("            get finBudgetOrgPk() {")
     end = src.index("            get finBudgetCanStart()")
     script = f"""
-    const host = {{ finYears: [], finBudgets: [], finScopeYear: null, {src[start:end].rstrip().rstrip(",")} }};
+    const host = {{ finYears: [], finBudgets: [], finScopeYear: null, finSetupScopeOrg: null, finBudgetStart: null, {src[start:end].rstrip().rstrip(",")} }};
     const yr = (code, status) => ({{ year_code: code, status, financial_year_pk: code }});
     const r = {{}};
     host.finYears = [yr("2026-27", "OPEN"), yr("2027-28", "PLANNED"), yr("2025-26", "CLOSED")]; host.finScopeYear = host.finYears[0];

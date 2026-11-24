@@ -936,12 +936,12 @@ The Treasurer's signature is not an endpoint: moving a payment to `INITIATED` (a
 
 ### Kendra annual budget (`finance_budget.py`)
 
-The Kendra Governing Body passes an annual budget; the draft is referred to the Advisory Board for its considered views before the Governing Body's final decision (Bye-Law; FIN-BR-041). The rules are in `api/services/finance_budget.py`. One budget per Kendra per financial year; only the Kendra has one (422 for any other organization). Status flow `DRAFT -> REFERRED -> VIEWS_RECEIVED -> PASSED`; each step records a reference and a date, the dates keep that order and are never in the future. The Advisory Board's views must be on file before the budget can pass (they are views, not a veto); a budget goes back to `DRAFT` with a reason until it has passed (the referral facts are cleared, the audit event keeps them); a `PASSED` budget is final. The budget guides, it never blocks: spending above a line (`over_budget`) or on a head with no line (`unbudgeted`) is only flagged; `actual` is read from POSTED / SETTLED transactions of that head in that year. Auth: reads `FINANCE_VIEW`+, writes `FINANCE_MANAGE` (or `FINANCE_APPROVE`), admin scope on the Kendra; every write is audited.
+The Kendra Governing Body passes an annual budget; the draft is referred to the Advisory Board for its considered views before the Governing Body's final decision (Bye-Law; FIN-BR-041). The rules are in `api/services/finance_budget.py`. One budget per Sangha per financial year. The Kendra's has the four steps below; a Sakha Sangha / Sakha Asana has its own as a plain plan (`has_steps: false`: no steps, no reason for a change; the refer / advisory-views / pass / reopen / correct endpoints return 422 for it); any other organization gets 422 (FIN-BR-044). Status flow `DRAFT -> REFERRED -> VIEWS_RECEIVED -> PASSED`; each step records a reference and a date, the dates keep that order and are never in the future. The Advisory Board's views must be on file before the budget can pass (they are views, not a veto); a budget goes back to `DRAFT` with a reason until it has passed (the referral facts are cleared, the audit event keeps them); a `PASSED` budget is final. The budget guides, it never blocks: spending above a line (`over_budget`) or on a head with no line (`unbudgeted`) is only flagged; `actual` is read from POSTED / SETTLED transactions of that head in that year. Auth: reads `FINANCE_VIEW`+, writes `FINANCE_MANAGE` (or `FINANCE_APPROVE`), admin scope on the Kendra; every write is audited.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/budgets` | List (filters `financial_year_pk`, `organization_pk`, `status`), newest year first, limited to the caller's scope |
-| POST | `/budgets` | Start the Kendra's budget for a year (`organization_pk` optional: the one active Kendra); 409 when the year already has one, 422 for a CLOSED year (a PLANNED next year is allowed: the Kendra may prepare it in advance, owner 2026-11-24) |
+| POST | `/budgets` | Start a budget for a year (`organization_pk` optional: the one active Kendra by default, or a Sakha Sangha / Sakha Asana - a plain PLAN with `has_steps: false`, no referral / resolution / reason; 422 for any other level, FIN-BR-044); 409 when the year already has one, 422 for a CLOSED year (a PLANNED next year is allowed: the Kendra may prepare it in advance, owner 2026-11-24) |
 | GET | `/budgets/{pk}` | The budget, its lines with `actual` / `remaining` / `over_budget`, the `unbudgeted` heads, `totals`, `next_step`, `changes_need_reason` |
 | PUT | `/budgets/{pk}/lines` | Set the planned amount of an ACTIVE Kendra head (adds the line, or changes the amount) in **any** status; once the budget has left `DRAFT` a `reason` is required (422 otherwise) and is kept in the audit event with the old amount |
 | DELETE | `/budgets/{pk}/lines/{line_pk}` | Remove a line (soft delete) in **any** status; `?reason=` required once past `DRAFT`; returns the budget |
@@ -952,6 +952,23 @@ The Kendra Governing Body passes an annual budget; the draft is referred to the 
 | POST | `/budgets/{pk}/correct` | Correct what was recorded (owner 2026-11-24): `advisory_views_summary` from `VIEWS_RECEIVED` on, `resolution_reference` once `PASSED`, with a required `reason`; the status does not move, the audit event keeps the old and new text; 422 when nothing differs. The Correspondence letters are not rewritten |
 
 Tables `finance_budget` and `finance_budget_line` (`ddl/14_finance/21`-`22`).
+
+### Sinking Fund reimbursement (`finance_sinking.py`)
+
+When the Kendra Sangha temporarily takes over the seva and pujas of a Sakha, what it spends out of that Sakha's Sinking Fund "shall be reimbursed by the Sakha Sangha subsequently" (Bye-Law C(i)(2)(xviii); FIN-BR-026). The rules are in `api/services/finance_sinking.py`. The expenditure is an ordinary EXPENSE; registering it creates the obligation. A reimbursement is an ordinary INCOME entry in the same fund, made through the same code as `POST /transactions`, so every rule of an entry applies (the current OPEN year, an ACTIVE scope and fund, the head's rules). What is reimbursed is read from the POSTED / SETTLED linked entries, never stored; what is still DRAFT / PENDING_APPROVAL / APPROVED is reserved against what is owed. Scope is the organization of the financial scope the money was spent in (the Kendra's).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/sinking-reimbursements` | List (filters `organization_pk` = the Sakha that owes, `status` = `OPEN` / `PARTLY_REIMBURSED` / `REIMBURSED`); each row has `amount_due`, `reimbursed_amount`, `pending_amount`, `outstanding_amount` |
+| GET | `/sinking-reimbursements/expenditures` | POSTED / SETTLED Sinking Fund expenses (spent by someone other than the Sakha) not registered yet - what the page offers |
+| POST | `/sinking-reimbursements` | Register an expenditure (`expenditure_transaction_pk`, `takeover_reason` required, `resolution_reference` optional): the Sakha owes the expenditure's amount; 409 when already registered, 422 unless it is a POSTED / SETTLED EXPENSE from a Sinking Fund that names its Sakha |
+| GET | `/sinking-reimbursements/summary` | The Kendra's page Sakha by Sakha: per Sakha `registered_count`, `owed_amount`, `reimbursed_amount`, `outstanding_amount` and the spent-but-not-registered `unregistered_count` / `unregistered_amount`  |
+| GET | `/sinking-reimbursements/{pk}` | The obligation, its reimbursements (each a transaction with its status) and `next_step` |
+| POST | `/sinking-reimbursements/{pk}/reimbursements` | Record the Sakha's payment (`amount`, optional `transaction_date`, `description`): a DRAFT income entry in the same fund (head `SINKING_REIMBURSEMENT`, copied from the Kendra template on first use); 422 when more than is still owed, counting what is already recorded |
+| DELETE | `/sinking-reimbursements/{pk}?reason=` | Remove a registration made by mistake (soft delete, audited); 422 once a reimbursement is linked |
+
+Auth: `FINANCE_VIEW` (reads) / `FINANCE_MANAGE` (writes) + admin scope on the Kendra's scope. It is the Kendra's procedure: a Sakha's admin or office bearer, the Sakha that owes included, sees nothing (`GET /reference` returns `kendra_side` so the page hides the tab). Tables `finance_sinking_reimbursement` and `finance_sinking_reimbursement_entry` (`ddl/14_finance/24`-`25`).
+
 
 ---
 
@@ -978,9 +995,9 @@ Tables `finance_budget` and `finance_budget_line` (`ddl/14_finance/21`-`22`).
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 91 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10) |
+| 12 | Finance | 98 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10, `finance_sinking` 7) |
 | 12 | Membership Status workflow | 6 |
-| **Total** | | **382** |
+| **Total** | | **389** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 

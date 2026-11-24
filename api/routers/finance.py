@@ -70,6 +70,7 @@ from api.helpers import SAKHA_LIKE_ORG_TYPES, get_master_data_pk, log_audit, nex
 from api.schemas import finance as S
 from api.services import finance_approval as approval_service
 from api.services import finance_authority as authority_service
+from api.services import finance_budget as budget_service
 from api.services import finance_contribution as contribution_service
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope, require_person_in_scope
@@ -250,6 +251,18 @@ def _is_finance_admin(cur, user: UserContext, organization_pk=_ANYWHERE) -> bool
     return reach is None or (organization_pk is not None and str(organization_pk) in reach)
 
 
+def kendra_side_of(cur, user: UserContext) -> bool:
+    """
+    Does the caller's admin scope reach the Kendra? The Kendra's own procedures (owner 2026-11-24: Sinking Fund dues "is the Kendra's procedure") are for
+    them alone - a Sakha's admin or office bearer is not shown them, and the API gives them nothing. Global authority reaches the Kendra too.
+    """
+    reach = actor_scope_org_pks(cur, user)
+    if reach is None:
+        return True
+    kendra = budget_service.kendra_organization_pk(cur)
+    return kendra is not None and str(kendra) in reach
+
+
 def _require_finance_admin(cur, user: UserContext, what: str, organization_pk=_ANYWHERE) -> None:
     if not _is_finance_admin(cur, user, organization_pk):
         raise HTTPException(
@@ -415,10 +428,12 @@ def reference(user: UserContext = Depends(_VIEW), conn=Depends(get_connection)):
         methods = [{"code": r[0], "name": r[1]} for r in cur.fetchall()]
         disbursement_purposes = authority_service.purposes(cur)
         finance_admin = _is_finance_admin(cur, user)
+        kendra_side = kendra_side_of(cur, user)
         fund_type_codes = contribution_service.fund_type_codes(cur)
         scope_type_codes = contribution_service.scope_type_codes(cur)
     return {
         "finance_admin": finance_admin,
+        "kendra_side": kendra_side,
         "payment_methods": methods,
         "fund_types": list(S.FUND_TYPES),
         "fund_type_codes": fund_type_codes,
@@ -1275,6 +1290,8 @@ def _check_head(head: dict, *, scope: dict, txn_type: str, fund: dict | None) ->
             raise _invalid("An expense from a restricted fund must use a restricted finance head (FIN-BR-021).")
         if head["is_restricted"] and (fund is None or not fund["is_restricted"]):
             raise _invalid(f"{code} is a restricted head and must name a restricted fund (FIN-BR-020).")
+    if fund is not None and fund["fund_type"] == "SINKING_FUND" and fund["organization_pk"] is None:
+        raise _invalid("This Sinking Fund does not name its Sakha, so nothing can be recorded against it (FIN-BR-023/024).")      # the Sakha is never missing
     wanted = head["required_fund_type"]
     if wanted:
         if fund is None or fund["fund_type"] != wanted:

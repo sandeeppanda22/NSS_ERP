@@ -30,6 +30,7 @@
     <script src="/assets/js/finance-setup.js"></script>
     <script src="/assets/js/finance-funds.js"></script>
     <script src="/assets/js/finance-budget.js"></script>
+    <script src="/assets/js/finance-sinking.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
     <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
@@ -917,6 +918,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
                                 </svg>
                                 Annual Budget
+                            </a>
+                            <a class="nav-item" x-show="finKendraSide" :class="{ active: activeTab === 'finSinking' }" @click="finEnterTab('finSinking')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 0 0-3.7-3.7 48.678 48.678 0 0 0-7.324 0 4.006 4.006 0 0 0-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 0 0 3.7 3.7 48.656 48.656 0 0 0 7.324 0 4.006 4.006 0 0 0 3.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3-3 3" />
+                                </svg>
+                                Sinking Fund Dues
                             </a>
                             <a class="nav-item" :class="{ active: activeTab === 'finTransactions' }" @click="finEnterTab('finTransactions')">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -7923,7 +7930,7 @@
                          come from the server's own table (GET /finance/reference).
                          Four tabs: finOverview, finStructure, finTransactions, finTransfers.
                          ═══════════════════════════════════════════ -->
-                    <div x-show="['finOverview','finStructure','finFunds','finBudget','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
+                    <div x-show="['finOverview','finStructure','finFunds','finBudget','finSinking','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
 
                         <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
 
@@ -8669,8 +8676,9 @@
                     </div>
 
                     <!-- ═══════════════════════════════════════════
-                         VIEW: Finance - Kendra annual budget (Bye-Law, FIN-BR-041; finance-budget.js, rules in api/services/finance_budget.py)
-                         Draft -> referred to the Advisory Board -> its views on file -> passed by the Governing Body. Flags spending, never blocks it.
+                         VIEW: Finance - annual budget: the Kendra's (Bye-Law, FIN-BR-041; finance-budget.js, rules in api/services/finance_budget.py)
+                         Draft -> referred to the Advisory Board -> its views on file -> passed by the Governing Body. A SAKHA's budget is a plain plan: no steps.
+                         Flags spending, never blocks it.
                          ═══════════════════════════════════════════ -->
                     <div x-show="activeTab === 'finBudget'" x-cloak>
                         <div class="alert-msg alert-error" x-show="finBudgetError" x-text="finBudgetError"></div>
@@ -8679,13 +8687,30 @@
                         <div class="data-card" x-show="!finBudget">
                             <div class="data-card-header">
                                 <div>
-                                    <h2 class="data-card-title">Kendra annual budget</h2>
-                                    <div class="data-card-subtitle">The Governing Body passes an annual budget. The draft goes to the Advisory Board for its considered views first; the budget then shows how the year is going against it.</div>
+                                    <h2 class="data-card-title">Annual budget</h2>
+                                    <div class="data-card-subtitle">A Sakha keeps a plan of its year: a planned amount for each head, shown against what is actually booked. The Kendra's Governing Body passes an annual budget. The draft goes to the Advisory Board for its considered views first; the budget then shows how the year is going against it.</div>
                                 </div>
                                 <button class="btn-action primary" x-show="canManageFinance && !finBudgetStart.show && finBudgetCanStart" @click="finBudgetStartOpen()">+ Start a budget</button>
                             </div>
                             <div class="data-card-body">
                                 <div class="pend-box" x-show="finBudgetStart.show" x-cloak>
+                                    <div class="typeahead-wrap" style="margin-bottom:0.8rem;" x-show="finBudgetStart.show">
+                                        <label class="form-label">For which Sangha</label>
+                                        <input type="text" class="form-input" style="max-width:22rem;" x-model="finBudgetStart.organization.query" :disabled="finSetupOrgLocked"
+                                               @input="corrOnOrgQueryInput(finBudgetStart.organization)" placeholder="The Kendra - or search for a Sakha…" autocomplete="off">
+                                        <div class="typeahead-menu" x-show="finBudgetStart.organization.results.length > 0">
+                                            <template x-for="org in finBudgetStart.organization.results" :key="org.organization_pk">
+                                                <div class="typeahead-item" @click="corrSelectOrg(finBudgetStart.organization, org)">
+                                                    <span x-text="org.organization_name"></span><span class="meta" x-text="org.type_name"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <p class="form-hint">
+                                            <span x-show="!finBudgetStart.organization.selected">Left empty, the budget is the Kendra's.</span>
+                                            <span x-show="finBudgetStart.organization.selected" x-text="finBudgetStart.organization.selected && finBudgetStart.organization.selected.organization_name"></span>
+                                            <button type="button" class="link-action" x-show="finBudgetStart.organization.selected && !finSetupOrgLocked" @click="corrClearPicker(finBudgetStart.organization)">Clear</button>
+                                        </p>
+                                    </div>
                                     <label class="form-label">Financial year</label>
                                     <input type="text" class="form-input" style="max-width:22rem;" disabled :value="finBudgetYear ? finYearLabel(finBudgetYear) : (finBudgetYearTaken ? finYearLabel(finScopeYear) : 'No current financial year')">
                                     <p class="form-hint" x-show="finBudgetYear">The current financial year, set for you.</p>
@@ -8700,13 +8725,13 @@
                                     <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetStart.error" x-text="finBudgetStart.error"></div>
                                     <div class="fh-actions" style="margin-top:0.6rem;">
                                         <button class="btn-action primary" :disabled="finBudgetStart.saving || !finBudgetStart.year" @click="finBudgetStartSubmit()">Start the budget</button>
-                                        <button class="btn-action" :disabled="finBudgetStart.saving" @click="finBudgetStart = { show: false, year: '', saving: false, error: '' }">Cancel</button>
+                                        <button class="btn-action" :disabled="finBudgetStart.saving" @click="finBudgetStart.show = false">Cancel</button>
                                     </div>
                                 </div>
                                 <div class="alert-msg alert-error" x-show="finBudgetsError" x-text="finBudgetsError"></div>
                                 <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finBudgetsLoading"><div class="spinner"></div></div>
                                 <div class="empty-note" x-show="!finBudgetsLoading && !finBudgetsError && finBudgets.length === 0">
-                                    No Kendra budget to show. Only an administrator whose scope includes the Kendra sees it; use "+ Start a budget" to begin one for a financial year.
+                                    No budget to show yet. Use "+ Start a budget" to begin one for a financial year.
                                 </div>
                                 <div style="overflow-x:auto;" x-show="!finBudgetsLoading && finBudgets.length > 0">
                                     <table class="admin-table">
@@ -8715,7 +8740,7 @@
                                             <template x-for="b in finBudgets" :key="b.finance_budget_pk">
                                                 <tr>
                                                     <td><div class="fh-name" x-text="b.year_code"></div><div class="fh-sub" x-text="b.organization_name"></div></td>
-                                                    <td><span class="badge badge-xs" :class="finBadge(b.status)" x-text="finLabel(b.status)"></span></td>
+                                                    <td><span class="badge badge-xs" :class="finBadge(b.status)" x-show="b.has_steps !== false" x-text="finLabel(b.status)"></span><span class="fh-sub" x-show="b.has_steps === false">Plan</span></td>
                                                     <td style="font-size:0.82rem;" x-text="finDate(b.referred_on)"></td>
                                                     <td style="font-size:0.82rem;"><span x-text="b.advisory_reference || '-'"></span><div class="fh-sub" x-show="b.advisory_views_date" x-text="finDate(b.advisory_views_date)"></div></td>
                                                     <td style="font-size:0.82rem;"><span x-text="b.resolution_reference || '-'"></span><div class="fh-sub" x-show="b.resolution_date" x-text="finDate(b.resolution_date)"></div></td>
@@ -8734,7 +8759,7 @@
                                 <div class="data-card">
                                     <div class="data-card-header">
                                         <div>
-                                            <h2 class="data-card-title">Budget <span x-text="finBudget.year_code"></span> <span class="badge badge-xs" :class="finBadge(finBudget.status)" x-text="finLabel(finBudget.status)"></span></h2>
+                                            <h2 class="data-card-title">Budget <span x-text="finBudget.year_code"></span> <span class="badge badge-xs" x-show="finBudgetHasSteps" :class="finBadge(finBudget.status)" x-text="finLabel(finBudget.status)"></span></h2>
                                             <div class="data-card-subtitle" x-text="finBudget.organization_name"></div>
                                         </div>
                                         <div class="fh-actions" style="width:auto;">
@@ -8743,7 +8768,7 @@
                                         </div>
                                     </div>
                                     <div class="data-card-body">
-                                        <ol class="bud-steps">
+                                        <ol class="bud-steps" x-show="finBudgetHasSteps">
                                             <template x-for="(s, i) in finBudgetSteps" :key="s.key">
                                                 <li class="bud-step" :class="{ 'bud-step--done': s.done, 'bud-step--current': s.current }">
                                                     <span class="bud-step__dot" x-text="s.done ? '✓' : i + 1"></span><span class="bud-step__label" x-text="s.label"></span>
@@ -8878,7 +8903,7 @@
                                 </div>
 
                                 <!-- What happens next (only for someone who may record it) -->
-                                <div class="data-card" x-show="finBudgetCanAct && finBudget.status !== 'PASSED'">
+                                <div class="data-card" x-show="finBudgetCanAct && finBudgetHasSteps && finBudget.status !== 'PASSED'">
                                     <div class="data-card-header"><div>
                                         <h2 class="data-card-title">Record the next step</h2>
                                         <div class="data-card-subtitle">Each step is a fact with its reference and date, in order. The Advisory Board's views must be on file before the budget can pass; they are its considered views, not a veto.</div>
@@ -8930,6 +8955,183 @@
                         </template>
                     </div>
 
+                        <!-- ═════════ Sinking Fund dues ═════════ -->
+                        <!-- ═════════════════════════════════════════════
+                             VIEW: Finance - Sinking Fund reimbursement (Bye-Law C(i)(2)(xviii), FIN-BR-026; finance-sinking.js, rules in api/services/finance_sinking.py)
+                             ═════════════════════════════════════════════ -->
+                        <div x-show="activeTab === 'finSinking' && finKendraSide" x-cloak>
+                            <div class="data-card" x-show="!finSinking">
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title">Sinking Fund dues</h2>
+                                        <div class="data-card-subtitle">When the Kendra temporarily takes over a Sakha's seva and pujas, what it spends from that Sakha's Sinking Fund is reimbursed by the Sakha afterwards (Bye-Law C(i)(2)(xviii)). Register the spending here, then record what the Sakha pays back.</div>
+                                    </div>
+                                    <button class="btn-action primary" x-show="finSinkingCanAct && !finSinkingRegister.show" @click="finSinkingRegisterOpen()">+ Register a take-over expenditure</button>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="pend-box" id="sink-register-box" x-show="finSinkingRegister.show" x-cloak>
+                                        <label class="form-label">The expenditure from the Sinking Fund</label>
+                                        <select class="form-input" x-model="finSinkingRegister.expenditure">
+                                            <option value="">Choose a posted expenditure…</option>
+                                            <template x-for="o in finSinkingWaiting" :key="o.financial_transaction_pk">
+                                                <option :value="o.financial_transaction_pk" x-text="o.sakha_name + ' · ' + o.transaction_reference + ' · ' + finDate(o.transaction_date) + ' · ' + finMoney(o.amount)"></option>
+                                            </template>
+                                        </select>
+                                        <p class="form-hint" x-show="finSinkingOptions.length === 0">There is no posted Sinking Fund expenditure waiting to be registered. Record the spending under Transactions (an expense against the Sakha's Sinking Fund) and post it first.</p>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Why did the Kendra take over the Sakha's seva / pujas?</label>
+                                            <textarea class="form-input" rows="2" maxlength="1000" x-model="finSinkingRegister.reason"></textarea></div>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Governing Body resolution (if any)</label>
+                                            <input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finSinkingRegister.resolution"></div>
+                                        <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finSinkingRegister.error" x-text="finSinkingRegister.error"></div>
+                                        <div class="fh-actions" style="margin-top:0.6rem;">
+                                            <button class="btn-action primary" :disabled="finSinkingRegister.saving" @click="finSinkingRegisterSubmit()">Register as owed by the Sakha</button>
+                                            <button class="btn-action" :disabled="finSinkingRegister.saving" @click="finSinkingRegister = { show: false, expenditure: '', reason: '', resolution: '', saving: false, error: '' }">Cancel</button>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" x-show="finSinkingsError" x-text="finSinkingsError"></div>
+                                    <!-- Sakha by Sakha (owner 2026-11-24): what each Sakha owes its Sinking Fund, and what was spent for it but not registered yet -->
+                                    <h3 class="form-label" x-show="finSinkingSummary.length > 0">Sakha by Sakha</h3>
+                                    <table class="admin-table" x-show="finSinkingSummary.length > 0" style="margin-bottom:1rem;">
+                                        <thead><tr><th>Sakha</th><th>Registered as owed</th><th>Reimbursed</th><th>Still owed</th><th>Spent, not registered yet</th></tr></thead>
+                                        <tbody>
+                                            <template x-for="s in finSinkingSummary" :key="s.sakha_organization_pk">
+                                                <tr style="cursor:pointer;" :class="{ 'row-selected': finSinkingSakha === s.sakha_organization_pk }" @click="finSinkingPickSakha(s.sakha_organization_pk)">
+                                                    <td><div class="fh-name" x-text="s.sakha_name"></div><div class="fh-sub" x-text="s.registered_count + ' registered'"></div></td>
+                                                    <td x-text="finMoney(s.owed_amount)"></td>
+                                                    <td x-text="finMoney(s.reimbursed_amount)"></td>
+                                                    <td style="font-weight:600;" x-text="finMoney(s.outstanding_amount)"></td>
+                                                    <td><span x-show="s.unregistered_count > 0" x-text="finMoney(s.unregistered_amount) + ' (' + s.unregistered_count + ')'"></span><span x-show="s.unregistered_count === 0">-</span></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                    <div x-show="finSinkingWaiting.length > 0" style="margin-bottom:1rem;">
+                                        <h3 class="form-label">Spent from a Sinking Fund, not registered yet</h3>
+                                        <table class="admin-table">
+                                            <thead><tr><th>Sakha</th><th>Expenditure</th><th>Date</th><th>Amount</th><th></th></tr></thead>
+                                            <tbody>
+                                                <template x-for="o in finSinkingWaiting" :key="o.financial_transaction_pk">
+                                                    <tr><td class="fh-name" x-text="o.sakha_name"></td>
+                                                        <td><div class="fh-name" x-text="o.transaction_reference"></div><div class="fh-sub" x-text="o.description"></div></td>
+                                                        <td x-text="finDate(o.transaction_date)"></td><td x-text="finMoney(o.amount)"></td>
+                                                        <td><button class="btn-action" x-show="finSinkingCanAct" @click="finSinkingRegisterOpen(o.financial_transaction_pk)">Register as owed</button></td></tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="filter-bar" style="margin-bottom:0.75rem;">
+                                        <select class="form-input" style="max-width:16rem;" x-model="finSinkingSakha" @change="finSinkingsLoad()" x-show="finSinkingSummary.length > 1">
+                                            <option value="">All Sakhas</option>
+                                            <template x-for="s in finSinkingSummary" :key="s.sakha_organization_pk"><option :value="s.sakha_organization_pk" x-text="s.sakha_name"></option></template>
+                                        </select>
+                                        <select class="form-input" style="max-width:14rem;" x-model="finSinkingStatus" @change="finSinkingsLoad()">
+                                            <option value="">All</option>
+                                            <option value="OPEN">Owed</option>
+                                            <option value="PARTLY_REIMBURSED">Part reimbursed</option>
+                                            <option value="REIMBURSED">Reimbursed</option>
+                                        </select>
+                                        <span class="form-hint" style="margin:0 0 0 0.75rem;">Still owed in this list: <strong x-text="finMoney(finSinkingOwed)"></strong></span>
+                                    </div>
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finSinkingsLoading"><div class="spinner"></div></div>
+                                    <p class="form-hint" x-show="!finSinkingsLoading && finSinkings.length === 0">Nothing registered yet.</p>
+                                    <table class="admin-table" x-show="finSinkings.length > 0">
+                                        <thead><tr><th>Reference</th><th>Sakha</th><th>Spent on</th><th>Owed</th><th>Reimbursed</th><th>Still owed</th><th>Status</th></tr></thead>
+                                        <tbody>
+                                            <template x-for="r in finSinkings" :key="r.finance_sinking_reimbursement_pk">
+                                                <tr style="cursor:pointer;" @click="finSinkingOpen(r.finance_sinking_reimbursement_pk)">
+                                                    <td><div class="fh-name" x-text="r.reimbursement_reference"></div><div class="fh-sub" x-text="r.expenditure_reference"></div></td>
+                                                    <td><div class="fh-name" x-text="r.sakha_name"></div><div class="fh-sub" x-text="r.fund_name"></div></td>
+                                                    <td x-text="finDate(r.expenditure_date)"></td>
+                                                    <td x-text="finMoney(r.amount_due)"></td>
+                                                    <td x-text="finMoney(r.reimbursed_amount)"></td>
+                                                    <td style="font-weight:600;" x-text="finMoney(r.outstanding_amount)"></td>
+                                                    <td><span class="badge badge-xs" :class="finBadge(r.status)" x-text="finSinkingLabel(r.status)"></span></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <template x-if="finSinking">
+                                <div>
+                                    <div class="data-card">
+                                        <div class="data-card-header">
+                                            <div>
+                                                <h2 class="data-card-title" x-text="finSinking.reimbursement_reference + ' · ' + finSinking.sakha_name"></h2>
+                                                <div class="data-card-subtitle" x-text="'Spent from ' + finSinking.fund_name + ' (' + finSinking.expenditure_reference + ', ' + finDate(finSinking.expenditure_date) + ')'"></div>
+                                            </div>
+                                            <div class="fh-actions">
+                                                <span class="badge badge-xs" :class="finBadge(finSinking.status)" x-text="finSinkingLabel(finSinking.status)"></span>
+                                                <button class="btn-action" @click="finSinkingClose()">Back to the list</button>
+                                            </div>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <div class="alert-msg alert-error" x-show="finSinkingError" x-text="finSinkingError"></div>
+                                            <div class="bud-facts">
+                                                <div class="data-row"><span class="data-label">Owed by the Sakha</span><span class="data-value" x-text="finMoney(finSinking.amount_due)"></span></div>
+                                                <div class="data-row"><span class="data-label">Reimbursed (posted)</span><span class="data-value" x-text="finMoney(finSinking.reimbursed_amount)"></span></div>
+                                                <div class="data-row" x-show="Number(finSinking.pending_amount) > 0"><span class="data-label">Recorded, not posted yet</span><span class="data-value" x-text="finMoney(finSinking.pending_amount)"></span></div>
+                                                <div class="data-row"><span class="data-label">Still owed</span><span class="data-value" style="font-weight:600;" x-text="finMoney(finSinking.outstanding_amount)"></span></div>
+                                                <div class="data-row"><span class="data-label">Why the Kendra took over</span><span class="data-value" x-text="finSinking.takeover_reason"></span></div>
+                                                <div class="data-row" x-show="finSinking.resolution_reference"><span class="data-label">Governing Body resolution</span><span class="data-value" x-text="finSinking.resolution_reference"></span></div>
+                                            </div>
+                                            <p class="form-hint" x-show="finSinking.next_step" x-text="finSinking.next_step"></p>
+                                        </div>
+                                    </div>
+
+                                    <div class="data-card">
+                                        <div class="data-card-header">
+                                            <div><h2 class="data-card-title">Reimbursements</h2>
+                                                <div class="data-card-subtitle">Each one is an income entry in the same Sinking Fund. It counts as reimbursed once it is posted.</div></div>
+                                            <button class="btn-action primary" x-show="finSinkingCanAct && finSinkingRoom > 0 && !finSinkingPay.show" @click="finSinkingPayOpen()">+ Record a reimbursement</button>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <div class="pend-box" x-show="finSinkingPay.show" x-cloak>
+                                                <div class="form-grid-2">
+                                                    <div><label class="form-label">Amount</label>
+                                                        <input type="text" class="form-input" inputmode="decimal" x-model="finSinkingPay.amount">
+                                                        <p class="form-hint" x-text="'At most ' + finMoney(finSinkingRoom) + ' can still be recorded.'"></p></div>
+                                                    <div><label class="form-label">Date paid (today if left empty)</label>
+                                                        <input type="date" class="form-input" x-model="finSinkingPay.date" :max="finSinkingToday"></div>
+                                                </div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Note</label>
+                                                    <input type="text" class="form-input" maxlength="500" x-model="finSinkingPay.description"></div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finSinkingPay.error" x-text="finSinkingPay.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finSinkingPay.saving" @click="finSinkingPaySubmit()">Record the reimbursement</button>
+                                                    <button class="btn-action" :disabled="finSinkingPay.saving" @click="finSinkingPay = { show: false, amount: '', date: '', description: '', saving: false, error: '' }">Cancel</button>
+                                                </div>
+                                            </div>
+                                            <p class="form-hint" x-show="finSinking.reimbursements.length === 0">Nothing has been paid back yet.</p>
+                                            <table class="admin-table" x-show="finSinking.reimbursements.length > 0">
+                                                <thead><tr><th>Entry</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+                                                <tbody>
+                                                    <template x-for="e in finSinking.reimbursements" :key="e.financial_transaction_pk">
+                                                        <tr><td><div class="fh-name" x-text="e.transaction_reference"></div><div class="fh-sub" x-text="e.description"></div></td>
+                                                            <td x-text="finDate(e.transaction_date)"></td><td x-text="finMoney(e.amount)"></td>
+                                                            <td><span class="badge badge-xs" :class="finBadge(e.status)" x-text="finLabel(e.status)"></span></td></tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                            <div x-show="finSinkingCanAct && finSinking.reimbursements.length === 0" style="margin-top:1rem;">
+                                                <button class="link-action" x-show="!finSinkingRemove.show" @click="finSinkingRemoveOpen()">Registered by mistake? Remove it…</button>
+                                                <div class="pend-box" x-show="finSinkingRemove.show" x-cloak>
+                                                    <label class="form-label">Why is it being removed?</label>
+                                                    <textarea class="form-input" rows="2" maxlength="500" x-model="finSinkingRemove.reason"></textarea>
+                                                    <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finSinkingRemove.error" x-text="finSinkingRemove.error"></div>
+                                                    <div class="fh-actions" style="margin-top:0.6rem;">
+                                                        <button class="btn-action" :disabled="finSinkingRemove.saving" @click="finSinkingRemoveSubmit()">Remove the registration</button>
+                                                        <button class="btn-action" :disabled="finSinkingRemove.saving" @click="finSinkingRemove = { show: false, reason: '', saving: false, error: '' }">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- ═════════ Transactions ═════════ -->
                         <div x-show="activeTab === 'finTransactions'" x-cloak>
 
@@ -8951,11 +9153,19 @@
                                                 <template x-for="s in finScopeOptions" :key="s.financial_scope_pk"><option :value="s.financial_scope_pk" x-text="s.scope_code + ' — ' + s.scope_name"></option></template>
                                             </select>
                                         </div>
+                                        <div x-show="finTxnNeedsSakha" x-cloak>
+                                            <label class="form-label">Sakha <span class="optional" x-show="!finTxnFundIsSinking">(needed when the money comes from a Sinking Fund)</span><span x-show="finTxnFundIsSinking"> *</span></label>
+                                            <select class="nss-select" x-model="finTxnForm.sakha_pk" @change="finTxnSakhaChanged()">
+                                                <option value="">No Sakha - not a Sinking Fund expense</option>
+                                                <template x-for="s in finTxnSakhaChoices" :key="s.organization_pk"><option :value="s.organization_pk" x-text="s.organization_name"></option></template>
+                                            </select>
+                                            <p class="form-hint">A Sinking Fund belongs to one Sakha; what the Kendra spends from it for that Sakha is later reimbursed by the Sakha.</p>
+                                        </div>
                                         <div>
                                             <label class="form-label">Fund <span class="optional">(optional)</span></label>
-                                            <select class="nss-select" x-model="finTxnForm.fund_master_pk">
+                                            <select class="nss-select" x-model="finTxnForm.fund_master_pk" @change="finTxnFundChanged()">
                                                 <option value="">No specific fund</option>
-                                                <template x-for="f in finTxnFormFunds" :key="f.fund_master_pk"><option :value="f.fund_master_pk" x-text="f.fund_code + ' — ' + f.fund_name + (f.is_restricted ? ' (restricted)' : '')"></option></template>
+                                                <template x-for="f in finTxnFundChoices" :key="f.fund_master_pk"><option :value="f.fund_master_pk" x-text="f.fund_code + ' — ' + f.fund_name + (f.is_restricted ? ' (restricted)' : '')"></option></template>
                                             </select>
                                         </div>
                                         <div>

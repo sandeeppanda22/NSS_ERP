@@ -17,7 +17,11 @@ ONE home for the rules, so the endpoints and the tests share a single implementa
     has left DRAFT a change must give its reason, which is kept in the audit trail with the old and new amounts.
   * The budget GUIDES, it never blocks: money booked on a head with no line, or above its line, is only FLAGGED. "Actual" is
     read from the POSTED / SETTLED transactions, never stored, so it cannot drift from the books.
-  * Only the Kendra has a budget rule here. The central Mahila Sangha's "annual budget estimate" (FIN-BR-042) has no referral
+  * A SAKHA's budget (owner 2026-11-24: "Sakhas also have their own budget") is the same table and the same lines, but a plain PLAN: one planned
+    amount per head of that Sakha, actual read from the books, overspend flagged - and NO steps. The Advisory Board referral and the Governing Body
+    resolution belong to the Kendra's budget (FIN-BR-041); for a Sakha the Bye-Law gives none and none is invented (FIN-BR-044). Its lines can be
+    changed at any time without a reason (every change is still audited with the old and new amount); its status stays DRAFT and is not shown.
+  * Only the Kendra has a budget rule here beyond that. The central Mahila Sangha's "annual budget estimate" (FIN-BR-042) has no referral
     step and every other level is not bound (FIN-BR-044), so nothing is invented for them.
 
 Nothing here commits and nothing checks WHO may act: the router does that (permission + admin scope), like the other Finance
@@ -29,6 +33,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException, status
 
+from api.helpers import SAKHA_LIKE_ORG_TYPES
 from api.services import finance_authority as FA
 
 DRAFT, REFERRED, VIEWS_RECEIVED, PASSED = "DRAFT", "REFERRED", "VIEWS_RECEIVED", "PASSED"
@@ -40,13 +45,15 @@ _BUDGET_COLUMNS = """
     ric.reference_number AS referral_inward_reference,
     b.advisory_reference, b.views_correspondence_pk, vic.reference_number AS views_inward_reference,
     b.advisory_views_date, b.advisory_views_summary,
-    b.resolution_reference, b.resolution_date, b.created_at, b.updated_at
+    b.resolution_reference, b.resolution_date, b.created_at, b.updated_at,
+    (od.value_code = 'KENDRA') AS has_steps
 """
 # The two letters are read back from the Correspondence register (the number of each side of the letter), never copied.
 _BUDGET_FROM = """
       FROM nss.finance_budget b
       JOIN nss.financial_year y ON y.financial_year_pk = b.financial_year_pk
       JOIN nss.organization o ON o.organization_pk = b.organization_pk
+      JOIN nss.master_data od ON od.master_data_pk = o.organization_type_master_data_pk
       LEFT JOIN nss.correspondence rc ON rc.correspondence_pk = b.referral_correspondence_pk
       LEFT JOIN nss.correspondence ric ON ric.correspondence_pk = rc.counterpart_correspondence_pk
       LEFT JOIN nss.correspondence vc ON vc.correspondence_pk = b.views_correspondence_pk
@@ -66,21 +73,23 @@ def _not_found() -> HTTPException:
 # Pure rules (no database)
 # ═══════════════════════════════════════════════════════════════════════
 
-def changes_need_reason(budget_status: str) -> bool:
+def changes_need_reason(budget_status: str, has_steps: bool = True) -> bool:
     """A line can ALWAYS be changed (owner 2026-11-22: "edit always"); once the draft has gone to the Advisory Board, or has passed, the
-    change must say why, and the reason is kept in the audit trail with the old and new amounts."""
-    return budget_status != DRAFT
+    change must say why, and the reason is kept in the audit trail with the old and new amounts. A Sakha's budget has no steps, so no reason."""
+    return has_steps and budget_status != DRAFT
 
 
 def require_reason(budget: dict, reason: str | None) -> str | None:
     cleaned = (reason or "").strip() or None
-    if changes_need_reason(budget["status"]) and cleaned is None:
+    if changes_need_reason(budget["status"], budget.get("has_steps", True)) and cleaned is None:
         raise _invalid(f"The budget is {budget['status']}; say why the line is being changed (the reason is kept in the record).")
     return cleaned
 
 
-def next_step(budget_status: str, line_count: int) -> str | None:
-    """What has to happen next, in words (None once the budget has passed)."""
+def next_step(budget_status: str, line_count: int, has_steps: bool = True) -> str | None:
+    """What has to happen next, in words (None once the budget has passed, and always None for a Sakha's plan)."""
+    if not has_steps:
+        return None
     if budget_status == DRAFT:
         return "Add the budget lines, then refer the draft to the Advisory Board." if line_count == 0 \
             else "Refer the draft to the Advisory Board."
@@ -196,6 +205,31 @@ def require_kendra(cur, organization_pk) -> None:
         raise _invalid("Only the Kendra Sangha has an annual budget to be passed by its Governing Body (FIN-BR-041).")
 
 
+def holder_kind(cur, organization_pk) -> str | None:
+    """KENDRA, SAKHA (a Sakha Sangha or Sakha Asana) or None: who has an annual budget here. Every other level is unbound (FIN-BR-044)."""
+    if FA.basis_for_org(cur, organization_pk) == FA.KENDRA:
+        return "KENDRA"
+    cur.execute(
+        "SELECT md.value_code FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk "
+        "WHERE o.organization_pk = %s AND o.is_active = TRUE", (str(organization_pk),),
+    )
+    row = cur.fetchone()
+    return "SAKHA" if row and row[0] in SAKHA_LIKE_ORG_TYPES else None
+
+
+def require_budget_holder(cur, organization_pk) -> str:
+    kind = holder_kind(cur, organization_pk)
+    if kind is None:
+        raise _invalid("Only the Kendra and a Sakha have an annual budget (no rule is invented for the other levels, FIN-BR-044).")
+    return kind
+
+
+def require_steps(budget: dict) -> None:
+    """The Advisory Board referral, its views, the Governing Body's resolution and their corrections belong to the Kendra's budget only."""
+    if not budget.get("has_steps", True):
+        raise _invalid("A Sakha's budget is a plan with no steps to record; the Advisory Board referral and the Governing Body's resolution are the Kendra's (FIN-BR-041).")
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Reading
 # ═══════════════════════════════════════════════════════════════════════
@@ -221,8 +255,8 @@ def load(cur, budget_pk, *, lock: bool = False) -> dict:
 def present(budget: dict) -> dict:
     """The response fields every budget carries, computed from the row."""
     shown = {k: v for k, v in budget.items() if k != "line_count"}
-    shown["next_step"] = next_step(budget["status"], budget.get("line_count", 0))
-    shown["changes_need_reason"] = changes_need_reason(budget["status"])
+    shown["next_step"] = next_step(budget["status"], budget.get("line_count", 0), budget.get("has_steps", True))
+    shown["changes_need_reason"] = changes_need_reason(budget["status"], budget.get("has_steps", True))
     return shown
 
 
@@ -328,7 +362,7 @@ def create(cur, actor_pk, *, year_pk, organization_pk, notes) -> str:
     cur.execute("SELECT 1 FROM nss.finance_budget WHERE financial_year_pk = %s AND organization_pk = %s AND is_active = TRUE",
                 (str(year_pk), str(organization_pk)))
     if cur.fetchone():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This financial year already has a budget for the Kendra.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This financial year already has a budget for this Sangha.")
     cur.execute(
         "INSERT INTO nss.finance_budget (financial_year_pk, organization_pk, notes, created_by_sangha_sevi_pk) "
         "VALUES (%s, %s, %s, %s) RETURNING finance_budget_pk",
@@ -349,7 +383,7 @@ def put_line(cur, actor_pk, budget: dict, *, head_pk, amount, notes, reason=None
     if head is None:
         raise _invalid("Finance head not found.")
     if str(head[0]) != str(budget["organization_pk"]):
-        raise _invalid("Only a finance head of the Kendra can have a budget line.")
+        raise _invalid("Only a finance head of this Sangha can have a line in its budget.")
     if head[1] != "ACTIVE":
         raise _invalid(f"Finance head {head[2]} is {head[1]}; only an ACTIVE head can be budgeted.")
     cur.execute("SELECT finance_budget_line_pk, amount FROM nss.finance_budget_line WHERE finance_budget_pk = %s AND finance_head_pk = %s AND is_active = TRUE",

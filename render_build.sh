@@ -622,6 +622,8 @@ run_ddl "finance_approval_policy" "finance_approval_policy" "${DDL_BASE}/14_fina
 run_ddl "upi_payment_request_line" "upi_payment_request_line" "${DDL_BASE}/14_finance/19_upi_payment_request_line.sql"
 run_ddl "finance_budget" "finance_budget" "${DDL_BASE}/14_finance/21_finance_budget.sql"
 run_ddl "finance_budget_line" "finance_budget_line" "${DDL_BASE}/14_finance/22_finance_budget_line.sql"
+run_ddl "finance_sinking_reimbursement" "finance_sinking_reimbursement" "${DDL_BASE}/14_finance/24_finance_sinking_reimbursement.sql"
+run_ddl "finance_sinking_reimbursement_entry" "finance_sinking_reimbursement_entry" "${DDL_BASE}/14_finance/25_finance_sinking_reimbursement_entry.sql"
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 run_sql "finance head templates patch" "${SEED_BASE}/12_finance/02_finance_head_templates_patch.sql"
@@ -637,6 +639,7 @@ run_sql "finance head approval flags patch" "${SEED_BASE}/12_finance/04_finance_
 run_sql "finance disbursement purpose patch" "${SEED_BASE}/12_finance/03_finance_disbursement_purpose_patch.sql"
 run_sql "finance fund type code patch" "${SEED_BASE}/12_finance/05_fund_type_code_patch.sql"
 run_sql "finance scope type code patch" "${SEED_BASE}/12_finance/06_scope_type_code_patch.sql"
+run_sql "finance sinking reimbursement patch" "${SEED_BASE}/12_finance/07_sinking_reimbursement_patch.sql"
 # Live-refresh triggers (Phase 11h): applied HERE, after the last watched table (the Finance tables) exists. The file skips
 # tables that do not exist yet, so running it any earlier would leave the Finance tables without a trigger on a fresh build.
 # Idempotent, runs EVERY deploy: the watched-table list may grow; must run after every table it names exists.

@@ -443,3 +443,71 @@ class TestEditAlways:
         assert "reason: str | None = Query(None, max_length=500" in text
         put = text.split("def put_budget_line", 1)[1].split("@router.delete", 1)[0]
         assert '"amount_before"' in put and '"reason": reason' in put                      # the audit trail keeps old amount, status and reason
+
+
+# ── a Sakha's budget is a plain plan (owner 2026-11-24: "Sakhas also have their own budget") ────────────────────────────────────────────────────────
+class TestASakhasBudgetHasNoSteps:
+    def test_a_change_needs_no_reason_and_there_is_no_next_step(self):
+        for status in (B.DRAFT, B.REFERRED, B.PASSED):
+            assert B.changes_need_reason(status, has_steps=False) is False
+            assert B.next_step(status, 3, has_steps=False) is None
+        assert B.changes_need_reason(B.REFERRED) is True and B.changes_need_reason(B.DRAFT) is False            # the Kendra's rule is unchanged
+        assert B.next_step(B.DRAFT, 3) is not None
+
+    def test_the_reason_rule_follows_the_budget(self):
+        assert B.require_reason({"status": B.DRAFT, "has_steps": False}, None) is None
+        assert B.require_reason({"status": B.PASSED, "has_steps": False}, " because ") == "because"
+        with pytest.raises(HTTPException):
+            B.require_reason({"status": B.PASSED, "has_steps": True}, None)
+        with pytest.raises(HTTPException):
+            B.require_reason({"status": B.PASSED}, None)                                                        # no flag = the Kendra's
+
+    def test_the_steps_are_refused_for_a_sakha(self):
+        B.require_steps({"has_steps": True})
+        B.require_steps({})
+        with pytest.raises(HTTPException) as e:
+            B.require_steps({"has_steps": False})
+        assert e.value.status_code == 422 and "no steps" in e.value.detail
+
+    def test_every_step_endpoint_asks(self):
+        import inspect
+
+        from api.routers import finance_budget as R
+
+        for fn in (R.refer_budget, R.record_advisory_views, R.pass_budget, R.reopen_budget, R.correct_budget):
+            assert "B.require_steps(budget)" in inspect.getsource(fn), fn.__name__
+        for fn in (R.put_budget_line, R.remove_budget_line):                                                    # lines are for both
+            assert "require_steps" not in inspect.getsource(fn), fn.__name__
+
+    def test_the_budget_row_carries_the_flag_and_the_model_has_it(self):
+        assert "has_steps" in B._BUDGET_COLUMNS and "od.value_code = 'KENDRA'" in B._BUDGET_COLUMNS and "master_data od" in B._BUDGET_FROM
+        assert S.BudgetResponse.model_fields["has_steps"].default is True
+
+    def test_only_the_kendra_and_a_sakha_can_hold_a_budget(self):
+        class Cur:
+            def __init__(self, org_type):
+                self.org_type = org_type
+
+            def execute(self, sql, params=None):
+                self.sql = sql
+
+            def fetchone(self):
+                return (self.org_type,) if self.org_type else None
+
+        import api.services.finance_budget as mod
+
+        original = mod.FA.basis_for_org
+        try:
+            mod.FA.basis_for_org = lambda cur, pk: mod.FA.KENDRA if pk == "kendra" else None
+            assert B.holder_kind(Cur(None), "kendra") == "KENDRA"
+            assert B.holder_kind(Cur("SAKHA_SANGHA"), "s") == "SAKHA" and B.holder_kind(Cur("SAKHA_ASANA"), "s") == "SAKHA"
+            assert B.holder_kind(Cur("ANCHALIKA_SANGHA"), "a") is None and B.holder_kind(Cur(None), "x") is None
+            with pytest.raises(HTTPException) as e:
+                B.require_budget_holder(Cur("PATHA_CHAKRA"), "p")
+            assert e.value.status_code == 422 and "FIN-BR-044" in e.value.detail
+            assert B.require_budget_holder(Cur("SAKHA_SANGHA"), "s") == "SAKHA"
+        finally:
+            mod.FA.basis_for_org = original
+
+    def test_the_kendra_only_step_helper_is_kept_for_the_letters(self):
+        assert B.require_kendra is not None

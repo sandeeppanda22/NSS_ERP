@@ -84,10 +84,10 @@ def create_budget(body: S.BudgetCreate, user: UserContext = Depends(_MANAGE), co
         org_pk = body.organization_pk or B.kendra_organization_pk(cur)
         if org_pk is None:
             raise F._invalid("There is no active Kendra organization to hold a budget.")
-        B.require_kendra(cur, org_pk)
-        F._require_org_access(cur, user, org_pk, "start a budget for the Kendra")
+        B.require_budget_holder(cur, org_pk)                                     # the Kendra, or a Sakha (a plain plan)
+        F._require_org_access(cur, user, org_pk, "start a budget for this Sangha")
         pk = B.create(cur, user.actor_pk, year_pk=body.financial_year_pk, organization_pk=org_pk, notes=F._clean(body.notes))
-        F._audit(cur, user, "CREATE", "finance_budget", pk, "Started the Kendra's annual budget",
+        F._audit(cur, user, "CREATE", "finance_budget", pk, "Started the annual budget",
                  {"financial_year_pk": str(body.financial_year_pk), "organization_pk": str(org_pk)})
         return _detail(cur, pk)
 
@@ -107,7 +107,7 @@ def put_budget_line(budget_pk: UUID, body: S.BudgetLineWrite, user: UserContext 
         line_pk, created, before = B.put_line(cur, user.actor_pk, budget, head_pk=body.finance_head_pk, amount=body.amount, notes=F._clean(body.notes),
                                               reason=reason)
         F._audit(cur, user, "CREATE" if created else "UPDATE", "finance_budget_line", line_pk,
-                 f"{'Added' if created else 'Changed'} a Kendra budget line of {body.amount}" + (f" ({budget['status']} budget)" if reason else ""),
+                 f"{'Added' if created else 'Changed'} a budget line of {body.amount}" + (f" ({budget['status']} budget)" if reason else ""),
                  {"finance_budget_pk": str(budget_pk), "finance_head_pk": str(body.finance_head_pk), "amount": str(body.amount),
                   "amount_before": str(before) if before is not None else None, "budget_status": budget["status"], "reason": reason})
         return _detail(cur, budget_pk)
@@ -121,7 +121,7 @@ def remove_budget_line(budget_pk: UUID, line_pk: UUID, reason: str | None = Quer
         budget = _locked(cur, user, budget_pk, "change this budget")
         reason = B.require_reason(budget, reason)
         amount = B.remove_line(cur, user.actor_pk, budget, line_pk, reason)
-        F._audit(cur, user, "DELETE", "finance_budget_line", line_pk, "Removed a Kendra budget line",
+        F._audit(cur, user, "DELETE", "finance_budget_line", line_pk, "Removed a budget line",
                  {"finance_budget_pk": str(budget_pk), "amount_before": str(amount), "budget_status": budget["status"], "reason": reason})
         return _detail(cur, budget_pk)
 
@@ -152,6 +152,7 @@ def refer_budget(budget_pk: UUID, body: S.BudgetReferWrite, user: UserContext = 
     """Refer the draft to the Advisory Board: a numbered letter Kendra -> Advisory Board is filed in Correspondence automatically."""
     with conn.cursor() as cur:
         budget = _locked(cur, user, budget_pk, "refer this budget")
+        B.require_steps(budget)
         referred_on = body.referred_on or date.today()
         B.validate_refer(budget, referred_on)                            # refuse BEFORE anything is filed
         letter = _file_letter(
@@ -171,6 +172,7 @@ def record_advisory_views(budget_pk: UUID, body: S.BudgetViewsWrite, user: UserC
     """Record the Advisory Board's views: its reply is filed in Correspondence (a reply to its copy of the referral) and numbered automatically."""
     with conn.cursor() as cur:
         budget = _locked(cur, user, budget_pk, "record the Advisory Board's views on this budget")
+        B.require_steps(budget)
         views_date = body.advisory_views_date or date.today()
         summary = B.validate_views(budget, views_date, body.advisory_views_summary)     # refuse BEFORE anything is filed
         board_pk = B.advisory_board_organization_pk(cur)
@@ -191,6 +193,7 @@ def record_advisory_views(budget_pk: UUID, body: S.BudgetViewsWrite, user: UserC
 def pass_budget(budget_pk: UUID, body: S.BudgetPassWrite, user: UserContext = Depends(_MANAGE), conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         budget = _locked(cur, user, budget_pk, "pass this budget")
+        B.require_steps(budget)
         B.pass_budget(cur, user.actor_pk, budget, reference=body.resolution_reference, resolution_date=body.resolution_date)
         F._audit(cur, user, "APPROVE", "finance_budget", budget_pk, "The Governing Body passed the Kendra budget",
                  {"resolution_reference": body.resolution_reference, "resolution_date": str(body.resolution_date),
@@ -202,6 +205,7 @@ def pass_budget(budget_pk: UUID, body: S.BudgetPassWrite, user: UserContext = De
 def reopen_budget(budget_pk: UUID, body: S.BudgetReopenWrite, user: UserContext = Depends(_MANAGE), conn=Depends(get_write_connection)):
     with conn.cursor() as cur:
         budget = _locked(cur, user, budget_pk, "send this budget back to draft")
+        B.require_steps(budget)
         remarks = B.require_blank(body.remarks, "The reason")
         B.reopen(cur, user.actor_pk, budget)
         F._audit(cur, user, "UPDATE", "finance_budget", budget_pk, "Sent the Kendra budget back to draft",
@@ -218,6 +222,7 @@ def correct_budget(budget_pk: UUID, body: S.BudgetCorrectWrite, user: UserContex
     """
     with conn.cursor() as cur:
         budget = _locked(cur, user, budget_pk, "correct this budget")
+        B.require_steps(budget)
         done = B.correct(cur, user.actor_pk, budget, summary=body.advisory_views_summary, resolution_reference=body.resolution_reference, reason=body.reason)
         F._audit(cur, user, "UPDATE", "finance_budget", budget_pk, "Corrected what was recorded on the Kendra budget",
                  {"reason": done["reason"], "status": budget["status"], "changed": {col: {"from": old, "to": new} for col, (old, new) in done["changed"].items()}})
