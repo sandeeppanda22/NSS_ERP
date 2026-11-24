@@ -188,11 +188,18 @@ class TestMixinUnderNode:
             host.finScopeYear = null; host.finBudgets = []; r.none = [host.finBudgetYear, host.finBudgetYearTaken];
             host.finScopeYear = { financial_year_pk: "y1", year_code: "2026-27", status: "OPEN" }; host.finBudgets = [];
             host.finBudgetStartOpen(); r.preselected = [host.finBudgetStart.show, host.finBudgetStart.year];
+            const years = host.finYears;
+            host.finYears = [{ financial_year_pk: "y1", year_code: "2026-27", status: "OPEN" }];                    // no later year to prepare in advance
             host.finBudgets = [{ financial_year_pk: "y1" }]; host.finBudgetStartOpen(); r.nothingToSelect = host.finBudgetStart.year;
+            // the Kendra may prepare NEXT year's budget in advance (owner 2026-11-24): offered once the current year has its own
+            host.finYears = [...host.finYears, { financial_year_pk: "y2", year_code: "2027-28", status: "PLANNED" }];
+            host.finBudgetStartOpen(); r.inAdvance = [host.finBudgetCanStart, host.finBudgetStart.year];
+            host.finBudgets = []; host.finBudgetStartOpen(); r.currentFirst = host.finBudgetStart.year;
+            host.finYears = years;
             return r;
         """)
         assert out == {"free": ["2026-27", False], "taken": [None, True], "otherYear": "2026-27", "none": [None, False],
-                       "preselected": [True, "y1"], "nothingToSelect": ""}
+                       "preselected": [True, "y1"], "nothingToSelect": "", "inAdvance": [True, "y2"], "currentFirst": "y1"}
 
     def test_a_head_with_a_line_is_not_offered_again(self):
         out = self._run("""

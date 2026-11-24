@@ -41,6 +41,9 @@ from tests.reparent_support import kendra_pks
 
 # Each test takes a year of its own (one budget per year), counting DOWN from 2100 so the years other helpers reuse (2040 upwards) stay free.
 _years = itertools.count(2100, -1)
+# A year that is OPENED must be later than every year opened before it: new records are made in the CURRENT year only (the latest OPEN one, owner
+# 2026-11-24), so the tests that record transactions count UP from 2101 (the helpers that reuse 2040-2100 are not used in this module).
+_open_years = itertools.count(2101)
 _TODAY = date.today()
 
 
@@ -51,7 +54,7 @@ def kendra_org_pk(write_conn):
 
 def _year(client, h, *, open_: bool = False) -> dict:
     for _ in range(60):
-        start = next(_years)
+        start = next(_open_years if open_ else _years)
         year = new_year(client, h, start) or next((y for y in client.get(f"{BASE}/years", headers=h).json()["items"] if int(y["year_code"][:4]) == start), None)
         if year is None or year["status"] in ("CLOSING", "CLOSED"):
             continue
@@ -281,6 +284,32 @@ class TestTheSteps:
         _pass(client, admin_h, b)
         _step(client, admin_h, b, "reopen", {"remarks": "change of mind"}, expect=422)             # it cannot go back to draft ...
         _pass(client, admin_h, b, expect=422)                                                        # ... or pass twice (its lines can still be amended)
+
+
+class TestCorrectingWhatWasRecorded:
+    """Owner 2026-11-24: the Advisory Board's summary and the resolution reference of a passed budget can be corrected, with a reason."""
+
+    def test_the_summary_and_the_resolution_reference_are_corrected_with_a_reason(self, client, admin_h, drafted):
+        b = drafted["budget"]
+        _refer(client, admin_h, b)
+        _views(client, admin_h, b)
+        _pass(client, admin_h, b)
+        fixed = _step(client, admin_h, b, "correct", {"advisory_views_summary": "Corrected summary", "resolution_reference": "GB/2026/118-A", "reason": "typing slip"})
+        assert fixed["status"] == "PASSED" and fixed["advisory_views_summary"] == "Corrected summary" and fixed["resolution_reference"] == "GB/2026/118-A"
+
+    def test_a_reason_is_required_and_something_must_change(self, client, admin_h, drafted):
+        b = drafted["budget"]
+        _refer(client, admin_h, b)
+        _views(client, admin_h, b)
+        _step(client, admin_h, b, "correct", {"advisory_views_summary": "x"}, expect=422)                      # no reason
+        _step(client, admin_h, b, "correct", {"reason": "nothing to change"}, expect=422)                       # no change
+
+    def test_nothing_is_corrected_before_the_views_are_on_file_or_a_resolution_before_it_has_passed(self, client, admin_h, drafted):
+        b = drafted["budget"]
+        _step(client, admin_h, b, "correct", {"advisory_views_summary": "x", "reason": "r"}, expect=422)       # still a draft
+        _refer(client, admin_h, b)
+        _views(client, admin_h, b)
+        _step(client, admin_h, b, "correct", {"resolution_reference": "GB/1", "reason": "r"}, expect=422)      # not passed yet
 
 
 class TestSendingItBack:

@@ -20,7 +20,7 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 27 router modules, 381 endpoints (registered routes counted from `app.routes`, 2026-11-20 — a `@router.*` decorator grep undercounts by the 12 added by `assets_property.py::_register_entity_routes`). |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 27 router modules, 382 endpoints (registered routes counted from `app.routes`, 2026-11-20 — a `@router.*` decorator grep undercounts by the 12 added by `assets_property.py::_register_entity_routes`). |
 | Database (`database/`) | Hand-written PostgreSQL DDL, 97 tables in schema `nss` (Finance, Tier 12: 18, merged into `develop`), no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
 | Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (7114 items collected on 2026-11-23: api 3763, db 534, security 1691, ui 1126). |

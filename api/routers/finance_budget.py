@@ -208,3 +208,17 @@ def reopen_budget(budget_pk: UUID, body: S.BudgetReopenWrite, user: UserContext 
                  {"remarks": remarks, "from": budget["status"], "to": B.DRAFT, "referred_on": str(budget["referred_on"]),
                   "advisory_reference": budget["advisory_reference"]})
         return _detail(cur, budget_pk)
+
+
+@router.post("/budgets/{budget_pk}/correct", response_model=S.BudgetDetailResponse)
+def correct_budget(budget_pk: UUID, body: S.BudgetCorrectWrite, user: UserContext = Depends(_MANAGE), conn=Depends(get_write_connection)):
+    """
+    Correct the Advisory Board's summary (once its views are on file) or the resolution reference (once the budget has passed), with a reason (owner
+    2026-11-24). The status does not move; the audit event keeps the old and new text and the reason.
+    """
+    with conn.cursor() as cur:
+        budget = _locked(cur, user, budget_pk, "correct this budget")
+        done = B.correct(cur, user.actor_pk, budget, summary=body.advisory_views_summary, resolution_reference=body.resolution_reference, reason=body.reason)
+        F._audit(cur, user, "UPDATE", "finance_budget", budget_pk, "Corrected what was recorded on the Kendra budget",
+                 {"reason": done["reason"], "status": budget["status"], "changed": {col: {"from": old, "to": new} for col, (old, new) in done["changed"].items()}})
+        return _detail(cur, budget_pk)

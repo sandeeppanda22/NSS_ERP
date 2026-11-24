@@ -219,7 +219,7 @@ def test_the_finance_offices_hold_the_finance_roles_by_seat():
     assert re.search(r"\('SAKHA_GOVERNING_BODY',\s+NULL,\s+ARRAY\['PRESIDENT','SECRETARY'\],\s+'NSS_ERP_SAKHA_FINANCE_ADMIN',\s+'BODY_ORG'\)", rules)
     # the Kendra, by the Bye-Law: the Treasurer (in charge of the funds, keeps the accounts) and the Secretary (keeps the records and accounts, prepares the
     # budget, operates the funds jointly with the Treasurer) - NOT the President, whose part is the written order for a disbursement
-    assert re.search(r"\('KENDRA_GOVERNING_BODY',\s+NULL,\s+ARRAY\['TREASURER','SECRETARY'\],\s+'NSS_ERP_KENDRA_FINANCE_ADMIN',\s+'NULL'\)", rules)
+    assert re.search(r"\('KENDRA_GOVERNING_BODY',\s+NULL,\s+ARRAY\['TREASURER','SECRETARY','ASSISTANT_SECRETARY'\],\s+'NSS_ERP_KENDRA_FINANCE_ADMIN',\s+'NULL'\)", rules)
     assert "PRESIDENT" not in re.search(r"\('KENDRA_GOVERNING_BODY',[^)]*?'NSS_ERP_KENDRA_FINANCE_ADMIN'", rules, re.S).group(0)
     assert re.search(r"\('SAKHA_GOVERNING_BODY',\s+NULL,\s+ARRAY\['TREASURER'\],\s+'NSS_ERP_SAKHA_TREASURER',\s+'BODY_ORG'\)", rules)       # unchanged
     assert re.search(r"\('SAKHA_GOVERNING_BODY',\s+NULL,\s+ARRAY\['PRESIDENT','SECRETARY'\],\s+'NSS_ERP_SAKHA_ADMIN',\s+'BODY_ORG'\)", rules)  # their admin role stays, without finance
@@ -262,10 +262,10 @@ def test_the_bye_law_says_what_the_kendra_seat_rule_rests_on():
     assert "operated upon jointly by the Secretary and the Treasurer" in funds                                                  # F[b]
 
 
-def test_so_the_kendras_finance_seats_are_the_treasurer_and_the_secretary_and_not_the_president():
+def test_so_the_kendras_finance_seats_are_the_treasurer_the_secretary_and_the_assistant_secretary_and_not_the_president():
     from api.services import rbac_service
 
     row = re.search(r"\('KENDRA_GOVERNING_BODY',\s+NULL,\s+ARRAY\[([^\]]*)\],\s+'NSS_ERP_KENDRA_FINANCE_ADMIN'", rbac_service._COMPOSITE_GRANT_RULES_SQL)
-    assert row and set(re.findall(r"'([A-Z_]+)'", row.group(1))) == {"TREASURER", "SECRETARY"}
+    assert row and set(re.findall(r"'([A-Z_]+)'", row.group(1))) == {"TREASURER", "SECRETARY", "ASSISTANT_SECRETARY"}      # the Assistant Secretary added by the owner 2026-11-24
     assert "PRESIDENT" in PATCH and "written order" in PATCH                                       # the patch says why he is not in it
     assert "REF-003-C(i)(7)(a)" in PATCH and "REF-003-F[b]" in PATCH                               # and cites the clauses

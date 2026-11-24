@@ -1,7 +1,7 @@
 """
 NSS ERP — Security tests for the Kendra annual budget (api/routers/finance_budget.py).
 
-  - inventory guard (DB-free): the nine routes are listed below, so a new endpoint cannot ship without a security row;
+  - inventory guard (DB-free): the ten routes are listed below, so a new endpoint cannot ship without a security row;
   - anonymous and garbage-token callers get 401; a member with no Finance permission gets 403;
   - a view-only role cannot write; a scoped Sakha administrator cannot reach the Kendra's budget (admin scope);
   - an unknown budget is 404 for an authorised caller;
@@ -43,6 +43,7 @@ GATED = [
     ("POST", f"{BASE}/budgets/{FAKE_UUID}/advisory-views", _VIEWS),
     ("POST", f"{BASE}/budgets/{FAKE_UUID}/pass", {"resolution_reference": "GB/1", "resolution_date": "2020-01-03"}),
     ("POST", f"{BASE}/budgets/{FAKE_UUID}/reopen", {"remarks": "x"}),
+    ("POST", f"{BASE}/budgets/{FAKE_UUID}/correct", {"advisory_views_summary": "x", "reason": "typo"}),
 ]
 WRITES = [e for e in GATED if e[0] != "GET"]
 ON_A_BUDGET = [e for e in GATED if "/budgets/" in e[1]]
@@ -61,7 +62,7 @@ def test_endpoint_table_covers_every_route():
 
     routes = {(m, re.sub(r"\{[^}]+\}", FAKE_UUID, r.path)) for r in router.routes for m in r.methods if m != "HEAD"}
     assert routes == {(m, p) for m, p, _ in GATED}
-    assert len(router.routes) == 9
+    assert len(router.routes) == 10
 
 
 class TestAuthentication:

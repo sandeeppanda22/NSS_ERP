@@ -5,7 +5,7 @@ Kendra annual budget (FIN-BR-041) — the parts that need no database (run with 
   * each guard fires BEFORE any SQL is sent (a stand-in cursor that fails on use);
   * the DDL CHECKs say what the service says (statuses, the order of the facts), the schema constants match the DDL;
   * the two tables are wired into all three build scripts, both validate scripts, the live-refresh whitelist and its trigger list;
-  * the route table: nine routes, each behind a Finance permission, writes behind FINANCE_MANAGE, nothing commits.
+  * the route table: ten routes, each behind a Finance permission, writes behind FINANCE_MANAGE, nothing commits.
 
 The end-to-end behaviour is in tests/api/test_finance_budget.py (never run against a database when written); the SQL itself was
 exercised in a throwaway single-user PostgreSQL 18 (a recording cursor captured the service's own queries and ran them).
@@ -232,15 +232,16 @@ EXPECTED = {
     ("PUT", "/api/v1/finance/budgets/{budget_pk}/lines"), ("DELETE", "/api/v1/finance/budgets/{budget_pk}/lines/{line_pk}"),
     ("POST", "/api/v1/finance/budgets/{budget_pk}/refer"), ("POST", "/api/v1/finance/budgets/{budget_pk}/advisory-views"),
     ("POST", "/api/v1/finance/budgets/{budget_pk}/pass"), ("POST", "/api/v1/finance/budgets/{budget_pk}/reopen"),
+    ("POST", "/api/v1/finance/budgets/{budget_pk}/correct"),
 }
 
 
 class TestRoutes:
-    def test_the_nine_routes_and_only_those(self):
+    def test_the_ten_routes_and_only_those(self):
         from api.routers.finance_budget import router
 
         assert {(m, r.path) for r in router.routes for m in r.methods if m != "HEAD"} == EXPECTED
-        assert len(router.routes) == 9
+        assert len(router.routes) == 10
 
     def test_the_app_serves_them_once_each(self):
         from api.main import app
@@ -270,7 +271,7 @@ class TestRoutes:
     def test_every_write_is_audited(self):
         text = (ROOT / "api/routers/finance_budget.py").read_text(encoding="utf-8")
         writes = len(re.findall(r"@router\.(?:post|put|delete)\(", text))
-        assert writes == 7 and text.count("F._audit(") == writes
+        assert writes == 8 and text.count("F._audit(") == writes
 
 
 # ═══════════════════════════════════════════════════════════════════════

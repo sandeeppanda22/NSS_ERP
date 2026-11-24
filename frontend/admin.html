@@ -8682,7 +8682,7 @@
                                     <h2 class="data-card-title">Kendra annual budget</h2>
                                     <div class="data-card-subtitle">The Governing Body passes an annual budget. The draft goes to the Advisory Board for its considered views first; the budget then shows how the year is going against it.</div>
                                 </div>
-                                <button class="btn-action primary" x-show="canManageFinance && !finBudgetStart.show && finBudgetYear" @click="finBudgetStartOpen()">+ Start a budget</button>
+                                <button class="btn-action primary" x-show="canManageFinance && !finBudgetStart.show && finBudgetCanStart" @click="finBudgetStartOpen()">+ Start a budget</button>
                             </div>
                             <div class="data-card-body">
                                 <div class="pend-box" x-show="finBudgetStart.show" x-cloak>
@@ -8690,9 +8690,16 @@
                                     <input type="text" class="form-input" style="max-width:22rem;" disabled :value="finBudgetYear ? finYearLabel(finBudgetYear) : (finBudgetYearTaken ? finYearLabel(finScopeYear) : 'No current financial year')">
                                     <p class="form-hint" x-show="finBudgetYear">The current financial year, set for you.</p>
                                     <p class="form-hint" x-show="finBudgetYearTaken">The current financial year already has its budget; open it from the list.</p>
+                                    <div x-show="finBudgetNextYear" style="margin-top:0.6rem;">
+                                        <label class="form-label">Or prepare in advance for</label>
+                                        <select class="form-input" style="max-width:22rem;" x-model="finBudgetStart.year">
+                                            <option :value="finBudgetYear ? finBudgetYear.financial_year_pk : ''" x-show="finBudgetYear" x-text="finBudgetYear ? finYearLabel(finBudgetYear) + ' - current' : ''"></option>
+                                            <option :value="finBudgetNextYear ? finBudgetNextYear.financial_year_pk : ''" x-text="finBudgetNextYear ? finYearLabel(finBudgetNextYear) + ' - next year, in advance' : ''"></option>
+                                        </select>
+                                    </div>
                                     <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetStart.error" x-text="finBudgetStart.error"></div>
                                     <div class="fh-actions" style="margin-top:0.6rem;">
-                                        <button class="btn-action primary" :disabled="finBudgetStart.saving || !finBudgetYear" @click="finBudgetStartSubmit()">Start the budget</button>
+                                        <button class="btn-action primary" :disabled="finBudgetStart.saving || !finBudgetStart.year" @click="finBudgetStartSubmit()">Start the budget</button>
                                         <button class="btn-action" :disabled="finBudgetStart.saving" @click="finBudgetStart = { show: false, year: '', saving: false, error: '' }">Cancel</button>
                                     </div>
                                 </div>
@@ -8840,6 +8847,32 @@
                                                     </template>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Correct what was recorded (owner 2026-11-24): the Advisory Board's summary, and once passed the resolution reference, with a reason -->
+                                <div class="data-card" x-show="finBudgetCanCorrect" x-cloak>
+                                    <div class="data-card-header"><div>
+                                        <h2 class="data-card-title">Correct what was recorded</h2>
+                                        <div class="data-card-subtitle">A slip in the Advisory Board's summary or in the resolution reference can be put right, with a reason. The old text and the reason stay in the record; the Correspondence letters are not rewritten.</div>
+                                    </div>
+                                    <button class="btn-action" x-show="!finBudgetFix.show" @click="finBudgetFixOpen()">Correct…</button></div>
+                                    <div class="data-card-body" x-show="finBudgetFix.show" x-cloak>
+                                        <label class="form-label">What the Advisory Board said</label>
+                                        <textarea class="form-input" rows="3" maxlength="2000" x-model="finBudgetFix.summary"></textarea>
+                                        <div style="margin-top:0.6rem;" x-show="finBudget.status === 'PASSED'">
+                                            <label class="form-label">Governing Body resolution reference</label>
+                                            <input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finBudgetFix.reference">
+                                        </div>
+                                        <div style="margin-top:0.6rem;">
+                                            <label class="form-label">Why is it being corrected?</label>
+                                            <textarea class="form-input" rows="2" maxlength="500" x-model="finBudgetFix.reason"></textarea>
+                                        </div>
+                                        <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finBudgetFix.error" x-text="finBudgetFix.error"></div>
+                                        <div class="fh-actions" style="margin-top:0.6rem;">
+                                            <button class="btn-action primary" :disabled="finBudgetFix.saving" @click="finBudgetDoFix()">Save the correction</button>
+                                            <button class="btn-action" :disabled="finBudgetFix.saving" @click="finBudgetFix = { show: false, summary: '', reference: '', reason: '', saving: false, error: '' }">Cancel</button>
                                         </div>
                                     </div>
                                 </div>

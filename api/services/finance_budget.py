@@ -423,3 +423,35 @@ def reopen(cur, actor_pk, budget: dict) -> None:
     _set(cur, actor_pk, budget["finance_budget_pk"], {"status": DRAFT, "referred_on": None, "advisory_reference": None,
                                                        "advisory_views_date": None, "advisory_views_summary": None,
                                                        "referral_correspondence_pk": None, "views_correspondence_pk": None})
+
+
+def validate_correction(budget: dict, *, summary: str | None, resolution_reference: str | None, reason: str | None) -> dict:
+    """
+    Correcting what was recorded (owner 2026-11-24): the Advisory Board's summary from VIEWS_RECEIVED on, the resolution reference once PASSED, always with
+    a reason. Returns the columns that really change ({} is refused: nothing to correct). Nothing is written.
+    """
+    require_status(budget, (VIEWS_RECEIVED, PASSED), "correcting what was recorded")
+    why = require_blank(reason, "The reason for the correction")
+    changes: dict = {}
+    if summary is not None:
+        new_summary = require_blank(summary, "The summary of the views")
+        if new_summary != budget["advisory_views_summary"]:
+            changes["advisory_views_summary"] = new_summary
+    if resolution_reference is not None:
+        if budget["status"] != PASSED:
+            raise _invalid("There is no resolution to correct yet; the budget has not passed.")
+        new_reference = require_blank(resolution_reference, "The resolution reference")
+        if new_reference != budget["resolution_reference"]:
+            changes["resolution_reference"] = new_reference
+    if not changes:
+        raise _invalid("Nothing to correct: send a summary or a resolution reference that differs from what is recorded.")
+    changes["_reason"] = why
+    return changes
+
+
+def correct(cur, actor_pk, budget: dict, *, summary: str | None, resolution_reference: str | None, reason: str | None) -> dict:
+    """Apply a correction; returns {"reason", "changed": {column: (old, new)}} for the audit event. The status does not move."""
+    changes = validate_correction(budget, summary=summary, resolution_reference=resolution_reference, reason=reason)
+    why = changes.pop("_reason")
+    _set(cur, actor_pk, budget["finance_budget_pk"], changes)
+    return {"reason": why, "changed": {col: (budget[col], new) for col, new in changes.items()}}

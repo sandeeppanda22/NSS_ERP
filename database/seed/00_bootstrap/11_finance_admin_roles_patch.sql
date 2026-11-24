@@ -10,7 +10,7 @@
 -- NSS_ERP_SAKHA_FINANCE_ADMIN   assigned (Assign role) at SAKHA scope: sets up one Sakha's scopes and funds; records and configures its finance.
 -- NSS_ERP_KENDRA_FINANCE_ADMIN  assigned at KENDRA scope: the same for the Kendra (and, as the Kendra's reach covers them, the Sangha beneath it);
 --                               it also carries FINANCE_APPROVE because the Kendra has no seat chain: its entries move by permission.
---                               HELD BY SEAT (api/services/rbac_service.py composite rules) by the Kendra Governing Body's TREASURER and SECRETARY, per the
+--                               HELD BY SEAT (api/services/rbac_service.py composite rules) by the Kendra Governing Body's TREASURER, SECRETARY and (owner 2026-11-24) ASSISTANT_SECRETARY, per the
 --                               Bye-Law: the Treasurer is in charge of the Kendra's funds and keeps their accounts (REF-003-C(i)(7)(a)); the Secretary keeps
 --                               all records, accounts and documents and prepares the draft annual budget (C(i)(5)(b),(e)); the funds are operated jointly by
 --                               the Secretary and the Treasurer (REF-003-F[b]). The PRESIDENT only gives the written order for a disbursement (C(i)(7)(b)),

@@ -862,7 +862,9 @@ class TestTheYearIsTheCurrentOneWhereverARecordIsCreated:
             assert 'x-model="finTxnForm.financial_year_pk"' not in form and 'x-model="finTransferForm.financial_year_pk"' not in form
             assert 'x-model="finScopeForm.financial_year_pk"' not in form
         assert 'x-model="finTxnForm.financial_year_pk"' not in ADMIN_HTML and 'x-model="finTransferForm.financial_year_pk"' not in ADMIN_HTML
-        assert 'x-model="finScopeForm.financial_year_pk"' not in ADMIN_HTML and 'x-model="finBudgetStart.year"' not in ADMIN_HTML
+        assert 'x-model="finScopeForm.financial_year_pk"' not in ADMIN_HTML 
+        # the budget form is the one choice (owner 2026-11-24): the current year, or - in advance - the next one; nothing else is offered
+        assert 'x-model="finBudgetStart.year"' in ADMIN_HTML and "finBudgetNextYear" in ADMIN_HTML
         assert ADMIN_HTML.count("The current financial year, set for you.") >= 4                                  # scope, transaction, transfer, budget
         assert 'x-show="finBudgetYear">The current financial year, set for you.' in ADMIN_HTML and "finBudgetYearTaken" in ADMIN_HTML
 
@@ -873,7 +875,7 @@ class TestTheYearIsTheCurrentOneWhereverARecordIsCreated:
     def test_the_forms_open_with_the_current_year_chosen(self):
         assert "f.financial_year_pk = this.finEntryYear.financial_year_pk;" in FIN_JS and "f.transfer_date = this._finClampDate(this.finEntryYear)" in FIN_JS
         assert "financial_year_pk: this.finScopeYear ? this.finScopeYear.financial_year_pk : \"\"" in FIN_JS
-        assert "year: this.finBudgetYear ? this.finBudgetYear.financial_year_pk : \"\"" in (FE / "assets/js/finance-budget.js").read_text(encoding="utf-8")
+        assert "const first = this.finBudgetYear || this.finBudgetNextYear;" in (FE / "assets/js/finance-budget.js").read_text(encoding="utf-8")
 
     @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
     def test_which_year_each_form_uses_runs_as_intended(self):

@@ -836,7 +836,7 @@ Frontend routes are excluded from OpenAPI schema (`include_in_schema=False`).
 
 # 12h. Tier 12 — Finance
 
-**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 3 — PDF receipts, `finance_budget.py` 9 — the Kendra annual budget; schemas in `api/schemas/finance.py`) — 90 endpoints (2026-11-22). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
+**Router prefix:** `/api/v1/finance` (`api/routers/finance.py` 31 endpoints, `finance_setup.py` 17 — accounts, finance heads, contributions, events and the gateway checklist, `finance_upi.py` 15 — UPI payment requests, webhook and member payment, `finance_authority.py` 6 — Bye-Law disbursement authority, `finance_approval.py` 9 — the Sakha approval chain, `finance_receipt_pdf.py` 3 — PDF receipts, `finance_budget.py` 10 — the Kendra annual budget; schemas in `api/schemas/finance.py`) — 90 endpoints (2026-11-22). Merged into `develop`; later work on `feature/tier12-finance`; the database suites have run in the owner's DB but the newest additions are unconfirmed. Design: `docs/03_Solution/modules/finance/` (SOL-FIN-001..005).
 
 **Auth (every endpoint):** `Authorization: Bearer` JWT. Reads need any of `FINANCE_VIEW` / `FINANCE_MANAGE` / `FINANCE_APPROVE`; record / edit / submit need `FINANCE_MANAGE`; approve / post / execute / reject / cancel (approved items) / open and close years need `FINANCE_APPROVE`. Plus **admin scope on the Financial Scope's organization**; a scope with no organization and the financial years themselves are global-authority only. Every `/transition` endpoint is gated on MANAGE-or-APPROVE before any lookup, then on the step's own permission.
 
@@ -941,7 +941,7 @@ The Kendra Governing Body passes an annual budget; the draft is referred to the 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/budgets` | List (filters `financial_year_pk`, `organization_pk`, `status`), newest year first, limited to the caller's scope |
-| POST | `/budgets` | Start the Kendra's budget for a year (`organization_pk` optional: the one active Kendra); 409 when the year already has one, 422 for a CLOSED year |
+| POST | `/budgets` | Start the Kendra's budget for a year (`organization_pk` optional: the one active Kendra); 409 when the year already has one, 422 for a CLOSED year (a PLANNED next year is allowed: the Kendra may prepare it in advance, owner 2026-11-24) |
 | GET | `/budgets/{pk}` | The budget, its lines with `actual` / `remaining` / `over_budget`, the `unbudgeted` heads, `totals`, `next_step`, `changes_need_reason` |
 | PUT | `/budgets/{pk}/lines` | Set the planned amount of an ACTIVE Kendra head (adds the line, or changes the amount) in **any** status; once the budget has left `DRAFT` a `reason` is required (422 otherwise) and is kept in the audit event with the old amount |
 | DELETE | `/budgets/{pk}/lines/{line_pk}` | Remove a line (soft delete) in **any** status; `?reason=` required once past `DRAFT`; returns the budget |
@@ -949,6 +949,7 @@ The Kendra Governing Body passes an annual budget; the draft is referred to the 
 | POST | `/budgets/{pk}/advisory-views` | Record the Advisory Board's views (`advisory_views_date`, today when omitted; `advisory_views_summary`, max 2000); only after the referral. **Files the Advisory Board's numbered reply** in its own register, threaded to its copy of the referral (which becomes ACTIONED), with the Kendra's INWARD copy; the reply's number is returned as `advisory_reference` (nobody types it) and the Kendra's number as `views_inward_reference` |
 | POST | `/budgets/{pk}/pass` | Record the Governing Body's resolution (`resolution_reference`, `resolution_date`); only once the views are on file |
 | POST | `/budgets/{pk}/reopen` | Send it back to `DRAFT` (`remarks` required); not once passed. The links to the letters are cleared; the letters stay in Correspondence |
+| POST | `/budgets/{pk}/correct` | Correct what was recorded (owner 2026-11-24): `advisory_views_summary` from `VIEWS_RECEIVED` on, `resolution_reference` once `PASSED`, with a required `reason`; the status does not move, the audit event keeps the old and new text; 422 when nothing differs. The Correspondence letters are not rewritten |
 
 Tables `finance_budget` and `finance_budget_line` (`ddl/14_finance/21`-`22`).
 
@@ -977,9 +978,9 @@ Tables `finance_budget` and `finance_budget_line` (`ddl/14_finance/21`-`22`).
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 90 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 9) |
+| 12 | Finance | 91 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10) |
 | 12 | Membership Status workflow | 6 |
-| **Total** | | **381** |
+| **Total** | | **382** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 

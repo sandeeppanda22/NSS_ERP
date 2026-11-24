@@ -29,6 +29,8 @@
     const newViews = () => ({ date: "", summary: "", saving: false, error: "" });
     const newPass = () => ({ reference: "", date: "", saving: false, error: "" });
     const newBack = () => ({ show: false, remarks: "", saving: false, error: "" });
+    // Correcting what was recorded (owner 2026-11-24): the Advisory Board's summary, and - once passed - the resolution reference, with a reason.
+    const newFix = () => ({ show: false, summary: "", reference: "", reason: "", saving: false, error: "" });
     const today = () => new Date().toISOString().slice(0, 10);
 
     function financeBudgetMixin() {
@@ -39,7 +41,7 @@
             finBudgetHeadsNote: "",                    // why there are none, when there are none
             finBudgetError: "", finBudgetReason: "", finBudgetEditing: false,
             finBudgetStart: newStart(), finBudgetLine: newLine(), finBudgetRefer: newRefer(),
-            finBudgetViews: newViews(), finBudgetPass: newPass(), finBudgetBack: newBack(),
+            finBudgetViews: newViews(), finBudgetPass: newPass(), finBudgetBack: newBack(), finBudgetFix: newFix(),
 
             get finBudgetToday() { return today(); },
             get finBudgetSteps() {
@@ -53,6 +55,16 @@
                 return !!y && this.finBudgets.some((b) => b.financial_year_pk === y.financial_year_pk);
             },
             get finBudgetYear() { return this.finBudgetYearTaken ? null : this.finScopeYear; },
+            // The Kendra may also prepare NEXT year's budget in advance (owner 2026-11-24): the next year after the current one, while it is not CLOSED
+            // and has no budget yet. Everything else about the current year stays as it was.
+            get finBudgetNextYear() {
+                const current = this.finScopeYear;
+                if (!current) return null;
+                const start = (y) => Number(String(y.year_code).slice(0, 4));
+                const next = this.finYears.filter((y) => y.status !== "CLOSED" && start(y) > start(current)).sort((a, b) => start(a) - start(b))[0];
+                return next && !this.finBudgets.some((b) => b.financial_year_pk === next.financial_year_pk) ? next : null;
+            },
+            get finBudgetCanStart() { return !!(this.finBudgetYear || this.finBudgetNextYear); },
             get finBudgetIncomeLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "INCOME") : []; },
             get finBudgetExpenseLines() { return this.finBudget ? this.finBudget.lines.filter((l) => l.direction === "EXPENSE") : []; },
             // Heads with no line yet (a head that already has one is changed from its row, not picked again).
@@ -113,7 +125,7 @@
             _finBudgetSet(detail) {
                 this.finBudget = detail;
                 this.finBudgetLine = newLine(); this.finBudgetRefer = newRefer(); this.finBudgetViews = newViews();
-                this.finBudgetPass = newPass(); this.finBudgetBack = newBack(); this.finBudgetReason = "";
+                this.finBudgetPass = newPass(); this.finBudgetBack = newBack(); this.finBudgetFix = newFix(); this.finBudgetReason = "";
             },
             async _finBudgetLoadHeads() {
                 if (!this.finBudget || this.finBudgetHeads.length) return;
@@ -137,7 +149,10 @@
             },
 
             // ── Start a budget ─────────────────────────────────────
-            finBudgetStartOpen() { this.finBudgetStart = { ...newStart(), show: true, year: this.finBudgetYear ? this.finBudgetYear.financial_year_pk : "" }; },
+            finBudgetStartOpen() {
+                const first = this.finBudgetYear || this.finBudgetNextYear;
+                this.finBudgetStart = { ...newStart(), show: true, year: first ? first.financial_year_pk : "" };
+            },
             async finBudgetStartSubmit() {
                 const f = this.finBudgetStart;
                 if (!f.year) { f.error = "There is no current financial year to start a budget for."; return; }
@@ -235,9 +250,26 @@
                     "Sent back to draft. Refer it again once it is changed.");
             },
 
+            // A correction is offered once the Advisory Board's views are on file (its summary) and, once passed, for the resolution reference too.
+            get finBudgetCanCorrect() { return !!this.finBudget && this.canManageFinance && ["VIEWS_RECEIVED", "PASSED"].includes(this.finBudget.status); },
+            finBudgetFixOpen() {
+                const b = this.finBudget;
+                this.finBudgetFix = { ...newFix(), show: true, summary: b.advisory_views_summary || "", reference: b.resolution_reference || "" };
+            },
+            finBudgetDoFix() {
+                const f = this.finBudgetFix, b = this.finBudget;
+                if (!f.reason.trim()) { f.error = "Say why it is being corrected."; return; }
+                const body = { reason: f.reason.trim() };
+                if (f.summary.trim() !== (b.advisory_views_summary || "")) body.advisory_views_summary = f.summary.trim();
+                if (b.status === "PASSED" && f.reference.trim() !== (b.resolution_reference || "")) body.resolution_reference = f.reference.trim();
+                if (Object.keys(body).length === 1) { f.error = "Change the summary or the resolution reference first."; return; }
+                return this._finBudgetStep(f, () => this._finSend("POST", `/budgets/${b.finance_budget_pk}/correct`, body),
+                    "Corrected. The reason and the old text are kept in the record.");
+            },
+
             // ── Live refresh (finance.js finLiveReload / finLiveBusy call these) ──
             finBudgetBusy() {
-                return this.finBudgetEditing || [this.finBudgetStart, this.finBudgetBack].some((f) => f.show || f.saving)
+                return this.finBudgetEditing || [this.finBudgetStart, this.finBudgetBack, this.finBudgetFix].some((f) => f.show || f.saving)
                     || [this.finBudgetRefer, this.finBudgetViews, this.finBudgetPass].some((f) => f.saving
                         || Object.entries(f).some(([k, v]) => ["date", "reference", "summary"].includes(k) && String(v).trim() !== ""));
             },

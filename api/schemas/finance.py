@@ -1100,6 +1100,18 @@ class BudgetPassWrite(BaseModel):
     resolution_date: date
 
 
+class BudgetCorrectWrite(BaseModel):
+    """
+    A correction to what was recorded (owner 2026-11-24): the Advisory Board's summary once its views are on file, and - once the budget has passed -
+    the resolution reference too. A reason is required and is kept, with the old and new text, in the audit trail. The Correspondence letters are not
+    rewritten (history is never deleted): the correction lives on the budget.
+    """
+
+    advisory_views_summary: str | None = Field(None, min_length=1, max_length=2000)
+    resolution_reference: str | None = Field(None, min_length=1, max_length=100)
+    reason: str = Field(..., min_length=1, max_length=500, description="Why it is being corrected (required)")
+
+
 class BudgetReopenWrite(BaseModel):
     remarks: str = Field(..., min_length=1, max_length=1000, description="Why the draft goes back (required)")
 

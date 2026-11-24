@@ -636,6 +636,43 @@ def list_years(user: UserContext = Depends(_VIEW), conn=Depends(get_connection))
     return {"items": items, "total": len(items)}
 
 
+def pick_current_year(years: list[dict]) -> dict | None:
+    """
+    THE current financial year (owner 2026-11-23): the latest OPEN one, else the latest CLOSING one, else the earliest PLANNED one, else the latest year of all
+    (every year closed). Pure: no database. The Finance page's ``finCurrentYear`` (finance.js) applies the same rule to the years it has loaded - a test runs
+    both on the same cases.
+    """
+    def start(year: dict) -> int:
+        return int(str(year["year_code"])[:4])
+
+    for state, latest in (("OPEN", True), ("CLOSING", True), ("PLANNED", False)):
+        found = sorted((y for y in years if y["status"] == state), key=start, reverse=latest)
+        if found:
+            return found[0]
+    return max(years, key=start, default=None)
+
+
+def current_year(cur) -> dict | None:
+    cur.execute("SELECT financial_year_pk, year_code, status FROM nss.financial_year WHERE is_active = TRUE")
+    return pick_current_year(_fetch_all(cur))
+
+
+def require_current_year(cur, year_pk, what: str, *, open_only: bool = False) -> None:
+    """
+    A new record is made in the CURRENT financial year, and only there (owner 2026-11-23: "pre-select the current, no option to change"; 2026-11-24:
+    the API enforces it as well, not just the page). *what* names the record in the message. A scope or a budget may take the current year while it is not
+    CLOSED; with *open_only* (a transaction, a transfer) the year must also be OPEN.
+    """
+    current = current_year(cur)
+    if current is None:
+        raise _invalid("There is no financial year yet; create one first.")
+    if str(current["financial_year_pk"]) != str(year_pk):
+        raise _invalid(f"A new {what} is made in the current financial year, {current['year_code']} ({current['status']}), and only there.")
+    if current["status"] == "CLOSED" or (open_only and current["status"] != "OPEN"):
+        raise _invalid(f"The current financial year {current['year_code']} is {current['status']}; a new {what} needs "
+                       f"{'an OPEN' if open_only else 'a year that is not CLOSED'}.")
+
+
 def year_code_of(start_year: int) -> str:
     return f"{start_year}-{(start_year + 1) % 100:02d}"
 
@@ -681,29 +718,53 @@ def create_year(body: S.YearCreate, user: UserContext = Depends(_APPROVE), conn=
         return _fetch_one(cur)
 
 
+BLOCKER_LIST_LIMIT = 8          # entries named in a refusal; the rest are counted
+
+
+def describe_blockers(noun: str, states: str, rows: list[tuple], total: int) -> str | None:
+    """
+    One line of the refusal for a year / scope that cannot close, naming the entries in the way (owner 2026-11-24): "2 transactions still DRAFT /
+    PENDING_APPROVAL / APPROVED: FTX12 (DRAFT, EKM-ORG), FTX15 (APPROVED, EKM-EVT)". *rows* are (reference, status, scope code) of the first few, *total*
+    counts them all; what is not named is said ("and 3 more"). Pure: no database.
+    """
+    if not total:
+        return None
+    named = ", ".join(f"{ref} ({state}, {scope})" for ref, state, scope in rows)
+    more = f" and {total - len(rows)} more" if total > len(rows) else ""
+    return f"{total} {noun}(s) still {states}: {named}{more}"
+
+
 def _open_work_blockers(cur, *, year_pk=None, scope_pk=None) -> list[str]:
-    """What still has to be finished before a year / scope may close."""
+    """What still has to be finished before a year / scope may close - each entry named, so the person knows what to finish or cancel."""
     if year_pk is not None:
         txn_cond, tr_cond, params = "ft.financial_year_pk = %s", "tr.financial_year_pk = %s", [str(year_pk)] * 1
     else:
         txn_cond, tr_cond, params = "ft.financial_scope_pk = %s", "(tr.source_scope_pk = %s OR tr.destination_scope_pk = %s)", [str(scope_pk)]
     cur.execute(
-        f"SELECT COUNT(*) FROM nss.financial_transaction ft WHERE {txn_cond} AND ft.is_active = TRUE "
-        "AND ft.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')", params,
+        f"""
+        SELECT ft.transaction_reference, ft.status, fs.scope_code, COUNT(*) OVER () AS total
+          FROM nss.financial_transaction ft
+          JOIN nss.financial_scope fs ON fs.financial_scope_pk = ft.financial_scope_pk
+         WHERE {txn_cond} AND ft.is_active = TRUE AND ft.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')
+         ORDER BY ft.transaction_date, ft.transaction_reference LIMIT {BLOCKER_LIST_LIMIT}
+        """, params,
     )
-    open_txn = cur.fetchone()[0]
+    txn_rows = cur.fetchall()
     cur.execute(
-        f"SELECT COUNT(*) FROM nss.financial_transfer tr WHERE {tr_cond} AND tr.is_active = TRUE "
-        "AND tr.status IN ('DRAFT','PENDING_APPROVAL','APPROVED','EXECUTED')",
+        f"""
+        SELECT tr.transfer_reference, tr.status, fs.scope_code, COUNT(*) OVER () AS total
+          FROM nss.financial_transfer tr
+          JOIN nss.financial_scope fs ON fs.financial_scope_pk = tr.source_scope_pk
+         WHERE {tr_cond} AND tr.is_active = TRUE AND tr.status IN ('DRAFT','PENDING_APPROVAL','APPROVED','EXECUTED')
+         ORDER BY tr.transfer_date, tr.transfer_reference LIMIT {BLOCKER_LIST_LIMIT}
+        """,
         params if year_pk is not None else params * 2,
     )
-    open_tr = cur.fetchone()[0]
-    blockers = []
-    if open_txn:
-        blockers.append(f"{open_txn} transaction(s) still DRAFT / PENDING_APPROVAL / APPROVED")
-    if open_tr:
-        blockers.append(f"{open_tr} transfer(s) not yet COMPLETED, REJECTED or CANCELLED")
-    return blockers
+    transfer_rows = cur.fetchall()
+    return [line for line in (
+        describe_blockers("transaction", "DRAFT / PENDING_APPROVAL / APPROVED", [r[:3] for r in txn_rows], txn_rows[0][3] if txn_rows else 0),
+        describe_blockers("transfer", "not COMPLETED, REJECTED or CANCELLED", [r[:3] for r in transfer_rows], transfer_rows[0][3] if transfer_rows else 0),
+    ) if line]
 
 
 def carry_scopes_forward(cur, user: UserContext) -> dict | None:
@@ -858,6 +919,7 @@ def create_scope(body: S.ScopeCreate, user: UserContext = Depends(_MANAGE), conn
             _require_active_organization(cur, body.organization_pk, "Organization")
         if body.financial_year_pk is not None:
             _year_row(cur, body.financial_year_pk)
+            require_current_year(cur, body.financial_year_pk, "financial scope")
         if body.parent_scope_pk is not None:
             _check_parent_scope(cur, user, body.parent_scope_pk)
         generated = not code
@@ -908,6 +970,8 @@ def update_scope(scope_pk: UUID, body: S.ScopeUpdate, user: UserContext = Depend
         if "financial_year_pk" in sent:
             if body.financial_year_pk is not None:
                 _year_row(cur, body.financial_year_pk)
+                if str(body.financial_year_pk) != str(scope["financial_year_pk"]):
+                    require_current_year(cur, body.financial_year_pk, "financial scope")          # moving it to another year is making it there
             values["financial_year_pk"] = str(body.financial_year_pk) if body.financial_year_pk else None
         if "parent_scope_pk" in sent:
             if body.parent_scope_pk is not None:
@@ -1337,6 +1401,7 @@ def create_transaction(body: S.TransactionCreate, user: UserContext = Depends(_M
             txn_date=body.transaction_date, txn_type=body.transaction_type, head_pk=body.finance_head_pk,
             amount=body.amount,
         )
+        require_current_year(cur, body.financial_year_pk, "transaction", open_only=True)
         person_pk, sevi_pk = body.person_pk, body.sangha_sevi_pk
         if _clean(body.sangha_sevi_id):
             sevi_pk, resolved_person = _resolve_member(cur, user, body.sangha_sevi_id)
@@ -1402,6 +1467,8 @@ def update_transaction(txn_pk: UUID, body: S.TransactionUpdate, user: UserContex
             txn_date=merged["transaction_date"], txn_type=merged["transaction_type"], head_pk=merged["finance_head_pk"],
             amount=merged["amount"],
         )
+        if str(merged["financial_year_pk"]) != str(txn["financial_year_pk"]):
+            require_current_year(cur, merged["financial_year_pk"], "transaction", open_only=True)      # moving it to another year is making it there
         _check_links(cur, merged["person_pk"], merged["sangha_sevi_pk"])
         values = {}
         if "finance_head_pk" in sent:
@@ -1812,6 +1879,7 @@ def create_transfer(body: S.TransferCreate, user: UserContext = Depends(_MANAGE)
             cur, year_pk=body.financial_year_pk, source_scope_pk=body.source_scope_pk, destination_scope_pk=body.destination_scope_pk,
             source_fund_pk=body.source_fund_pk, destination_fund_pk=body.destination_fund_pk, transfer_date=body.transfer_date,
         )
+        require_current_year(cur, body.financial_year_pk, "transfer", open_only=True)
         purpose = _clean(body.purpose)
         if not purpose:
             raise _invalid("purpose cannot be blank.")
