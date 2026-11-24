@@ -122,7 +122,8 @@ class TestEncodingAndMeasuring:
 
 class TestThePdfFileIsWellFormed:
     @pytest.fixture(scope="class")
-    def data(self):
+    @classmethod
+    def data(cls):                                    # a classmethod: a class-scoped fixture may not be an instance method (pytest 10)
         return RP.build_receipt_pdf(SAMPLE)
 
     def test_header_and_trailer(self, data):
