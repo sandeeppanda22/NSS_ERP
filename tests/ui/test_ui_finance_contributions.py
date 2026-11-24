@@ -202,7 +202,8 @@ class TestMemberCardsMarkup:
         assert "'Pay ' + NSS.formatMoney(h.due_amount)" in cards and "pranamiCardAsksAmount(h)" in cards
 
     def test_an_unavailable_card_says_why_instead_of_hiding(self):
-        assert 'x-show="!h.payable" x-text="h.unavailable_reason"' in _cards()
+        assert 'x-show="!h.payable && !h.paused" x-text="h.unavailable_reason"' in _cards()                 # not set up: says why
+        assert 'x-show="h.paused && h.state !== \'PAID\'"' in _cards() and 'x-text="h.unavailable_reason"></div>' in _cards()    # paused (year closing / closed): a disabled button AND the reason
 
     def test_waiting_money_is_reported_never_counted(self):
         cards = _cards()

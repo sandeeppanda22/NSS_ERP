@@ -133,14 +133,15 @@ const LIVE_TABLE_TABS = {
     financial_year: ["finOverview", "finStructure", "finFunds", "finBudget", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"],
     financial_scope: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     fund_master: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
-    financial_transaction: ["finOverview", "finTransactions", "finSinking"],
+    financial_transaction: ["finOverview", "finTransactions", "finSinking", "finStructure"],
     financial_receipt: ["finTransactions"],
     financial_payment: ["finTransactions"],
-    financial_transfer: ["finOverview", "finTransfers"],
+    financial_transfer: ["finOverview", "finTransfers", "finStructure"],
     // Customization + UPI collection: heads and accounts shape the transaction forms; requests move the overview figures.
     finance_head: ["finSetup", "finTransactions", "finCollections", "finBudget"],
     finance_budget: ["finBudget"],
     finance_budget_line: ["finBudget"],
+    finance_year_closing: ["finStructure"],
     // Sinking Fund reimbursement (FIN-BR-026): the obligations, their linked entries, and the entries themselves (what is posted counts as reimbursed).
     finance_sinking_reimbursement: ["finSinking"],
     finance_sinking_reimbursement_entry: ["finSinking"],
@@ -323,6 +324,7 @@ function adminApp() {
     // Accounts and UPI Collections.
     // NSSFinanceBudget.install() adds the Kendra annual budget tab (finance-budget.js, FIN-BR-041).
     // NSSFinanceSinking.install() adds the Sinking Fund dues tab (finance-sinking.js, FIN-BR-026).
+    // NSSFinanceClosing.install() adds the "close the year, Sangha by Sangha" card to Years & Scopes (finance-closing.js).
     // NSSFinance.install() adds the Finance screens (finance.js): permission getters and the
     // Overview / Years & Scopes / Transactions / Transfers tabs (FINANCE_VIEW / MANAGE / APPROVE).
     // NSSAuditDiagnostics.install() adds the AUDIT_VIEW-gated System Event Log explorer and
@@ -330,7 +332,7 @@ function adminApp() {
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSFinanceSinking.install(NSSFinanceBudget.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceClosing.install(NSSFinanceSinking.install(NSSFinanceBudget.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -9562,5 +9564,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    })))))))), LIVE_REFRESH_CONFIG);
+    }))))))))), LIVE_REFRESH_CONFIG);
 }

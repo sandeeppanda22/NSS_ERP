@@ -953,6 +953,17 @@ The Kendra Governing Body passes an annual budget; the draft is referred to the 
 
 Tables `finance_budget` and `finance_budget_line` (`ddl/14_finance/21`-`22`).
 
+### Closing the year Sakha by Sakha and Kendra (`finance_closing.py`)
+
+The financial year stays one calendar record (`POST /years/{pk}/transition`, NSS-wide authority). On top of it each Sangha - every Sakha, and the Kendra - closes its own books for the year: `OPEN` (no row) -> `CLOSING` (no new entry or transfer for it in that year; what is in progress can still be finished) -> `CLOSED` (nothing unfinished may remain, nothing more can be done to its entries). Rules in `api/services/finance_year_closing.py`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/years/{pk}/closings` | Every Sangha with activity in the year that the caller's admin scope reaches: `status`, `transaction_count`, `transfer_count`, `unfinished_transactions`, `unfinished_transfers`, `closed_on`, and what the caller may do now (`can_act`, `next_status`) |
+| POST | `/years/{pk}/closings` | `{organization_pk, status: CLOSING \| CLOSED, remarks?}`: the Sangha starts closing / closes its books. 403 unless the caller is a finance administrator of that Sangha (its seated Treasurer / President / Secretary, an admin with a Finance role) or the NSS ERP Administrator; 422 for a year that is not OPEN / CLOSING, a skipped or repeated step, or `CLOSED` while entries are unfinished (they are named). When the year is `CLOSING` and this was the last Sangha, the year closes by itself (`year_closed: true`) |
+
+`POST /years/{pk}/transition` to `CLOSED` now needs every Sangha with activity to have closed: the Sanghas that are finished are closed with the year, the others are named with the entries in their way (and unfinished entries on a scope that belongs to no Sangha). Table `finance_year_closing` (`ddl/14_finance/26`).
+
 ### Sinking Fund reimbursement (`finance_sinking.py`)
 
 When the Kendra Sangha temporarily takes over the seva and pujas of a Sakha, what it spends out of that Sakha's Sinking Fund "shall be reimbursed by the Sakha Sangha subsequently" (Bye-Law C(i)(2)(xviii); FIN-BR-026). The rules are in `api/services/finance_sinking.py`. The expenditure is an ordinary EXPENSE; registering it creates the obligation. A reimbursement is an ordinary INCOME entry in the same fund, made through the same code as `POST /transactions`, so every rule of an entry applies (the current OPEN year, an ACTIVE scope and fund, the head's rules). What is reimbursed is read from the POSTED / SETTLED linked entries, never stored; what is still DRAFT / PENDING_APPROVAL / APPROVED is reserved against what is owed. Scope is the organization of the financial scope the money was spent in (the Kendra's).
@@ -995,9 +1006,9 @@ Auth: `FINANCE_VIEW` (reads) / `FINANCE_MANAGE` (writes) + admin scope on the Ke
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 98 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10, `finance_sinking` 7) |
+| 12 | Finance | 100 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10, `finance_sinking` 7, `finance_closing` 2) |
 | 12 | Membership Status workflow | 6 |
-| **Total** | | **389** |
+| **Total** | | **391** |
 
 (per-router, decorator-counted: admin 32, assets_property 26, attendance 21, audit 5, auth 10, bootstrap 4, claim_approval 5, correspondence 19, family 16, foundation 33, geo_approval 4, governance 56, live 1, membership 9, membership_change_request 5, org_reparent 4, organization 12, person 9, registration 13.)
 

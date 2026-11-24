@@ -708,6 +708,7 @@ Invoke-Ddl "finance_budget" "finance_budget" "$DdlBase\14_finance\21_finance_bud
 Invoke-Ddl "finance_budget_line" "finance_budget_line" "$DdlBase\14_finance\22_finance_budget_line.sql"
 Invoke-Ddl "finance_sinking_reimbursement" "finance_sinking_reimbursement" "$DdlBase\14_finance\24_finance_sinking_reimbursement.sql"
 Invoke-Ddl "finance_sinking_reimbursement_entry" "finance_sinking_reimbursement_entry" "$DdlBase\14_finance\25_finance_sinking_reimbursement_entry.sql"
+Invoke-Ddl "finance_year_closing" "finance_year_closing" "$DdlBase\14_finance\26_finance_year_closing.sql"
 Invoke-Sql "finance reference data patch" "$SeedBase\12_finance\01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.
 Invoke-Sql "finance head templates patch" "$SeedBase\12_finance\02_finance_head_templates_patch.sql"

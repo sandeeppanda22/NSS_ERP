@@ -138,7 +138,7 @@ def test_both_closings_use_the_one_helper_with_the_names():
 
     src = inspect.getsource(F._open_work_blockers)
     assert "transaction_reference" in src and "transfer_reference" in src and "LIMIT" in src
-    assert "_open_work_blockers(" in inspect.getsource(F.transition_year) and "_open_work_blockers(" in inspect.getsource(F.transition_scope)
+    assert "_open_work_blockers(" in inspect.getsource(F.close_year_check) and "_open_work_blockers(" in inspect.getsource(F.transition_scope)
 
 
 # ── 2. correcting a passed budget ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────

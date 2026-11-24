@@ -752,6 +752,7 @@ class MyPayableHead(BaseModel):
     pending_request_pk: UUID | None = None  # that waiting request (the newest), so the member can resume or cancel it
     period_label: str | None = None         # e.g. "2026-27", "Nov 2026" or "one time"
     payable: bool = True
+    paused: bool = False                       # the financial year (or this Sangha's books for it) is closing / closed: payment is switched off, with the reason below
     unavailable_reason: str | None = None
 
 
@@ -1280,3 +1281,46 @@ class SinkingSummaryResponse(BaseModel):
 class SinkingExpenditureListResponse(BaseModel):
     items: list[SinkingExpenditureOption]
     total: int
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Closing the financial year Sakha by Sakha and Kendra (owner request 2026-11-25)
+# ═══════════════════════════════════════════════════════════════════════
+
+YEAR_CLOSING_STATUSES = ("OPEN", "CLOSING", "CLOSED")
+
+
+class YearClosingWrite(BaseModel):
+    organization_pk: UUID = Field(..., description="The Sakha or the Kendra whose books are being closed")
+    status: str = Field(..., description="CLOSING (no new entries, finish what is in progress) or CLOSED (books shut)")
+    remarks: str | None = Field(None, max_length=500)
+
+
+class YearClosingRow(BaseModel):
+    organization_pk: UUID
+    organization_name: str
+    organization_type_code: str | None = None
+    status: str                                 # OPEN / CLOSING / CLOSED
+    transaction_count: int = 0
+    transfer_count: int = 0
+    unfinished_transactions: int = 0
+    unfinished_transfers: int = 0
+    unfinished_receipts: int = 0                # draft receipts
+    unfinished_payments: int = 0                # payments not yet completed or cancelled
+    unfinished_online_payments: int = 0         # payable, or paid and not yet booked
+    closed_on: date | None = None
+    next_status: str | None = None              # the step the caller may take now (CLOSING / CLOSED), None when there is none
+    can_act: bool = False                       # the caller is a finance administrator of this Sangha and the year can still close
+
+
+class YearClosingListResponse(BaseModel):
+    financial_year_pk: UUID
+    year_code: str
+    year_status: str
+    items: list[YearClosingRow]
+    total: int
+
+
+class YearClosingResult(YearClosingRow):
+    year_closed: bool = False                   # the last Sangha closed, so the year closed by itself
+

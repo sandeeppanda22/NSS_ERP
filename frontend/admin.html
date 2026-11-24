@@ -31,6 +31,7 @@
     <script src="/assets/js/finance-funds.js"></script>
     <script src="/assets/js/finance-budget.js"></script>
     <script src="/assets/js/finance-sinking.js"></script>
+    <script src="/assets/js/finance-closing.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
     <script src="/assets/js/audit-diagnostics.js"></script>
     <script src="/assets/js/org-dashboard.js"></script>
@@ -8130,6 +8131,34 @@
                                 </div>
                             </div>
 
+                            <!-- Close the year, Sakha by Sakha and Kendra (owner 2026-11-25; finance-closing.js, rules in api/services/finance_year_closing.py) -->
+                            <div class="data-card" x-show="finClosingYear && !finScope && !finScopeForm.show" x-cloak>
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title">Closing <span x-text="finClosingYear && finClosingYear.year_code"></span>, Sangha by Sangha</h2>
+                                        <div class="data-card-subtitle">Each Sakha and the Kendra closes its own books for the year. Start closing: no new entries, finish what is in progress (transactions, transfers, receipts, payments, online payments). Close: nothing may be left unfinished. The year itself closes once every Sangha with activity in it has closed.</div>
+                                    </div>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="alert-msg alert-error" x-show="finClosingsError" x-text="finClosingsError"></div>
+                                    <p class="form-hint" x-show="finClosings.length === 0 && !finClosingsLoading">No Sakha or Kendra has recorded anything in this year yet.</p>
+                                    <table class="admin-table" x-show="finClosings.length > 0">
+                                        <thead><tr><th>Sangha</th><th>Entries</th><th>Unfinished</th><th>Status</th><th></th></tr></thead>
+                                        <tbody>
+                                            <template x-for="c in finClosings" :key="c.organization_pk">
+                                                <tr>
+                                                    <td><div class="fh-name" x-text="c.organization_name"></div><div class="fh-sub" x-text="c.organization_type_code ? NSS.codeLabel(c.organization_type_code) : ''"></div></td>
+                                                    <td x-text="c.transaction_count + ' transaction(s), ' + c.transfer_count + ' transfer(s)'"></td>
+                                                    <td><span x-show="finClosingUnfinishedCount(c) > 0" style="font-weight:600;" x-text="finClosingUnfinishedText(c)"></span><span x-show="finClosingUnfinishedCount(c) === 0">-</span></td>
+                                                    <td><span class="badge badge-xs" :class="finBadge(c.status)" x-text="finClosingLabel(c.status)"></span><div class="fh-sub" x-show="c.closed_on" x-text="finDate(c.closed_on)"></div></td>
+                                                    <td><button class="btn-action" x-show="c.can_act && c.next_status" :disabled="finClosingActing === c.organization_pk" @click="finClosingAct(c, c.next_status)" x-text="finClosingStepLabel(c.next_status)"></button></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
                             <!-- New scope form -->
                             <div class="data-card" x-show="finScopeForm.show" x-cloak>
                                 <div class="data-card-header"><h2 class="data-card-title">New financial scope</h2></div>
@@ -9237,7 +9266,7 @@
                                         <div>
                                             <label class="form-label">Financial year</label>
                                             <select class="nss-select" x-model="finTxnYear" @change="finApplyTxnFilters()">
-                                                <option value="">All years</option>
+                                                <option value="">All years (including closed)</option>
                                                 <template x-for="y in finYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
                                             </select>
                                         </div>
@@ -9418,10 +9447,11 @@
                                     <div class="data-card" x-show="finTxn.transaction_type === 'INCOME'">
                                         <div class="data-card-header">
                                             <h2 class="data-card-title">Receipts</h2>
-                                            <button class="btn-action primary" x-show="finCanReceipt && !finReceiptForm.show" @click="finOpenReceiptForm()">+ New receipt</button>
+                                            <button class="btn-action primary" x-show="finCanReceipt && !finReceiptForm.show" :disabled="!!finTxnYearPause" :title="finTxnYearPause" @click="finOpenReceiptForm()">+ New receipt</button>
                                         </div>
                                         <div class="data-card-body">
                                             <p class="form-hint" x-show="['DRAFT','PENDING_APPROVAL','APPROVED'].includes(finTxn.status)">Receipts can be raised once the transaction is posted.</p>
+                                            <div class="alert-msg" style="background:#fffbeb; color:#92400e; border:1px solid #fcd34d;" x-show="finTxnYearPause && finCanReceipt" x-text="finTxnYearPause"></div>
                                             <div class="form-section" x-show="finReceiptForm.show">
                                                 <div class="form-grid-2">
                                                     <div><label class="form-label">Receipt date</label><input type="date" class="form-input" x-model="finReceiptForm.receipt_date"></div>
@@ -9482,10 +9512,11 @@
                                     <div class="data-card" x-show="finTxn.transaction_type === 'EXPENSE'">
                                         <div class="data-card-header">
                                             <h2 class="data-card-title">Payments</h2>
-                                            <button class="btn-action primary" x-show="finCanPayment && !finPaymentForm.show" @click="finOpenPaymentForm()">+ New payment</button>
+                                            <button class="btn-action primary" x-show="finCanPayment && !finPaymentForm.show" :disabled="!!finTxnYearPause" :title="finTxnYearPause" @click="finOpenPaymentForm()">+ New payment</button>
                                         </div>
                                         <div class="data-card-body">
                                             <p class="form-hint" x-show="['DRAFT','PENDING_APPROVAL'].includes(finTxn.status)">Payments can be raised once the expense is approved.</p>
+                                            <div class="alert-msg" style="background:#fffbeb; color:#92400e; border:1px solid #fcd34d;" x-show="finTxnYearPause && finCanPayment" x-text="finTxnYearPause"></div>
                                             <div class="form-section" x-show="finPaymentForm.show">
                                                 <div class="form-grid-2">
                                                     <div><label class="form-label">Payment date</label><input type="date" class="form-input" x-model="finPaymentForm.payment_date"></div>
@@ -9624,7 +9655,7 @@
                                         <div>
                                             <label class="form-label">Financial year</label>
                                             <select class="nss-select" x-model="finTransferYear" @change="finApplyTransferFilters()">
-                                                <option value="">All years</option>
+                                                <option value="">All years (including closed)</option>
                                                 <template x-for="y in finYears" :key="y.financial_year_pk"><option :value="y.financial_year_pk" x-text="y.year_code"></option></template>
                                             </select>
                                         </div>

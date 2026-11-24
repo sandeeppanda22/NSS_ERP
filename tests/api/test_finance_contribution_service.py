@@ -171,7 +171,7 @@ class TestWiring:
     def test_the_card_fields_are_exactly_what_the_model_declares(self):
         from api.routers import finance_upi as upi
 
-        produced = set(upi._CARD_FIELDS) | set(FC.card_state(None, D("0"))) | {"period_label", "payable", "unavailable_reason", "pending_request_pk", "overdue"}
+        produced = set(upi._CARD_FIELDS) | set(FC.card_state(None, D("0"))) | {"period_label", "payable", "paused", "unavailable_reason", "pending_request_pk", "overdue"}
         assert produced == set(S.MyPayableHead.model_fields)
 
     def test_linking_an_account_only_touches_copies_of_an_all_sakhas_head(self):

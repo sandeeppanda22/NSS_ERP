@@ -71,6 +71,7 @@ from api.schemas import finance as S
 from api.services import finance_approval as approval_service
 from api.services import finance_authority as authority_service
 from api.services import finance_budget as budget_service
+from api.services import finance_year_closing as closing_service
 from api.services import finance_contribution as contribution_service
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext, actor_scope_org_pks, require_org_in_scope, require_person_in_scope
@@ -249,6 +250,19 @@ def _is_finance_admin(cur, user: UserContext, organization_pk=_ANYWHERE) -> bool
         return True
     reach = actor_scope_org_pks(cur, dataclasses.replace(user, scopes=given))      # only what the Finance roles reach, not the user's other roles
     return reach is None or (organization_pk is not None and str(organization_pk) in reach)
+
+
+def check_sangha_year_open(cur, year_pk, organization_pk, *, new: bool) -> None:
+    """
+    A Sangha that has closed its books for a year (owner 2026-11-25: year closing is Sakha and Kendra wise) takes nothing there: once CLOSING it takes no
+    NEW entry or transfer (*new*), once CLOSED nothing at all. Scopes that belong to no Sangha are not bound by it.
+    """
+    state = closing_service.status_of(cur, year_pk, organization_pk)
+    if closing_service.refuses_new_entries(state) if new else closing_service.refuses_any_entry(state):
+        cur.execute("SELECT o.organization_name, y.year_code FROM nss.organization o, nss.financial_year y WHERE o.organization_pk = %s AND y.financial_year_pk = %s",
+                    (str(organization_pk), str(year_pk)))
+        name, code = cur.fetchone()
+        raise closing_service.refusal(name, code, state, new=new)
 
 
 def kendra_side_of(cur, user: UserContext) -> bool:
@@ -749,37 +763,88 @@ def describe_blockers(noun: str, states: str, rows: list[tuple], total: int) -> 
     return f"{total} {noun}(s) still {states}: {named}{more}"
 
 
-def _open_work_blockers(cur, *, year_pk=None, scope_pk=None) -> list[str]:
-    """What still has to be finished before a year / scope may close - each entry named, so the person knows what to finish or cancel."""
-    if year_pk is not None:
-        txn_cond, tr_cond, params = "ft.financial_year_pk = %s", "tr.financial_year_pk = %s", [str(year_pk)] * 1
+def _open_work_blockers(cur, *, year_pk=None, scope_pk=None, organization_pk=None) -> list[str]:
+    """
+    What still has to be finished before a year / scope / a Sangha's year may close - EVERY piece of in-progress work (owner 2026-11-25), each named so the
+    person knows what to finish or cancel: transactions, transfers, draft receipts, payments not yet completed, and online payments still payable or
+    paid and not yet booked. With *organization_pk* (and *year_pk*): that Sangha's own work in that year (its scopes' entries, and the transfers touching
+    its scopes). The statuses are the closing service's single definition.
+
+    One Sangha's closing does NOT wait for another's (owner 2026-11-25: "the Kendra's closing should not depend on the Sakha's closing unless they have a mutual
+    transaction"): with *organization_pk* only that Sangha's own work counts. The one thing two Sanghas share is a TRANSFER between their scopes, which is
+    its work and the other's alike - so it must be finished before either closes, and it is shown "source scope -> destination scope" so both can see it.
+    """
+    if organization_pk is not None:
+        txn_cond, tr_cond = "ft.financial_year_pk = %s AND fs.organization_pk = %s", "tr.financial_year_pk = %s AND (fs.organization_pk = %s OR fd.organization_pk = %s)"
+        txn_params, tr_params = [str(year_pk), str(organization_pk)], [str(year_pk), str(organization_pk), str(organization_pk)]
+        up_cond, up_params = "fs.organization_pk = %s", [str(organization_pk)]
+    elif year_pk is not None:
+        txn_cond, tr_cond = "ft.financial_year_pk = %s", "tr.financial_year_pk = %s"
+        txn_params = tr_params = [str(year_pk)]
+        up_cond, up_params = "TRUE", []
     else:
-        txn_cond, tr_cond, params = "ft.financial_scope_pk = %s", "(tr.source_scope_pk = %s OR tr.destination_scope_pk = %s)", [str(scope_pk)]
-    cur.execute(
+        txn_cond, tr_cond = "ft.financial_scope_pk = %s", "(tr.source_scope_pk = %s OR tr.destination_scope_pk = %s)"
+        txn_params, tr_params = [str(scope_pk)], [str(scope_pk)] * 2
+        up_cond, up_params = "u.financial_scope_pk = %s", [str(scope_pk)]
+
+    def rows(sql: str, params: list) -> list[tuple]:
+        cur.execute(sql, params)
+        return cur.fetchall()
+
+    txn_rows = rows(
         f"""
         SELECT ft.transaction_reference, ft.status, fs.scope_code, COUNT(*) OVER () AS total
           FROM nss.financial_transaction ft
           JOIN nss.financial_scope fs ON fs.financial_scope_pk = ft.financial_scope_pk
-         WHERE {txn_cond} AND ft.is_active = TRUE AND ft.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')
+         WHERE {txn_cond} AND ft.is_active = TRUE AND ft.status = ANY(%s)
          ORDER BY ft.transaction_date, ft.transaction_reference LIMIT {BLOCKER_LIST_LIMIT}
-        """, params,
-    )
-    txn_rows = cur.fetchall()
-    cur.execute(
+        """, txn_params + [list(closing_service.UNFINISHED_TRANSACTION_STATUSES)])
+    transfer_rows = rows(
         f"""
-        SELECT tr.transfer_reference, tr.status, fs.scope_code, COUNT(*) OVER () AS total
+        SELECT tr.transfer_reference, tr.status, fs.scope_code || ' -> ' || fd.scope_code AS scopes, COUNT(*) OVER () AS total
           FROM nss.financial_transfer tr
           JOIN nss.financial_scope fs ON fs.financial_scope_pk = tr.source_scope_pk
-         WHERE {tr_cond} AND tr.is_active = TRUE AND tr.status IN ('DRAFT','PENDING_APPROVAL','APPROVED','EXECUTED')
+          JOIN nss.financial_scope fd ON fd.financial_scope_pk = tr.destination_scope_pk
+         WHERE {tr_cond} AND tr.is_active = TRUE AND tr.status = ANY(%s)
          ORDER BY tr.transfer_date, tr.transfer_reference LIMIT {BLOCKER_LIST_LIMIT}
-        """,
-        params if year_pk is not None else params * 2,
-    )
-    transfer_rows = cur.fetchall()
-    return [line for line in (
-        describe_blockers("transaction", "DRAFT / PENDING_APPROVAL / APPROVED", [r[:3] for r in txn_rows], txn_rows[0][3] if txn_rows else 0),
-        describe_blockers("transfer", "not COMPLETED, REJECTED or CANCELLED", [r[:3] for r in transfer_rows], transfer_rows[0][3] if transfer_rows else 0),
-    ) if line]
+        """, tr_params + [list(closing_service.UNFINISHED_TRANSFER_STATUSES)])
+    receipt_rows = rows(
+        f"""
+        SELECT rc.receipt_number, rc.status, fs.scope_code, COUNT(*) OVER () AS total
+          FROM nss.financial_receipt rc
+          JOIN nss.financial_transaction ft ON ft.financial_transaction_pk = rc.financial_transaction_pk
+          JOIN nss.financial_scope fs ON fs.financial_scope_pk = ft.financial_scope_pk
+         WHERE {txn_cond} AND rc.is_active = TRUE AND rc.status = ANY(%s)
+         ORDER BY rc.receipt_date, rc.receipt_number LIMIT {BLOCKER_LIST_LIMIT}
+        """, txn_params + [list(closing_service.UNFINISHED_RECEIPT_STATUSES)])
+    payment_rows = rows(
+        f"""
+        SELECT py.payment_reference, py.status, fs.scope_code, COUNT(*) OVER () AS total
+          FROM nss.financial_payment py
+          JOIN nss.financial_transaction ft ON ft.financial_transaction_pk = py.financial_transaction_pk
+          JOIN nss.financial_scope fs ON fs.financial_scope_pk = ft.financial_scope_pk
+         WHERE {txn_cond} AND py.is_active = TRUE AND py.status = ANY(%s)
+         ORDER BY py.payment_date, py.payment_reference LIMIT {BLOCKER_LIST_LIMIT}
+        """, txn_params + [list(closing_service.UNFINISHED_PAYMENT_STATUSES)])
+    online_rows = rows(
+        f"""
+        SELECT u.request_reference, u.status, fs.scope_code, COUNT(*) OVER () AS total
+          FROM nss.upi_payment_request u
+          JOIN nss.financial_scope fs ON fs.financial_scope_pk = u.financial_scope_pk
+         WHERE {up_cond} AND u.is_active = TRUE AND {closing_service.UNFINISHED_ONLINE_PAYMENT_SQL}
+         ORDER BY u.created_at, u.request_reference LIMIT {BLOCKER_LIST_LIMIT}
+        """, up_params)
+
+    def line(noun: str, states: str, found: list[tuple]) -> str | None:
+        return describe_blockers(noun, states, [r[:3] for r in found], found[0][3] if found else 0)
+
+    return [text for text in (
+        line("transaction", "DRAFT / PENDING_APPROVAL / APPROVED", txn_rows),
+        line("transfer", "not COMPLETED, REJECTED or CANCELLED", transfer_rows),
+        line("receipt", "a DRAFT (issue or cancel it)", receipt_rows),
+        line("payment", "not COMPLETED or CANCELLED", payment_rows),
+        line("online payment", "payable or paid but not yet booked", online_rows),
+    ) if text]
 
 
 def carry_scopes_forward(cur, user: UserContext) -> dict | None:
@@ -813,6 +878,50 @@ def carry_scopes_forward(cur, user: UserContext) -> dict | None:
     return {"to_year_pk": target[0], "to_year_code": target[1], "scopes": len(moved), "funds": cur.fetchone()[0], "scope_codes": [r[1] for r in moved]}
 
 
+def close_year_check(cur, user: UserContext, year: dict) -> list[dict]:
+    """
+    May the YEAR be closed? Year closing is Sakha and Kendra wise (owner 2026-11-25): every Sangha with activity in it must have closed its own books,
+    and the ones that are finished (nothing unfinished) are closed along with it. Each Sangha with unfinished work is named, with the entries in its way,
+    and so is unfinished work on scopes that belong to no Sangha. Returns the Sanghas to close with the year; raises 422 when something blocks.
+    """
+    sanghas = closing_service.sanghas_of_year(cur, year["financial_year_pk"])
+    plan = closing_service.plan_year_close(sanghas, closing_service.global_unfinished(cur, year["financial_year_pk"]))
+    lines = []
+    for s in plan["blocking"]:
+        entries = _open_work_blockers(cur, year_pk=year["financial_year_pk"], organization_pk=s["organization_pk"])
+        lines.append(f"{s['organization_name']} has not finished: " + "; ".join(entries))
+    lines += plan["global"]
+    if lines:
+        raise _invalid("Cannot close the financial year, every Sakha and the Kendra must close its own books first - " + " | ".join(lines) + ".")
+    return plan["closable"]
+
+
+def apply_year_status(cur, user: UserContext, year: dict, target: str, remarks: str | None) -> dict | None:
+    """
+    Move the year to *target*: closing it also closes the Sanghas that were finished (audited as one event), and when it ends, the scopes still in use
+    move on to the open year. Returns what moved on (carry_scopes_forward) or None. The ONE implementation behind the NSS-wide authority's transition
+    and the automatic close when the last Sangha has closed its books.
+    """
+    year_pk = year["financial_year_pk"]
+    closed_with = []
+    if target == "CLOSED":
+        closed_with = close_year_check(cur, user, year)
+    _update_row(cur, user, "financial_year", "financial_year_pk", year_pk, {"status": target})
+    _audit(cur, user, "STATUS_CHANGE", "financial_year", year_pk, f"Financial year {year['year_code']} {year['status']} -> {target}",
+           {"from": year["status"], "to": target, "remarks": _clean(remarks)})
+    if closed_with:
+        for s in closed_with:
+            closing_service.set_status(cur, user.actor_pk, year_pk, s["organization_pk"], closing_service.CLOSED, "Closed with the financial year")
+        _audit(cur, user, "UPDATE", "financial_year", year_pk, f"{len(closed_with)} Sangha(s) closed their books with the year",
+               {"sanghas": [s["organization_name"] for s in closed_with], "year": year["year_code"]})
+    carried = carry_scopes_forward(cur, user) if target in ("OPEN", "CLOSED") else None
+    if carried:
+        _audit(cur, user, "UPDATE", "financial_year", carried["to_year_pk"],
+               f"{carried['scopes']} financial scope(s) and their {carried['funds']} fund(s) moved on to {carried['to_year_code']}",
+               {"to_year": carried["to_year_code"], "scopes": carried["scope_codes"], "funds": carried["funds"], "after": f"{year['year_code']} -> {target}"})
+    return carried
+
+
 @router.post("/years/{year_pk}/transition", response_model=S.YearResponse)
 def transition_year(year_pk: UUID, body: S.TransitionRequest, user: UserContext = Depends(_APPROVE),
                     conn=Depends(get_write_connection)):
@@ -820,18 +929,7 @@ def transition_year(year_pk: UUID, body: S.TransitionRequest, user: UserContext 
         _require_global(cur, user, "change a financial year")
         year = _year_row(cur, year_pk, lock=True)
         _guard_transition(user, "year", year["status"], body.status, body.remarks, None)
-        if body.status == "CLOSED":
-            blockers = _open_work_blockers(cur, year_pk=year_pk)
-            if blockers:
-                raise _invalid("Cannot close the financial year: " + "; ".join(blockers) + ".")
-        _update_row(cur, user, "financial_year", "financial_year_pk", year_pk, {"status": body.status})
-        _audit(cur, user, "STATUS_CHANGE", "financial_year", year_pk, f"Financial year {year['year_code']} {year['status']} -> {body.status}",
-               {"from": year["status"], "to": body.status, "remarks": _clean(body.remarks)})
-        carried = carry_scopes_forward(cur, user) if body.status in ("OPEN", "CLOSED") else None
-        if carried:
-            _audit(cur, user, "UPDATE", "financial_year", carried["to_year_pk"],
-                   f"{carried['scopes']} financial scope(s) and their {carried['funds']} fund(s) moved on to {carried['to_year_code']}",
-                   {"to_year": carried["to_year_code"], "scopes": carried["scope_codes"], "funds": carried["funds"], "after": f"{year['year_code']} -> {body.status}"})
+        carried = apply_year_status(cur, user, year, body.status, body.remarks)
         cur.execute(_YEAR_SELECT + " WHERE fy.financial_year_pk = %s", (str(year_pk),))
         out = _fetch_one(cur)
         if carried:
@@ -1319,6 +1417,7 @@ def _check_transaction(cur, *, year_pk, scope_pk, fund_pk, txn_date, txn_type, h
         raise _invalid(f"Financial scope {scope['scope_code']} is {scope['status']}; transactions need an ACTIVE scope (FIN-BR-006).")
     if scope["financial_year_pk"] is not None and str(scope["financial_year_pk"]) != str(year_pk):
         raise _invalid(f"Financial scope {scope['scope_code']} belongs to a different financial year.")
+    check_sangha_year_open(cur, year_pk, scope["organization_pk"], new=False)
 
     fund = None
     if fund_pk is not None:
@@ -1419,6 +1518,7 @@ def create_transaction(body: S.TransactionCreate, user: UserContext = Depends(_M
             amount=body.amount,
         )
         require_current_year(cur, body.financial_year_pk, "transaction", open_only=True)
+        check_sangha_year_open(cur, body.financial_year_pk, scope["organization_pk"], new=True)
         person_pk, sevi_pk = body.person_pk, body.sangha_sevi_pk
         if _clean(body.sangha_sevi_id):
             sevi_pk, resolved_person = _resolve_member(cur, user, body.sangha_sevi_id)
@@ -1599,6 +1699,8 @@ def create_receipt(txn_pk: UUID, body: S.ReceiptCreate, user: UserContext = Depe
         txn = _txn_row(cur, user, txn_pk, "record a receipt for this transaction", lock=True)
         if txn["transaction_type"] != "INCOME":
             raise _invalid("Receipts belong to INCOME transactions (FIN-BR-031).")
+        require_current_year(cur, txn["financial_year_pk"], "receipt", open_only=True)       # incoming money is evidenced in the active, OPEN financial year only
+        check_sangha_year_open(cur, txn["financial_year_pk"], txn["scope_organization_pk"], new=True)
         if txn["status"] not in _COUNTED_TXN_STATUSES:
             raise _invalid(f"A receipt needs a POSTED or SETTLED transaction; this one is {txn['status']}.")
         already = _evidence_total(cur, "financial_receipt", txn_pk, ("DRAFT", "ISSUED"))
@@ -1705,6 +1807,8 @@ def create_payment(txn_pk: UUID, body: S.PaymentCreate, user: UserContext = Depe
         txn = _txn_row(cur, user, txn_pk, "record a payment for this transaction", lock=True)
         if txn["transaction_type"] != "EXPENSE":
             raise _invalid("Payments belong to EXPENSE transactions (FIN-BR-035).")
+        require_current_year(cur, txn["financial_year_pk"], "payment", open_only=True)       # outgoing money is paid in the active, OPEN financial year only
+        check_sangha_year_open(cur, txn["financial_year_pk"], txn["scope_organization_pk"], new=True)
         if txn["status"] not in ("APPROVED", "POSTED", "SETTLED"):
             raise _invalid(f"A payment needs an APPROVED or POSTED transaction; this one is {txn['status']} (FIN-BR-021).")
         already = _evidence_total(cur, "financial_payment", txn_pk, ("DRAFT", "APPROVED", "INITIATED", "COMPLETED"))
@@ -1839,6 +1943,7 @@ def _check_transfer(cur, *, year_pk, source_scope_pk, destination_scope_pk, sour
         scope = _scope_row(cur, scope_pk)
         if scope["status"] != "ACTIVE":
             raise _invalid(f"The {label} scope {scope['scope_code']} is {scope['status']}; transfers need ACTIVE scopes.")
+        check_sangha_year_open(cur, year_pk, scope["organization_pk"], new=False)
         if fund_pk is not None:
             fund = _fund_row(cur, fund_pk)
             if str(fund["financial_scope_pk"]) != str(scope_pk):
@@ -1897,6 +2002,8 @@ def create_transfer(body: S.TransferCreate, user: UserContext = Depends(_MANAGE)
             source_fund_pk=body.source_fund_pk, destination_fund_pk=body.destination_fund_pk, transfer_date=body.transfer_date,
         )
         require_current_year(cur, body.financial_year_pk, "transfer", open_only=True)
+        for scope_pk in (body.source_scope_pk, body.destination_scope_pk):
+            check_sangha_year_open(cur, body.financial_year_pk, _scope_row(cur, scope_pk)["organization_pk"], new=True)
         purpose = _clean(body.purpose)
         if not purpose:
             raise _invalid("purpose cannot be blank.")

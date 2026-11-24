@@ -74,10 +74,10 @@ def test_only_the_scopes_still_in_use_of_a_closed_earlier_year_move_to_the_lates
 
 
 def test_the_move_happens_when_a_year_opens_and_when_one_closes_and_is_audited_as_a_whole():
-    src = inspect.getsource(F.transition_year)
-    assert 'carry_scopes_forward(cur, user) if body.status in ("OPEN", "CLOSED") else None' in src
+    src = inspect.getsource(F.apply_year_status)                       # the one implementation behind the transition and the automatic close
+    assert 'carry_scopes_forward(cur, user) if target in ("OPEN", "CLOSED") else None' in src
     assert "moved on to" in src and "after" in src
-    assert 'out["carried_over"]' in src
+    assert "apply_year_status(" in inspect.getsource(F.transition_year) and 'out["carried_over"]' in inspect.getsource(F.transition_year)
 
 
 def test_a_fund_has_no_year_and_its_balance_is_not_year_bound():

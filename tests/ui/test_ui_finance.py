@@ -24,7 +24,8 @@ SETUP_JS = (FE / "assets/js/finance-setup.js").read_text(encoding="utf-8")
 FUNDS_JS = (FE / "assets/js/finance-funds.js").read_text(encoding="utf-8")
 BUDGET_JS = (FE / "assets/js/finance-budget.js").read_text(encoding="utf-8")
 SINKING_JS = (FE / "assets/js/finance-sinking.js").read_text(encoding="utf-8")
-ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS + "\n" + BUDGET_JS + "\n" + SINKING_JS
+CLOSING_JS = (FE / "assets/js/finance-closing.js").read_text(encoding="utf-8")
+ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS + "\n" + BUDGET_JS + "\n" + SINKING_JS + "\n" + CLOSING_JS
 ADMIN_JS = (FE / "assets/js/admin.js").read_text(encoding="utf-8")
 ADMIN_HTML = (FE / "admin.html").read_text(encoding="utf-8")
 CONFIG_JS = (FE / "assets/js/nss-config.js").read_text(encoding="utf-8")

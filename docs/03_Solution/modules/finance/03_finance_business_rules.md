@@ -86,6 +86,8 @@ ending on that 31 March.
 A transaction dated on or after 1 April belongs to the new Financial
 Year.
 
+
+**Implementation note (owner request 2026-11-25: "year closing should be Sakha and Kendra wise").** The year stays one calendar record; each Sangha - every Sakha, and the Kendra - closes its own books for it (`finance_year_closing`: OPEN -> CLOSING -> CLOSED) through its own finance administrators. CLOSING takes no new entry or transfer for that Sangha; CLOSED needs nothing unfinished. The year closes only when every Sangha with activity in it has closed (the NSS-wide close closes the finished ones with it and names the others; the last Sangha to close closes a CLOSING year by itself). `api/services/finance_year_closing.py`, `api/routers/finance_closing.py`.
 ---
 
 ## FIN-BR-005 — Event Across Financial Years

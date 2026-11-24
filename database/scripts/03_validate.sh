@@ -783,6 +783,7 @@ check_table_exists "finance_budget"
 check_table_exists "finance_budget_line"
 check_table_exists "finance_sinking_reimbursement"
 check_table_exists "finance_sinking_reimbursement_entry"
+check_table_exists "finance_year_closing"
 
 check_column_exists "financial_scope" "scope_code"
 check_column_exists "financial_scope" "organization_pk"
@@ -820,6 +821,7 @@ check_column_exists "finance_budget" "financial_year_pk"
 check_column_exists "finance_budget_line" "finance_budget_pk"
 check_column_exists "finance_sinking_reimbursement" "expenditure_transaction_pk"
 check_column_exists "finance_sinking_reimbursement_entry" "finance_sinking_reimbursement_pk"
+check_column_exists "finance_year_closing" "financial_year_pk"
 
 check_fk_integrity "financial_scope -> financial_year" \
     "SELECT COUNT(*) FROM nss.financial_scope c LEFT JOIN nss.financial_year p ON c.financial_year_pk = p.financial_year_pk WHERE c.financial_year_pk IS NOT NULL AND p.financial_year_pk IS NULL;"   # nullable: a scope may span years

@@ -4692,7 +4692,12 @@
                                                     <button class="btn-action primary" :disabled="pranamiPay.saving" @click="pranamiPayStart(h)"
                                                             x-text="pranamiPay.saving ? 'Starting…' : (pranamiCardAsksAmount(h) ? 'Pay online' : 'Pay ' + NSS.formatMoney(h.due_amount))"></button>
                                                 </div>
-                                                <p style="font-size: 0.72rem; color: #9ca3af; margin-top: 0.5rem;" x-show="!h.payable" x-text="h.unavailable_reason"></p>
+                                                <!-- The financial year (or this Sangha's books for it) is closing or closed: the payment option is switched off and the member is told why -->
+                                                <div x-show="h.paused && h.state !== 'PAID'" style="margin-top: 0.6rem;">
+                                                    <button class="btn-action primary" disabled :title="h.unavailable_reason" style="opacity: 0.55; cursor: not-allowed;">Pay online</button>
+                                                    <div class="alert-msg" style="margin-top: 0.5rem; background: #fffbeb; color: #92400e; border: 1px solid #fcd34d;" x-text="h.unavailable_reason"></div>
+                                                </div>
+                                                <p style="font-size: 0.72rem; color: #9ca3af; margin-top: 0.5rem;" x-show="!h.payable && !h.paused" x-text="h.unavailable_reason"></p>
                                             </div>
                                         </template>
                                     </div>

@@ -53,6 +53,7 @@ from api.routers import finance as F
 from api.routers.finance_setup import account_ready
 from api.schemas import finance as S
 from api.services import finance_contribution as FC
+from api.services import finance_year_closing as closing_service
 from api.services import upi_gateway
 from api.services.rbac_service import UserContext
 
@@ -389,6 +390,8 @@ def _book_one(cur, req: dict, year_pk, txn_date, *, head_pk, scope_pk, fund_pk, 
     _, head = F._check_transaction(
         cur, year_pk=year_pk, scope_pk=scope_pk, fund_pk=fund_pk, txn_date=txn_date, txn_type="INCOME", head_pk=head_pk, amount=amount,
     )
+    # A Sangha that has started closing its books for the year takes no NEW entry (owner 2026-11-25); the payment is held for review, never lost.
+    F.check_sangha_year_open(cur, year_pk, F._scope_row(cur, scope_pk)["organization_pk"], new=True)
     reference = next_id(cur, "FINANCIAL_TRANSACTION")
     description = f"Online payment {req['request_reference']}{label}" + (f" - {req['note']}" if req["note"] else "")
     cur.execute(
@@ -752,6 +755,26 @@ _CARD_FIELDS = ("finance_head_pk", "head_name", "description", "organization_pk"
                 "upi_vpa", "fixed_amount", "due_period", "due_date", "allow_part_payment")
 
 
+_YEAR_WORD = {"PLANNED": "not open yet", "OPEN": "open", "CLOSING": "closing", "CLOSED": "closed"}
+
+
+def payment_pause(year: dict | None, sangha_status: str | None, sangha_name: str) -> str | None:
+    """
+    Why online payment is PAUSED right now, in words for the member (owner 2026-11-25: "if the FY is closing or closed, the payment option is disabled, with
+    information to the user"), or None when it is open. Paused when there is no OPEN active year (closing, closed, not started) or when the Sangha has started
+    closing its own books for the year. Pure: no database.
+    """
+    if year is None:
+        return "Online payment is paused: there is no financial year yet."
+    if year["status"] != "OPEN":
+        return (f"Online payment is paused: financial year {year['year_code']} is {_YEAR_WORD.get(year['status'], year['status'].lower())}. "
+                "It resumes when the next financial year opens.")
+    if sangha_status in (closing_service.CLOSING, closing_service.CLOSED):
+        return (f"Online payment is paused: {sangha_name} has {'started closing' if sangha_status == closing_service.CLOSING else 'closed'} its books for "
+                f"financial year {year['year_code']}. It resumes when the next financial year opens.")
+    return None
+
+
 def _member_cards(cur, user: UserContext) -> list[dict]:
     """
     The single source for what a member sees AND may pay: one dict per contribution with its fixed amount, what they paid in the
@@ -802,6 +825,8 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
             total = sum((amt for pk, d, amt in txns if str(pk) == str(head["finance_head_pk"])
                          and (window is None or window[0] <= d <= window[1])), Decimal("0"))
             paid[str(head["finance_head_pk"])] = total
+    active_year = F.current_year(cur) if heads else None
+    sangha_state: dict = {}
     cards = []
     for h in heads:
         key = str(h["finance_head_pk"])
@@ -812,10 +837,15 @@ def _member_cards(cur, user: UserContext) -> list[dict]:
         card["overdue"] = bool(h["due_date"] and h["due_date"] < today
                                and (card["state"] in ("DUE", "PART") or (card["state"] == "OPEN" and card["paid_amount"] == 0)))
         ready = bool(h["allow_upi"] and h["scope_active"] and h["financial_account_pk"] and account_ready(h))
-        card["payable"] = ready
-        card["unavailable_reason"] = None if ready else (
+        org = str(h["organization_pk"])
+        if org not in sangha_state and active_year is not None:
+            sangha_state[org] = closing_service.status_of(cur, active_year["financial_year_pk"], h["organization_pk"])
+        pause = payment_pause(active_year, sangha_state.get(org), h["organization_name"]) if ready else None      # a head that is not set up says that first
+        card["paused"] = bool(pause)
+        card["payable"] = ready and not pause
+        card["unavailable_reason"] = None if card["payable"] else (pause or (
             "Online payment is not set up for this Pranami yet." if not (h["allow_upi"] and h["financial_account_pk"])
-            else "Online payment is temporarily unavailable.")
+            else "Online payment is temporarily unavailable."))
         cards.append(card)
     return cards
 
@@ -829,6 +859,8 @@ def my_payable_heads(user: UserContext = Depends(get_current_user), conn=Depends
 
 def _check_card_amount(card: dict | None, amount: Decimal) -> None:
     """The rules a member's payment of *amount* towards one contribution card must pass (shared by a single and a multi-item payment)."""
+    if card is not None and card.get("paused"):
+        raise F._invalid(card["unavailable_reason"])                          # the financial year (or this Sangha's books) is closing or closed
     if card is None or not card["payable"]:
         raise F._invalid("This payment is not available for UPI.")
     if card["fixed_amount"] is None:

@@ -20,8 +20,8 @@ What exists today:
 
 | Layer | State |
 |---|---|
-| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 28 router modules, 389 endpoints (registered routes counted from `app.routes`, 2026-11-20 — a `@router.*` decorator grep undercounts by the 12 added by `assets_property.py::_register_entity_routes`). |
-| Database (`database/`) | Hand-written PostgreSQL DDL, 99 tables in schema `nss` (Finance, Tier 12: 20, merged into `develop`), no migration tool. |
+| API (`api/`) | FastAPI + raw `psycopg2`, no ORM. 29 router modules, 391 endpoints (registered routes counted from `app.routes`, 2026-11-20 — a `@router.*` decorator grep undercounts by the 12 added by `assets_property.py::_register_entity_routes`). |
+| Database (`database/`) | Hand-written PostgreSQL DDL, 100 tables in schema `nss` (Finance, Tier 12: 21, merged into `develop`), no migration tool. |
 | Frontend (`frontend/`) | Four static pages (`login`, `register`, `dashboard`, `admin`), Tailwind + DaisyUI + Alpine.js, served by the same FastAPI app. |
 | Tests (`tests/`) | pytest, real-DB integration tests plus Playwright UI tests (7237 items collected on 2026-11-23: api 3763, db 534, security 1691, ui 1126). |
 | Docs (`docs/`) | A mature governance and solution-design corpus, well ahead of the code (22 module design folders; only some are implemented). |
@@ -59,7 +59,7 @@ Middleware: SlowAPI rate limit → CORS (only if configured) → security header
   │
   ├─ GET /, /login, /register, /dashboard, /admin   api/main.py::_serve_page() → frontend/*.html
   ├─ GET /assets/*                                  StaticFiles → frontend/assets/
-  └─ /api/v1/<router>/...                           api/routers/*.py (28 routers)
+  └─ /api/v1/<router>/...                           api/routers/*.py (29 routers)
         │  Depends: get_current_user / require_permission / require_org_in_scope
         │  helpers: api/helpers.py   services: api/services/
         ▼
@@ -277,7 +277,7 @@ overrides both pool dependencies to yield one session-scoped writer connection a
 module in a `SAVEPOINT` rolled back at teardown — this is why the suite passes on a seed-less DB.
 An autouse fixture resets the process-wide rate-limit singleton before every test. UI tests use
 `NSS_UI_BASE_URL` / `NSS_UI_NO_SERVER=1` to target an external server. `python3 -m pytest --collect-only -qq`
-reports 7237 items (api 3854, db 538, security 1696, ui 1149; 2026-11-24); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
+reports 7312 items (api 3916, db 540, security 1696, ui 1160; 2026-11-24); per-file counts are in `tests/README.md`. **Use `python3 -m pytest`, not bare `pytest`**: the `pytest` launcher can resolve to an old interpreter (the project is Python 3.15, `.python-version`). The owner's last full DB run (after a rebuild): 2 failed (since fixed, unconfirmed), ~4336 passed, 47 skipped; the newest UI has not been checked in a browser. No
 lint/format tooling is configured.
 
 ### Deployment (Render + Neon)

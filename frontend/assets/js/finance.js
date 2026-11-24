@@ -319,6 +319,7 @@
                 } else if (this.activeTab === "finStructure") {
                     this.finScope = null; this.finScopeForm = newScopeForm(); this.finYearForm = newYearForm();
                     await Promise.all([this.finLoadYears(), this.finLoadScopes()]);
+                    await this.finClosingsLoad();                    // finance-closing.js: Sangha by Sangha
                 } else if (this.activeTab === "finFunds") {
                     await this.finFundsEnter();                      // finance-funds.js
                 } else if (this.activeTab === "finBudget") {
@@ -327,9 +328,11 @@
                     await this.finSinkingEnter();                    // finance-sinking.js
                 } else if (this.activeTab === "finTransactions") {
                     this.finTxn = null; this.finTxnForm = newTxnForm();
+                    if (!this._finTxnYearChosen) { this.finTxnYear = this.finActiveYearPk; this._finTxnYearChosen = true; }           // the active year first; "All years" is one click away
                     await Promise.all([this.finLoadYears(), this.finLoadScopeOptions(), this.finLoadTxns()]);
                 } else if (this.activeTab === "finTransfers") {
                     this.finTransfer = null; this.finTransferForm = newTransferForm();
+                    if (!this._finTransferYearChosen) { this.finTransferYear = this.finActiveYearPk; this._finTransferYearChosen = true; }
                     await Promise.all([this.finLoadYears(), this.finLoadScopeOptions(), this.finLoadTransfers()]);
                 } else if (this.activeTab === "finSetup") {
                     await this.finSetupEnter();                      // finance-setup.js
@@ -352,6 +355,7 @@
                 else if (tab === "finStructure") {
                     await this.finLoadYears();
                     if (this.finScope) await this.finReloadScope(); else await this.finLoadScopes({ silent: true });
+                    await this.finClosingsLoad({ silent: true });
                 } else if (tab === "finFunds") {
                     await this.finFundsReload();
                 } else if (tab === "finBudget") {
@@ -394,6 +398,9 @@
                 const pick = (status, latest) => this.finYears.filter((y) => y.status === status).sort((a, b) => (latest ? start(b) - start(a) : start(a) - start(b)))[0];
                 return pick("OPEN", true) || pick("CLOSING", true) || pick("PLANNED", false) || [...this.finYears].sort((a, b) => start(b) - start(a))[0] || null;
             },
+            // Incoming and outgoing money is listed for the ACTIVE financial year first (owner 2026-11-25: "all the incoming and outgoing transactions should only
+            // be the active FY"); the year filter still offers "All years" and the closed ones, because looking back is how audit works.
+            get finActiveYearPk() { const y = this.finCurrentYear; return y ? y.financial_year_pk : ""; },
             get finOtherLiveYears() {
                 const current = this.finCurrentYear;
                 return this.finYears.filter((y) => y.status !== "CLOSED" && (!current || y.financial_year_pk !== current.financial_year_pk))
@@ -694,6 +701,18 @@
                 return !!this.finTxn && this.canManageFinance && this.finTxn.transaction_type === "INCOME"
                     && ["POSTED", "SETTLED"].includes(this.finTxn.status) && this.finReceiptRemaining > 0;
             },
+            // Receipts and payments are switched off - and the person told why - once the transaction's year is closing or closed, or is no longer the active one
+            // (owner 2026-11-25: "if the FY is closing or closed, the payment option will be disabled, with information to the user"). A Sangha that has closed
+            // its own books for the year is told by the server when the button is used.
+            get finTxnYearPause() {
+                const t = this.finTxn;
+                const y = t ? this.finYears.find((x) => x.financial_year_pk === t.financial_year_pk) : null;
+                if (!y) return "";
+                const word = { PLANNED: "not open yet", CLOSING: "closing", CLOSED: "closed" }[y.status];
+                if (word) return `Financial year ${y.year_code} is ${word}: new receipts and payments are paused. They resume in the next financial year.`;
+                if (this.finActiveYearPk && y.financial_year_pk !== this.finActiveYearPk) return `Financial year ${y.year_code} is no longer the active year: new receipts and payments are made in the active year only.`;
+                return "";
+            },
             get finCanPayment() {
                 return !!this.finTxn && this.canManageFinance && this.finTxn.transaction_type === "EXPENSE"
                     && ["APPROVED", "POSTED", "SETTLED"].includes(this.finTxn.status) && this.finPaymentRemaining > 0;
@@ -721,7 +740,7 @@
             },
             finApplyTxnFilters() { this.finTxnsPage = 1; return this.finLoadTxns(); },
             finClearTxnFilters() {
-                this.finTxnQ = ""; this.finTxnYear = ""; this.finTxnScope = ""; this.finTxnTypeFilter = "";
+                this.finTxnQ = ""; this.finTxnYear = this.finActiveYearPk; this.finTxnScope = ""; this.finTxnTypeFilter = "";
                 this.finTxnStatusFilter = ""; this.finTxnFrom = ""; this.finTxnTo = "";
                 return this.finApplyTxnFilters();
             },
@@ -1033,7 +1052,7 @@
             },
             finApplyTransferFilters() { this.finTransfersPage = 1; return this.finLoadTransfers(); },
             finClearTransferFilters() {
-                this.finTransferQ = ""; this.finTransferYear = ""; this.finTransferScope = ""; this.finTransferStatusFilter = "";
+                this.finTransferQ = ""; this.finTransferYear = this.finActiveYearPk; this.finTransferScope = ""; this.finTransferStatusFilter = "";
                 return this.finApplyTransferFilters();
             },
             finTransfersPageBy(d) { this.finTransfersPage = Math.min(Math.max(1, this.finTransfersPage + d), this.finTransfersTotalPages); return this.finLoadTransfers(); },
