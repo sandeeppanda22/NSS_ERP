@@ -23,6 +23,7 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     other_admin,
     other_admin_h,
     other_org_pk,
+    plain_member,
     plain_member_h,
     plain_sakha_admin,
     plain_sakha_admin_h,
@@ -33,6 +34,23 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     viewer_h,
     viewer_user,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_the_type_codes(write_conn):
+    """
+    Some tests edit or switch off a fund / scope TYPE code to prove the clear 422. The whole module shares one savepoint, so without this the
+    edit leaks into every later test (a Kendra scope of type SPECIAL_PURPOSE then fails with "has no short code"). Put the rows back after each test.
+    """
+    sql = ("SELECT md.master_data_pk, md.value_code, md.is_active, md.deleted_at FROM nss.master_data md JOIN nss.master_category mc "
+           "ON mc.master_category_pk = md.master_category_pk WHERE mc.category_code IN ('FUND_TYPE_CODE', 'SCOPE_TYPE_CODE')")
+    cur = write_conn.cursor()
+    cur.execute(sql)
+    before = cur.fetchall()
+    yield
+    cur = write_conn.cursor()
+    for pk, value_code, is_active, deleted_at in before:
+        cur.execute("UPDATE nss.master_data SET value_code = %s, is_active = %s, deleted_at = %s WHERE master_data_pk = %s", (value_code, is_active, deleted_at, str(pk)))
 
 
 def _prefix(write_conn, org_pk) -> str:
@@ -157,16 +175,17 @@ class TestWhoMayCreateScopesAndFunds:
         return {"scope_name": _unique("Books"), "scope_type": "ORGANIZATION", "organization_pk": str(org_pk)}
 
     def test_a_sakha_admin_with_no_finance_role_cannot_create_a_scope_or_a_fund(self, client, admin_h, plain_sakha_admin_h, register_org_pk):
+        # Finance comes only from Finance roles (owner 2026-11-22): the plain admin role carries no FINANCE_* permission, so it is refused at the door
         r = client.post(f"{BASE}/scopes", headers=plain_sakha_admin_h, json=self._body(register_org_pk))
-        assert r.status_code == 403 and "finance administrator" in r.text and "Finance role" in r.text
+        assert r.status_code == 403 and "FINANCE_MANAGE" in r.text
         scope = _scope(client, admin_h, register_org_pk, _unique())
         fund = {"fund_code": f"F{uuid4().hex[:6].upper()}", "fund_name": "x", "fund_type": "GENERAL", "financial_scope_pk": scope["financial_scope_pk"]}
         r = client.post(f"{BASE}/funds", headers=plain_sakha_admin_h, json=fund)
-        assert r.status_code == 403 and "finance administrator" in r.text
+        assert r.status_code == 403 and "FINANCE_MANAGE" in r.text
 
-    def test_that_same_admin_still_holds_the_finance_permissions_and_can_read(self, client, plain_sakha_admin_h):
-        assert client.get(f"{BASE}/scopes", headers=plain_sakha_admin_h).status_code == 200
-        assert client.get(f"{BASE}/reference", headers=plain_sakha_admin_h).json()["finance_admin"] is False
+    def test_that_same_admin_has_no_finance_access_at_all_it_comes_only_from_finance_roles(self, client, plain_sakha_admin_h):
+        assert client.get(f"{BASE}/scopes", headers=plain_sakha_admin_h).status_code == 403
+        assert client.get(f"{BASE}/reference", headers=plain_sakha_admin_h).status_code == 403
 
     def test_a_sakha_admin_given_the_finance_role_can_for_their_own_sakha_only(self, client, sakha_admin_h, register_org_pk, other_org_pk):
         r = client.post(f"{BASE}/scopes", headers=sakha_admin_h, json={**self._body(register_org_pk), "activate": True})

@@ -30,7 +30,9 @@ from tests.finance_support import (  # noqa: F401  (fixtures)
     new_year,
     move,
     post_txn,
+    other_admin,
     other_admin_h,
+    other_org_pk,
     register_org_pk,
     sakha_admin,
     sakha_admin_h,
@@ -140,10 +142,18 @@ class TestStartABudget:
         r = client.post(f"{BASE}/budgets", json={"financial_year_pk": year["financial_year_pk"]}, headers=admin_h)
         assert r.status_code == 409, r.text
 
-    def test_only_the_kendra_has_a_budget(self, client, admin_h, register_org_pk):
+    def test_only_the_kendra_and_a_sakha_have_a_budget(self, client, admin_h, write_conn):
+        """Owner 2026-11-24: Sakhas have their own budget too (a plain plan); every other level is unbound (FIN-BR-044)."""
+        cur = write_conn.cursor()
+        cur.execute(
+            "SELECT o.organization_pk FROM nss.organization o JOIN nss.master_data md ON md.master_data_pk = o.organization_type_master_data_pk "
+            "WHERE o.is_active = TRUE AND md.value_code NOT IN ('KENDRA', 'SAKHA_SANGHA', 'SAKHA_ASANA') LIMIT 1")
+        row = cur.fetchone()
+        if row is None:
+            pytest.skip("no organization of another level in this database")
         year = _year(client, admin_h)
-        r = client.post(f"{BASE}/budgets", json={"financial_year_pk": year["financial_year_pk"], "organization_pk": register_org_pk}, headers=admin_h)
-        assert r.status_code == 422 and "Kendra" in r.text
+        r = client.post(f"{BASE}/budgets", json={"financial_year_pk": year["financial_year_pk"], "organization_pk": str(row[0])}, headers=admin_h)
+        assert r.status_code == 422 and "FIN-BR-044" in r.text
 
     def test_an_unknown_year_is_refused(self, client, admin_h):
         r = client.post(f"{BASE}/budgets", json={"financial_year_pk": "00000000-0000-0000-0000-000000000000"}, headers=admin_h)
@@ -179,7 +189,7 @@ class TestLines:
         scope = make_scope(client, admin_h, register_org_pk, activate_with=admin_h)
         sakha_head = head_pk(client, admin_h, scope, "EXPENSE_GENERAL")
         r = _line(client, admin_h, drafted["budget"], sakha_head, expect=422)
-        assert "Kendra" in str(r)
+        assert "head of this Sangha" in str(r)
 
     def test_a_line_can_be_removed_and_is_kept_for_the_trail(self, client, admin_h, drafted, write_conn):
         line = next(l for l in drafted["budget"]["lines"] if l["direction"] == "EXPENSE")
@@ -415,7 +425,8 @@ class TestListAndScope:
         assert client.put(f"{BASE}/budgets/{pk}/lines", json={"finance_head_pk": "00000000-0000-0000-0000-000000000000", "amount": "1"},
                           headers=sakha_admin_h).status_code == 403
         assert client.post(f"{BASE}/budgets/{pk}/refer", json={"referred_on": _days_ago(1)}, headers=sakha_admin_h).status_code == 403
-        assert client.get(f"{BASE}/budgets", headers=sakha_admin_h).json()["total"] == 0                    # not even listed
+        listed = client.get(f"{BASE}/budgets", headers=sakha_admin_h).json()["items"]
+        assert pk not in [i["finance_budget_pk"] for i in listed] and all(i["has_steps"] is False for i in listed)      # the Kendra's is not listed (a Sakha's own plan may be)
 
 
 # ═══════════════════════════════════════════════════════════════════════

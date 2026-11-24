@@ -150,7 +150,8 @@ def record_reimbursement(pk: UUID, body: S.SinkingReimbursementPay, user: UserCo
         txn = F.create_transaction(
             S.TransactionCreate(
                 financial_year_pk=year["financial_year_pk"], financial_scope_pk=row["financial_scope_pk"], fund_master_pk=row["fund_master_pk"],
-                transaction_type="INCOME", finance_head_pk=head, amount=body.amount, transaction_date=body.transaction_date or date.today(),
+                transaction_type="INCOME", finance_head_pk=head, amount=body.amount,
+                transaction_date=body.transaction_date or min(max(date.today(), year["start_date"]), year["end_date"]),       # today, kept inside the current year
                 description=F._clean(body.description) or f"Reimbursement by {row['sakha_name']} of {row['expenditure_reference']} ({row['reimbursement_reference']})",
             ),
             user, conn,

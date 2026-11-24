@@ -72,13 +72,13 @@ class _Cursor:
 
     def __init__(self, years):
         self.years = years
-        self.description = [("financial_year_pk",), ("year_code",), ("status",)]
+        self.description = [("financial_year_pk",), ("year_code",), ("status",), ("start_date",), ("end_date",)]
 
     def execute(self, *_a, **_k):
         pass
 
     def fetchall(self):
-        return [(c, c, s) for c, s in self.years]
+        return [(c, c, s, None, None) for c, s in self.years]
 
 
 @pytest.mark.parametrize("what,open_only", [("transaction", True), ("transfer", True), ("financial scope", False)])

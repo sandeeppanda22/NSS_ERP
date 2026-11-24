@@ -668,7 +668,7 @@ def pick_current_year(years: list[dict]) -> dict | None:
 
 
 def current_year(cur) -> dict | None:
-    cur.execute("SELECT financial_year_pk, year_code, status FROM nss.financial_year WHERE is_active = TRUE")
+    cur.execute("SELECT financial_year_pk, year_code, status, start_date, end_date FROM nss.financial_year WHERE is_active = TRUE")
     return pick_current_year(_fetch_all(cur))
 
 

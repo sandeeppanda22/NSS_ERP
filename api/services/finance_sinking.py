@@ -32,7 +32,7 @@ SEQUENCE_CODE = "SINKING_REIMBURSEMENT"                                   # id_s
 
 
 def _invalid(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+    return HTTPException(status_code=422, detail=detail)
 
 
 def _not_found() -> HTTPException:

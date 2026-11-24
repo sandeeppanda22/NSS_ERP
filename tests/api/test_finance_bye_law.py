@@ -233,7 +233,11 @@ class TestJointOperation:
         vacate_seat(write_conn, officers["body_pk"], "TREASURER")
         try:
             r = raw_move(client, officers["treasurer_h"], "payments", p["pk"], "INITIATED")
-            assert r.status_code == 422 and "Treasurer" in r.json()["detail"]
+            # With the seat vacant the Treasurer no longer holds the Kendra Finance role (it comes by seat): refused at the door (403) or, were the
+            # role still held, by the signer rule (422 naming the Treasurer). Either way the disbursement does not start.
+            assert r.status_code in (403, 422), r.text
+            if r.status_code == 422:
+                assert "Treasurer" in r.json()["detail"]
         finally:
             _ensure_seated(write_conn, officers)
 

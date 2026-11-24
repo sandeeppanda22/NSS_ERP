@@ -16,7 +16,7 @@ import pytest
 from api.routers import finance as F
 from api.schemas import finance as S
 
-from tests.finance_support import admin_h, admin_user, make_fund, make_scope, move, new_year, register_org_pk, sakha_pks  # noqa: F401  (fixtures + helpers)
+from tests.finance_support import admin_h, admin_user, make_fund, make_scope, move, new_year, register_org_pk, sakha_pks, single_approval_levels  # noqa: F401  (fixtures + helpers)
 
 
 class _Cur:
@@ -123,7 +123,7 @@ class TestThroughTheYearTransitions:
         fund_after = client.get(f"{BASE}/funds/{fund['fund_master_pk']}", headers=admin_h).json()
         assert fund_after["financial_scope_pk"] == scope["financial_scope_pk"]                           # the fund follows its scope, unchanged itself
 
-    def test_a_scope_that_moved_takes_entries_in_the_new_year(self, client, admin_h, register_org_pk, write_conn):
+    def test_a_scope_that_moved_takes_entries_in_the_new_year(self, client, admin_h, register_org_pk, write_conn, single_approval_levels):
         from tests.finance_support import make_txn, post_txn
 
         year_a, year_b = new_year(client, admin_h, 2083), new_year(client, admin_h, 2084)
@@ -156,6 +156,7 @@ class TestThroughTheYearTransitions:
         year_a, year_b = new_year(client, admin_h, 2087), new_year(client, admin_h, 2088)
         move(client, admin_h, "years", year_a["financial_year_pk"], "OPEN")
         done = make_scope(client, admin_h, register_org_pk, activate_with=admin_h, financial_year_pk=year_a["financial_year_pk"])
+        moving = make_scope(client, admin_h, register_org_pk, activate_with=admin_h, financial_year_pk=year_a["financial_year_pk"])      # something that DOES move: no move, no audit event
         move(client, admin_h, "scopes", done["financial_scope_pk"], "CLOSING")
         move(client, admin_h, "scopes", done["financial_scope_pk"], "CLOSED")
         for step in ("CLOSING", "CLOSED"):
@@ -166,3 +167,4 @@ class TestThroughTheYearTransitions:
         cur.execute("SELECT detail FROM nss.system_event_log WHERE table_name = 'financial_year' AND record_pk::text = %s AND detail ? 'scopes'", (year_b["financial_year_pk"],))
         rows = cur.fetchall()
         assert rows and rows[-1][0]["to_year"] == year_b["year_code"] and isinstance(rows[-1][0]["scopes"], list)
+        assert moving["scope_code"] in rows[-1][0]["scopes"] and done["scope_code"] not in rows[-1][0]["scopes"]
