@@ -62,6 +62,7 @@ TABLE_FILES = [
     ("24_finance_sinking_reimbursement.sql", "finance_sinking_reimbursement"),
     ("25_finance_sinking_reimbursement_entry.sql", "finance_sinking_reimbursement_entry"),
     ("26_finance_year_closing.sql", "finance_year_closing"),
+    ("27_finance_year_audit.sql", "finance_year_audit"),
 ]
 TABLES = [t for _, t in TABLE_FILES]
 APPEND_ONLY = {"finance_gateway_event"}                  # an event log: no soft delete, no audit-actor columns

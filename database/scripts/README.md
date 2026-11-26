@@ -291,7 +291,9 @@ Phase 11g (Module #22, GDR-010) runs `ddl/11_assets_property/01..07` (`property`
 
 ### Phase 11i — Finance DDL (21 tables, Tier 12)
 
-Latest addition (2026-11-25): `ddl/14_finance/26_finance_year_closing.sql` (closing the year Sakha by Sakha and Kendra; existence-gated `run_ddl`, after the Sinking Fund tables) in `02_build.sh`, `02_build.ps1` and `render_build.sh`; `03_validate` checks it.
+Latest addition (2026-11-26): `ddl/14_finance/27_finance_year_audit.sql` (the Kendra annual audit, Bye-Law Section G; existence-gated `run_ddl`, after `26_finance_year_closing.sql`; also in `03_validate`).
+
+Previous addition (2026-11-25): `ddl/14_finance/26_finance_year_closing.sql` (closing the year Sakha by Sakha and Kendra; existence-gated `run_ddl`, after the Sinking Fund tables) in `02_build.sh`, `02_build.ps1` and `render_build.sh`; `03_validate` checks it.
 
 Latest additions (2026-11-24): `ddl/14_finance/24_finance_sinking_reimbursement.sql` then `25_finance_sinking_reimbursement_entry.sql` (the Sinking Fund reimbursement, FIN-BR-026; existence-gated `run_ddl`, in that order because the entry table references the obligation), and the idempotent `run_sql` patch `seed/12_finance/07_sinking_reimbursement_patch.sql` after the scope-type-code patch (the `SINKING_REIMBURSEMENT` id sequence `SRB`, the Kendra template head of that code, the `KENDRA_SAKHA_TAKEOVER` disbursement purpose). Wired into `02_build.sh`, `02_build.ps1` and `render_build.sh`; `03_validate` checks both tables.
 

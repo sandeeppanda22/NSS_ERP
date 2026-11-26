@@ -324,6 +324,8 @@
                     await this.finFundsEnter();                      // finance-funds.js
                 } else if (this.activeTab === "finBudget") {
                     await this.finBudgetEnter();                     // finance-budget.js
+                } else if (this.activeTab === "finAudit") {
+                    await this.finAuditEnter();                      // finance-audit.js
                 } else if (this.activeTab === "finSinking") {
                     await this.finSinkingEnter();                    // finance-sinking.js
                 } else if (this.activeTab === "finTransactions") {
@@ -346,7 +348,7 @@
                 return [this.finYearForm, this.finScopeForm, this.finScopeEdit, this.finFundForm, this.finTxnForm,
                     this.finReceiptForm, this.finPaymentForm, this.finTransferForm, this.finTx, this.finAuth, this.finBillForm]
                     .some((f) => f && (f.show || f.saving)) || !!this.finFundEdit.pk
-                    || this.finSetupBusy() || this.finReqBusy() || this.finBudgetBusy() || this.finSinkingBusy();
+                    || this.finSetupBusy() || this.finReqBusy() || this.finBudgetBusy() || this.finAuditBusy() || this.finSinkingBusy();
             },
             async finLiveReload() {
                 const tab = this.activeTab;
@@ -360,6 +362,8 @@
                     await this.finFundsReload();
                 } else if (tab === "finBudget") {
                     await this.finBudgetReload();
+                } else if (tab === "finAudit") {
+                    await this.finAuditReload();
                 } else if (tab === "finSinking") {
                     await this.finSinkingReload();
                 } else if (tab === "finTransactions") {

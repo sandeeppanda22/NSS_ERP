@@ -1324,3 +1324,108 @@ class YearClosingListResponse(BaseModel):
 class YearClosingResult(YearClosingRow):
     year_closed: bool = False                   # the last Sangha closed, so the year closed by itself
 
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Kendra annual audit (Bye-Law Section G, REF-003-G)
+# ═══════════════════════════════════════════════════════════════════════
+
+AUDIT_STATUSES = ("APPOINTED", "REPORT_RECEIVED", "PLACED_BEFORE_GB", "APPROVED", "PLACED_BEFORE_GENERAL_BODY")
+
+
+class AuditCreate(BaseModel):
+    """The Governing Body's appointment of the qualified Auditor starts the year's audit (any financial year, whatever its status)."""
+
+    financial_year_pk: UUID
+    organization_pk: UUID | None = Field(None, description="The Kendra; left out, the one active Kendra is used")
+    auditor_name: str = Field(..., min_length=1, max_length=200)
+    auditor_firm: str | None = Field(None, max_length=200)
+    appointed_on: date
+    appointment_reference: str = Field(..., min_length=1, max_length=100, description="The Governing Body resolution appointing the Auditor")
+    notes: str | None = Field(None, max_length=2000)
+
+
+class AuditReportWrite(BaseModel):
+    report_reference: str = Field(..., min_length=1, max_length=100, description="The Audit Report's own reference / number")
+    report_date: date
+    report_link: str | None = Field(None, max_length=500, description="Optional https link to the report (the app has no file upload)")
+
+
+class AuditGoverningBodyWrite(BaseModel):
+    """Placing the report before the Governing Body files a numbered letter Kendra -> Advisory Board in Correspondence, automatically."""
+
+    gb_placed_on: date | None = Field(None, description="The day it was placed; today when left out")
+    gb_reference: str = Field(..., min_length=1, max_length=100, description="The Governing Body's resolution / minute reference")
+
+
+class AuditApprovalWrite(BaseModel):
+    approved_on: date
+    approval_reference: str = Field(..., min_length=1, max_length=100, description="The combined meeting's resolution / minute reference")
+
+
+class AuditGeneralBodyWrite(BaseModel):
+    general_body_on: date
+    general_body_reference: str = Field(..., min_length=1, max_length=100, description="The General Body's agenda / minute reference")
+
+
+class AuditCorrectWrite(BaseModel):
+    """A correction to recorded text (the status never moves); a reason is required and is kept, with the old and new text, in the audit trail."""
+
+    auditor_name: str | None = Field(None, min_length=1, max_length=200)
+    auditor_firm: str | None = Field(None, max_length=200)
+    appointment_reference: str | None = Field(None, min_length=1, max_length=100)
+    report_reference: str | None = Field(None, min_length=1, max_length=100)
+    report_link: str | None = Field(None, max_length=500)
+    gb_reference: str | None = Field(None, min_length=1, max_length=100)
+    approval_reference: str | None = Field(None, min_length=1, max_length=100)
+    general_body_reference: str | None = Field(None, min_length=1, max_length=100)
+    reason: str = Field(..., min_length=1, max_length=500, description="Why it is being corrected (required)")
+
+
+class AuditExemptResponse(BaseModel):
+    """Bye-Law clause 17: the Parichalak's personal expenditure is not subject to any audit; shown for information only."""
+
+    count: int
+    total: Decimal
+    note: str
+
+
+class AuditResponse(BaseModel):
+    finance_year_audit_pk: UUID
+    financial_year_pk: UUID
+    year_code: str
+    year_status: str
+    organization_pk: UUID
+    organization_name: str
+    status: str
+    notes: str | None
+    auditor_name: str
+    auditor_firm: str | None
+    appointed_on: date
+    appointment_reference: str
+    report_reference: str | None
+    report_date: date | None
+    report_link: str | None
+    gb_placed_on: date | None
+    gb_reference: str | None
+    advisory_correspondence_pk: UUID | None
+    advisory_letter_reference: str | None            # the Kendra's OUTWARD letter to the Advisory Board
+    advisory_letter_inward_reference: str | None     # the Advisory Board's own INWARD number for the same letter
+    approved_on: date | None
+    approval_reference: str | None
+    general_body_on: date | None
+    general_body_reference: str | None
+    next_step: str | None
+    step_number: int
+    steps_total: int
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class AuditDetailResponse(AuditResponse):
+    not_subject_to_audit: AuditExemptResponse
+
+
+class AuditListResponse(BaseModel):
+    items: list[AuditResponse]
+    total: int

@@ -81,7 +81,7 @@ const NULL_ORG_SCOPE_ORG_TYPE = {
 // keep one `table: [tabs]` entry per line. Attendance tables are deliberately
 // absent (the attendance register has its own poller), as are the ballot tables.
 // Finance tabs (finance.js): the hash / landing names the entry guard in init() recognises.
-const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"];
+const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finAudit", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"];
 
 // The title in the top banner for every admin-console tab (one list: it used to be written out twice in admin.html, and eighteen tabs were in neither).
 // orgDashboard is named after the organization on screen (currentTabLabel below); a tab missing here falls back to "Administration".
@@ -94,7 +94,7 @@ const ADMIN_TAB_LABELS = {
     govBodies: "Governance Bodies", govAssignments: "Governance Assignments", govElections: "Elections", govCatalog: "Body Types & Positions",
     attPujas: "Weekly Sangha Puja", attReviews: "Attendance Reviews", attWatchList: "Watch List & Stats",
     properties: "Properties", assets: "Assets",
-    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finFunds: "Finance Funds", finBudget: "Kendra Annual Budget", finSinking: "Sinking Fund Dues", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
+    finOverview: "Finance Overview", finStructure: "Finance Years & Scopes", finFunds: "Finance Funds", finBudget: "Kendra Annual Budget", finAudit: "Kendra Annual Audit", finSinking: "Sinking Fund Dues", finTransactions: "Finance Transactions", finTransfers: "Finance Transfers",
     finCollections: "UPI Collections", finSetup: "Finance Heads",
     auditEvents: "System Event Log", liveMarkers: "Live Change Markers",
 };
@@ -130,7 +130,7 @@ const LIVE_TABLE_TABS = {
     asset_document: ["assets"],
     // Finance (Tier 12)
     // (the financial year strip is on every Finance section, so every section follows a year's status)
-    financial_year: ["finOverview", "finStructure", "finFunds", "finBudget", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"],
+    financial_year: ["finOverview", "finStructure", "finFunds", "finBudget", "finAudit", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"],
     financial_scope: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     fund_master: ["finOverview", "finStructure", "finFunds", "finTransactions", "finTransfers"],
     financial_transaction: ["finOverview", "finTransactions", "finSinking", "finStructure"],
@@ -141,6 +141,7 @@ const LIVE_TABLE_TABS = {
     finance_head: ["finSetup", "finTransactions", "finCollections", "finBudget"],
     finance_budget: ["finBudget"],
     finance_budget_line: ["finBudget"],
+    finance_year_audit: ["finAudit"],
     finance_year_closing: ["finStructure"],
     // Sinking Fund reimbursement (FIN-BR-026): the obligations, their linked entries, and the entries themselves (what is posted counts as reimbursed).
     finance_sinking_reimbursement: ["finSinking"],
@@ -240,6 +241,7 @@ const LIVE_REFRESH_CONFIG = {
         finStructure: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finFunds: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finBudget: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
+        finAudit: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finSinking: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransactions: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
         finTransfers: { reload: (h) => h.finLiveReload(), busy: (h) => h.finLiveBusy() },
@@ -323,6 +325,7 @@ function adminApp() {
     // NSSFinanceSetup.install() adds the Finance customization + UPI collection screens (finance-setup.js): Heads &
     // Accounts and UPI Collections.
     // NSSFinanceBudget.install() adds the Kendra annual budget tab (finance-budget.js, FIN-BR-041).
+    // NSSFinanceAudit.install() adds the Kendra annual audit tab (finance-audit.js, Bye-Law Section G).
     // NSSFinanceSinking.install() adds the Sinking Fund dues tab (finance-sinking.js, FIN-BR-026).
     // NSSFinanceClosing.install() adds the "close the year, Sangha by Sangha" card to Years & Scopes (finance-closing.js).
     // NSSFinance.install() adds the Finance screens (finance.js): permission getters and the
@@ -332,7 +335,7 @@ function adminApp() {
     // endpoints, not the live feed.
     // NSSLiveRefresh.install() adds the shared live-refresh poller (one
     // /live/changes poll per open page; LIVE_REFRESH_CONFIG above says what to re-run).
-    return NSSLiveRefresh.install(NSSFinanceClosing.install(NSSFinanceSinking.install(NSSFinanceBudget.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
+    return NSSLiveRefresh.install(NSSFinanceClosing.install(NSSFinanceSinking.install(NSSFinanceAudit.install(NSSFinanceBudget.install(NSSFinanceFunds.install(NSSFinanceSetup.install(NSSFinance.install(NSSAuditDiagnostics.install(NSSAssetsProperty.install(NSSAttendanceRegister.install({
         // ── Shared layout (sidebar toggle, topbar user info) ──
         ...NSSLayout.mixin(),
 
@@ -1709,6 +1712,7 @@ function adminApp() {
                     finStructure: () => this.canViewFinance && this.finEnterTab("finStructure"),
                     finFunds: () => this.canViewFinance && this.finEnterTab("finFunds"),
                     finBudget: () => this.canViewFinance && this.finEnterTab("finBudget"),
+                    finAudit: () => this.canViewFinance && this.finEnterTab("finAudit"),
                     finSinking: () => this.canViewFinance && this.finEnterTab("finSinking"),
                     finTransactions: () => this.canViewFinance && this.finEnterTab("finTransactions"),
                     finTransfers: () => this.canViewFinance && this.finEnterTab("finTransfers"),
@@ -9564,5 +9568,5 @@ function adminApp() {
                 f.saving = false;
             }
         },
-    }))))))))), LIVE_REFRESH_CONFIG);
+    })))))))))), LIVE_REFRESH_CONFIG);
 }

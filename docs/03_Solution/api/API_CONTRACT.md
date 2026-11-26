@@ -964,6 +964,21 @@ The financial year stays one calendar record (`POST /years/{pk}/transition`, NSS
 
 `POST /years/{pk}/transition` to `CLOSED` now needs every Sangha with activity to have closed: the Sanghas that are finished are closed with the year, the others are named with the entries in their way (and unfinished entries on a scope that belongs to no Sangha). Table `finance_year_closing` (`ddl/14_finance/26`).
 
+### Kendra annual audit (`finance_audit.py`)
+
+Bye-Law Section G (REF-003-G): the Kendra's accounts are audited every year by a qualified Auditor appointed by the Governing Body; the Audit Report is placed first before the Governing Body, then in the combined meeting of the Governing Body and the Advisory Board for approval, and only after that does the Secretary place it before the General Body. One audit per Kendra per financial year, five recorded facts (date + reference) that cannot be skipped or reordered. Any financial year may be audited whatever its status (owner 2026-11-26). Kendra only (FIN-BR-044). `FINANCE_VIEW` / `FINANCE_MANAGE` + admin scope on the Kendra. Rules: `api/services/finance_audit.py`. No FIN-BR rule id has been assigned yet.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/finance/audits` | List (filters `financial_year_pk`, `organization_pk`, `status`), newest year first |
+| POST | `/finance/audits` | Record the Governing Body's appointment of the Auditor (name, optional firm, date, resolution reference): starts the audit (`APPOINTED`); 409 when the year already has one; 422 for a Sakha |
+| GET | `/finance/audits/{pk}` | The audit, its next step and `not_subject_to_audit` {count, total, note} (Bye-Law clause 17: the Parichalak's personal expenditure is shown, never counted) |
+| POST | `/finance/audits/{pk}/report` | Record the Audit Report (reference, date, optional https link) -> `REPORT_RECEIVED` |
+| POST | `/finance/audits/{pk}/governing-body` | Place it before the Governing Body (date defaults to today, resolution / minute reference) -> `PLACED_BEFORE_GB`; files a numbered OUTWARD letter Kendra -> Advisory Board in Correspondence (the Board gets its INWARD copy); a refused step files no letter |
+| POST | `/finance/audits/{pk}/approval` | Record the combined meeting's approval (date + reference) -> `APPROVED` |
+| POST | `/finance/audits/{pk}/general-body` | Record the Secretary placing it before the General Body (date + reference) -> `PLACED_BEFORE_GENERAL_BODY` (final) |
+| POST | `/finance/audits/{pk}/correct` | Correct recorded TEXT (auditor, firm, references, link) with a required reason; status and dates never move; old / new text in the audit event |
+
 ### Sinking Fund reimbursement (`finance_sinking.py`)
 
 When the Kendra Sangha temporarily takes over the seva and pujas of a Sakha, what it spends out of that Sakha's Sinking Fund "shall be reimbursed by the Sakha Sangha subsequently" (Bye-Law C(i)(2)(xviii); FIN-BR-026). The rules are in `api/services/finance_sinking.py`. The expenditure is an ordinary EXPENSE; registering it creates the obligation. A reimbursement is an ordinary INCOME entry in the same fund, made through the same code as `POST /transactions`, so every rule of an entry applies (the current OPEN year, an ACTIVE scope and fund, the head's rules). What is reimbursed is read from the POSTED / SETTLED linked entries, never stored; what is still DRAFT / PENDING_APPROVAL / APPROVED is reserved against what is owed. Scope is the organization of the financial scope the money was spent in (the Kendra's).
@@ -1006,7 +1021,7 @@ Auth: `FINANCE_VIEW` (reads) / `FINANCE_MANAGE` (writes) + admin scope on the Ke
 | 6 | Sakha Re-parent Approvals | 4 |
 | 6 | Assets & Property (Module #22) | 26 |
 | 6 | Live-refresh change feed | 1 |
-| 12 | Finance | 100 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10, `finance_sinking` 7, `finance_closing` 2) |
+| 12 | Finance | 108 (`finance` 31, `finance_setup` 17, `finance_upi` 15, `finance_authority` 6, `finance_approval` 9, `finance_receipt_pdf` 3, `finance_budget` 10, `finance_sinking` 7, `finance_closing` 2, `finance_audit` 8) |
 | 12 | Membership Status workflow | 6 |
 | **Total** | | **391** |
 

@@ -47,8 +47,8 @@ class TestWiring:
 
     def test_the_mixin_is_loaded_and_installed(self):
         assert '<script src="/assets/js/finance-sinking.js"></script>' in HTML
-        assert "NSSFinanceSinking.install(NSSFinanceBudget.install(" in ADMIN_JS
-        assert "}))))))))), LIVE_REFRESH_CONFIG);" in ADMIN_JS
+        assert "NSSFinanceSinking.install(NSSFinanceAudit.install(NSSFinanceBudget.install(" in ADMIN_JS
+        assert "})))))))))), LIVE_REFRESH_CONFIG);" in ADMIN_JS
 
     def test_the_new_statuses_have_labels_and_badges(self):
         for status in ("PARTLY_REIMBURSED", "REIMBURSED"):

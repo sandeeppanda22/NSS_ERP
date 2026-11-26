@@ -796,6 +796,7 @@ run_ddl "finance_budget_line" "finance_budget_line" "${DDL_BASE}/14_finance/22_f
 run_ddl "finance_sinking_reimbursement" "finance_sinking_reimbursement" "${DDL_BASE}/14_finance/24_finance_sinking_reimbursement.sql"
 run_ddl "finance_sinking_reimbursement_entry" "finance_sinking_reimbursement_entry" "${DDL_BASE}/14_finance/25_finance_sinking_reimbursement_entry.sql"
 run_ddl "finance_year_closing" "finance_year_closing" "${DDL_BASE}/14_finance/26_finance_year_closing.sql"
+run_ddl "finance_year_audit" "finance_year_audit" "${DDL_BASE}/14_finance/27_finance_year_audit.sql"
 # Idempotent reference data (PAYMENT_METHOD master_data, id sequences FTX/RCT/PAY/FTR, initial Financial Year 2026-27); must run after the tables above.
 run_sql "finance reference data patch" "${SEED_BASE}/12_finance/01_finance_reference_data_patch.sql"
 # Kendra template finance heads (the 12 former fixed categories), THEN the structure patch that maps existing transactions onto them.

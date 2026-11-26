@@ -25,13 +25,14 @@ FUNDS_JS = (FE / "assets/js/finance-funds.js").read_text(encoding="utf-8")
 BUDGET_JS = (FE / "assets/js/finance-budget.js").read_text(encoding="utf-8")
 SINKING_JS = (FE / "assets/js/finance-sinking.js").read_text(encoding="utf-8")
 CLOSING_JS = (FE / "assets/js/finance-closing.js").read_text(encoding="utf-8")
-ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS + "\n" + BUDGET_JS + "\n" + SINKING_JS + "\n" + CLOSING_JS
+AUDIT_JS = (FE / "assets/js/finance-audit.js").read_text(encoding="utf-8")
+ALL_JS = FIN_JS + "\n" + SETUP_JS + "\n" + FUNDS_JS + "\n" + BUDGET_JS + "\n" + SINKING_JS + "\n" + CLOSING_JS + "\n" + AUDIT_JS
 ADMIN_JS = (FE / "assets/js/admin.js").read_text(encoding="utf-8")
 ADMIN_HTML = (FE / "admin.html").read_text(encoding="utf-8")
 CONFIG_JS = (FE / "assets/js/nss-config.js").read_text(encoding="utf-8")
 BADGES = (FE / "assets/css/badges.css").read_text(encoding="utf-8")
 
-TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"]
+TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finAudit", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"]
 
 
 def _panel() -> str:
@@ -251,7 +252,7 @@ class TestSharedMaps:
 
     def test_entry_guard_and_hash_routes(self):
         assert "!this.canViewFinance && !this.hasGeneralAdminAccess" in ADMIN_JS
-        assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
+        assert ('const FINANCE_TABS = ["finOverview", "finStructure", "finFunds", "finBudget", "finAudit", "finSinking", "finTransactions", "finTransfers", "finSetup", "finCollections"];'
                 in ADMIN_JS)
         for tab in TABS:
             assert f'{tab}: () => this.canViewFinance && this.finEnterTab("{tab}")' in ADMIN_JS
@@ -789,7 +790,7 @@ class TestTheYearStripIsOnEverySection:
 
     def test_the_strip_sits_in_the_one_wrapper_every_finance_section_shares(self):
         strip = ADMIN_HTML.index("fin-year-strip")
-        wrapper = ADMIN_HTML.rindex("['finOverview','finStructure','finFunds','finBudget','finSinking','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab)", 0, strip)
+        wrapper = ADMIN_HTML.rindex("['finOverview','finStructure','finFunds','finBudget','finAudit','finSinking','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab)", 0, strip)
         first_section = ADMIN_HTML.index("<!-- ═════════ Overview", strip) if "<!-- ═════════ Overview" in ADMIN_HTML[strip:] else len(ADMIN_HTML)
         assert wrapper < strip < first_section                                           # inside the wrapper, before any section: so on every one of them
 

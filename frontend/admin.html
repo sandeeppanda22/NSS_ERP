@@ -30,6 +30,7 @@
     <script src="/assets/js/finance-setup.js"></script>
     <script src="/assets/js/finance-funds.js"></script>
     <script src="/assets/js/finance-budget.js"></script>
+    <script src="/assets/js/finance-audit.js"></script>
     <script src="/assets/js/finance-sinking.js"></script>
     <script src="/assets/js/finance-closing.js"></script>
     <script src="/assets/js/live-refresh.js"></script>
@@ -919,6 +920,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
                                 </svg>
                                 Annual Budget
+                            </a>
+                            <a class="nav-item" x-show="finKendraSide" :class="{ active: activeTab === 'finAudit' }" @click="finEnterTab('finAudit')">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                                </svg>
+                                Annual Audit
                             </a>
                             <a class="nav-item" x-show="finKendraSide" :class="{ active: activeTab === 'finSinking' }" @click="finEnterTab('finSinking')">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -7931,7 +7938,7 @@
                          come from the server's own table (GET /finance/reference).
                          Four tabs: finOverview, finStructure, finTransactions, finTransfers.
                          ═══════════════════════════════════════════ -->
-                    <div x-show="['finOverview','finStructure','finFunds','finBudget','finSinking','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
+                    <div x-show="['finOverview','finStructure','finFunds','finBudget','finAudit','finSinking','finTransactions','finTransfers','finSetup','finCollections'].includes(activeTab) && canViewFinance" x-cloak>
 
                         <div class="alert-msg alert-success" x-show="finNotice" x-text="finNotice"></div>
 
@@ -8983,6 +8990,169 @@
                             </div>
                         </template>
                     </div>
+
+                        <!-- ═════════ Annual Audit ═════════ -->
+                        <!-- ═════════════════════════════════════════════
+                             VIEW: Finance - the Kendra's annual audit (Bye-Law Section G, REF-003-G; finance-audit.js, rules in api/services/finance_audit.py)
+                             ═════════════════════════════════════════════ -->
+                        <div x-show="activeTab === 'finAudit' && finKendraSide" x-cloak>
+                            <div class="alert-msg alert-error" x-show="finAuditError" x-text="finAuditError"></div>
+
+                            <!-- The list of audits, and the form that starts one -->
+                            <div class="data-card" x-show="!finAudit">
+                                <div class="data-card-header">
+                                    <div>
+                                        <h2 class="data-card-title">Annual Audit of the Kendra's accounts</h2>
+                                        <div class="data-card-subtitle">Bye-Law Section G: the accounts are audited every year by a qualified Auditor appointed by the Governing Body. The Audit Report is placed first before the Governing Body, then in the combined meeting of the Governing Body and the Advisory Board for approval, and only after that does the Secretary place it before the General Body.</div>
+                                    </div>
+                                    <button class="btn-action primary" x-show="finAuditCanAct && !finAuditStart.show" @click="finAuditStartOpen()">+ Appoint the Auditor</button>
+                                </div>
+                                <div class="data-card-body">
+                                    <div class="pend-box" x-show="finAuditStart.show" x-cloak>
+                                        <label class="form-label">Financial year</label>
+                                        <select class="form-input" style="max-width:22rem;" x-model="finAuditStart.year">
+                                            <option value="">Choose the year to audit…</option>
+                                            <template x-for="y in finAuditYearChoices" :key="y.financial_year_pk">
+                                                <option :value="y.financial_year_pk" x-text="finYearLabel(y)"></option>
+                                            </template>
+                                        </select>
+                                        <p class="form-hint">Any year can be audited, whether it is open, closing or closed. Each year has one audit.</p>
+                                        <p class="form-hint" x-show="finAuditYearChoices.length === 0">Every financial year already has its audit.</p>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Auditor's name</label>
+                                            <input type="text" class="form-input" style="max-width:22rem;" maxlength="200" x-model="finAuditStart.name"></div>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Firm (optional)</label>
+                                            <input type="text" class="form-input" style="max-width:22rem;" maxlength="200" x-model="finAuditStart.firm"></div>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Date of the appointment</label>
+                                            <input type="date" class="form-input" style="max-width:14rem;" :max="finAuditToday" x-model="finAuditStart.date"></div>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Governing Body resolution appointing the Auditor</label>
+                                            <input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditStart.reference"></div>
+                                        <div style="margin-top:0.6rem;"><label class="form-label">Notes (optional)</label>
+                                            <textarea class="form-input" rows="2" maxlength="2000" x-model="finAuditStart.notes"></textarea></div>
+                                        <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finAuditStart.error" x-text="finAuditStart.error"></div>
+                                        <div class="fh-actions" style="margin-top:0.6rem;">
+                                            <button class="btn-action primary" :disabled="finAuditStart.saving" @click="finAuditStartSubmit()">Record the appointment</button>
+                                            <button class="btn-action" :disabled="finAuditStart.saving" @click="finAuditStart = { show: false, year: '', name: '', firm: '', date: '', reference: '', notes: '', saving: false, error: '' }">Cancel</button>
+                                        </div>
+                                    </div>
+                                    <div class="alert-msg alert-error" x-show="finAuditsError" x-text="finAuditsError"></div>
+                                    <div class="flex" style="align-items:center; justify-content:center; padding:2rem;" x-show="finAuditsLoading"><div class="spinner"></div></div>
+                                    <div class="empty-note" x-show="!finAuditsLoading && !finAuditsError && finAudits.length === 0">No audit has been started yet. The Governing Body appoints the Auditor first.</div>
+                                    <div style="overflow-x:auto;" x-show="!finAuditsLoading && finAudits.length > 0">
+                                        <table class="admin-table">
+                                            <thead><tr><th>Year</th><th>Auditor</th><th>Status</th><th>Next</th><th></th></tr></thead>
+                                            <tbody>
+                                                <template x-for="a in finAudits" :key="a.finance_year_audit_pk">
+                                                    <tr>
+                                                        <td><div class="fh-name" x-text="a.year_code"></div><div class="fh-sub" x-text="'Year ' + finLabel(a.year_status).toLowerCase()"></div></td>
+                                                        <td><div class="fh-name" x-text="a.auditor_name"></div><div class="fh-sub" x-show="a.auditor_firm" x-text="a.auditor_firm"></div></td>
+                                                        <td><span class="badge badge-xs" :class="finBadge(a.status)" x-text="finLabel(a.status)"></span>
+                                                            <div class="fh-sub" x-text="'Step ' + a.step_number + ' of ' + a.steps_total"></div></td>
+                                                        <td x-text="a.next_step || 'Complete'"></td>
+                                                        <td><button class="link-action" @click="finAuditOpen(a.finance_year_audit_pk)">Open</button></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- One audit -->
+                            <template x-if="finAudit">
+                                <div>
+                                    <div class="data-card">
+                                        <div class="data-card-header">
+                                            <div>
+                                                <h2 class="data-card-title">Audit <span x-text="finAudit.year_code"></span> <span class="badge badge-xs" :class="finBadge(finAudit.status)" x-text="finLabel(finAudit.status)"></span></h2>
+                                                <div class="data-card-subtitle" x-text="finAudit.organization_name"></div>
+                                            </div>
+                                            <div class="fh-actions" style="width:auto;">
+                                                <button class="btn-action" x-show="finAuditCanAct && !finAuditFix.show" @click="finAuditFixOpen()">Correct what was recorded</button>
+                                                <button class="btn-action" @click="finAuditClose()">Back to the list</button>
+                                            </div>
+                                        </div>
+                                        <div class="data-card-body">
+                                            <ol class="bud-steps">
+                                                <template x-for="(s, i) in finAuditSteps" :key="s.key">
+                                                    <li class="bud-step" :class="{ 'bud-step--done': s.done, 'bud-step--current': s.current }">
+                                                        <span class="bud-step__dot" x-text="s.done ? '✓' : i + 1"></span><span class="bud-step__label" x-text="s.label"></span>
+                                                    </li>
+                                                </template>
+                                            </ol>
+                                            <p class="form-hint" x-show="finAudit.next_step"><strong>Next:</strong> <span x-text="finAudit.next_step"></span></p>
+                                            <div class="data-rows md-facts bud-facts">
+                                                <div class="data-row"><span class="data-label">Auditor</span><span class="data-value"><span x-text="finAudit.auditor_name"></span><span x-show="finAudit.auditor_firm"> · <span x-text="finAudit.auditor_firm"></span></span></span></div>
+                                                <div class="data-row"><span class="data-label">Appointed by the Governing Body</span><span class="data-value"><span x-text="finDate(finAudit.appointed_on)"></span> · <span x-text="finAudit.appointment_reference"></span></span></div>
+                                                <div class="data-row" x-show="finAudit.report_reference"><span class="data-label">Audit Report</span><span class="data-value"><span class="mono" x-text="finAudit.report_reference"></span> · <span x-text="finDate(finAudit.report_date)"></span>
+                                                    <a class="link-action" x-show="finAudit.report_link" :href="finAudit.report_link" target="_blank" rel="noopener noreferrer"> · open the report</a></span></div>
+                                                <div class="data-row" x-show="finAudit.gb_reference"><span class="data-label">Placed before the Governing Body</span><span class="data-value"><span x-text="finDate(finAudit.gb_placed_on)"></span> · <span x-text="finAudit.gb_reference"></span>
+                                                    <span class="fh-sub" x-show="finAudit.advisory_letter_reference">Letter to the Advisory Board <span class="mono" x-text="finAudit.advisory_letter_reference"></span><span x-show="finAudit.advisory_letter_inward_reference"> (its copy <span class="mono" x-text="finAudit.advisory_letter_inward_reference"></span>)</span></span></span></div>
+                                                <div class="data-row" x-show="finAudit.approval_reference"><span class="data-label">Approved by the combined meeting</span><span class="data-value"><span x-text="finDate(finAudit.approved_on)"></span> · <span x-text="finAudit.approval_reference"></span></span></div>
+                                                <div class="data-row" x-show="finAudit.general_body_reference"><span class="data-label">Placed before the General Body</span><span class="data-value"><span x-text="finDate(finAudit.general_body_on)"></span> · <span x-text="finAudit.general_body_reference"></span></span></div>
+                                            </div>
+
+                                            <!-- The next step's form: only the one the Bye-Law asks for now -->
+                                            <div class="pend-box" x-show="finAuditCanAct && finAudit.status === 'APPOINTED'">
+                                                <h3 class="form-label">Record the Audit Report</h3>
+                                                <div><label class="form-label">Report reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditReport.reference"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Date of the report</label><input type="date" class="form-input" style="max-width:14rem;" :max="finAuditToday" x-model="finAuditReport.date"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Link to the report (optional, https)</label><input type="url" class="form-input" style="max-width:30rem;" maxlength="500" x-model="finAuditReport.link"></div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finAuditReport.error" x-text="finAuditReport.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;"><button class="btn-action primary" :disabled="finAuditReport.saving" @click="finAuditReportSubmit()">Record the report</button></div>
+                                            </div>
+                                            <div class="pend-box" x-show="finAuditCanAct && finAudit.status === 'REPORT_RECEIVED'">
+                                                <h3 class="form-label">Place the report before the Governing Body</h3>
+                                                <div><label class="form-label">Date (today when left empty)</label><input type="date" class="form-input" style="max-width:14rem;" :max="finAuditToday" x-model="finAuditGb.date"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Governing Body resolution / minute reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditGb.reference"></div>
+                                                <p class="form-hint">A numbered letter to the Advisory Board is filed in Correspondence automatically, so it has the report for the combined meeting.</p>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finAuditGb.error" x-text="finAuditGb.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;"><button class="btn-action primary" :disabled="finAuditGb.saving" @click="finAuditGbSubmit()">Record and send to the Advisory Board</button></div>
+                                            </div>
+                                            <div class="pend-box" x-show="finAuditCanAct && finAudit.status === 'PLACED_BEFORE_GB'">
+                                                <h3 class="form-label">The combined meeting of the Governing Body and the Advisory Board approves the report</h3>
+                                                <div><label class="form-label">Date of the combined meeting</label><input type="date" class="form-input" style="max-width:14rem;" :max="finAuditToday" x-model="finAuditApproval.date"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Resolution / minute reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditApproval.reference"></div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finAuditApproval.error" x-text="finAuditApproval.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;"><button class="btn-action primary" :disabled="finAuditApproval.saving" @click="finAuditApprovalSubmit()">Record the approval</button></div>
+                                            </div>
+                                            <div class="pend-box" x-show="finAuditCanAct && finAudit.status === 'APPROVED'">
+                                                <h3 class="form-label">The Secretary places the approved report before the General Body</h3>
+                                                <div><label class="form-label">Date of the General Body meeting</label><input type="date" class="form-input" style="max-width:14rem;" :max="finAuditToday" x-model="finAuditGeneral.date"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Agenda / minute reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditGeneral.reference"></div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finAuditGeneral.error" x-text="finAuditGeneral.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;"><button class="btn-action primary" :disabled="finAuditGeneral.saving" @click="finAuditGeneralSubmit()">Record it</button></div>
+                                            </div>
+
+                                            <!-- Correct recorded text -->
+                                            <div class="pend-box" x-show="finAuditFix.show" x-cloak>
+                                                <h3 class="form-label">Correct what was recorded</h3>
+                                                <p class="form-hint">Only the text can be corrected; the dates and the order of the steps cannot. The old and new text are kept in the audit trail.</p>
+                                                <div><label class="form-label">Auditor's name</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="200" x-model="finAuditFix.name"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Firm</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="200" x-model="finAuditFix.firm"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Appointment resolution</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditFix.appointment"></div>
+                                                <div style="margin-top:0.6rem;" x-show="finAudit.report_reference"><label class="form-label">Audit Report reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditFix.report"></div>
+                                                <div style="margin-top:0.6rem;" x-show="finAudit.report_reference"><label class="form-label">Report link (https)</label><input type="url" class="form-input" style="max-width:30rem;" maxlength="500" x-model="finAuditFix.link"></div>
+                                                <div style="margin-top:0.6rem;" x-show="finAudit.gb_reference"><label class="form-label">Governing Body reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditFix.gb"></div>
+                                                <div style="margin-top:0.6rem;" x-show="finAudit.approval_reference"><label class="form-label">Combined meeting reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditFix.approval"></div>
+                                                <div style="margin-top:0.6rem;" x-show="finAudit.general_body_reference"><label class="form-label">General Body reference</label><input type="text" class="form-input" style="max-width:22rem;" maxlength="100" x-model="finAuditFix.general"></div>
+                                                <div style="margin-top:0.6rem;"><label class="form-label">Why is it being corrected?</label><textarea class="form-input" rows="2" maxlength="500" x-model="finAuditFix.reason"></textarea></div>
+                                                <div class="alert-msg alert-error" style="margin-top:0.5rem;" x-show="finAuditFix.error" x-text="finAuditFix.error"></div>
+                                                <div class="fh-actions" style="margin-top:0.6rem;">
+                                                    <button class="btn-action primary" :disabled="finAuditFix.saving" @click="finAuditFixSubmit()">Save the correction</button>
+                                                    <button class="btn-action" :disabled="finAuditFix.saving" @click="finAuditFix = { show: false, name: '', firm: '', appointment: '', report: '', link: '', gb: '', approval: '', general: '', reason: '', saving: false, error: '' }">Cancel</button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Bye-Law clause 17: shown for information, never counted -->
+                                            <div class="empty-note" style="margin-top:1rem; text-align:left;" x-show="finAudit.not_subject_to_audit">
+                                                <strong>Not subject to audit.</strong> <span x-text="finAudit.not_subject_to_audit.note"></span>
+                                                <span x-show="finAudit.not_subject_to_audit.count > 0"> For <span x-text="finAudit.year_code"></span>: <span x-text="finAudit.not_subject_to_audit.count"></span> payment(s), <span x-text="finMoney(finAudit.not_subject_to_audit.total)"></span>.</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
 
                         <!-- ═════════ Sinking Fund dues ═════════ -->
                         <!-- ═════════════════════════════════════════════

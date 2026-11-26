@@ -27,7 +27,7 @@ def _card() -> str:
 class TestWiring:
     def test_the_mixin_is_loaded_and_installed(self):
         assert '<script src="/assets/js/finance-closing.js"></script>' in HTML
-        assert "NSSFinanceClosing.install(NSSFinanceSinking.install(" in ADMIN_JS and "}))))))))), LIVE_REFRESH_CONFIG);" in ADMIN_JS
+        assert "NSSFinanceClosing.install(NSSFinanceSinking.install(" in ADMIN_JS and "})))))))))), LIVE_REFRESH_CONFIG);" in ADMIN_JS
 
     def test_the_years_tab_loads_and_reloads_it(self):
         assert "await this.finClosingsLoad();" in FIN_JS and "await this.finClosingsLoad({ silent: true });" in FIN_JS
